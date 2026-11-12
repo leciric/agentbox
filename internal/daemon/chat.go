@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -99,6 +100,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
 	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
+	info.Hold = holdOfInfo(info.Hold, info.State)
 	info.Goal = s.goalOf(context.Background(), info.Project, info.Name)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
@@ -272,6 +274,36 @@ func (s *Server) chatFile(from agentFrom) func(http.ResponseWriter, *http.Reques
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, path)
 		return nil
+	}
+}
+
+// chatBackgroundTask is one of a chat's background tasks with the end of its
+// output, or with ?before=<offset> the piece that ends there (?limit= bytes).
+func (s *Server) chatBackgroundTask(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		q := r.URL.Query()
+		var before, limit int64
+		if v := q.Get("before"); v != "" {
+			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 0 {
+				return fmt.Errorf("before must be an offset into the output, not %q", v)
+			}
+		}
+		if v := q.Get("limit"); v != "" {
+			if limit, err = strconv.ParseInt(v, 10, 64); err != nil || limit < 0 {
+				return fmt.Errorf("limit must be a number of bytes, not %q", v)
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		detail, err := s.chat.BackgroundTask(ctx, a, r.PathValue("task"), before, limit)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, detail)
 	}
 }
 

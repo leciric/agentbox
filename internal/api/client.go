@@ -411,6 +411,16 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
 }
 
+// SetIOSForwardPorts sets the ports a project's agents may forward to the
+// Mac's localhost for the iOS Simulator.
+func (c *Client) SetIOSForwardPorts(ctx context.Context, project string, ports []int) (Project, error) {
+	if ports == nil {
+		ports = []int{} // none, where null would change nothing
+	}
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{IOSForwardPorts: &ports}, &out)
+}
+
 // SetAgentPRs sets whether a project's agents push their own branch and open
 // their own pull request when they finish.
 func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {
@@ -1041,6 +1051,13 @@ func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLReque
 	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
 }
 
+// ForwardIOS makes the agent's ports reach the Mac's localhost, or with
+// Stop gives them back, and lists every agent's forwards.
+func (c *Client) ForwardIOS(ctx context.Context, ref string, req IOSForwardRequest) ([]IOSForward, error) {
+	var forwards []IOSForward
+	return forwards, c.iosDo(ctx, http.MethodPost, ref, "/forward", req, &forwards)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)
@@ -1206,6 +1223,19 @@ func (c *Client) Agent(ctx context.Context, ref string) (Agent, error) {
 	return out, c.agentDo(ctx, http.MethodGet, ref, "", nil, &out)
 }
 
+// SetGoal sets or changes an existing agent's goal, from its
+// "<project>/<agent>" ref, and sends it to work towards it.
+func (c *Client) SetGoal(ctx context.Context, ref string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodPut, ref, "/goal", spec, &out)
+}
+
+// ClearGoal clears an agent's goal: AgentBox stops checking it.
+func (c *Client) ClearGoal(ctx context.Context, ref string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodDelete, ref, "/goal", nil, &out)
+}
+
 func (c *Client) CreateAgent(ctx context.Context, req CreateAgentRequest) (Job, error) {
 	var out Job
 	return out, c.do(ctx, http.MethodPost, "/v1/agents", req, &out)
@@ -1301,6 +1331,13 @@ func (c *Client) DiskGuard(ctx context.Context) (DiskGuard, error) {
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
+}
+
+// TrimDisk trims AgentBox's VM's disks now, giving the host's disk back the
+// space the VM freed, and says how much.
+func (c *Client) TrimDisk(ctx context.Context) (DiskTrim, error) {
+	var out DiskTrim
+	return out, c.do(ctx, http.MethodPost, "/v1/usage/disk/trim", nil, &out)
 }
 
 // AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
@@ -1451,6 +1488,29 @@ func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
 }
 
+// MCPPairings lists the apps paired with this machine over remote MCP.
+func (c *Client) MCPPairings(ctx context.Context) (MCPPairings, error) {
+	var out MCPPairings
+	return out, c.do(ctx, http.MethodGet, "/v1/remote/mcp", nil, &out)
+}
+
+// PairMCP pairs another app; the answer carries what to give it, once.
+func (c *Client) PairMCP(ctx context.Context, req MCPPairRequest) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings", req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code, for signing its app in again.
+func (c *Client) RenewMCPCode(ctx context.Context, id string) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings/"+url.PathEscape(id)+"/code", nil, &out)
+}
+
+// RevokeMCPPairing ends an app's access.
+func (c *Client) RevokeMCPPairing(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/remote/mcp/pairings/"+url.PathEscape(id), nil, nil)
+}
+
 // Self asks the in-agent API which agent this is.
 func (c *Client) Self(ctx context.Context) (Self, error) {
 	var out Self
@@ -1502,6 +1562,12 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// DebugStats reads the daemon's process and memory figures (socket only).
+func (c *Client) DebugStats(ctx context.Context) (DebugStats, error) {
+	var out DebugStats
+	return out, c.do(ctx, http.MethodGet, "/debug/stats", nil, &out)
+}
+
 // Profile copies one of the daemon's Go profiles (net/http/pprof, served on
 // its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
 // "gc=1" or "debug=1".
@@ -1517,4 +1583,9 @@ func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) e
 	defer func() { _ = resp.Body.Close() }()
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+// PutHostLoad reports the user's computer's load (internal/hostload).
+func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
+	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
 }

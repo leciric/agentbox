@@ -137,6 +137,8 @@ type Server struct {
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
 	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	presence     *viewLeases   // what the clients are looking at (presence.go)
+	agentSamples *agentSampler // watched agents' live resources (agentresources.go)
 	issues       issuesCache   // projects' open GitHub issues (issues.go)
 	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
@@ -193,6 +195,8 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// trim gives the host back the VM's freed disk space (fstrim.go).
+	trim *trimmer
 	// worktreeTrash says a destroyed agent's worktree is in the trash
 	// (emptyWorktreeTrash).
 	worktreeTrash chan struct{}
@@ -277,9 +281,6 @@ type Server struct {
 	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
 	// runs at a time, and another follows when one was asked for meanwhile.
 	refreshing, refreshAgain atomic.Bool
-	// goalsOn is Settings → Experimental's agent goals switch, in memory
-	// (goals.go): package chat asks it under a conversation's lock.
-	goalsOn atomic.Bool
 	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
 	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
@@ -406,14 +407,22 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// hostLoad is the user's computer's last load report (hostload.go).
+	hostLoad hostLoad
 	// memoryShort (memoryjobs.go) is whether the machines are told memory
 	// is short, so their builds and tests run fewer jobs.
 	memoryShort *memoryShort
 	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
 	// with Settings → Experimental's switch, and machineCgroups what
 	// freezes them.
-	frozen         *fleetState
+	frozen *fleetState
+	// admit (admission.go) is when agents' machines boot, and those On hold.
+	admit *admitState
+	// view (viewing.go) is the agent the app shows.
+	view           viewingState
 	machineCgroups machineCgroups
+	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
+	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -421,14 +430,20 @@ type Server struct {
 	idleCgroups    idleCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
+	setIOWeight    func(instance string, weight int) error
+	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
+	setCaps        func(instance string, caps agent.Caps) error
+	thrash         func(instance string) (agent.ThrashSample, bool)
+	killLargest    func(instance string) (agent.OOMVictim, error)
+	thrashing      map[string]thrashState // by instance: watchMemory's
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
-	// wakeMu makes one start of a stopped machine for a message at a time
-	// (wake.go).
-	wakeMu sync.Mutex
+	// wakes makes one start of each stopped machine for a message at a time
+	// (wake.go, wakeLock).
+	wakes keyedMutex
 	// waking, under mu, are the agents whose machines start aside for a
 	// message, waiting for memory to boot (wakeAside).
 	waking map[string]bool
@@ -490,6 +505,8 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		presence:         newViewLeases(),
+		agentSamples:     newAgentSampler(),
 		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
@@ -500,6 +517,7 @@ func New(cfg Config) (*Server, error) {
 		heavy:            newHeavyRuns(),
 		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
+		admit:            newAdmitState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
@@ -509,6 +527,12 @@ func New(cfg Config) (*Server, error) {
 		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
+		setIOWeight:      agent.SetIOWeight,
+		vmSwap:           agent.VMSwap,
+		setCaps:          agent.SetCaps,
+		thrash:           agent.Thrash,
+		killLargest:      agent.KillLargest,
+		thrashing:        map[string]thrashState{},
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},
@@ -522,6 +546,7 @@ func New(cfg Config) (*Server, error) {
 		cpuTime:          agent.CPUTime,
 		connectorsGiven:  map[string]bool{},
 	}
+	store.SetLog(s.logf)
 	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
@@ -557,15 +582,17 @@ func New(cfg Config) (*Server, error) {
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
+		LeadWaiting:       s.leadWaiting,
 		IdleStop:          s.leadSleepAfter,
 		StayUp:            s.leadDueSoon,
-		GoalsOn:           s.goalsEnabled,
 		GoalOf:            s.chatGoalOf,
 		GoalChanged:       s.goalFromTool,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
+		ReadOutput: func(ctx context.Context, a state.Agent, path string, before, limit int64) ([]byte, int64, int64, error) {
+			return s.manager(io.Discard).FileTail(ctx, a, path, before, limit)
+		},
 	}
-	s.loadGoalsFlag(context.Background())
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
@@ -573,6 +600,7 @@ func New(cfg Config) (*Server, error) {
 	s.packageCache = s.newPackageCache()
 	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
+	s.trim = s.newTrimmer()
 	s.worktreeTrash = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -663,8 +691,10 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
+	s.killReclaimWriters()
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
+	loops.Go(func() { s.sampleAgentResources(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.emptyWorktreeTrash(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
@@ -674,6 +704,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.sweepSessions(ctx) })
 	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
+	loops.Go(func() { s.runTrim(ctx) })
 	loops.Go(func() {
 		s.giveZram()
 		s.runPressure(ctx)
@@ -997,6 +1028,7 @@ func (s *Server) routes() http.Handler {
 	sessionRoute("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
 	sessionRoute("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	sessionRoute("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/background/{task}", s.chatBackgroundTask(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
@@ -1082,9 +1114,13 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/presence", s.getPresence)
+	h("PUT /v1/presence", s.renewPresence)
+	h("DELETE /v1/presence/{client}", s.endPresence)
 	h("GET /v1/diagnostics/package-cache", s.diagnosticsPackageCache)
 	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
@@ -1119,6 +1155,7 @@ func (s *Server) routes() http.Handler {
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/agents/{project}/{agent}/resources", s.agentResources)
 	h("GET /v1/stopped-machines", s.getStoppedMachines)
 	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
@@ -1147,9 +1184,13 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/share", s.agentShare)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/viewing", s.viewAgent)
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.agentFromPath, false))
+	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/files/{file}", s.chatFile(s.agentOrArchivedFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/background/{task}", s.chatBackgroundTask(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
@@ -1192,6 +1233,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
@@ -1236,6 +1278,12 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
 	h("POST /v1/remote/pair", s.pairRemote)
+	// Other apps paired over remote MCP (remotemcp.go). Like the rest of
+	// /v1/remote, these answer on this machine only (remoteHandler).
+	h("GET /v1/remote/mcp", s.getRemoteMCP)
+	h("POST /v1/remote/mcp/pairings", s.pairRemoteMCP)
+	h("POST /v1/remote/mcp/pairings/{id}/code", s.renewRemoteMCPCode)
+	h("DELETE /v1/remote/mcp/pairings/{id}", s.revokeRemoteMCP)
 	// Chatting from a phone on the local network (lan.go).
 	h("GET /v1/lan", s.getLAN)
 	h("PATCH /v1/lan", s.updateLAN)

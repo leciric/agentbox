@@ -1,4 +1,4 @@
-import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
+import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
@@ -33,8 +33,20 @@ import { MessageMenu } from './MessageMenu';
 import { TurnMarker } from './TurnMarker';
 import { ChatRefContext } from './chatRef';
 import { SubagentCard, WorkGroup } from './Work';
+import { BackgroundRow } from './BackgroundTasks';
 
-export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; thread: T.ChatThread; onOpenAgent?: (ref: string) => void }) {
+export function Timeline({
+  agent,
+  thread,
+  onOpenAgent,
+  onReveal,
+}: {
+  agent: T.Agent;
+  thread: T.ChatThread;
+  onOpenAgent?: (ref: string) => void;
+  // onReveal scrolls to an item of the chat (useRevealItem's reveal).
+  onReveal?: (item: string) => void;
+}) {
   const t = useT();
   const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
   // An agent's turns end in checkpoints to roll back to or fork from; a
@@ -55,6 +67,18 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
       }),
     [],
   );
+  // A background subagent's chip goes to its card, which a settled turn
+  // keeps behind its fold: that opens first, then the chat scrolls to it.
+  const items = useRef(thread.items);
+  items.current = thread.items;
+  const revealItem = useCallback(
+    (id: string) => {
+      const turn = items.current.find((it) => it.id === id)?.turn;
+      if (turn) setOpenTurns((open) => (open.has(turn) ? open : new Set(open).add(turn)));
+      setTimeout(() => onReveal?.(id), 60);
+    },
+    [onReveal],
+  );
   const starting = thread.session.state === 'starting' ? thread.session.detail || t('chat.timeline.startingTool', { tool: aiLabel(agent.ai) }) : undefined;
   return (
     <ChatRefContext value={agent.ref}>
@@ -63,7 +87,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
           row.type === 'turn' ? (
             <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
           ) : (
-            <TimelineRow key={row.key} row={row} chatRef={agent.ref} ai={agent.ai} root={agent.worktree} finishes={finishes} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
+            <TimelineRow key={row.key} row={row} chatRef={agent.ref} ai={agent.ai} root={agent.worktree} finishes={finishes} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} onRevealItem={revealItem} />
           ),
         )}
       </div>
@@ -72,7 +96,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
 }
 
 const TimelineRow = memo(
-  function TimelineRow({ row, chatRef, ai, root, finishes, starting, onToggleTurn }: { row: Row; chatRef: string; ai?: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void }) {
+  function TimelineRow({ row, chatRef, ai, root, finishes, starting, onToggleTurn, onRevealItem }: { row: Row; chatRef: string; ai?: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void; onRevealItem?: (item: string) => void }) {
     const t = useT();
     switch (row.type) {
       case 'user': {
@@ -158,12 +182,7 @@ const TimelineRow = memo(
           </div>
         );
       case 'background':
-        return (
-          <div className="mb-3 flex items-center gap-2 px-1 text-sm text-subtle" data-chat-background>
-            <Hourglass className="size-4 shrink-0" />
-            <span className="min-w-0 break-words">{t('chat.timeline.background', { tasks: row.tasks.join(', ') })}</span>
-          </div>
-        );
+        return <BackgroundRow chatRef={chatRef} names={row.tasks} tasks={row.items} waiting={row.waiting} onRevealItem={onRevealItem} />;
       case 'thinking':
         return (
           <div className="flex min-h-7 items-center gap-1.5 px-0.5 pb-2 text-sm" data-chat-thinking>
@@ -223,7 +242,7 @@ const TimelineRow = memo(
         return null; // Timeline renders it, with the agent it needs
     }
   },
-  (a, b) => a.chatRef === b.chatRef && a.root === b.root && sameFinishes(a, b) && a.starting === b.starting && a.onToggleTurn === b.onToggleTurn && sameRow(a.row, b.row),
+  (a, b) => a.chatRef === b.chatRef && a.root === b.root && sameFinishes(a, b) && a.starting === b.starting && a.onToggleTurn === b.onToggleTurn && a.onRevealItem === b.onRevealItem && sameRow(a.row, b.row),
 );
 
 // A finish notice's card depends on whether a later notice has taken its agents.
@@ -260,7 +279,7 @@ function sameRow(a: Row, b: Row): boolean {
       return true;
     case 'background': {
       const other = b as typeof a;
-      return a.tasks.length === other.tasks.length && a.tasks.every((task, i) => task === other.tasks[i]);
+      return a.waiting === other.waiting && a.items === other.items && a.tasks.length === other.tasks.length && a.tasks.every((task, i) => task === other.tasks[i]);
     }
     case 'turn':
       return a.checkpoint === (b as typeof a).checkpoint;

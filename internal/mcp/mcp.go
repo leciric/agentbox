@@ -35,6 +35,9 @@ type Tool struct {
 	Run         func(args json.RawMessage) (string, error)
 	RunContent  func(args json.RawMessage) ([]Content, error)
 	Wait        func(ctx context.Context, args json.RawMessage) (string, error)
+	// Annotations, when set, are the tool's hints to its client: readOnlyHint
+	// and the like, which some clients decide whether to ask the user by.
+	Annotations map[string]any
 }
 
 // Content is one part of a tool's answer. Text carries text; Image carries a
@@ -169,7 +172,11 @@ func (s *Server) handle(msg message) (any, *rpcError) {
 			if schema == nil {
 				schema = map[string]any{"type": "object", "properties": map[string]any{}}
 			}
-			tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": schema})
+			tool := map[string]any{"name": t.Name, "description": t.Description, "inputSchema": schema}
+			if t.Annotations != nil {
+				tool["annotations"] = t.Annotations
+			}
+			tools = append(tools, tool)
 		}
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":

@@ -24,16 +24,27 @@ export const zoomStep = 1.25;
 // contain is the scale at which all of a picture fits its viewport.
 export const contain = (port: Size, pic: Size) => Math.min(port.w / pic.w, port.h / pic.h);
 
-// fitView is what 'fit' shows: all of the picture, no larger than its own
-// pixels; or, for one so much taller (or wider) than its viewport that all of
-// it would fill less than a third of it, the picture across its viewport's
-// width (or height) from its top (or left) edge, to scroll along, as a phone's
-// full-page screenshot is read.
-export function fitView(port: Size, pic: Size): { scale: number; cx: number; cy: number } {
+// sliver is whether a picture is so much taller (or wider) than its viewport
+// that all of it would fill less than a third of the viewport's width (or
+// height): then 'fit' shows it across the viewport and lets it scroll, as a
+// phone's full-page screenshot is read. It is the one test for both the
+// stage's box (box) and what 'fit' shows in it (fitView), so a box never
+// holds a picture narrower than itself.
+export function sliver(port: Size, pic: Size): 'tall' | 'wide' | undefined {
   const all = Math.min(contain(port, pic), 1);
-  if ((pic.w * all) / port.w < 1 / 3) return clamp({ scale: Math.min(port.w / pic.w, 1), cx: pic.w / 2, cy: 0 }, port, pic);
-  if ((pic.h * all) / port.h < 1 / 3) return clamp({ scale: Math.min(port.h / pic.h, 1), cx: 0, cy: pic.h / 2 }, port, pic);
-  return { scale: all, cx: pic.w / 2, cy: pic.h / 2 };
+  if ((pic.w * all) / port.w < 1 / 3) return 'tall';
+  if ((pic.h * all) / port.h < 1 / 3) return 'wide';
+  return undefined;
+}
+
+// fitView is what 'fit' shows: all of the picture, no larger than its own
+// pixels; or, for a sliver, the picture across its viewport's width (or
+// height) from its top (or left) edge, to scroll along.
+export function fitView(port: Size, pic: Size): { scale: number; cx: number; cy: number } {
+  const s = sliver(port, pic);
+  if (s === 'tall') return clamp({ scale: Math.min(port.w / pic.w, 1), cx: pic.w / 2, cy: 0 }, port, pic);
+  if (s === 'wide') return clamp({ scale: Math.min(port.h / pic.h, 1), cx: 0, cy: pic.h / 2 }, port, pic);
+  return { scale: Math.min(contain(port, pic), 1), cx: pic.w / 2, cy: pic.h / 2 };
 }
 
 // limits are the least and the most a picture zooms to in a viewport: out to
@@ -96,14 +107,24 @@ export const percent = (v: View, port: Size, pic: Size) => Math.round(resolve(v,
 // hugging it so nothing is letterboxed; or, for a picture so tall (or wide)
 // that all of it would be a sliver, a box as wide as the stage allows (up to
 // its pixels, and to 480px across for a tall one, a phone's width doubled)
-// and as tall as the room, which the picture scrolls in (fitView).
+// and as tall as the room, which the picture scrolls in. That wider box is
+// taken only when the picture is still a sliver in it (sliver, the test
+// fitView makes): a 1080×1920 phone shot isn't, in a 480px box, so its box
+// hugs it instead of drawing it narrower than the box with bars beside it.
 export function box(room: Size, pic: Size): Size {
   const all = Math.min(contain(room, pic), 1);
-  const w = pic.w * all;
-  const h = pic.h * all;
-  if (w / room.w < 1 / 3 && h >= room.h - 1) return { w: Math.floor(Math.min(room.w, pic.w, Math.max(room.w / 3, 480))), h: Math.floor(room.h) };
-  if (h / room.h < 1 / 3 && w >= room.w - 1) return { w: Math.floor(room.w), h: Math.floor(Math.min(room.h, pic.h, Math.max(room.h / 3, 240))) };
-  return { w: Math.floor(w), h: Math.floor(h) };
+  // Whole pixels, both sides from the one scale that fits them, so flooring
+  // one side doesn't leave the other a few pixels too long.
+  const fits = Math.min(Math.max(1, Math.floor(pic.w * all)) / pic.w, Math.max(1, Math.floor(pic.h * all)) / pic.h);
+  const hug = { w: Math.max(1, Math.round(pic.w * fits)), h: Math.max(1, Math.round(pic.h * fits)) };
+  const s = sliver(room, pic);
+  const scroll =
+    s === 'tall'
+      ? { w: Math.floor(Math.min(room.w, pic.w, Math.max(room.w / 3, 480))), h: Math.floor(room.h) }
+      : s === 'wide'
+        ? { w: Math.floor(room.w), h: Math.floor(Math.min(room.h, pic.h, Math.max(room.h / 3, 240))) }
+        : undefined;
+  return scroll && sliver(scroll, pic) === s ? scroll : hug;
 }
 
 // A pair's halves go side by side or one over the other, whichever shows them
@@ -111,9 +132,29 @@ export function box(room: Size, pic: Size): Size {
 export type Arrangement = 'columns' | 'rows';
 
 export function arrange(room: Size, pic: Size, gap: number): { arrangement: Arrangement; half: Size } {
-  const columns = box({ w: (room.w - gap) / 2, h: room.h }, pic);
-  const rows = box({ w: room.w, h: (room.h - gap) / 2 }, pic);
-  return columns.w * columns.h >= rows.w * rows.h ? { arrangement: 'columns', half: columns } : { arrangement: 'rows', half: rows };
+  const { arrangement, before } = arrangePair(room, pic, pic, gap);
+  return { arrangement, half: before };
+}
+
+// arrangePair is arrange for two pictures that may not be the same size (a
+// 4:3 before and a 16:9 after): each half gets a box of its own, and the
+// arrangement is the one that shows the two larger in all.
+export function arrangePair(room: Size, before: Size, after: Size, gap: number): { arrangement: Arrangement; before: Size; after: Size } {
+  const halves = (r: Size) => ({ before: box(r, before), after: box(r, after) });
+  const area = (h: { before: Size; after: Size }) => h.before.w * h.before.h + h.after.w * h.after.h;
+  const columns = halves({ w: (room.w - gap) / 2, h: room.h });
+  const rows = halves({ w: room.w, h: (room.h - gap) / 2 });
+  return area(columns) >= area(rows) ? { arrangement: 'columns', ...columns } : { arrangement: 'rows', ...rows };
+}
+
+// relate is a view of one picture in its viewport as the same view of another
+// picture in another viewport: zoomed as far past its own fit, over the same
+// fraction of it. A pair's halves share one view this way when they aren't
+// the same size, the view being kept in the after's terms.
+export function relate(v: View, fromPort: Size, fromPic: Size, toPort: Size, toPic: Size): View {
+  if (v === 'fit') return v;
+  const k = fitView(toPort, toPic).scale / fitView(fromPort, fromPic).scale;
+  return clamp({ scale: v.scale * k, cx: (v.cx / fromPic.w) * toPic.w, cy: (v.cy / fromPic.h) * toPic.h }, toPort, toPic);
 }
 
 // sizeOf is a media item's size, when it was recorded with one.

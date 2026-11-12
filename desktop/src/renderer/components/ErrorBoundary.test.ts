@@ -12,3 +12,17 @@ test('a failed render shows the fallback, or nothing', () => {
   bare.state = { failed: true };
   assert.equal(bare.render(), null);
 });
+
+test('a function fallback gets the error and a retry that renders the children again', () => {
+  const error = new Error('boom');
+  let seen: unknown;
+  let retry = () => {};
+  const b = new ErrorBoundary({ children: 'child', fallback: (e, r) => ((seen = e), (retry = r), 'oops') });
+  b.state = ErrorBoundary.getDerivedStateFromError(error);
+  assert.equal(b.render(), 'oops');
+  assert.equal(seen, error);
+  let next: unknown;
+  b.setState = (s) => { next = s; };
+  retry();
+  assert.deepEqual(next, { failed: false, error: undefined });
+});

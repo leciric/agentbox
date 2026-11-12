@@ -31,6 +31,7 @@ var usageModels = map[string]string{
 	"opus": "opus", "sonnet": "sonnet", "haiku": "haiku", "fable": "fable",
 	// Claude.
 	"claude_fable_5_1":  "fable_5_1",
+	"claude_fable_5_2":  "fable_5_2",
 	"claude_opus_5_5":   "opus_5_5",
 	"claude_sonnet_5_5": "sonnet_5_5",
 	"claude_opus_5":     "opus_5",

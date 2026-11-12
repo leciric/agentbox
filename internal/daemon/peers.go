@@ -409,6 +409,8 @@ var peerLeadRoutes = func() *http.ServeMux {
 		"GET /v1/project/archived-agents",
 		"GET /v1/project/agents/{agent}/chat",
 		"POST /v1/project/agents/{agent}/chat/messages",
+		"PUT /v1/project/agents/{agent}/goal",
+		"DELETE /v1/project/agents/{agent}/goal",
 		"GET /v1/project/agents/{agent}/diff",
 		"POST /v1/project/agents/{agent}/run",
 		"POST /v1/project/retire",
@@ -437,7 +439,15 @@ func peerLeadRoute(method, route string) bool {
 // the hub marks as a peer's.
 func (s *Server) hubHandler() http.Handler {
 	devices := s.remoteHandler()
+	// What an app paired over MCP calls (remotemcp.go) is served here and
+	// nowhere else: the hub is the only caller that can say which pairing a
+	// call came with, so the path doesn't exist on the socket or for phones.
+	routes, touch := s.routes(), &remoteMCPTouch{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == hubapi.EnvironmentMCPPath {
+			s.serveRemoteMCP(w, r, routes, touch)
+			return
+		}
 		if r.Header.Get(hubapi.HeaderPeer) != "" {
 			if err := s.servePeer(w, r); err != nil {
 				writeError(w, err)

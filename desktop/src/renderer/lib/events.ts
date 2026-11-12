@@ -97,6 +97,15 @@ function upsert<V extends { id: string; createdAt: string }>(list: V[] | undefin
   return [value, ...list.filter((v) => v.id !== value.id)].sort(newestFirst);
 }
 
+// appendResourcePoint adds a live sample to an agent's resource history,
+// dropping what falls out of its window.
+export function appendResourcePoint(h: T.AgentResourceHistory, point: T.AgentResourcePoint): T.AgentResourceHistory {
+  const last = h.points[h.points.length - 1];
+  if (last && last.at >= point.at) return h;
+  const cut = new Date(point.at).getTime() - h.windowSeconds * 1000;
+  return { ...h, points: [...h.points.filter((p) => new Date(p.at).getTime() > cut), point] };
+}
+
 export function connectEvents(queryClient: QueryClient): void {
   window.agentbox.onEvent((raw) => {
     const event = raw as T.Event;
@@ -219,6 +228,13 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventUsage:
         queryClient.setQueryData(['usage'], event.data as T.Usage);
         break;
+      case T.EventAgentResources: {
+        // A live sample of an agent whose Resources view is open
+        // (components/v2/AgentResources.tsx), onto the history it fetched.
+        const { ref, point } = event.data as T.AgentResourcesEvent;
+        queryClient.setQueryData<T.AgentResourceHistory>(['agentResources', ref], (h) => (h ? appendResourcePoint(h, point) : h));
+        break;
+      }
       case T.EventDisk:
         // The disk guard: a disk came near its floor, reached it or has room
         // again, or it paused or resumed an agent.

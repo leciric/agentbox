@@ -24,13 +24,14 @@ func TestRender(t *testing.T) {
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
 		"node-modules": {
-			Project:     "pawly",
-			Agent:       "agent-04",
-			Worktree:    "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
-			Branch:      "agentbox/agent-04",
-			BaseRef:     "main",
-			IP:          "10.239.149.25",
-			NodeModules: []string{".", "apps/web"},
+			Project:      "pawly",
+			Agent:        "agent-04",
+			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:       "agentbox/agent-04",
+			BaseRef:      "main",
+			IP:           "10.239.149.25",
+			NodeModules:  []string{".", "apps/web"},
+			CargoTargets: []string{"crates/engine"},
 		},
 		"android": {
 			Project:  "pawly",
@@ -53,6 +54,7 @@ func TestRender(t *testing.T) {
 			VM:       true,
 			Host:     "a Mac",
 			IOS:      true,
+			IOSPorts: []int{5236, 8081},
 		},
 		"nesting": {
 			Project:  "agentbox",
@@ -843,6 +845,40 @@ func TestRenderLeadShellByHost(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("%s: the lead's brief doesn't say %q", host, want)
 		}
+	}
+}
+
+// An iOS agent whose project allows no ports yet is told the user allows
+// them when it forwards.
+func TestRenderIOSWithNoPorts(t *testing.T) {
+	got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-08", Worktree: "/w", Branch: "b", BaseRef: "main", VM: true, Host: "a Mac", IOS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "any port wait for the user to allow them in the app") {
+		t.Errorf("the brief doesn't say the user allows the ports:\n%s", got)
+	}
+}
+
+// An iOS project's lead on a Mac knows its agents drive the Mac's iOS
+// Simulator, so it creates one instead of sending the user to the Mac.
+func TestRenderLeadIOS(t *testing.T) {
+	render := func(ios bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/Users/dev/pawly", Worktree: "/w", BaseRef: "main",
+			Autonomy: "ask", CanSpawn: true, VM: true, Host: "a Mac", IOS: ios,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := render(false); strings.Contains(got, "iOS Simulator") {
+		t.Errorf("a project with no iOS app gets the iOS Simulator:\n%s", got)
+	}
+	if got := render(true); !strings.Contains(got, "so a job that needs it is an agent's") {
+		t.Errorf("an iOS project's lead isn't told agents drive the simulator:\n%s", got)
 	}
 }
 

@@ -4,7 +4,7 @@ import type * as T from '../../shared/api';
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { cn } from '../lib/utils';
-import { canPan, limits, panBy, percent, resolve, transform, zoomAt, zoomStep, type Size, type View } from '../lib/zoom';
+import { canPan, limits, panBy, percent, relate, resolve, transform, zoomAt, zoomStep, type Size, type View } from '../lib/zoom';
 import { Kbd } from './ui/card';
 
 // The review's zoom (lib/zoom.ts): a viewport a picture or a recording is
@@ -39,10 +39,18 @@ export interface Rect {
   h: number;
 }
 
+// A shared view is kept in another viewport's terms: the other half of a
+// pair, whose picture may not be this one's size (lib/zoom.ts relate).
+export interface Shared {
+  pic: Size;
+  port: Size;
+}
+
 export function Viewport({
   pic,
-  view,
-  onView,
+  view: given,
+  onView: give,
+  shared,
   onPort,
   onTap,
   onDrag,
@@ -55,6 +63,8 @@ export function Viewport({
   pic: Size;
   view: View;
   onView: (v: View) => void;
+  // shared, given, is the viewport the view is kept in the terms of.
+  shared?: Shared;
   // onPort is the viewport's size, for the keys to zoom around its middle.
   onPort?: (port: Size) => void;
   // onTap is a click that didn't drag.
@@ -70,11 +80,14 @@ export function Viewport({
 }) {
   const el = useRef<HTMLDivElement>(null);
   const port = useSize(el);
+  const ready = port.w > 0 && port.h > 0;
+  const related = !!shared && ready && shared.port.w > 0 && shared.port.h > 0;
+  const view = related ? relate(given, shared.port, shared.pic, port, pic) : given;
+  const onView = (v: View) => give(related ? relate(v, port, pic, shared.port, shared.pic) : v);
   const latest = useRef({ view, port, pic, onView });
   latest.current = { view, port, pic, onView };
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ x: number; y: number; moved: boolean; pinch?: number } | null>(null);
-  const ready = port.w > 0 && port.h > 0;
 
   useEffect(() => {
     if (ready) onPort?.(port);
@@ -182,6 +195,14 @@ export function Viewport({
   );
 }
 
+// Placeholder stands where a picture goes while its size isn't known (one
+// recorded without, its file still loading): neutral, and not the picture
+// drawn at a guessed shape. Given a size it is a box that size; without, it
+// fills its parent.
+export function Placeholder({ size, dark }: { size?: Size; dark: boolean }) {
+  return <div className={cn('skeleton shrink-0 rounded-xl border', dark ? 'border-white/10' : 'border-line-strong', !size && 'size-full min-h-0')} style={size && { width: size.w, height: size.h }} data-review-placeholder />;
+}
+
 // Edges shade each edge the picture goes on past, so a tall screenshot shown
 // from its top says there's more of it to scroll to.
 function Edges({ rect, port }: { rect: Rect; port: Size }) {
@@ -265,6 +286,7 @@ export function Clip({
   size,
   view,
   onView,
+  shared,
   onPort,
   dark,
   marks = [],
@@ -281,6 +303,7 @@ export function Clip({
   size?: Size;
   view: View;
   onView: (v: View) => void;
+  shared?: Shared;
   onPort?: (port: Size) => void;
   dark: boolean;
   marks?: readonly { at: number; title: string }[];
@@ -327,7 +350,7 @@ export function Clip({
       onPointerDown={onUse}
       data-review-player={item.id}
     >
-      <Viewport pic={pic} view={view} onView={onView} onPort={onPort} onTap={toggle} className={cn(!size && 'min-h-0 flex-1')} style={size && { height: size.h }} over={over} data-review-stage="recording">
+      <Viewport pic={pic} view={view} onView={onView} shared={shared} onPort={onPort} onTap={toggle} className={cn(!size && 'min-h-0 flex-1')} style={size && { height: size.h }} over={over} data-review-stage="recording">
         <video
           ref={video}
           src={mediaUrl(item)}
@@ -349,7 +372,7 @@ export function Clip({
           }}
           onPause={() => setPlaying(false)}
           onError={() => setBroken(true)}
-          className="block size-full object-fill"
+          className="block size-full object-contain"
         />
       </Viewport>
       <div className="flex shrink-0 items-center gap-3 px-3 py-2 text-white">

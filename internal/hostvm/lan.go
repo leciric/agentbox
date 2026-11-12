@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"agentbox/internal/api"
+	"agentbox/internal/hostload"
 	"agentbox/internal/lan"
 )
 
@@ -24,7 +26,8 @@ import (
 // beside the VM, so whatever brings the VM up (Ready: `vm start`, and every
 // command forwarded to the VM, the app's `daemon start` among them) starts it
 // in the background when it isn't running, and it ends once the VM has
-// stopped. A VM of package chv has its supervisor do the same.
+// stopped. A VM of package chv has its supervisor do the same. It also
+// reports this computer's load to the daemon (internal/hostload).
 //
 // macOS's application firewall, when it's on, asks the user the first time
 // agentbox accepts a connection whether it may, and turns phones away when
@@ -134,6 +137,16 @@ func (v *VM) RunLAN(ctx context.Context) error {
 			}
 		}
 	}()
+	// The computer's own load, for the daemon to hold heavy commands back
+	// by and drop the VM's caches for (internal/hostload): Lima's VM has no
+	// supervisor of ours to do it, and this runs exactly as long as the VM.
+	go hostload.Report(ctx, hostload.HTTPPut(dial), true, func(l api.HostLoad) {
+		if l.Busy {
+			logf("host load: this computer is busy (%s): the daemon holds heavy commands back", l.Why)
+		} else {
+			logf("host load: this computer is calm again")
+		}
+	})
 	logf("phones: watching for the daemon to turn them on")
 	fwd.Run(ctx)
 	return nil

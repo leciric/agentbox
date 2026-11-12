@@ -36,6 +36,8 @@
 //                           needing you, working, finishing and failing every
 //                           few seconds, as the daemon's status events say
 //                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
+//   ?busy=host|daemon       the top bar's busy marks: this computer busy, or
+//                           the daemon not answering (both: host,daemon)
 //   ?homeAsk=1              the Home chat asked the project's lead something
 //                           and got its answer: cards in both chats (with
 //                           &home=1 for the Home chat's side)
@@ -207,6 +209,7 @@
 //                           &review=lots, 36 pieces of media
 //   &review=pairs           with ?app=, agent-15 holding before/after pairs to compare
 //   &review=big             with ?app=work, agent-41's pairs and screenshots at 1920×1080, 420×2000 and 3840×1080
+//   &review=aspect          with ?app=work, agent-41's phone (1080×1920, 1170×2532), square, 4:3 and 5760×1080 shots, a 4:3/16:9 pair, one unsized, a rotated recording
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)
@@ -252,6 +255,11 @@
 //                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
+//   ?app=office             the Office (components/office), with Storefront's and
+//                           Quill's agents too (dev/office.ts); &office=1 with
+//                           any ?app= puts it, and them, in the sidebar
+//   &fleet=typical          with the Office, six of the fixture project's agents
+//                           rather than all: a team of the usual size
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -372,6 +380,8 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
+import { setUiOffice } from '../lib/uiOffice';
+import { seedOffice, stubProjectChats } from './office';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -758,6 +768,8 @@ if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { conn
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
+// &office=1: the Office in the sidebar (lib/uiOffice.ts); ?app=office opens it.
+setUiOffice(params.get('office') === '1' || appView === 'office');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -767,8 +779,39 @@ if (appView === 'issues') seedIssues(queryClient);
 if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // ?app=office: more projects' agents, at their desks (dev/office.ts).
+  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
+  // ?app=office&walk=<ref>: once the Office is up, walk to that desk (or a
+  // project's lead, project/lead), and with &then=room step back to its
+  // room's view, or with &then=e open it: screenshots without clicking through.
+  const walk = params.get('walk');
+  if (walk)
+    (window as unknown as { officeHook?: (s: { walkTo(ref: string): void; overview(): void }) => void }).officeHook = (office) => {
+      setTimeout(() => office.walkTo(walk), 1500);
+      if (params.get('then') === 'room') setTimeout(() => office.overview(), 7000);
+      // &then=e: and open what you walked to, as E does.
+      if (params.get('then') === 'e') setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' })), 6500);
+    };
+  // The other projects' chats, empty rather than failing.
+  stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
+  // and an agent asks to forward ports to the Mac (agentbox ios forward).
+  if (iosScenario)
+    queryClient.setQueryData<T.Question[]>(['questions', PROJECT], (qs) => [
+      ...(qs ?? []),
+      {
+        id: 'q-ios',
+        project: PROJECT,
+        agent: 'agent-96',
+        ref: `${PROJECT}/agent-96`,
+        kind: 'ios_ports',
+        ports: [8081, 5236],
+        question: 'To reach its Metro or API from an app in the iOS Simulator, agent-96 wants to forward ports 8081 and 5236 to your Mac’s localhost.',
+        status: 'escalated',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
   setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
@@ -920,6 +963,8 @@ if (meters) {
 if (settingsPage || appView) settingsBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
+// Settings → Storage and machine shows what AgentBox takes on disk.
+if (params.get('settings') === 'resources' && !power && !meters) seedMeterUsage(queryClient);
 // The top bar's inbox, empty: the ?notify= scenarios show it full.
 if (power || meters) setNotifications([], []);
 localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');
@@ -1487,6 +1532,13 @@ function settingsBridge(): void {
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
+    if (method === 'GET' && path === '/v1/remote/mcp') {
+      const pairings: T.MCPPairing[] = [
+        { id: 'm1', label: 'Claude', client: 'claude', access: 'chat', projects: [], createdAt: '2026-11-01T10:00:00Z', lastUsedAt: '2026-11-09T18:30:00Z', apps: ['Claude'] },
+        { id: 'm2', label: 'Poke on my phone', client: 'poke', access: 'read', projects: ['agentbox'], createdAt: '2026-11-05T10:00:00Z' },
+      ];
+      return answer({ available: true, hub: 'hub.example.com', url: 'https://hub.example.com/mcp/abc', pairings } satisfies T.MCPPairings);
+    }
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {
       const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateLANRequest;
@@ -1680,6 +1732,7 @@ if (phoneMode === 'frame') {
     : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
+    : appView === 'office' ? { kind: 'office' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

@@ -407,7 +407,7 @@ func (s *Server) startTunnel(ctx context.Context, c lanTunnelSettings, key strin
 	home := filepath.Join(tools, "cloudflared", "home")
 	_ = os.MkdirAll(home, 0o700)
 	var last string
-	lt.t = tunnel.Start(ctx, tunnel.Config{Binary: binary, Origin: lt.origin, Token: c.token, Hostname: c.hostname, Home: home},
+	lt.t = tunnel.Start(ctx, tunnel.Config{Binary: binary, Origin: lt.origin, Token: c.token, Hostname: c.hostname, Home: home, Resolve: l.resolve},
 		func(st tunnel.Status) {
 			if st.State == tunnel.StateRunning && st.URL != last {
 				last = st.URL

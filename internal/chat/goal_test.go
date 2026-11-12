@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,10 +54,8 @@ func TestAToolGoalShowsAsAGoalRowAndIsMetWhenItsTurnEnds(t *testing.T) {
 	store := openStore(t)
 	f := newFakeTool(claudeGoalTurn)
 	m, _ := newManager(t, store, f)
-	var on atomic.Bool
-	on.Store(true)
 	calls := &goalCalls{}
-	m.GoalsOn, m.GoalChanged = on.Load, calls.changed
+	m.GoalChanged = calls.changed
 
 	if _, err := m.Send(testAgent, "/goal hello.txt has 3 lines"); err != nil {
 		t.Fatal(err)
@@ -121,7 +118,6 @@ func TestAToolGoalClearedOrComplete(t *testing.T) {
 		return acp.PromptResponse{StopReason: "end_turn"}
 	})
 	m, _ := newManager(t, store, f)
-	m.GoalsOn = func() bool { return true }
 	codex := testAgent
 	codex.AI = "codex"
 	if _, err := m.Send(codex, "/goal ship"); err != nil {
@@ -143,29 +139,6 @@ func TestAToolGoalClearedOrComplete(t *testing.T) {
 		if it.Kind == "assistant" && strings.HasPrefix(it.Text, "Goal cleared") {
 			t.Errorf("the tool's Goal cleared line is a message too")
 		}
-	}
-}
-
-func TestToolGoalsChangeNothingWhileOff(t *testing.T) {
-	t.Parallel()
-	store := openStore(t)
-	f := newFakeTool(claudeGoalTurn)
-	m, _ := newManager(t, store, f)
-	calls := &goalCalls{}
-	m.GoalsOn, m.GoalChanged = func() bool { return false }, calls.changed
-	if _, err := m.Send(testAgent, "/goal hello.txt has 3 lines"); err != nil {
-		t.Fatal(err)
-	}
-	th := waitThread(t, m, testAgent, "the /goal turn", turnsEnded(1))
-	if got := find(th, "assistant", 0).Text; got != "Goal set: hello.txt has 3 lines" {
-		t.Errorf("first message = %q, want the tool's own line", got)
-	}
-	if g := find(th, "goal", 0); g.Kind != "" {
-		t.Errorf("a goal row while goals are off: %+v", g)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if len(calls.statuses()) != 0 {
-		t.Errorf("GoalChanged was told %v while goals are off", calls.statuses())
 	}
 }
 

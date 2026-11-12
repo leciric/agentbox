@@ -815,7 +815,10 @@ export function Composer({
             className="block max-h-60 min-h-6 w-full resize-none bg-transparent text-sm leading-relaxed text-primary outline-none placeholder:text-subtle disabled:cursor-not-allowed"
           />
         </div>
-        <div className="flex items-center gap-1 px-2 pb-2">
+        {/* A container, so the options' labels fold to their icons by the
+            composer's own width (a narrow window, or a wide side panel) rather
+            than truncating to "H…" (SessionOptions). */}
+        <div className="@container/composer flex items-center gap-1 px-2 pb-2">
           {leadChat && (
             <TargetChip
               targets={targets}
@@ -922,7 +925,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         <div className="flex items-center gap-2 text-caption">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {approval ? t(permission.approval === 'project' ? 'chat.permission.projectApproval' : 'chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
+            {approval ? t(permission.approval === 'project' ? 'chat.permission.projectApproval' : permission.approval === 'agent' ? 'chat.permission.agentApproval' : 'chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
           {count > 1 && <span className="ml-auto text-caption tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
@@ -1198,9 +1201,9 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
         pending={pending}
         pick={pick}
       />
-      {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? t('chat.options.effort') : undefined} onPick={pick(effort)} />}
+      {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? t('chat.options.effort') : undefined} fold="@max-[36rem]/composer:hidden" onPick={pick(effort)} />}
       {plan && <PlanToggle option={plan} onPick={pick(plan)} />}
-      {mode && (!plan || mode.choices.length > 1) && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
+      {mode && (!plan || mode.choices.length > 1) && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} fold="@max-[42rem]/composer:hidden" onPick={pick(mode)} />}
       {loadingMark}
     </div>
   );
@@ -1247,9 +1250,16 @@ function SetupChip({
       {missing ? <CircleAlert className="text-amber-400" /> : <ToolMark ai={tool} />}
       {runner?.next && <NextTool next={runner.next} />}
       <span className="min-w-0 truncate" data-chat-setup-text>
-        {toolName}
-        {modelName && <span className="max-sm:hidden"> · {modelName}</span>}
-        {size && <span className="max-sm:hidden text-subtle"> · {size}</span>}
+        {/* Short of room, the tool's mark stands for its name and the model
+            shows; shorter, the name and no model; on a phone, the mark alone. */}
+        <span className={cn(modelName && 'sm:@max-[46rem]/composer:hidden sm:@max-[30rem]/composer:inline', '@max-[28rem]/composer:!hidden')}>{toolName}</span>
+        {modelName && (
+          <>
+            <span className="max-sm:hidden @max-[46rem]/composer:hidden"> · </span>
+            <span className="max-sm:hidden @max-[30rem]/composer:hidden">{modelName}</span>
+          </>
+        )}
+        {size && <span className="max-sm:hidden @max-[40rem]/composer:hidden text-subtle"> · {size}</span>}
       </span>
       {!nothing && <ChevronDown className="!size-3.5 text-faint" />}
     </span>
@@ -1354,6 +1364,7 @@ function PlanToggle({ option, onPick }: { option: T.ChatOption; onPick: (value: 
       <button
         type="button"
         aria-pressed={on}
+        aria-label={t('chat.options.plan')}
         data-chat-option={option.id}
         onClick={() => onPick(on ? 'false' : 'true')}
         className={cn(
@@ -1362,7 +1373,7 @@ function PlanToggle({ option, onPick }: { option: T.ChatOption; onPick: (value: 
         )}
       >
         <PencilRuler />
-        <span className="max-sm:hidden">{t('chat.options.plan')}</span>
+        <span className="max-sm:hidden @max-[36rem]/composer:hidden">{t('chat.options.plan')}</span>
       </button>
     </Tip>
   );
@@ -1370,15 +1381,19 @@ function PlanToggle({ option, onPick }: { option: T.ChatOption; onPick: (value: 
 
 // OptionMenu picks one of a setting's choices, the effort or the mode: the
 // rest are in SetupChip. On a phone, only its icon shows.
+// It never shrinks: below the width in `fold` (a container query on the
+// composer), its label hides and its icon, name and title stay.
 function OptionMenu({
   option,
   icon,
   label,
+  fold,
   onPick,
 }: {
   option: T.ChatOption;
   icon: ReactNode;
   label?: string;
+  fold: string;
   onPick: (value: string) => void;
 }) {
   const current = option.choices.find((c) => c.value === option.value);
@@ -1391,12 +1406,12 @@ function OptionMenu({
           data-chat-option={option.id}
           title={option.description || option.name}
           className={cn(
-            'flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-ui transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
+            'flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
             missing ? 'text-amber-300' : 'text-muted',
           )}
         >
           {missing ? <CircleAlert className="text-amber-400" /> : icon}
-          <span className="max-w-[9rem] truncate max-sm:hidden">{label ?? (current && choiceName(current)) ?? option.value}</span>
+          <span className={cn('max-w-[10rem] truncate max-sm:hidden', fold)}>{label ?? (current && choiceName(current)) ?? option.value}</span>
           <ChevronDown className="!size-3.5 text-faint" />
         </button>
       </MenuTrigger>

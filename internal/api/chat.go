@@ -92,6 +92,10 @@ type ChatSession struct {
 	// description (claude-agent-acp's async tasks). The session wakes by
 	// itself when one finishes, so a chat with any is still working.
 	Background []string `json:"background,omitempty"`
+	// BackgroundTasks is that work item by item: what is running, and what
+	// ended since the session's adapter started, oldest first. Each can be
+	// read with its output at GET …/chat/background/{task}.
+	BackgroundTasks []ChatBackgroundTask `json:"backgroundTasks,omitempty"`
 	// ToolsChanged says the chat's MCP servers (the project's connectors)
 	// changed since its adapter started, which reads them only then. The next
 	// message restarts it first, resuming the session, unless NoResume;
@@ -189,7 +193,7 @@ type ChatItem struct {
 	// Compaction is set on a compaction's card (D73): the conversation being
 	// saved to the project's memory and carried on in a fresh session.
 	Compaction *ChatCompaction `json:"compaction,omitempty"`
-	// Goal is set on a goal row (kind goal, while agent goals are on): the
+	// Goal is set on a goal row (kind goal): the
 	// agent's goal as it stood when it was set, checked, met, blocked or
 	// cleared. Text says what happened, in AgentBox's words.
 	Goal *AgentGoal `json:"goal,omitempty"`
@@ -298,6 +302,65 @@ type ChatSubagent struct {
 	State string `json:"state"`
 }
 
+// ChatBackgroundTask is one piece of work a session runs outside its turns:
+// a command run in the background, a monitor, a subagent that outlived the
+// turn that started it. It is what the AI tool's adapter reports (the
+// async_task_* and subagent_* updates of claude-agent-acp and codex-acp), so
+// a field the adapter doesn't give is absent.
+type ChatBackgroundTask struct {
+	ID string `json:"id"`
+	// Kind is command, monitor, subagent, or task for anything else the
+	// adapter runs (a workflow).
+	Kind string `json:"kind"`
+	// Title is what the AI tool called it: the command's description, the
+	// subagent's name.
+	Title string `json:"title"`
+	// Command is the shell command, when the tool call that started it is
+	// in the conversation; for a subagent, the task it was given.
+	Command string `json:"command,omitempty"`
+	Status  string `json:"status"` // running, done, failed, timed_out or stopped
+	// ExitCode is the command's, once it ended and the adapter said.
+	ExitCode  *int       `json:"exitCode,omitempty"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// Summary is what the adapter said of how it ended, or of where it is.
+	Summary string `json:"summary,omitempty"`
+	// Item is the conversation's item for it: a subagent's card, which holds
+	// everything it said and did, or the tool call that started a command.
+	Item string `json:"item,omitempty"`
+	// HasOutput says GET …/chat/background/{id} has output to give. A
+	// subagent has none: its output is its card.
+	HasOutput bool `json:"hasOutput,omitempty"`
+}
+
+const (
+	BackgroundCommand  = "command"
+	BackgroundMonitor  = "monitor"
+	BackgroundSubagent = "subagent"
+	BackgroundOther    = "task"
+
+	BackgroundRunning  = "running"
+	BackgroundDone     = "done"
+	BackgroundFailed   = "failed"
+	BackgroundTimedOut = "timed_out"
+	BackgroundStopped  = "stopped"
+)
+
+// ChatBackgroundDetail is one background task with a piece of its output:
+// the end of it, or with ?before=<offset> the piece that ends there.
+type ChatBackgroundDetail struct {
+	Task ChatBackgroundTask `json:"task"`
+	// Output is bytes [OutputStart, OutputStart+len) of the task's output,
+	// which is OutputSize bytes long so far. OutputStart > 0 means there is
+	// more before it: ask again with before=OutputStart.
+	Output      string `json:"output"`
+	OutputStart int64  `json:"outputStart"`
+	OutputSize  int64  `json:"outputSize"`
+	// OutputError is why the output couldn't be read, when it couldn't: the
+	// agent's machine is stopped, the file is gone.
+	OutputError string `json:"outputError,omitempty"`
+}
+
 // ChatTool is a tool call: a command, a file read or edit, a search.
 type ChatTool struct {
 	CallID  string   `json:"callId"`
@@ -350,8 +413,8 @@ type ChatPermission struct {
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
 	// Approval is set when AgentBox asks rather than the AI tool: what it
-	// is about ("skill", or "project" for a lead's first message to another
-	// project's), with Detail saying what would change and Diffs showing it.
+	// is about ("skill", "project" for a lead's first message to another
+	// project's, or "agent" for destroying an agent's uncommitted work), with Detail saying what would change and Diffs showing it.
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`

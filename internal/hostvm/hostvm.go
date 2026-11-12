@@ -53,6 +53,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -384,10 +385,21 @@ type Size struct {
 	Disk   string // like 100GiB
 }
 
-// DefaultSize is half the host's cores (two to eight), 8 GiB and a 100 GiB
-// disk, which Lima allocates as it's used.
+// DefaultSize is half the host's cores (two to eight), 8 GiB, or less on a
+// Mac that would keep less than its reserve with that (chv.MaxCap), and a
+// 100 GiB disk, which Lima allocates as it's used.
 func DefaultSize() Size {
-	return Size{CPUs: defaultCPUs(numCPU()), Memory: "8GiB", Disk: "100GiB"}
+	return Size{CPUs: defaultCPUs(numCPU()), Memory: defaultMemory(hostMemory()), Disk: "100GiB"}
+}
+
+// defaultMemory is the memory a Lima VM is made with on a host of total
+// bytes, as Lima takes it: 8GiB, or the most the host's reserve leaves.
+func defaultMemory(total int64) string {
+	gib := int64(8)
+	if most := chv.MaxCap(total) / chv.GiB; most > 0 {
+		gib = min(gib, max(most, MinMemory>>30))
+	}
+	return strconv.FormatInt(gib, 10) + "GiB"
 }
 
 // defaultCPUs is what a VM is given of a host's cores: half, two to eight.
@@ -439,7 +451,32 @@ func (v *VM) Start(ctx context.Context) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
-	return v.limaLog(ctx, "start", "--tty=false", v.Name)
+	argv := belowDesktop([]string{v.Limactl, "start", "--tty=false", v.Name})
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = v.Log, v.Log
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("limactl start: %w", err)
+	}
+	return nil
+}
+
+// niceBin and limaNice are how Lima's VM is started below the desktop:
+// limactl start leaves its host agent behind, which runs krunkit or QEMU,
+// and each inherits the nice level it started with, so the VM's vCPUs get
+// the CPU after the user's own programs when both want it (as a Cloud
+// Hypervisor VM's supervisor does, chv/priority_linux.go). vz's VM runs in
+// Apple's own XPC service, which no nice reaches.
+var (
+	niceBin  = "/usr/bin/nice"
+	limaNice = "10"
+)
+
+// belowDesktop is argv run through nice, when there's one.
+func belowDesktop(argv []string) []string {
+	if _, err := os.Stat(niceBin); err != nil {
+		return argv
+	}
+	return append([]string{niceBin, "-n", limaNice}, argv...)
 }
 
 // Stop stops the VM, and with it the daemon and every agent. With agents set,

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
 
@@ -43,54 +44,98 @@ type HostUsage struct {
 
 // Usage samples the host and every agent twice, interval apart, to measure CPU use.
 func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage, []AgentUsage, error) {
-	agents, err := m.Store.Agents(ctx, "")
+	before, err := m.sampleUsage(ctx)
 	if err != nil {
 		return HostUsage{}, nil, err
 	}
-	hostBefore, err := hostCPU()
-	if err != nil {
-		return HostUsage{}, nil, err
-	}
-	// Disk IO is a rate the same way CPU is: counters read on both sides of
-	// the interval. A host or agent whose counters can't be read shows none.
-	diskBefore, diskErr := hostDiskIO("/proc/diskstats", sysRoot)
-	ioBefore := map[string]ioBytes{}
-	for _, a := range agents {
-		if io, ok := cgroupIO(agentCgroup(cgroupRoot, a.Instance), sysRoot); ok {
-			ioBefore[a.Instance] = io
-		}
-	}
-	before, err := m.Incus.Instances(ctx)
-	if err != nil {
-		return HostUsage{}, nil, err
-	}
-	start := time.Now()
 	select {
 	case <-ctx.Done():
 		return HostUsage{}, nil, ctx.Err()
 	case <-time.After(interval):
 	}
-	after, err := m.Incus.Instances(ctx)
-	if err != nil {
-		return HostUsage{}, nil, err
-	}
-	hostAfter, err := hostCPU()
-	if err != nil {
-		return HostUsage{}, nil, err
-	}
-	diskAfter, diskAfterErr := hostDiskIO("/proc/diskstats", sysRoot)
-	elapsed := time.Since(start)
+	host, usage, _, err := m.UsageSince(ctx, before)
+	return host, usage, err
+}
 
-	host := HostUsage{Cores: HostCores()}
-	if total := hostAfter.total - hostBefore.total; total > 0 {
-		host.CPU = 100 * (1 - float64(hostAfter.idle-hostBefore.idle)/float64(total))
+// UsageSample is what one look at the host and its agents read: the
+// counters a rate is measured between, and Incus's listing of every instance,
+// which ListFrom reads the agents' states from as well.
+type UsageSample struct {
+	Instances []incus.Instance
+	agents    []state.Agent
+	at        time.Time
+	cpu       cpuTimes
+	disk      ioBytes
+	diskErr   error
+	io        map[string]ioBytes
+}
+
+// UsageSince measures use from since to now, with one more look, which it
+// returns for the next call to measure from. Called on a timer, that is one
+// listing of Incus's instances a tick, where Usage takes two and waits
+// between them. A nil since is Usage over a second.
+func (m *Manager) UsageSince(ctx context.Context, since *UsageSample) (HostUsage, []AgentUsage, *UsageSample, error) {
+	if since == nil {
+		before, err := m.sampleUsage(ctx)
+		if err != nil {
+			return HostUsage{}, nil, nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return HostUsage{}, nil, nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+		since = before
 	}
-	if diskErr == nil && diskAfterErr == nil {
-		host.DiskRead, host.DiskWrite = ioRate(diskBefore, diskAfter, elapsed.Seconds())
+	now, err := m.sampleUsage(ctx)
+	if err != nil {
+		return HostUsage{}, nil, nil, err
+	}
+	host, usage, err := m.usageBetween(ctx, since, now)
+	return host, usage, now, err
+}
+
+// sampleUsage reads every counter a rate is measured between, and lists
+// Incus's instances.
+func (m *Manager) sampleUsage(ctx context.Context) (*UsageSample, error) {
+	agents, err := m.Store.Agents(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	smp := &UsageSample{agents: agents, io: map[string]ioBytes{}}
+	if smp.cpu, err = hostCPU(); err != nil {
+		return nil, err
+	}
+	// Disk IO is a rate the same way CPU is: counters read on both sides of
+	// the interval. A host or agent whose counters can't be read shows none.
+	smp.disk, smp.diskErr = hostDiskIO("/proc/diskstats", sysRoot)
+	for _, a := range agents {
+		if io, ok := cgroupIO(agentCgroup(cgroupRoot, a.Instance), sysRoot); ok {
+			smp.io[a.Instance] = io
+		}
+	}
+	if smp.Instances, err = m.Incus.Instances(ctx); err != nil {
+		return nil, err
+	}
+	smp.at = time.Now()
+	return smp, nil
+}
+
+// usageBetween is the host's and each agent's use between two samples, the
+// agents being after's.
+func (m *Manager) usageBetween(ctx context.Context, before, after *UsageSample) (HostUsage, []AgentUsage, error) {
+	elapsed := after.at.Sub(before.at)
+	host := HostUsage{Cores: HostCores()}
+	if total := after.cpu.total - before.cpu.total; total > 0 && after.cpu.total > before.cpu.total {
+		host.CPU = 100 * (1 - float64(after.cpu.idle-before.cpu.idle)/float64(total))
+	}
+	if before.diskErr == nil && after.diskErr == nil && elapsed > 0 {
+		host.DiskRead, host.DiskWrite = ioRate(before.disk, after.disk, elapsed.Seconds())
 	}
 	if p, ok := hostPressure("/proc/pressure"); ok {
 		host.Pressure = &p
 	}
+	var err error
 	if host.MemTotal, host.MemUsed, err = hostMemory(); err != nil {
 		return HostUsage{}, nil, err
 	}
@@ -99,29 +144,29 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 	}
 
 	cpuBefore := map[string]int64{}
-	for _, inst := range before {
+	for _, inst := range before.Instances {
 		if inst.State != nil {
 			cpuBefore[inst.Name] = inst.State.CPU.Usage
 		}
 	}
 	current := map[string]int{}
-	for i, inst := range after {
+	for i, inst := range after.Instances {
 		current[inst.Name] = i
 	}
-	usage := make([]AgentUsage, 0, len(agents))
-	for _, a := range agents {
+	usage := make([]AgentUsage, 0, len(after.agents))
+	for _, a := range after.agents {
 		u := AgentUsage{Agent: a, State: "missing"}
 		if i, ok := current[a.Instance]; ok {
-			inst := after[i]
+			inst := after.Instances[i]
 			u.State = displayState(inst.Status)
 			if inst.State != nil {
 				u.Memory = agentMemory(cgroupRoot, a.Instance, inst.State.Memory.Usage)
 				u.Processes = inst.State.Processes
-				if prev, ok := cpuBefore[a.Instance]; ok && inst.State.CPU.Usage >= prev {
+				if prev, ok := cpuBefore[a.Instance]; ok && inst.State.CPU.Usage >= prev && elapsed > 0 {
 					u.CPU = 100 * float64(inst.State.CPU.Usage-prev) / float64(elapsed.Nanoseconds())
 				}
-				if prev, ok := ioBefore[a.Instance]; ok {
-					if io, ok := cgroupIO(agentCgroup(cgroupRoot, a.Instance), sysRoot); ok {
+				if prev, ok := before.io[a.Instance]; ok && elapsed > 0 {
+					if io, ok := after.io[a.Instance]; ok {
 						u.DiskRead, u.DiskWrite = ioRate(prev, io, elapsed.Seconds())
 					}
 				}

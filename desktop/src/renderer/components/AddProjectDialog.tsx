@@ -463,7 +463,7 @@ export function AddProjectDialog({
             (add.error || (clone.error && !badLink)) && <Notice>{errorMessage(add.error ?? clone.error)}</Notice>
           )}
           {/* Kept in view at the bottom of the dialog, however long the form. */}
-          <DialogFooter className="sticky -bottom-6 -mx-6 -mb-6 border-t border-line bg-modal px-6 py-4">
+          <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>

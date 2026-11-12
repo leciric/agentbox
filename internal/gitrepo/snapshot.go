@@ -22,6 +22,12 @@ var snapshotIdentity = []string{
 // every file, which over the Mac's shared folder took 49s for 14k files. A
 // copy git can't use (torn mid-write, say) falls back to that.
 func worktreeTree(worktree string) (string, error) {
+	return worktreeTreeWith(worktree, output)
+}
+
+// worktreeTreeWith is worktreeTree running git with git (output, or
+// lowOutput in the background).
+func worktreeTreeWith(worktree string, git func(dir string, env []string, args ...string) (string, error)) (string, error) {
 	tmp, err := os.MkdirTemp("", "agentbox-index-")
 	if err != nil {
 		return "", err
@@ -30,10 +36,10 @@ func worktreeTree(worktree string) (string, error) {
 	index := filepath.Join(tmp, "index")
 	env := []string{"GIT_INDEX_FILE=" + index}
 	stage := func() (string, error) {
-		if _, err := output(worktree, env, "add", "--all"); err != nil {
+		if _, err := git(worktree, env, "add", "--all"); err != nil {
 			return "", err
 		}
-		tree, err := output(worktree, env, "write-tree")
+		tree, err := git(worktree, env, "write-tree")
 		return strings.TrimSpace(tree), err
 	}
 	if copyIndex(worktree, index) == nil {
@@ -42,7 +48,7 @@ func worktreeTree(worktree string) (string, error) {
 		}
 		_ = os.Remove(index)
 	}
-	if _, err := output(worktree, env, "read-tree", "HEAD"); err != nil {
+	if _, err := git(worktree, env, "read-tree", "HEAD"); err != nil {
 		return "", err
 	}
 	return stage()

@@ -385,6 +385,16 @@ export function buildFixtures(): FixtureData {
       state: 'initializing',
       memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
+    // On hold (daemon/admission.go): one waiting its turn for memory behind
+    // other agents' builds, machine stopped, and one stopped after it sat idle.
+    agent({
+      ref: `${PROJECT}/agent-83`,
+      title: 'Migrate the billing tables',
+      state: 'stopped',
+      hold: 'memory',
+      memory: { machine: 'waiting', ahead: 1, since: new Date(Date.now() - 90_000).toISOString(), why: 'builds', available: 1.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    agent({ ref: `${PROJECT}/agent-82`, title: 'Tidy the onboarding copy', state: 'stopped', outcome: 'done', hold: 'idle' }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({
@@ -602,6 +612,7 @@ export function buildFixtures(): FixtureData {
       section: 's1',
       position: 0,
       nesting: false,
+      iosForwardPorts: [],
       agentPRs: false,
       syncBase: true,
       settleHours: 24,
@@ -644,6 +655,7 @@ export function buildFixtures(): FixtureData {
       section: '',
       position: 1,
       nesting: false,
+      iosForwardPorts: [],
       agentPRs: false,
       syncBase: true,
       settleHours: 24,
@@ -998,22 +1010,86 @@ export function asleepChat(ref: string): T.ChatThread {
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
 // awaitingChat is agent-41's conversation: a turn that ended on a promise,
-// with the watch it started still running (ChatSession.background).
+// with the watch it started still running (ChatSession.background), and the
+// rest of what it left in the background, item by item
+// (ChatSession.backgroundTasks): a monitor, a subagent, a build that failed.
+const awaitingSince = Date.now();
+export function awaitingTasks(): T.ChatBackgroundTask[] {
+  const at = (ago: number) => new Date(awaitingSince - ago).toISOString();
+  return [
+    {
+      id: 'b0',
+      kind: 'command',
+      title: 'Build the release bundle',
+      command: 'npm --prefix desktop run dist -- --linux',
+      status: 'failed',
+      exitCode: 2,
+      startedAt: at(85_000),
+      endedAt: at(64_000),
+      summary: 'Background command "Build the release bundle" failed with exit code 2',
+      item: 'w1b',
+      hasOutput: true,
+    },
+    { id: 'b1', kind: 'command', title: 'Watch CI run 42', command: 'gh run watch 42 --exit-status --interval 30', status: 'running', startedAt: at(62_000), item: 'w1c', hasOutput: true },
+    { id: 'm1', kind: 'monitor', title: 'Errors in the deploy log', status: 'running', startedAt: at(61_500), summary: '2 events so far' },
+    { id: 'subagent-w1s', kind: 'subagent', title: 'general-purpose', command: 'Run the desktop test suite and report what fails', status: 'running', startedAt: at(70_000), item: 'w1s' },
+  ];
+}
+
+// awaitingOutput is what GET …/chat/background/{task} answers in the preview:
+// the watch's output grows a line every couple of seconds, as a live one does.
+export function awaitingOutput(id: string, before: number): T.ChatBackgroundDetail | undefined {
+  const task = awaitingTasks().find((t) => t.id === id);
+  if (!task) return undefined;
+  let text = '';
+  if (id === 'b0') {
+    text = Array.from({ length: 1400 }, (_, i) => `  • packaging  file=${String(i + 1).padStart(4, '0')}.asar.unpacked platform=linux arch=x64`).join('\n');
+    text += '\n  ⨯ cannot execute  cause=exit status 2\n    errorOut=fpm: no such file or directory: build/icons/512x512.png\n';
+  } else if (id === 'b1') {
+    const jobs = ['title', 'changes', 'go test', 'go vet', 'golangci-lint', 'desktop lint', 'desktop typecheck', 'desktop test', 'desktop build', 'native build', 'native test'];
+    const n = Math.floor((Date.now() - awaitingSince) / 2000) + 3;
+    text = 'Refreshing run status every 30 seconds. Press Ctrl+C to quit.\n\n* agentbox/release CI · 42\nTriggered via push about 1 minute ago\n\nJOBS\n';
+    text += Array.from({ length: n }, (_, i) => `${i < n - 1 ? '✓' : '*'} ${jobs[i % jobs.length]}${i >= jobs.length ? ` (${Math.floor(i / jobs.length) + 1})` : ''} ${i < n - 1 ? `in ${20 + ((i * 7) % 40)}s` : '(running)'}`).join('\n');
+    text += '\n';
+  }
+  const bytes = new TextEncoder().encode(text);
+  const end = before > 0 && before < bytes.length ? before : bytes.length;
+  const start = Math.max(0, end - 64 * 1024);
+  return { task, output: new TextDecoder().decode(bytes.subarray(start, end)), outputStart: start, outputSize: bytes.length };
+}
+
 export function awaitingChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   return {
     agent: `${PROJECT}/agent-41`,
     seq: 1,
-    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Watch CI run 42'] },
+    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Errors in the deploy log', 'Watch CI run 42'], backgroundTasks: awaitingTasks() },
     items: [
       {
         id: 'w1',
         turn: 'w1',
         kind: 'user',
         text: 'Push the release branch and tell me when CI is green.',
-        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Watch CI run 42'] },
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Errors in the deploy log', 'Watch CI run 42'] },
         createdAt: at(90_000),
         updatedAt: at(60_000),
+      },
+      {
+        id: 'w1s',
+        turn: 'w1',
+        kind: 'subagent',
+        subagent: { name: 'general-purpose', task: 'Run the desktop test suite and report what fails', state: 'running' },
+        createdAt: at(70_000),
+        updatedAt: at(70_000),
+      },
+      {
+        id: 'w1st',
+        turn: 'w1',
+        kind: 'tool',
+        parent: 'w1s',
+        tool: { callId: 'sub-1', name: 'Bash', title: 'npm --prefix desktop test', kind: 'execute', status: 'in_progress', command: 'npm --prefix desktop test' },
+        createdAt: at(69_000),
+        updatedAt: at(69_000),
       },
       { id: 'w2', turn: 'w1', kind: 'assistant', text: "Pushed. CI is running; I'll report when it finishes.", createdAt: at(61_000), updatedAt: at(61_000) },
     ],
@@ -1790,19 +1866,24 @@ let defaultsSettings = {
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   agentFreeze: false,
-  agentGoals: true,
   prWatch: true,
   // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
   mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
+  agentMemoryShare: 50,
+  defaultAgentMemoryShare: 50,
+  minAgentMemoryShare: 10,
+  maxAgentMemoryShare: 90,
+  agentMemoryLimit: 12 * 1024 ** 3,
+  vmMemory: 24 * 1024 ** 3,
   autoStopIdle: false,
   removeStopped: false,
   removeStoppedDays: 7,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
-  idleReclaim: false,
+  idleReclaim: true,
   idleFreezeSeconds: 5 * 60,
   idleStopSeconds: 10 * 60,
   leadRecheck: false,
@@ -1864,6 +1945,10 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
+  if (req.agentMemoryShare !== undefined) {
+    next.agentMemoryShare = req.agentMemoryShare || 50;
+    next.agentMemoryLimit = Math.floor((next.vmMemory / 100) * next.agentMemoryShare);
+  }
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.removeStopped !== undefined) next.removeStopped = req.removeStopped;
   if (req.removeStoppedDays !== undefined) next.removeStoppedDays = req.removeStoppedDays;
@@ -2188,13 +2273,13 @@ export function seedMacVZ(queryClient: QueryClient, kind: string): void {
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
 // Resources section, whose VM size card sizes the Cloud Hypervisor VM:
 // running with room to grow (live), started by an older AgentBox with none
-// (old), or off. A 32 GiB machine keeps 6.4 GiB for itself, so the cap goes to
-// 25 GiB, but the older AgentBox says neither.
+// (old), or off. A 32 GiB machine keeps 8 GiB for itself, so the cap goes to
+// 24 GiB, but the older AgentBox says neither.
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
   const old = kind === 'old';
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 25) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 24) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -2206,7 +2291,8 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
       min: 4 * GiB,
       cap: 24 * GiB,
       granted: kind === 'off' ? 0 : 9 * GiB,
-      hostReserve: old ? undefined : 6.4 * GiB,
+      hostReserve: old ? undefined : 8 * GiB,
+      hostTotal: old ? undefined : 32 * GiB,
       used: 6.2 * GiB,
       resident: 0,
       hostCache: 0,
@@ -2268,7 +2354,8 @@ export function seedMeterUsage(queryClient: QueryClient): void {
   // The pool's machines and bases add up to the 15.5 GiB in use inside the
   // user's VM, measured on 2026-10-01.
   const diskUsage: T.DiskUsage = {
-    total: 21.2 * GiB,
+    total: 25.4 * GiB,
+    trim: { at: new Date(Date.now() - 2 * 3600_000).toISOString(), bytes: 6.3 * GiB },
     categories: [
       {
         kind: 'machines',
@@ -2280,10 +2367,20 @@ export function seedMeterUsage(queryClient: QueryClient): void {
           { label: `${PROJECT}/agent-90`, bytes: 1.3 * GiB },
         ],
       },
-      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB }, { label: `${PROJECT} base`, bytes: 1.8 * GiB }] },
+      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB, kind: 'base-image' }, { label: `${PROJECT} base`, bytes: 1.8 * GiB, kind: 'project-base', name: PROJECT }] },
       { kind: 'worktrees', label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
+      {
+        kind: 'caches',
+        label: 'Shared caches',
+        bytes: 4.2 * GiB,
+        items: [
+          { label: 'Package cache: pnpm', bytes: 1.9 * GiB, kind: 'package-cache', name: 'pnpm' },
+          { label: 'Package cache: go', bytes: 1.1 * GiB, kind: 'package-cache', name: 'go' },
+          { label: 'Docker images', bytes: 1.2 * GiB, kind: 'docker-images' },
+        ],
+      },
       { kind: 'media', label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
-      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
+      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB, kind: 'state-db' }] },
     ],
   };
   devState.memoryUsage = memoryUsage;
@@ -2495,6 +2592,17 @@ const usageStatsPending: T.UsageStatsPending = {
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
+      // ?busy=host: this computer busy, as its front end reports it;
+      // ?busy=daemon: the daemon answers nothing for a minute, as one stuck
+      // behind a loaded VM (components/BusyMarks.tsx).
+      const busy = new URLSearchParams(location.search).get('busy') ?? '';
+      if (busy.includes('daemon') && path === '/v1/pressure') await new Promise((r) => setTimeout(r, 60_000));
+      if (method === 'GET' && path === '/v1/pressure') {
+        const host: T.HostLoad | undefined = busy.includes('host')
+          ? { os: 'linux', memory: 2, cpu: 12, io: 63, cpuShare: -1, busy: true, why: 'io', at: new Date().toISOString() }
+          : undefined;
+        return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [], host }), contentType: 'application/json' };
+      }
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
@@ -2539,9 +2647,20 @@ export function installDevBridge(): void {
       // The disk guard with room everywhere, so DiskGuardPill shows nothing
       // rather than reading the catch-all's answer as a guard.
       // A chat's AI tools for its composer's picker: Claude Code, ready.
+      // One of agent-41's background tasks, with its output (?chat=awaiting).
+      const bg = method === 'GET' ? /\/chat\/background\/([^/?]+)(?:\?before=(\d+))?$/.exec(path) : null;
+      if (bg) {
+        const detail = awaitingOutput(decodeURIComponent(bg[1]), Number(bg[2] ?? 0));
+        return detail ? { status: 200, body: JSON.stringify(detail), contentType: 'application/json' } : { status: 404, body: '{"error":"no such task"}', contentType: 'application/json' };
+      }
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/chat\/runners$/.test(path)) {
         const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
+      }
+      // The app's lists nothing here fills, empty: the catch-all's answer is
+      // an object, and a view that maps over one takes the whole preview down.
+      if (method === 'GET' && ['/v1/project-activity', '/v1/groups', '/v1/sections', '/v1/jobs', '/v1/limits'].includes(path)) {
+        return { status: 200, body: '[]', contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
       // The search palette's answer, from the fixtures' projects and agents,
@@ -2567,6 +2686,11 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/usage/disk/trim') {
+        const trim = { at: new Date().toISOString(), bytes: 2.4 * 1024 ** 3 };
+        if (devState.diskUsage) devState.diskUsage = { ...devState.diskUsage, trim };
+        return { status: 200, body: JSON.stringify(trim), contentType: 'application/json' };
+      }
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
@@ -2596,6 +2720,21 @@ export function installDevBridge(): void {
         const ref = `${decodeURIComponent(started[1])}/${decodeURIComponent(started[2])}`;
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
+      }
+      // An agent's goal set or cleared (internal/daemon/goals.go): kept on
+      // the agent, as the daemon's next agents list would have it.
+      const goalOf = method === 'PUT' || method === 'DELETE' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/goal$/.exec(path) : null;
+      if (goalOf && devState.agents) {
+        const ref = `${decodeURIComponent(goalOf[1])}/${decodeURIComponent(goalOf[2])}`;
+        const had = devState.agents.find((a) => a.ref === ref)?.goal;
+        const spec = (typeof body === 'string' ? JSON.parse(body) : body) as T.GoalSpec | undefined;
+        const goal: T.AgentGoal =
+          method === 'PUT' && spec
+            ? { objective: spec.objective.trim(), source: 'agentbox', status: 'active', checks: spec.checks, checked: 0, budget: spec.budget ?? 10, continuations: 0, updatedAt: new Date().toISOString() }
+            : { ...had!, status: 'cleared', updatedAt: new Date().toISOString() };
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, goal } : a));
+        const res: T.GoalResult = { goal, told: method === 'PUT' ? 'turn' : undefined };
+        return { status: 200, body: JSON.stringify(res), contentType: 'application/json' };
       }
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
@@ -2691,7 +2830,7 @@ export function installDevBridge(): void {
       const policy = renderPolicy(network).replace(/; sandbox [^;]*$/, '');
       return URL.createObjectURL(new Blob([injectHead(html, `<meta http-equiv="Content-Security-Policy" content="${policy}">`)], { type: 'text/html' }));
     },
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, onMainLag: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
     pickFile: async () => null,
     pickSaveFile: async () => null,
@@ -2704,6 +2843,8 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    hostPower: async () => ({ onBattery: false }),
+    onHostPower: () => () => {},
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},

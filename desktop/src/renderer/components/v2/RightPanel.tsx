@@ -18,7 +18,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, MessagesSquare, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, MessagesSquare, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -111,6 +111,7 @@ import { PickButton, usePicker } from '../PickElement';
 import { RichBeside } from '../chat/RichBlock';
 import { titleOf } from '../../lib/rich';
 import { IssuesPanel } from '../IssuesPanel';
+import { AgentResources } from './AgentResources';
 
 const viewIcon: Record<PanelView, LucideIcon> = {
   desktop: Monitor,
@@ -121,6 +122,7 @@ const viewIcon: Record<PanelView, LucideIcon> = {
   android: Smartphone,
   ios: TabletSmartphone,
   timeline: GanttChart,
+  resources: Activity,
   pulls: GitPullRequest,
   issues: CircleDot,
   schedules: AlarmClock,
@@ -135,6 +137,7 @@ const viewLabel: Record<PanelView, MessageKey> = {
   android: 'panel.view.android',
   ios: 'panel.view.ios',
   timeline: 'panel.view.timeline',
+  resources: 'panel.view.resources',
   pulls: 'panel.view.pulls',
   issues: 'panel.view.issues',
   schedules: 'panel.view.schedules',
@@ -715,6 +718,8 @@ function Body({ project, chat, whose, view, width, focus, onSelect }: { project:
           <IOSTab agent={whose.agent} compact={width < 520} onOpenMedia={() => setView(chat, whose.agent.ref, 'evidence')} />
         </div>
       ) : null;
+    case 'resources':
+      return whose.kind === 'agent' ? titled(<AgentResources agent={whose.agent} />) : null;
     case 'timeline':
       if (whose.kind === 'lead') return null;
       return (

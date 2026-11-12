@@ -41,8 +41,14 @@ func TestForward(t *testing.T) {
 	}
 	f := NewForward(dial, t.Logf)
 	var asked []int
+	// The port is reported open before the firewall answers, which on
+	// Windows (PowerShell) can take longer than anyone should wait.
+	reportedFirst := false
 	f.Firewall = func(_ context.Context, port int) string {
 		asked = append(asked, port)
+		mu.Lock()
+		reportedFirst = len(reports) == 1 && reports[0].Listening && reports[0].Warning == ""
+		mu.Unlock()
 		return "allow port 7780"
 	}
 	var ln net.Listener
@@ -62,8 +68,11 @@ func TestForward(t *testing.T) {
 		t.Fatal("no port opened")
 	}
 	mu.Lock()
-	if len(reports) != 1 || !reports[0].Listening || reports[0].Port != 7780 || reports[0].Addresses[0] != "192.168.1.5" ||
-		reports[0].Warning != "allow port 7780" {
+	if !reportedFirst {
+		t.Error("the port wasn't reported open before the firewall was asked")
+	}
+	if len(reports) != 2 || !reports[1].Listening || reports[1].Port != 7780 || reports[1].Addresses[0] != "192.168.1.5" ||
+		reports[1].Warning != "allow port 7780" {
 		t.Errorf("reports = %+v", reports)
 	}
 	mu.Unlock()
@@ -91,7 +100,7 @@ func TestForward(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if last := reports[len(reports)-1]; len(reports) != 3 || last.Listening {
+	if last := reports[len(reports)-1]; len(reports) != 4 || last.Listening {
 		t.Errorf("reports = %+v", reports)
 	}
 }

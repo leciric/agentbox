@@ -17,6 +17,7 @@ export function requestTarget(q: T.Question): string {
     return req ? `connector:${req.name}@${req.url.replace(/\/+$/, '')}` : `id:${q.id}`;
   }
   if (q.kind === T.CredentialSecret) return q.secretName ? `secret:${q.secretName}` : `id:${q.id}`;
+  if (q.kind === T.CredentialIOSPorts) return `ios:${(q.ports ?? []).join(',')}`;
   return q.kind ?? `id:${q.id}`;
 }
 

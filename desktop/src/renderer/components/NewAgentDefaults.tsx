@@ -770,6 +770,59 @@ export function DiskFloor() {
   );
 }
 
+// AgentMemoryShare is how much of AgentBox's VM one agent's machine may use
+// (agent.MemoryLimit): a share of the VM's memory cap, half by default. A
+// process that takes the machine past it is killed there and the agent told,
+// so one runaway build can't take the daemon, Incus and the other agents
+// with it. Running agents take a new share at once.
+export function AgentMemoryShare() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const s = settings.data;
+  const share = s?.agentMemoryShare ?? 50;
+  const least = s?.minAgentMemoryShare ?? 10;
+  const most = s?.maxAgentMemoryShare ?? 90;
+  const fallback = s?.defaultAgentMemoryShare ?? 50;
+  const disabled = save.isPending || s === undefined;
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.agentMemoryLabel')}
+      description={t('defaults.newAgent.agentMemoryDescription')}
+      details={t('defaults.newAgent.agentMemoryDetails')}
+    >
+      <div className="grid max-w-md grid-cols-2 gap-3" data-agent-memory-share>
+        <ResourceField
+          id="agent-memory-share"
+          label={t('defaults.newAgent.agentMemoryShare')}
+          placeholder={`${fallback}%`}
+          hint={
+            s?.vmMemory
+              ? t('defaults.newAgent.agentMemoryHint', { size: humanBytes(s.agentMemoryLimit), vm: humanBytes(s.vmMemory), fallback })
+              : t('defaults.newAgent.agentMemoryHintUnknown', { fallback })
+          }
+          value={`${share}%`}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ agentMemoryShare: 0 });
+            const n = Number(value.replace('%', '').trim());
+            if (!Number.isInteger(n) || n < least || n > most) {
+              toast.error(t('defaults.newAgent.agentMemoryLike', { min: least, max: most }));
+              return;
+            }
+            save.mutate({ agentMemoryShare: n });
+          }}
+        />
+      </div>
+    </SettingRow>
+  );
+}
+
 // CacheHolds is what a shared cache holds and the button that empties it,
 // laid out like the "Hold at most" field beside it: the size where its label
 // is, the button level with its box.

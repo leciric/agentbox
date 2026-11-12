@@ -41,7 +41,9 @@ func (s *Server) approveInChat(ctx context.Context, project string, req api.Chat
 // askApproval waits for the user's approval of what a project's lead asked
 // for, and is errRefused, said in the lead's terms, when they don't give it.
 func (s *Server) askApproval(ctx context.Context, project string, req api.ChatPermission) error {
-	req.Approval = "skill"
+	if req.Approval == "" {
+		req.Approval = "skill"
+	}
 	ok, err := s.approve(ctx, project, req)
 	if err != nil {
 		return fmt.Errorf("asking the user to approve it: %w", err)

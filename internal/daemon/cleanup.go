@@ -170,7 +170,7 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 			s.logf("keeping %s for now: its branch can't be read", st.Ref())
 			continue
 		}
-		f, err := s.cleanupFactsOf(ctx, repo, st, prs[st.Name], finished)
+		f, err := s.cleanupFactsOf(ctx, repo, st, prs[st.Name], finished, false)
 		if err != nil {
 			s.logf("keeping %s for now: %v", st.Ref(), err)
 			continue
@@ -230,9 +230,16 @@ func (s *Server) knownPulls(p state.Project, agents []state.Agent) (prs map[stri
 // cleanupFactsOf reads what removeReason decides st from, pr being its pull
 // request as the caller found it. Any read that fails is an error, never a
 // "no": no changes, nothing uncommitted and nothing unpushed are each a
-// reason to remove.
-func (s *Server) cleanupFactsOf(ctx context.Context, repo gitrepo.Repo, st agent.Status, pr *api.PullRequest, finished map[string]time.Time) (cleanupFacts, error) {
-	changes, err := measureChanges(st.Agent)
+// reason to remove. fresh reads its worktree again whatever was kept, for
+// the check right before removing; the pass itself takes a stopped agent's
+// kept measurement (changesFor), so it doesn't sweep every stopped worktree
+// every 5 minutes.
+func (s *Server) cleanupFactsOf(ctx context.Context, repo gitrepo.Repo, st agent.Status, pr *api.PullRequest, finished map[string]time.Time, fresh bool) (cleanupFacts, error) {
+	measure := changesFor
+	if fresh {
+		measure = freshChanges
+	}
+	changes, err := measure(st)
 	if err != nil {
 		return cleanupFacts{}, fmt.Errorf("its changes can't be read: %w", err)
 	}
@@ -272,7 +279,7 @@ func (s *Server) recheckRemoval(ctx context.Context, m *agent.Manager, repo gitr
 	if err != nil {
 		return "", err
 	}
-	f, err := s.cleanupFactsOf(ctx, repo, fresh, pr, finished)
+	f, err := s.cleanupFactsOf(ctx, repo, fresh, pr, finished, true)
 	if err != nil {
 		return "", err
 	}
@@ -369,7 +376,9 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	s.disks.forget(a.Ref())
 	s.dropHeavy(ctx, a.Ref())
 	s.stopAgentAPI(a.Instance)
+	s.iosUnforward(a)
 	s.removeBrowserSockets(a.Instance)
+	s.trim.Kick()
 	return nil
 }
 

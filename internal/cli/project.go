@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -152,7 +153,7 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectIOSPortsCmd(a))
 	return cmd
 }
 
@@ -860,4 +861,65 @@ func newBriefCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&agentName, "agent", "agent-01", "agent name to preview")
 	return cmd
+}
+
+func newProjectIOSPortsCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "ios-ports <project> [<port>… | none]",
+		Short: "The ports this project's agents may forward to the Mac for the iOS Simulator",
+		Long: `Shows or sets the ports this project's agents may forward to the Mac's localhost
+(agentbox ios forward), where an app in the iOS Simulator reaches their Metro and API.
+A forwarded port is your browser's localhost too, its cookies and sign-in callbacks
+included, so agents get none until you name them:
+
+  agentbox project ios-ports myapp 8081 5236
+
+'none' takes them all back.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			var p api.Project
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				i := slices.IndexFunc(projects, func(p api.Project) bool { return p.Is(args[0]) })
+				if i < 0 {
+					return fmt.Errorf("no project named %q", args[0])
+				}
+				p = projects[i]
+			} else {
+				ports := []int{}
+				if len(args) != 2 || args[1] != "none" {
+					for _, arg := range args[1:] {
+						port, err := strconv.Atoi(arg)
+						if err != nil {
+							return fmt.Errorf("%q isn't a port", arg)
+						}
+						ports = append(ports, port)
+					}
+				}
+				if p, err = c.SetIOSForwardPorts(cmd.Context(), args[0], ports); err != nil {
+					return err
+				}
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), iosPortsWords(p.IOSForwardPorts))
+			return nil
+		},
+	}
+}
+
+func iosPortsWords(ports []int) string {
+	if len(ports) == 0 {
+		return "agents may forward no ports to the Mac"
+	}
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	return "agents may forward " + strings.Join(parts, ", ") + " to the Mac"
 }

@@ -164,6 +164,7 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		}
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
+		m.buildOutputSources(ctx, a)
 		err := m.Incus.Start(ctx, a.Instance)
 		release()
 		if err != nil {

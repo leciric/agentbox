@@ -82,120 +82,134 @@ export function SessionTabs({
     setDropAt(undefined);
   };
   return (
-    <div ref={row} role="tablist" aria-label={t('sessions.label')} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
-      {sessions.map((s, i) => {
-        const on = s.id === current;
-        const unread = !on && isUnread(s, seen[s.ref]);
-        const color = sessionColor(sessions, s);
-        if (renaming === s.id) {
+    <div ref={row} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
+      {/* Only the tabs are in the tablist: the row's buttons beside them
+          (New, Snoozed, History) are not tabs. */}
+      <div role="tablist" aria-label={t('sessions.label')} className="flex shrink-0 items-end gap-1">
+        {sessions.map((s, i) => {
+          const on = s.id === current;
+          const unread = !on && isUnread(s, seen[s.ref]);
+          const color = sessionColor(sessions, s);
+          if (renaming === s.id) {
+            return (
+              <TopicInput
+                key={s.id}
+                initial={s.topic}
+                label={t('sessions.rename')}
+                onDone={(topic) => {
+                  setRenaming(undefined);
+                  if (topic && topic !== s.topic) onRename(s.id, topic);
+                }}
+              />
+            );
+          }
+          const gapBefore = dragging !== undefined && dropAt === i && dragging !== s.id && sessions[i - 1]?.id !== dragging;
+          const gapAfter = dragging !== undefined && dropAt === i + 1 && i === sessions.length - 1 && dragging !== s.id;
           return (
-            <TopicInput
-              key={s.id}
-              initial={s.topic}
-              label={t('sessions.rename')}
-              onDone={(topic) => {
-                setRenaming(undefined);
-                if (topic && topic !== s.topic) onRename(s.id, topic);
-              }}
-            />
-          );
-        }
-        const gapBefore = dragging !== undefined && dropAt === i && dragging !== s.id && sessions[i - 1]?.id !== dragging;
-        const gapAfter = dragging !== undefined && dropAt === i + 1 && i === sessions.length - 1 && dragging !== s.id;
-        return (
-          <ContextMenu key={s.id}>
-            <ContextMenuTrigger asChild>
-              <div
-                role="tab"
-                aria-selected={on}
-                tabIndex={on ? 0 : -1}
-                data-session={s.id}
-                data-session-pinned={s.pinned || undefined}
-                data-session-state={sessionStatus(s)}
-                data-session-color={color}
-                onPointerDown={(e) => {
-                  if (e.button !== 0 || (e.target as Element).closest('button')) return;
-                  press.current = { id: s.id, x: e.clientX, moved: false };
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  const p = press.current;
-                  if (!p || p.id !== s.id) return;
-                  if (!p.moved && Math.abs(e.clientX - p.x) < 6) return;
-                  p.moved = true;
-                  setDragging(s.id);
-                  setDropAt(gapAt(e.clientX));
-                }}
-                onPointerUp={(e) => {
-                  const p = press.current;
-                  if (p?.moved) {
-                    justDragged.current = true;
-                    onMove(p.id, gapAt(e.clientX));
-                  }
-                  endDrag();
-                }}
-                onPointerCancel={endDrag}
-                onClick={() => {
-                  // The click that ends a drag doesn't choose the tab.
-                  if (justDragged.current) {
-                    justDragged.current = false;
-                    return;
-                  }
-                  onChoose(s.id);
-                }}
-                onDoubleClick={() => setRenaming(s.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onChoose(s.id);
-                  if (e.key === 'F2') setRenaming(s.id);
-                }}
-                className={cn(
-                  'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
-                  color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
-                  on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
-                  dragging === s.id && 'cursor-grabbing opacity-50',
-                  gapBefore && 'shadow-[inset_2px_0_0_var(--color-brand-400)]',
-                  gapAfter && 'shadow-[inset_-2px_0_0_var(--color-brand-400)]',
-                )}
-              >
-                <SessionStatusMark session={s} unread={unread} />
-                {!unread && sessionStatus(s) === 'idle' && s.pinned && (
-                  <Pin aria-label={t('sessions.pinned')} className="size-3 shrink-0 -rotate-45 text-subtle" />
-                )}
-                <span className="min-w-0 truncate">{s.topic}</span>
-                {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
+            <ContextMenu key={s.id}>
+              {/* The close button is the tab's sibling, not inside it: a
+                  control inside a tab is a second, nested stop for a screen
+                  reader. From the keyboard, Delete on the tab (or its menu)
+                  closes it; the button is for the pointer. */}
+              <div role="none" className="group relative flex shrink-0">
+                <ContextMenuTrigger asChild>
+                  <div
+                    role="tab"
+                    aria-selected={on}
+                    aria-keyshortcuts="Delete F2"
+                    tabIndex={on ? 0 : -1}
+                    data-session={s.id}
+                    data-session-pinned={s.pinned || undefined}
+                    data-session-state={sessionStatus(s)}
+                    data-session-color={color}
+                    onPointerDown={(e) => {
+                      if (e.button !== 0 || (e.target as Element).closest('button')) return;
+                      press.current = { id: s.id, x: e.clientX, moved: false };
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e) => {
+                      const p = press.current;
+                      if (!p || p.id !== s.id) return;
+                      if (!p.moved && Math.abs(e.clientX - p.x) < 6) return;
+                      p.moved = true;
+                      setDragging(s.id);
+                      setDropAt(gapAt(e.clientX));
+                    }}
+                    onPointerUp={(e) => {
+                      const p = press.current;
+                      if (p?.moved) {
+                        justDragged.current = true;
+                        onMove(p.id, gapAt(e.clientX));
+                      }
+                      endDrag();
+                    }}
+                    onPointerCancel={endDrag}
+                    onClick={() => {
+                      // The click that ends a drag doesn't choose the tab.
+                      if (justDragged.current) {
+                        justDragged.current = false;
+                        return;
+                      }
+                      onChoose(s.id);
+                    }}
+                    onDoubleClick={() => setRenaming(s.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') onChoose(s.id);
+                      if (e.key === 'F2') setRenaming(s.id);
+                      if (e.key === 'Delete') onClose(s.id);
+                    }}
+                    className={cn(
+                      'flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-7 text-ui transition-colors',
+                      color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
+                      on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
+                      dragging === s.id && 'cursor-grabbing opacity-50',
+                      gapBefore && 'shadow-[inset_2px_0_0_var(--color-brand-400)]',
+                      gapAfter && 'shadow-[inset_-2px_0_0_var(--color-brand-400)]',
+                    )}
+                  >
+                    <SessionStatusMark session={s} unread={unread} />
+                    {!unread && sessionStatus(s) === 'idle' && s.pinned && (
+                      <Pin aria-label={t('sessions.pinned')} className="size-3 shrink-0 -rotate-45 text-subtle" />
+                    )}
+                    <span className="min-w-0 truncate">{s.topic}</span>
+                    {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
+                  </div>
+                </ContextMenuTrigger>
                 <Tip label={on ? `${t('sessions.close')} · ${keysHint(sessionKeys.close)}` : t('sessions.close')}>
                   <button
                     type="button"
                     aria-label={t('sessions.closeNamed', { topic: s.topic })}
                     data-session-close={s.id}
+                    tabIndex={-1}
+                    aria-hidden
                     onClick={(e) => {
                       e.stopPropagation();
                       onClose(s.id);
                     }}
-                    className={cn('flex size-5 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100')}
+                    className={cn('absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100')}
                   >
                     <X className="size-3" />
                   </button>
                 </Tip>
               </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem icon={s.pinned ? PinOff : Pin} onSelect={() => onPin(s.id, !s.pinned)} data-session-pin={s.id}>
-                {s.pinned ? t('sessions.unpin') : t('sessions.pin')}
-              </ContextMenuItem>
-              <ContextMenuItem icon={Pencil} onSelect={() => setRenaming(s.id)} hint="F2">
-                {t('sessions.rename')}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem icon={X} onSelect={() => onClose(s.id)}>
-                {t('sessions.close')}
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
+              <ContextMenuContent>
+                <ContextMenuItem icon={s.pinned ? PinOff : Pin} onSelect={() => onPin(s.id, !s.pinned)} data-session-pin={s.id}>
+                  {s.pinned ? t('sessions.unpin') : t('sessions.pin')}
+                </ContextMenuItem>
+                <ContextMenuItem icon={Pencil} onSelect={() => setRenaming(s.id)} hint="F2">
+                  {t('sessions.rename')}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem icon={X} onSelect={() => onClose(s.id)}>
+                  {t('sessions.close')}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })}
+      </div>
       <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
-        <Button variant="ghost" size="sm" className="mb-0.5 h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} data-session-new>
+        <Button variant="ghost" size="sm" className="mb-0.5 h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} aria-label={t('sessions.new')} data-session-new>
           <Plus className="size-3.5" />
           {sessions.length === 0 && t('sessions.new')}
         </Button>

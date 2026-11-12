@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { BusyMarks } from './BusyMarks';
 import { useConnection } from '../lib/events';
 import type { MachineState } from '../lib/firstRun';
 import { useMachineRun } from '../lib/machineRun';
@@ -84,6 +85,9 @@ export function TopBar({
     case 'group':
       crumbs.push({ label: t('group.crumb') });
       break;
+    case 'office':
+      crumbs.push({ label: t('office.title') });
+      break;
     case 'work':
       if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
       crumbs.push({ label: t('work.title') });
@@ -116,18 +120,27 @@ export function TopBar({
       )}
       <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-ui" aria-label={t('shell.top.breadcrumb')}>
         {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
-        {crumbProject && view.kind === 'agent' && (
-          <Tip label={`${t('v2.header.backToLead')} (${backToLeadKeys})`}>
+        {crumbProject && (view.kind === 'agent' || (view.kind === 'project' && view.from === 'office')) && (
+          <Tip label={`${view.from === 'office' ? t('office.back') : t('v2.header.backToLead')} (${backToLeadKeys})`}>
             <button
               type="button"
-              aria-label={t('v2.header.backToLead')}
-              onClick={() => onSelect({ kind: 'project', project: crumbProject.name })}
+              aria-label={view.from === 'office' ? t('office.back') : t('v2.header.backToLead')}
+              onClick={() => onSelect(view.from === 'office' ? { kind: 'office' } : { kind: 'project', project: crumbProject.name })}
               className="-ml-1 shrink-0 rounded-md p-1 text-muted transition hover:bg-surface-raised hover:text-primary"
               data-back-to-lead
             >
               <ArrowLeft className="size-4" />
             </button>
           </Tip>
+        )}
+        {/* Opened from the Office: it heads the breadcrumb, as where ← goes. */}
+        {crumbProject && (view.kind === 'agent' || view.kind === 'project') && view.from === 'office' && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button className="-mx-1 rounded-md px-1 text-muted transition hover:bg-surface-raised hover:text-primary" onClick={() => onSelect({ kind: 'office' })} data-crumb-office>
+              {t('office.title')}
+            </button>
+            <ChevronRight className="size-3.5 shrink-0 text-faint" />
+          </span>
         )}
         {crumbProject ? (
           <ProjectCrumb project={crumbProject} then={crumbThen} onProject={view.kind === 'agent' ? () => onSelect({ kind: 'project', project: crumbProject.name }) : undefined} />
@@ -162,6 +175,7 @@ export function TopBar({
         <ImageBuildChip onSelect={onSelect} />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
+        <BusyMarks />
         {!making && <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />}
         {/* No inbox: what needs you is where it's answered, the lead chat's
             cards and the sidebar's rows, and review is the sidebar's. In its

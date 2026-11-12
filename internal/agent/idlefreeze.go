@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -381,23 +382,16 @@ func cgroupPopulated(dir string) bool {
 	return err == nil && strings.Contains(string(b), "populated 1")
 }
 
-// ReclaimIdle pushes an idle agent's machine's memory out to swap, all of
-// it, and drops its page cache: what keeps running pages back in what it
-// touches. It says how much the machine held before and after.
-func ReclaimIdle(instance string) (before, after int64, err error) {
-	return reclaimIdle(cgroupRoot, instance, writeCgroup)
+// ReclaimIdle pushes an idle agent's machine's memory out to swap and drops
+// its page cache, down to reclaimFloor and at most reclaimMax at once
+// (reclaimCgroup): what keeps running pages back in what it touches. It says
+// how much the machine held before and after.
+func ReclaimIdle(ctx context.Context, instance string) (before, after int64, err error) {
+	return reclaimIdle(ctx, cgroupRoot, instance, writeReclaim)
 }
 
-func reclaimIdle(root, instance string, write func(path, value string) error) (before, after int64, err error) {
-	machine := agentCgroup(root, instance)
-	if before, err = cgroupCurrent(machine); err != nil || before <= 0 {
-		return before, before, err
-	}
-	if err := write(filepath.Join(machine, "memory.reclaim"), strconv.FormatInt(before, 10)); err != nil && !errors.Is(err, errReclaimShort) {
-		return before, before, err
-	}
-	after, _ = cgroupCurrent(machine)
-	return before, after, nil
+func reclaimIdle(ctx context.Context, root, instance string, write reclaimWriter) (before, after int64, err error) {
+	return reclaimCgroup(ctx, agentCgroup(root, instance), write)
 }
 
 func cgroupCurrent(dir string) (int64, error) {

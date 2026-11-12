@@ -79,6 +79,11 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	if q.Text == "" {
 		return state.Question{}, errors.New("no reason: say what failed and what you need the credential for, so the user can decide")
 	}
+	return s.askUser(ctx, a, q)
+}
+
+// askUser puts a request in front of the user and waits for the answer.
+func (s *Server) askUser(ctx context.Context, a state.Agent, q state.Question) (state.Question, error) {
 	// An agent waits on one call at a time, so one it made before this is
 	// gone, or about to be: its card would only wait for nothing.
 	s.cancelCredentialRequests(ctx, a.Project, a.Name, "The agent asked again, and that request replaces this one.")
@@ -92,7 +97,7 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 		return state.Question{}, err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "credential_requested", map[string]any{
-		"kind": q.Kind, "name": q.SecretName, "reason": q.Text,
+		"kind": q.Kind, "name": q.SecretName, "ports": q.Ports, "reason": q.Text,
 	}, "")
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
@@ -157,6 +162,8 @@ func credentialWanted(q state.Question) string {
 		return "the secret $" + q.SecretName
 	case state.QuestionConnector:
 		return "the connector " + q.Connector
+	case state.QuestionIOSPorts:
+		return "leave to forward " + portsWords(q.Ports) + " to the Mac"
 	}
 	return "a GitHub account"
 }
@@ -265,13 +272,16 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 		return q, fmt.Errorf("question %s was already %s", q.ID, q.Status)
 	}
 	given := 0
-	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse, req.Connector != ""} {
+	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse, req.Connector != "", req.Allow} {
 		if set {
 			given++
 		}
 	}
 	if given != 1 {
-		return q, errors.New("answer with one of a GitHub account, a value, or a refusal")
+		return q, errors.New("answer with one of a GitHub account, a value, leave, or a refusal")
+	}
+	if ios := q.Kind == state.QuestionIOSPorts; (ios && !req.Allow && !req.Refuse) || (!ios && req.Allow) {
+		return q, errors.New("allow answers an iOS ports request, which is answered with allow or a refusal")
 	}
 	var outcome string
 	switch {
@@ -281,6 +291,11 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 			outcome += ": " + why
 		}
 		outcome += ". Carry on without it, and don't ask for it again in chat; say in your final message what it was needed for."
+	case q.Kind == state.QuestionIOSPorts:
+		if err := s.allowIOSPorts(ctx, q.Project, q.Ports); err != nil {
+			return q, err
+		}
+		outcome = iosPortsAllowed
 	case q.Kind == state.QuestionGitHub:
 		if req.GitHubAccount == "" {
 			return q, errors.New("this request is for a GitHub account: pick one")

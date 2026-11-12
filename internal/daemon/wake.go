@@ -16,8 +16,8 @@ import (
 // box, the pull request watch, an answer to a question the agent can no
 // longer be waiting on — goes through tellAgent, which starts the machine
 // the way `agentbox start` does, or resumes it, before the chat sees the
-// message. Nothing waits for memory to start one: the VM's pressure decides
-// only when heavy commands run (pressure.go).
+// message. Its boot may wait its turn for the VM's memory (admission.go):
+// the message is held in its chat meanwhile, and nobody waits on it.
 
 // told is what became of a message sent to an agent.
 type told struct {
@@ -62,8 +62,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 	}
 	// One wake at a time, so two messages to the same stopped agent don't
 	// both start its machine.
-	s.wakeMu.Lock()
-	defer s.wakeMu.Unlock()
+	defer s.wakes.lock(a.Ref())()
 	m := s.manager(s.cfg.Log)
 	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
 	if err != nil {
@@ -95,7 +94,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
-		if s.fleetOn() {
+		if s.bootWaits() {
 			// Its boot may wait for memory (admitMachine): the message
 			// waits in its chat meanwhile, and nobody waits on it.
 			item, err := s.chat.HoldMessage(a, msg)
@@ -139,7 +138,7 @@ func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent,
 			s.mu.Unlock()
 		}()
 		if err := s.startMachine(ctx, m, a, why); err != nil {
-			s.logf("%s: starting its machine for a message: %v", ref, err)
+			s.logf("%s: starting its machine for %s: %v", ref, why, err)
 			return
 		}
 		s.refreshAgents(ctx)

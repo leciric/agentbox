@@ -122,3 +122,20 @@ test('a project announced reads its chat sessions again', async () => {
   unsubscribe();
   client.clear();
 });
+
+test('a live resource sample lands on the agent history, and the window slides', async () => {
+  const { appendResourcePoint } = await import('./events.ts');
+  const client = new QueryClient();
+  connectEvents(client);
+  const point = (s: number, cpu: number): T.AgentResourcePoint => ({ at: new Date(Date.UTC(2026, 10, 6, 12, 0, s)).toISOString(), cpu, memory: 1, swap: 0, diskRead: 0, diskWrite: 0 });
+  // No history fetched (the view isn't open): nothing is made up.
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } });
+  assert.equal(client.getQueryData(['agentResources', 'p/a']), undefined);
+  client.setQueryData<T.AgentResourceHistory>(['agentResources', 'p/a'], { ref: 'p/a', intervalSeconds: 2, windowSeconds: 10, sampling: true, points: [point(0, 5)] });
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } });
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } }); // the same one twice
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(11, 20) } });
+  const h = client.getQueryData<T.AgentResourceHistory>(['agentResources', 'p/a']);
+  assert.deepEqual(h?.points.map((p) => p.cpu), [10, 20]);
+  assert.equal(appendResourcePoint(h!, point(1, 1)), h, 'an older sample changes nothing');
+});

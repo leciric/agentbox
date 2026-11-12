@@ -22,8 +22,11 @@ import (
 // An agent's memory fails fast: its machine's cgroup gets a hard memory.max,
 // so a process that outgrows it is killed at once (and the agent told,
 // internal/daemon/pressure.go) rather than the agent crawling under a throttle
-// while the VM swaps. The limit is what one agent may have alone: the VM's
-// memory less what the VM keeps for itself and the other agents idling. How
+// while the VM swaps. The limit is a share of the VM (AgentMemoryShare, half
+// unless the user chose): one runaway build is killed inside its own machine
+// while the daemon, Incus and the other agents keep the rest. It was the VM
+// less an eighth, which let one agent building Rust take 16 of an 18 GiB VM:
+// the VM swapped to its disk, Incus stopped answering and the host froze. How
 // many agents' heavy commands run at once is the daemon's, from the VM's
 // measured pressure (package pressure), not this.
 //
@@ -33,14 +36,31 @@ import (
 // set memory.max too, but DropOldLimits takes that key off every machine,
 // and it doesn't follow the VM as it grows; this is written live.
 
-// MemoryLimit is memory.max for an agent in a VM of total bytes: total less
-// an eighth of it, and at least 1 GiB, which the VM keeps. 0 (none) when total
-// isn't known.
-func MemoryLimit(total int64) int64 {
+// The share of the VM one agent may have, in percent: DefaultAgentMemoryShare
+// unless the user chose (Settings.AgentMemoryShare), from MinAgentMemoryShare
+// to MaxAgentMemoryShare. Above 90% one agent can again starve the daemon and
+// Incus; under 10% a 4 GiB VM's agent couldn't run a compiler.
+const (
+	DefaultAgentMemoryShare = 50
+	MinAgentMemoryShare     = 10
+	MaxAgentMemoryShare     = 90
+)
+
+// MemoryLimit is memory.max for an agent in a VM of total bytes: share percent
+// of it (DefaultAgentMemoryShare for 0, and kept from MinAgentMemoryShare to
+// MaxAgentMemoryShare). total is the most the VM may grow to, not what it
+// was granted so far (HostMemory), so the limit follows the VM as its cap
+// changes without killing a build the VM is still growing for. 0 (none) when
+// total isn't known.
+func MemoryLimit(total int64, share int) int64 {
 	if total <= 0 {
 		return 0
 	}
-	return max(total-max(total/8, int64(1)<<30), total/2)
+	if share == 0 {
+		share = DefaultAgentMemoryShare
+	}
+	share = min(max(share, MinAgentMemoryShare), MaxAgentMemoryShare)
+	return total / 100 * int64(share)
 }
 
 // SetMemoryLimit sets an agent's machine's memory.max to limit (0 for none,
@@ -86,6 +106,19 @@ type MemoryCounts struct {
 	OwnLimit int64
 	// Limit is its memory.max, 0 for none.
 	Limit int64
+	// Nested is each cgroup below the machine's (a container's --memory, a
+	// systemd slice) that has a memory.max of its own, by path from the
+	// machine's cgroup, with how many times it reached that limit. A kill
+	// there is for that limit, not the machine's or the VM's.
+	Nested map[string]NestedLimit
+}
+
+// NestedLimit is a cgroup inside an agent's machine with a memory limit.
+type NestedLimit struct {
+	// Limit is its memory.max.
+	Limit int64
+	// Reached is its memory.events.local oom count.
+	Reached int64
 }
 
 // MemoryEvents reads an agent's machine's MemoryCounts; ok is false when its
@@ -107,7 +140,37 @@ func memoryEvents(dir string) (MemoryCounts, bool) {
 	if b, err := os.ReadFile(filepath.Join(dir, "memory.max")); err == nil {
 		out.Limit, _ = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
 	}
+	out.Nested = nestedLimits(dir)
 	return out, true
+}
+
+// nestedLimits finds the cgroups below dir that have a memory.max.
+func nestedLimits(dir string) map[string]NestedLimit {
+	var out map[string]NestedLimit
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || path == dir {
+			return nil
+		}
+		b, err := os.ReadFile(filepath.Join(path, "memory.max"))
+		if err != nil {
+			return nil
+		}
+		limit, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		if err != nil || limit <= 0 { // "max": no limit
+			return nil
+		}
+		var reached int64
+		if b, err := os.ReadFile(filepath.Join(path, "memory.events.local")); err == nil {
+			reached = eventCount(b, "oom")
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if out == nil {
+			out = map[string]NestedLimit{}
+		}
+		out[rel] = NestedLimit{Limit: limit, Reached: reached}
+		return nil
+	})
+	return out
 }
 
 // eventCount is one count of a memory.events file.
@@ -288,33 +351,15 @@ func freezeRun(root, instance, key string, on bool, write func(path, value strin
 
 // ReclaimRun asks the kernel to push a paused run's memory out to swap (and
 // drop its page cache), so a paused run doesn't hold the VM's RAM. Without
-// swap only the cache goes. The kernel reclaims what it can and says when it
-// fell short, which isn't an error here.
-func ReclaimRun(instance, key string) error {
-	return reclaimRun(cgroupRoot, instance, key, writeCgroup)
+// swap only the cache goes. It is bounded (reclaimCgroup): the kernel
+// falling short isn't an error here.
+func ReclaimRun(ctx context.Context, instance, key string) error {
+	return reclaimRun(ctx, cgroupRoot, instance, key, writeReclaim)
 }
 
-func reclaimRun(root, instance, key string, write func(path, value string) error) error {
-	return reclaimDir(runCgroup(root, instance, key), write)
-}
-
-// reclaimDir asks the kernel to push out what the cgroup at dir holds.
-func reclaimDir(dir string, write func(path, value string) error) error {
-	b, err := os.ReadFile(filepath.Join(dir, "memory.current"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	current, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	if err != nil || current <= 0 {
-		return err
-	}
-	if err := write(filepath.Join(dir, "memory.reclaim"), strconv.FormatInt(current, 10)); err != nil && !errors.Is(err, errReclaimShort) {
-		return err
-	}
-	return nil
+func reclaimRun(ctx context.Context, root, instance, key string, write reclaimWriter) error {
+	_, _, err := reclaimCgroup(ctx, runCgroup(root, instance, key), write)
+	return err
 }
 
 // writeKernfs writes a cgroup file with plain blocking system calls. Not
@@ -463,8 +508,9 @@ func machineFrozen(root, instance string) bool {
 
 // ReclaimMachine pushes a frozen machine's memory out to swap, as ReclaimRun
 // does a run's.
-func ReclaimMachine(instance string) error {
-	return reclaimDir(agentCgroup(cgroupRoot, instance), writeCgroup)
+func ReclaimMachine(ctx context.Context, instance string) error {
+	_, _, err := reclaimCgroup(ctx, agentCgroup(cgroupRoot, instance), writeReclaim)
+	return err
 }
 
 // MachineMemory is what an agent's machine uses, without its caches; 0 when

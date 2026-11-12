@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -98,6 +99,14 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 		return err
 	}
 	s.mem.Requested = c.MemoryMin
+	// Below the desktop, before it starts anything (priority_linux.go).
+	if failed := lowerPriority(); len(failed) > 0 {
+		s.logf("running the VM at the desktop's priority, as lowering it failed: %s", strings.Join(failed, "; "))
+	}
+	// What of that doesn't hold here, said once, for a desktop that stalls.
+	for _, gap := range priorityGaps(l.RootDisk()) {
+		s.logf("priority: %s", gap)
+	}
 	return s.run(ctx)
 }
 
@@ -203,6 +212,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
 	go s.busyLoop(loops)
+	go s.hostLoadLoop(loops)
 	go s.diskLoop(loops)
 	if m, ok := s.m.(*chMachine); ok {
 		go s.gpuLoop(loops, m)
@@ -526,8 +536,9 @@ func idleAgents(ctx context.Context, client *http.Client) int {
 }
 
 // trim has the guest reclaim d.Trim of its coldest file pages and compact
-// what's free, which free page reporting then returns to the host; with the
-// host short, the host drops what it caches of the VM's disks too, which a
+// what's free, which free page reporting then returns to the host (and,
+// before a shrink, what's left of the cache moves out of the blocks to be
+// unplugged); with the host short, the host drops what it caches of the VM's disks too, which a
 // disk without direct=on keeps a second copy of.
 func (s *supervisor) trim(ctx context.Context, d memDecision) {
 	started := time.Now()
@@ -543,12 +554,24 @@ func (s *supervisor) trim(ctx context.Context, d memDecision) {
 }
 
 // trimScript reclaims up to n bytes from the guest's root cgroup, which
-// takes inactive pages first, with swappiness=0 so it takes them from the
-// page cache rather than swapping, then compacts its free memory. Reclaiming
-// less than asked fails the write, which isn't an error here.
+// takes the coldest pages first (n is never more than its inactive file
+// pages, so that is mostly the page cache), then compacts its free memory.
+// Reclaiming less than asked fails the write, which isn't an error here.
+//
+// The write is bounded the way the daemon's are (agent/reclaim.go): skipped
+// while any other memory.reclaim writer runs in the guest, and tee killed by
+// timeout(1), as root, after trimWriteTimeout, so it can't outlive the ssh
+// session the way the writers found spinning on 2026-11-06 did. No
+// swappiness=0: on a guest with little cache left it made the kernel scan
+// and rescan the same few file pages, which the machines fault straight back
+// in, rather than fall short and stop.
 func trimScript(n int64) string {
-	return fmt.Sprintf("echo '%d swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n)
+	return fmt.Sprintf("pgrep -f '^tee /sys/fs/cgroup/.*memory[.]reclaim' >/dev/null || echo %d | sudo -n timeout --foreground -s KILL %d tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n, int(trimWriteTimeout/time.Second))
 }
+
+// trimWriteTimeout is how long a trim's write to memory.reclaim may take
+// before it is killed: well inside the ssh's own 30 seconds.
+const trimWriteTimeout = 10 * time.Second
 
 // reclaimScript drops the guest's page cache and the kernel's reclaimable
 // caches (dentries, inodes), then compacts its free memory into whole blocks,

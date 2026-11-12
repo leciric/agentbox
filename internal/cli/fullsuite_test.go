@@ -277,7 +277,7 @@ func TestFullSuiteMessage(t *testing.T) {
 }
 
 // The hook refuses a whole suite only while the daemon says it's blocked,
-// and asks the daemon only about a command that is one.
+// and asks the daemon about memory for none: the shims do.
 func TestHeavyHookFullSuite(t *testing.T) {
 	t.Parallel()
 	envFile := filepath.Join(t.TempDir(), "heavy.env")
@@ -286,7 +286,7 @@ func TestHeavyHookFullSuite(t *testing.T) {
 	if code != 2 || !strings.Contains(out, "runs the whole test suite") || len(f.asked) != 0 {
 		t.Fatalf("blocked: exit %d, %q, %d asked to start", code, out, len(f.asked))
 	}
-	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"AGENTBOX_FULL_SUITE=1 go test ./..."}}`); code != 0 || out != "" || len(f.asked) != 1 {
+	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"AGENTBOX_FULL_SUITE=1 go test ./..."}}`); code != 0 || out != "" || len(f.asked) != 0 {
 		t.Fatalf("asked for by name: exit %d, %q", code, out)
 	}
 	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t3","tool_input":{"command":"go test ./internal/cli"}}`); code != 0 || out != "" {

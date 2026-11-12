@@ -266,9 +266,14 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
-	cmdline := command
+	// The shims first in PATH, after what mise exec puts in front, so the
+	// tool's builds and tests wait their turn for memory (heavyshims.go).
+	if err := m.writeHeavyShims(ctx, a); err != nil {
+		return "", err
+	}
+	cmdline := withShimsFirst(command)
 	if adapter.Package != "" {
-		cmdline = "mise exec " + pkg + " -- " + command
+		cmdline = "mise exec " + pkg + " -- " + cmdline
 	}
 	hide, err := m.toolHides(a)
 	if err != nil {

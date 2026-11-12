@@ -31,6 +31,7 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  iosForwardPorts: number[];
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
@@ -125,6 +126,7 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  iosForwardPorts?: number[];
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
@@ -219,7 +221,6 @@ export interface Settings {
   errorReports: boolean;
   prWatch: boolean;
   mergeWhenGreen: boolean;
-  agentGoals: boolean;
   agentFreeze: boolean;
   mediaRetention: string;
   language: string;
@@ -227,6 +228,12 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
+  agentMemoryShare: number;
+  defaultAgentMemoryShare: number;
+  minAgentMemoryShare: number;
+  maxAgentMemoryShare: number;
+  agentMemoryLimit: number;
+  vmMemory: number;
   autoStopIdle: boolean;
   removeStopped: boolean;
   removeStoppedDays: number;
@@ -300,7 +307,6 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;
-  agentGoals?: boolean;
   agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
@@ -319,6 +325,7 @@ export interface UpdateSettingsRequest {
   leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
+  agentMemoryShare?: number;
   imageCache?: boolean;
   imageCacheMaxBytes?: number;
   clearImageCache?: boolean;
@@ -363,6 +370,7 @@ export interface Agent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;
@@ -624,6 +632,7 @@ export interface PressureStatus {
   full: number;
   why?: string;
   runs: HeavyRun[];
+  host?: HostLoad;
 }
 
 export interface HeavyRun {
@@ -633,6 +642,21 @@ export interface HeavyRun {
   state: string;
   since: string;
   placed?: boolean;
+}
+
+export interface HostLoad {
+  os: string;
+  memory: number;
+  cpu: number;
+  io: number;
+  cpuShare: number;
+  level?: string;
+  memoryTotal?: number;
+  available?: number;
+  busy: boolean;
+  why?: string;
+  reclaim?: boolean;
+  at: string;
 }
 
 export interface Job {
@@ -686,6 +710,8 @@ export interface Usage {
 export interface DiskUsageItem {
   label: string;
   bytes: number;
+  kind?: string;
+  name?: string;
 }
 
 export interface DiskUsageCategory {
@@ -695,9 +721,16 @@ export interface DiskUsageCategory {
   items?: DiskUsageItem[];
 }
 
+export interface DiskTrim {
+  at: string;
+  bytes: number;
+  error?: string;
+}
+
 export interface DiskUsage {
   total: number;
   categories: DiskUsageCategory[];
+  trim?: DiskTrim;
 }
 
 export interface AgentDisk {
@@ -877,6 +910,7 @@ export interface AgentChange {
   memory?: MemoryHold;
   waitingForImage?: boolean;
   reclaimed?: string;
+  hold?: string;
 }
 
 export interface Theme {
@@ -2116,6 +2150,7 @@ export interface FleetAgent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;
@@ -2199,6 +2234,7 @@ export interface Question {
   secretName?: string;
   connector?: string;
   url?: string;
+  ports?: number[];
   question: string;
   context?: string;
   status: string;
@@ -2234,6 +2270,7 @@ export interface AnswerCredentialRequest {
   connector?: string;
   refuse?: boolean;
   reason?: string;
+  allow?: boolean;
 }
 
 export interface AgentEvent {
@@ -2520,6 +2557,42 @@ export interface RemotePairing {
   error?: string;
 }
 
+export interface MCPPairing {
+  id: string;
+  label: string;
+  client: string;
+  access: string;
+  projects: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+  apps?: string[];
+}
+
+export interface MCPPairings {
+  available: boolean;
+  reason?: string;
+  error?: string;
+  hub?: string;
+  url?: string;
+  pairings: MCPPairing[];
+}
+
+export interface MCPPairRequest {
+  label: string;
+  client?: string;
+  access: string;
+  projects?: string[];
+  token?: boolean;
+}
+
+export interface MCPPairingSecret {
+  pairing: MCPPairing;
+  url: string;
+  code: string;
+  codeExpiresAt: string;
+  token?: string;
+}
+
 export interface UsageStatsPending {
   on: boolean;
   usageUrl: string;
@@ -2685,6 +2758,7 @@ export interface ChatSession {
   resumeAt?: string;
   noImages?: boolean;
   background?: string[];
+  backgroundTasks?: ChatBackgroundTask[];
   toolsChanged?: boolean;
   noResume?: boolean;
 }
@@ -2756,6 +2830,28 @@ export interface ChatTool {
   output?: string;
   diffs?: ChatDiff[];
   page?: ChatPage;
+}
+
+export interface ChatBackgroundTask {
+  id: string;
+  kind: string;
+  title: string;
+  command?: string;
+  status: string;
+  exitCode?: number;
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;
+  item?: string;
+  hasOutput?: boolean;
+}
+
+export interface ChatBackgroundDetail {
+  task: ChatBackgroundTask;
+  output: string;
+  outputStart: number;
+  outputSize: number;
+  outputError?: string;
 }
 
 export interface ChatPage {
@@ -2831,6 +2927,12 @@ export interface GoalCheck {
   command?: string;
   met?: boolean;
   detail?: string;
+}
+
+export interface GoalResult {
+  goal: AgentGoal;
+  told?: string;
+  woke?: string;
 }
 
 export interface ChatProjectMessage {
@@ -3594,6 +3696,7 @@ export interface VMMemory {
   cap: number;
   granted: number;
   hostReserve?: number;
+  hostTotal?: number;
   used: number;
   resident: number;
   hostCache: number;
@@ -3893,6 +3996,68 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PresenceRequest {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+}
+
+export interface PresenceView {
+  project: string;
+  agent?: string;
+  resources?: boolean;
+}
+
+export interface HostPower {
+  onBattery: boolean;
+  thermal?: string;
+}
+
+export interface PresenceResponse {
+  ttlSeconds: number;
+  idle: boolean;
+}
+
+export interface PresenceState {
+  leases: PresenceLease[];
+  idle: boolean;
+  power: HostPower;
+  sampling: string[];
+}
+
+export interface PresenceLease {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+  expires: string;
+}
+
+export interface AgentResourcePoint {
+  at: string;
+  cpu: number;
+  memory: number;
+  swap: number;
+  diskRead: number;
+  diskWrite: number;
+}
+
+export interface AgentResourceHistory {
+  ref: string;
+  intervalSeconds: number;
+  windowSeconds: number;
+  sampling: boolean;
+  points: AgentResourcePoint[];
+}
+
+export interface AgentResourcesEvent {
+  ref: string;
+  point: AgentResourcePoint;
+}
+
 export interface PackageCachePart {
   name: string;
   bytes: number;
@@ -3975,6 +4140,7 @@ export const EventJob = "job";
 export const EventJobLog = "job.log";
 export const EventAgent = "agent";
 export const EventUsage = "usage";
+export const EventAgentResources = "agent-resources";
 export const EventProject = "project";
 export const EventMedia = "media";
 export const EventNotification = "notification";
@@ -4052,6 +4218,7 @@ export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
+export const CredentialIOSPorts = "ios_ports";
 export const ClaudeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_PROFILE ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_WORKSPACE_ID CLAUDE_CODE_OAUTH_REFRESH_TOKEN CLAUDE_CONFIG_DIR CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST CLAUDE_CODE_USE_BEDROCK AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_API_KEY ANTHROPIC_AWS_BASE_URL CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_VERTEX_PROJECT_ID CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_FOUNDRY_API_KEY ANTHROPIC_FOUNDRY_AUTH_TOKEN ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE";
 export const CodexCredentialVariables = "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 export const OpenCodeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";

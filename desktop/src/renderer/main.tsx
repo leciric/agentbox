@@ -6,11 +6,13 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { AppCrash } from './components/AppCrash';
 import { SettledToasts } from './components/chat/SettledToasts';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toasts } from './components/Toasts';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
-import { startAppTiming } from './lib/appTiming';
+import { recordMainLag, startAppTiming } from './lib/appTiming';
 import { userTimezone } from './lib/schedules';
 import { connectEvents } from './lib/events';
 import { applyLanguage, restoreLanguage, useLanguage } from './lib/i18n';
@@ -35,6 +37,7 @@ const queryClient = new QueryClient({
 connectEvents(queryClient);
 // The app's own spans, for Settings → Diagnostics (lib/appTiming.ts).
 startAppTiming(api.sendClientSpans);
+window.agentbox.report.onMainLag(recordMainLag);
 
 // Root speaks the daemon's Settings.language, and draws the app again the
 // moment it changes: every component under it re-renders in the new language,
@@ -56,7 +59,11 @@ function Root() {
   }, [timezone]);
   return (
     <TooltipProvider delayDuration={250}>
-      <App />
+      {/* A render error anywhere the app has no closer boundary shows what
+          happened and a way back, not a black window (components/AppCrash). */}
+      <ErrorBoundary fallback={(error, retry) => <AppCrash error={error} retry={retry} />}>
+        <App />
+      </ErrorBoundary>
       <Toasts />
       <SettledToasts />
     </TooltipProvider>

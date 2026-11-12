@@ -43,14 +43,20 @@ type Data struct {
 	// NodeModules are the directories of the worktree whose node_modules are
 	// on the machine's own disk (agent/nodemodules.go), "." for its top.
 	NodeModules []string
+	// CargoTargets are the directories of the worktree whose Cargo target/
+	// is on the machine's own disk (agent/buildoutputs.go), "." for its top.
+	CargoTargets []string
 	// Secrets are the names of the secrets this agent has as environment
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string
 	Android bool // the project builds an Android app
 	// IOS is whether the project builds an iOS app and the user's computer
 	// is a Mac, whose iOS Simulator agents drive with agentbox ios.
-	IOS    bool
-	GitHub bool // AgentBox shares a GitHub token with agents
+	IOS bool
+	// IOSPorts are the ports the project lets its agents forward to the
+	// Mac's localhost (agentbox ios forward).
+	IOSPorts []int
+	GitHub   bool // AgentBox shares a GitHub token with agents
 	// Nesting is whether the project turned nesting on: the agent runs a real
 	// Incus daemon of its own, inside its own container.
 	Nesting bool
@@ -208,6 +214,9 @@ type LeadData struct {
 	// the Mac's home through Lima's mount (D92).
 	VM   bool
 	Host string
+	// IOS is Data's: the project builds an iOS app and the user's computer is
+	// a Mac, whose iOS Simulator its agents drive, though the lead can't.
+	IOS bool
 	// Notes are the project's notes, the same ones its agents are given.
 	Notes string
 	// PRWatch is whether AgentBox watches this project's agents' pull

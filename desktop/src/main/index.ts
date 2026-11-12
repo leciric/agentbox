@@ -4,7 +4,7 @@
 // hubs, installs the command-line tool, updates the app (updater.ts), and
 // keeps the tray icon (tray.ts).
 import { isSafeExternalUrl } from './externalurl';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerMonitor, powerSaveBlocker, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
@@ -57,7 +57,9 @@ import { parseHubLink } from '../shared/hublink';
 import type { HubAccount, HubConnectResult } from '../preload';
 import './vmpower';
 import { keepAwake } from './keepawake';
+import { watchHostPower } from './hostpower';
 import { AppTray } from './tray';
+import { watchLoopLag } from './looplag';
 import type { TrayTarget } from './traymodel';
 
 guardStdio();
@@ -68,6 +70,13 @@ guardStdio();
 const appLog = new AppLog(app.getPath('logs'));
 captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
+process.on('exit', () => appLog.flushSync());
+// A stall of this process stalls every window: logged, and sent with the
+// window's own timing to the daemon's diagnostics (looplag.ts).
+watchLoopLag((lag) => {
+  appLog.write('LAG', `the main process's event loop stalled ${lag.maxMs} ms (p99 ${lag.p99Ms} ms) in ${lag.windowMs / 1000} s`);
+  send('app:mainLag', lag);
+});
 registerMediaScheme();
 registerBrowserKeys();
 registerBrowserCookies(ipcMain);
@@ -154,6 +163,10 @@ async function callDaemon(method: string, path: string, body?: unknown): Promise
 const setKeepAwake = keepAwake(powerSaveBlocker);
 ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
+// The computer's power, for the renderer's presence lease (main/hostpower.ts):
+// powerMonitor answers only once the app is ready.
+let hostPower: (() => T.HostPower) | undefined;
+ipcMain.handle('power:get', (): T.HostPower => hostPower?.() ?? { onBattery: false });
 ipcMain.handle('daemon:stale', () => staleDaemon());
 ipcMain.handle('daemon:restartStale', () => restartStaleDaemon());
 onStaleDaemon((stale) => send('daemon:stale', stale));
@@ -514,6 +527,7 @@ function showWindow(): void {
 app.on('activate', () => showWindow());
 
 void app.whenReady().then(async () => {
+  hostPower = watchHostPower(powerMonitor, (power) => send('power:change', power));
   if (duplicate) return;
   handleMedia();
   denyMedia();

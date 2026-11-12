@@ -87,6 +87,19 @@ func (c *Client) TellAgent(ctx context.Context, agent, message string) (TellResu
 	return out, c.do(ctx, http.MethodPost, path, ChatMessageRequest{Text: message}, &out)
 }
 
+// SetAgentGoal sets or changes one of the project's agents' goal, for its
+// lead, and sends it to work towards it.
+func (c *Client) SetAgentGoal(ctx context.Context, agent string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.do(ctx, http.MethodPut, c.leadPath("/agents/"+url.PathEscape(agent)+"/goal"), spec, &out)
+}
+
+// ClearAgentGoal clears one of the project's agents' goal, for its lead.
+func (c *Client) ClearAgentGoal(ctx context.Context, agent string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.do(ctx, http.MethodDelete, c.leadPath("/agents/"+url.PathEscape(agent)+"/goal"), nil, &out)
+}
+
 func (c *Client) AgentChat(ctx context.Context, agent string) (ChatThread, error) {
 	var out ChatThread
 	return out, c.do(ctx, http.MethodGet, c.leadPath("/agents/"+url.PathEscape(agent)+"/chat"), nil, &out)

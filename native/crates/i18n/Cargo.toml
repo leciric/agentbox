@@ -1,0 +1,6 @@
+[package]
+name = "agentbox-i18n"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true

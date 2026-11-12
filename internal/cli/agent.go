@@ -258,7 +258,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	_ = f.MarkHidden("queue")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
-	f.StringVar(&goal, "goal", "", "experimental (Settings → Experimental): what done looks like; after each turn AgentBox runs the --goal-check checks and sends the agent back until they pass")
+	f.StringVar(&goal, "goal", "", "what done looks like; after each turn AgentBox runs the --goal-check checks and sends the agent back until they pass")
 	f.StringArrayVar(&goalChecks, "goal-check", nil, "with --goal: pr_open, ci_green (its pull request's checks all passed), or a shell command that must exit 0 in its worktree; repeat it for several")
 	f.IntVar(&goalBudget, "goal-budget", 0, "with --goal: the most times the agent is sent back (default 10)")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
@@ -342,12 +342,22 @@ func newListCmd(a *app) *cobra.Command {
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			// TITLE comes last: it can contain spaces, and scripts read the columns before it.
-			_, _ = fmt.Fprintln(w, "AGENT\tAI\tSTATE\tBRANCH\tIP\tCREATED\tTITLE")
+			_, _ = fmt.Fprintln(w, "AGENT\tAI\tSTATE\tBRANCH\tIP\tCREATED\tGOAL\tTITLE")
+			var goals []string
 			for _, ag := range agents {
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					ag.Ref, describeAI(ag.AI, ag.Autonomous), ag.State, ag.Branch, orDash(ag.IP), ago(ag.CreatedAt), orDash(ag.Title))
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					ag.Ref, describeAI(ag.AI, ag.Autonomous), ag.State, ag.Branch, orDash(ag.IP), ago(ag.CreatedAt), goalColumn(ag.Goal), orDash(ag.Title))
+				if g := ag.Goal; g != nil && g.Status != api.GoalCleared {
+					goals = append(goals, fmt.Sprintf("  %s: %s", ag.Ref, g.Objective))
+				}
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if len(goals) > 0 {
+				_, _ = fmt.Fprintf(out, "\nGoals (agentbox goal <project/agent> for the checks):\n%s\n", strings.Join(goals, "\n"))
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&archived, "archived", false, "list past agents instead, as agentbox past list does")

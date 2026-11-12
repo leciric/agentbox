@@ -51,7 +51,7 @@ type machineCgroups interface {
 	Running(instance string) (running, frozen bool)
 	Own(instance string) error
 	Freeze(instance string, on bool) error
-	Reclaim(instance string) error
+	Reclaim(ctx context.Context, instance string) error
 	Memory(instance string) int64
 }
 
@@ -64,8 +64,10 @@ func (agentMachineCgroups) Own(instance string) error { return agent.OwnMachineF
 func (agentMachineCgroups) Freeze(instance string, on bool) error {
 	return agent.FreezeMachine(instance, on)
 }
-func (agentMachineCgroups) Reclaim(instance string) error { return agent.ReclaimMachine(instance) }
-func (agentMachineCgroups) Memory(instance string) int64  { return agent.MachineMemory(instance) }
+func (agentMachineCgroups) Reclaim(ctx context.Context, instance string) error {
+	return agent.ReclaimMachine(ctx, instance)
+}
+func (agentMachineCgroups) Memory(instance string) int64 { return agent.MachineMemory(instance) }
 
 // fleetState is the fleet and what the daemon keeps beside it, under mu,
 // which may be taken under heavyRuns.mu but never the other way round.
@@ -138,6 +140,9 @@ func (s *Server) loadFleet(ctx context.Context) {
 	fl.on = on
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
+	s.admit.mu.Lock()
+	s.admit.a.BootCost = pressure.MedianBootCost(costs)
+	s.admit.mu.Unlock()
 	for _, ref := range left {
 		a, err := s.agentByRef(ctx, ref)
 		if err != nil || a.Instance == "" {
@@ -234,6 +239,14 @@ func (s *Server) startAllHeavy() {
 	}
 }
 
+// isChatBusy is whether a's chat runs a turn.
+func (s *Server) isChatBusy(a state.Agent) bool {
+	if s.fleetChatBusy != nil {
+		return s.fleetChatBusy(a)
+	}
+	return s.chat.Busy(a)
+}
+
 // syncFleet tells the fleet which machines run and which of them work, on
 // the memory watch's loop: it may wait on SQLite. agents are every agent.
 func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
@@ -266,6 +279,11 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 		if err := s.machineCgroups.Own(a.Instance); err != nil {
 			s.logOnce("freezer "+a.Instance, "memory: "+a.Ref()+": taking its freezer: "+err.Error())
 		}
+		// Before the fleet's lock: Busy takes the chat's, which a chat
+		// storing its items holds while the database is slow, and the
+		// pressure loop (fleetOn, stepFleet) can't freeze anything while
+		// this holds fl.mu.
+		busy[a.Ref()] = busy[a.Ref()] || s.isChatBusy(a)
 		all = append(all, seen{a, running, frozen, s.machineCgroups.Memory(a.Instance)})
 	}
 	fl := s.frozen
@@ -285,7 +303,7 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 		ms = append(ms, pressure.Machine{
 			Agent:      ref,
 			Since:      x.a.CreatedAt,
-			Working:    busy[ref] || s.chat.Busy(x.a),
+			Working:    busy[ref],
 			Heavy:      heavy[ref],
 			Memory:     x.memory,
 			Frozen:     x.froze,
@@ -376,7 +394,11 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 			continue // nowhere to push it out to
 		}
 		go func(c change) {
-			if err := s.machineCgroups.Reclaim(c.instance); err != nil {
+			ctx := context.WithoutCancel(ctx)
+			if !s.mayReclaim(ctx, c.instance) {
+				return
+			}
+			if err := s.machineCgroups.Reclaim(s.background(), c.instance); err != nil {
 				s.logf("memory: pushing %s's memory out: %v", c.ref, err)
 			}
 		}(c)
@@ -560,7 +582,7 @@ func (s *Server) admitMachine(ctx context.Context, a state.Agent) error {
 	fl.mu.Lock()
 	if !fl.on {
 		fl.mu.Unlock()
-		return nil
+		return s.admitBoot(ctx, a)
 	}
 	fl.instance[ref] = a.Instance
 	if fl.f.Ask(ref, time.Now()) {
@@ -630,6 +652,9 @@ func (s *Server) measureBoot(ctx context.Context, instance string) {
 	fl.mu.Lock()
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
+	s.admit.mu.Lock()
+	s.admit.a.BootCost = pressure.MedianBootCost(costs)
+	s.admit.mu.Unlock()
 }
 
 // machineHold is what pausing whole agents holds of an agent's machine, nil
@@ -639,7 +664,7 @@ func (s *Server) machineHold(ref string) *api.MemoryHold {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
 	if !fl.on {
-		return nil
+		return s.admitHold(ref)
 	}
 	n, frozen, ok := fl.f.Ahead(ref)
 	if !ok {

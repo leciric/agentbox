@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CircleCheck, CircleDashed, FolderGit2, GitFork, Lock, LoaderCircle, Plus, Search } from "lucide-react";
+import { ArrowRight, CircleCheck, CircleDashed, FolderGit2, GitFork, Info, Lock, LoaderCircle, Plus, Search } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConnectionState, HostSetupStatus } from "../../preload";
 import * as T from "../../shared/api";
@@ -310,9 +310,7 @@ function Connected({
             progress.github ? (
               <NextButton onClick={() => setViewing(undefined)} />
             ) : (
-              <Button variant="ghost" onClick={() => skip("github")}>
-                {t("firstRun.skip")}
-              </Button>
+              <SkipButton note={t("firstRun.github.skipNote")} onClick={() => skip("github")} />
             )
           }
         >
@@ -326,9 +324,7 @@ function Connected({
             (projects.data?.length ?? 0) > 0 ? (
               <NextButton onClick={() => setViewing(undefined)} />
             ) : (
-              <Button variant="ghost" onClick={() => skip("project")}>
-                {t("firstRun.skip")}
-              </Button>
+              <SkipButton note={t("firstRun.project.skipNote")} onClick={() => skip("project")} />
             )
           }
         >
@@ -380,6 +376,17 @@ function Frame({
 }) {
   const t = useT();
   const at = current ?? firstRunStep(progress);
+  // Moving to another step takes the focus to its heading, so the keyboard
+  // and a screen reader land on what changed, not on the button that is gone.
+  // Not on the first one: the window has only just opened.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    document.querySelector<HTMLElement>(`[data-first-run-panel="${at}"] h2`)?.focus();
+  }, [at]);
   return (
     <div className="h-full overflow-y-auto" data-first-run={at}>
       <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-9">
@@ -412,7 +419,6 @@ function Frame({
                         "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-ui transition",
                         active ? "bg-surface-raised text-primary" : "text-muted hover:bg-surface hover:text-secondary",
                         !reachable && !active && "hover:bg-transparent hover:text-muted",
-                        !done && !active && "opacity-60",
                       )}
                     >
                       {done ? (
@@ -444,12 +450,26 @@ function StepPanel({ step, title, footer, children }: { step: FirstRunStep; titl
   return (
     <div className="grid gap-4">
       <Panel className="p-5" data-first-run-panel={step}>
-        <h2 className="text-heading font-semibold text-title">{title ?? t(titles[step])}</h2>
+        <h2 tabIndex={-1} className="text-heading font-semibold text-title focus:outline-none">{title ?? t(titles[step])}</h2>
         <p className="mt-1 text-sm text-muted">{t(`firstRun.${step}.intro` as MessageKey)}</p>
         <div className="mt-4">{children}</div>
       </Panel>
       {footer && <div className="flex flex-wrap items-center justify-end gap-2">{footer}</div>}
     </div>
+  );
+}
+
+// SkipButton passes over a step that can be done later, saying what waits
+// until it is: a Skip alone, far from the step, read as the way out of Setup.
+function SkipButton({ note, onClick }: { note: string; onClick: () => void }) {
+  const t = useT();
+  return (
+    <>
+      <p className="min-w-0 flex-1 text-ui text-subtle">{note}</p>
+      <Button variant="secondary" onClick={onClick} data-first-run-skip>
+        {t("firstRun.skip")}
+      </Button>
+    </>
   );
 }
 
@@ -546,9 +566,17 @@ function LoginStep({ tool, step }: { tool: FirstRunTool; step?: Step }) {
   if (!step) return <LoaderCircle className="size-5 animate-spin text-subtle" />;
   return (
     <div className="grid gap-3" data-first-run-login={tool} data-status={step.status}>
-      {step.detail && (
-        <p className={cn("break-words text-xs", step.status === "ok" ? "text-emerald-300/80" : "text-subtle")}>{step.detail}</p>
-      )}
+      {/* Why this step is here, from the daemon: a callout while it is still
+          to do, rather than a small grey line that read like a log. */}
+      {step.detail &&
+        (step.status === "ok" ? (
+          <p className="break-words text-xs text-emerald-300/80">{step.detail}</p>
+        ) : (
+          <p className="flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-ui text-secondary" data-first-run-login-reason>
+            <Info className="mt-0.5 size-4 shrink-0 text-sky-400" aria-hidden />
+            <span className="min-w-0 break-words first-letter:uppercase">{step.detail}</span>
+          </p>
+        ))}
       {needsImage && (
         <div className="grid gap-2">
           <p className="text-ui text-muted">{t("firstRun.login.addToImage", { tool: aiLabel(tool) })}</p>

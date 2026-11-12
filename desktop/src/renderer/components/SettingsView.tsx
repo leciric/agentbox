@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
+  Blocks,
   Sparkles,
   SquareTerminal,
   Sun,
@@ -58,6 +59,7 @@ import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { appendOutput, cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
+import { StorageUsage } from "./StorageUsage";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
@@ -76,6 +78,7 @@ import {
   DefaultTool,
   LeadRecheck,
   MediaRetention,
+  AgentMemoryShare,
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
@@ -96,6 +99,7 @@ import { ConnectorsTab } from "./ConnectorsTab";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
+import { appsGroups } from "./AppsSettings";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
@@ -107,6 +111,7 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
+import { setUiOffice, useUiOffice } from "../lib/uiOffice";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -877,6 +882,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
+  const uiOffice = useUiOffice();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
   const pageStack = usePageStackMode();
@@ -997,6 +1003,13 @@ function InstalledSettings({
               keywords: t("settings.entry.group-idle.keywords"),
               modified: groupIdle,
               render: () => <GroupIdleSetting />,
+            },
+            {
+              id: "office",
+              label: t("settings.entry.office.label"),
+              keywords: t("settings.entry.office.keywords"),
+              modified: uiOffice,
+              render: () => <OfficeSetting />,
             },
             // The sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
@@ -1195,6 +1208,17 @@ function InstalledSettings({
           },
         ]
       : []),
+    ...(local
+      ? [
+          {
+            id: "apps",
+            title: t("settings.section.apps.title"),
+            description: t("settings.section.apps.description"),
+            scope: "installation" as const,
+            groups: appsGroups(),
+          },
+        ]
+      : []),
     {
       id: "experimental",
       title: t("settings.section.experimental.title"),
@@ -1216,20 +1240,6 @@ function InstalledSettings({
           ],
         },
         {
-          id: "experimental-agents",
-          title: t("settings.group.experimental-agents.title"),
-          entries: [
-            {
-              id: "agent-goals",
-              description: t("settings.agentGoals.description"),
-              label: t("settings.entry.agent-goals.label"),
-              keywords: t("settings.entry.agent-goals.keywords"),
-              modified: changed((s) => s.agentGoals),
-              render: () => <AgentGoalsSetting />,
-            },
-          ],
-        },
-        {
           id: "experimental-memory",
           title: t("settings.group.experimental-memory.title"),
           entries: [
@@ -1238,7 +1248,7 @@ function InstalledSettings({
               description: t("settings.idleReclaim.description"),
               label: t("settings.idleReclaim.label"),
               keywords: t("settings.entry.idle-reclaim.keywords"),
-              modified: changed((s) => s.idleReclaim),
+              modified: changed((s) => !s.idleReclaim), // on by default
               render: () => <IdleReclaim />,
             },
             {
@@ -1634,9 +1644,30 @@ function InstalledSettings({
       nav: t("settings.nav.machine"),
       groups: [
         {
+          id: "agent-limits",
+          title: t("settings.group.agent-limits.title"),
+          entries: [
+            {
+              id: "agent-memory",
+              description: t("defaults.newAgent.agentMemoryDescription"),
+              label: t("settings.entry.agent-memory.label"),
+              keywords: t("settings.entry.agent-memory.keywords"),
+              modified: changed((s) => s.agentMemoryShare !== s.defaultAgentMemoryShare),
+              render: () => <AgentMemoryShare />,
+            },
+          ],
+        },
+        {
           id: "disk",
           title: t("settings.group.disk.title"),
           entries: [
+            {
+              id: "disk-usage",
+              description: t("storage.description"),
+              label: t("settings.entry.disk-usage.label"),
+              keywords: t("settings.entry.disk-usage.keywords"),
+              render: () => <StorageUsage inVM={!!(vm?.exists || chv)} />,
+            },
             {
               id: "disk-floor",
               description: t("defaults.newAgent.diskDescription"),
@@ -1903,6 +1934,7 @@ const sectionIcons: SectionIcons = {
   connectors: Plug,
   memory: Brain,
   phone: Smartphone,
+  apps: Blocks,
   agents: Bot,
   resources: Cpu,
   accounts: KeyRound,
@@ -2460,6 +2492,20 @@ function TopBarDetailedSetting() {
   );
 }
 
+// OfficeSetting turns on the Office, a 3D room with a desk for every agent
+// (lib/uiOffice.ts).
+function OfficeSetting() {
+  const t = useT();
+  const on = useUiOffice();
+  return (
+    <SettingRow
+      label={t("settings.entry.office.label")}
+      description={t("settings.office.description")}
+      control={<Switch data-office-setting aria-label={t("settings.entry.office.label")} checked={on} onCheckedChange={setUiOffice} />}
+    />
+  );
+}
+
 // GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
 // and sorts by activity (lib/groupIdle.ts), applied at once.
 function GroupIdleSetting() {
@@ -2586,39 +2632,6 @@ function AgentFreezeSetting() {
           aria-label={t("settings.entry.agent-freeze.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.agentFreeze ?? false}
-          onCheckedChange={(next) => save.mutate(next)}
-        />
-      }
-    />
-  );
-}
-
-// AgentGoalsSetting is the experimental agent goals (internal/daemon/goals.go,
-// internal/chat/goal.go): agents' goals shown, and create_agent's driven by
-// the daemon's own checks. Off until turned on; nothing changes while off.
-function AgentGoalsSetting() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (agentGoals: boolean) => api.updateSettings({ agentGoals }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["settings"], next);
-      void queryClient.invalidateQueries({ queryKey: ["agents"] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  return (
-    <SettingRow
-      label={t("settings.entry.agent-goals.label")}
-      description={t("settings.agentGoals.description")}
-      details={t("settings.agentGoals.details")}
-      control={
-        <Switch
-          data-agent-goals
-          aria-label={t("settings.entry.agent-goals.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.agentGoals ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

@@ -10,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/text/unicode/norm"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
@@ -1599,6 +1601,47 @@ var migrations = []string{
 	`ALTER TABLE project_threads ADD COLUMN project_session TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE project_threads ADD COLUMN peer_session TEXT NOT NULL DEFAULT ''`,
 
+	// A chat item is rewritten as it changes — an answer while it streams, a
+	// tool call as it runs — and the trigger above took every rewrite's text
+	// out of chat_items_fts and put it back, trigram by trigram, even when it
+	// was the same text, all inside the writer's hold on the lock. Only a
+	// change to what is searched touches the index now.
+	`DROP TRIGGER chat_items_fts_update`,
+	`CREATE TRIGGER chat_items_fts_update AFTER UPDATE ON chat_items
+		WHEN old.search_text IS NOT new.search_text OR old.rowid != new.rowid BEGIN
+		INSERT INTO chat_items_fts (chat_items_fts, rowid, search_text)
+			SELECT 'delete', old.rowid, old.search_text WHERE old.search_text IS NOT NULL;
+		INSERT INTO chat_items_fts (rowid, search_text)
+			SELECT new.rowid, new.search_text WHERE new.search_text IS NOT NULL;
+	END`,
+
+	// An agent On hold (daemon/admission.go): its machine stopped, or not
+	// yet booted, until the VM has the memory for it (HoldMemory), or until
+	// something touches it after it sat idle (HoldIdle); hold_at is since
+	// when. '' is not on hold.
+	`ALTER TABLE agents ADD COLUMN hold TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN hold_at INTEGER NOT NULL DEFAULT 0`,
+
+	// Other apps paired over remote MCP (mcppairings.go, daemon/remotemcp.go):
+	// what each may do, and in which projects ('[]' is all of them). The hub
+	// holds their tokens; this is what the machine itself allows.
+	`CREATE TABLE mcp_pairings (
+		id           TEXT PRIMARY KEY,
+		hub          TEXT NOT NULL,
+		label        TEXT NOT NULL,
+		client       TEXT NOT NULL DEFAULT '',
+		access       TEXT NOT NULL,
+		projects     TEXT NOT NULL DEFAULT '[]',
+		created_at   INTEGER NOT NULL,
+		last_used_at INTEGER NOT NULL DEFAULT 0
+	)`,
+	// projects.ios_forward_ports are the ports its agents may forward to the
+	// Mac's localhost for the iOS Simulator, comma-separated: none until the
+	// user names them.
+	`ALTER TABLE projects ADD COLUMN ios_forward_ports TEXT NOT NULL DEFAULT ''`,
+	// questions.ports are the ports an iOS ports request asks the user to
+	// let the project's agents forward to the Mac, comma-separated.
+	`ALTER TABLE questions ADD COLUMN ports TEXT NOT NULL DEFAULT ''`,
 	// GitHub Copilot CLI's accounts, as gemini_account is Gemini CLI's: the
 	// project's choice and the one an agent holds.
 	`ALTER TABLE projects ADD COLUMN copilot_account TEXT NOT NULL DEFAULT ''`,
@@ -1611,7 +1654,11 @@ var migrations = []string{
 const DefaultMediaRetentionDays = 30
 
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	gate      *writeGate
+	stop      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 func Open(path string) (*Store, error) {
@@ -1626,20 +1673,79 @@ func Open(path string) (*Store, error) {
 	// handler doesn't apply to that one case, so busy_timeout below wouldn't
 	// save it. Taking the lock up front turns two writers racing into one
 	// waiting for the other.
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
-	db, err := sql.Open("sqlite", dsn)
+	//
+	// synchronous(NORMAL) is WAL's usual setting: a commit is written to the
+	// WAL without an fsync, and the WAL is synced when it is checkpointed. A
+	// power cut can lose the last commits, never the database; a daemon that
+	// crashes loses nothing. FULL, the default, fsynced every commit while it
+	// held the write lock, and on a VM whose disk four or five agents are
+	// building on, one fsync could take seconds.
+	//
+	// wal_autocheckpoint(0) takes checkpoints off the commit, where the writer
+	// that happened to cross 1000 pages copied them into the database, fsync
+	// included, before its write returned: the checkpointer below does it in
+	// the background instead. journal_size_limit keeps the WAL from staying
+	// at its largest after a burst.
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)" +
+		fmt.Sprintf("&_pragma=busy_timeout(%d)", busyTimeout.Milliseconds()) +
+		"&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=journal_size_limit(67108864)"
+	registered, err := sql.Open("sqlite", "")
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	drv := registered.Driver().(*sqlite.Driver)
+	_ = registered.Close()
+	gate := newWriteGate()
+	db := sql.OpenDB(&gatedConnector{dsn: dsn, drv: drv, gate: gate})
+	s := &Store{db: db, gate: gate, stop: make(chan struct{}), stopped: make(chan struct{})}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	go s.checkpoints()
 	return s, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+// SetLog sends the store's own log lines — a write that held the lock past
+// SlowWrite, a writer that gave up waiting for it — to logf.
+func (s *Store) SetLog(logf func(format string, args ...any)) { s.gate.logf.Store(&logf) }
+
+// checkpointEvery is how often the WAL is checkpointed.
+var checkpointEvery = 10 * time.Second
+
+// checkpoints copies the WAL into the database every checkpointEvery, in the
+// background, PASSIVE: it never takes the write lock or waits for anybody,
+// and it does what it can of a WAL that readers still need, the rest the next
+// time. On close, a TRUNCATE leaves no WAL behind.
+func (s *Store) checkpoints() {
+	defer close(s.stopped)
+	t := time.NewTicker(checkpointEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-t.C:
+			start := time.Now()
+			var busy, logPages, done int
+			if err := s.db.QueryRow(`PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &logPages, &done); err != nil {
+				s.gate.log("sqlite: checkpointing the WAL: %v", err)
+			} else if took := time.Since(start); took > 5*time.Second {
+				s.gate.log("sqlite: checkpointing %d pages of the WAL took %s", done, took.Round(time.Millisecond))
+			}
+		}
+	}
+}
+
+func (s *Store) Close() error {
+	s.closeOnce.Do(func() {
+		close(s.stop)
+		<-s.stopped
+		var a, b, c int
+		_ = s.db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&a, &b, &c)
+	})
+	return s.db.Close()
+}
 
 // DB is the open database, for the packages that keep their own tables in it
 // rather than their own file: package memory, whose schema is migrated here
@@ -1818,6 +1924,11 @@ type Project struct {
 	// them works, before it settles into the history by itself: 0 for
 	// DefaultSettleHours, below 0 for never (SettleAfter).
 	SettleHours int
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost (agentbox ios forward), which the user names: a port
+	// there is the user's browser's localhost too, its cookies and sign-in
+	// callbacks included.
+	IOSForwardPorts []int
 	// FullTestSuite is whether this project's agents may run a whole test
 	// suite (`go test ./...`, a bare `npm test`) while the installation
 	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
@@ -2072,7 +2183,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours, copilot_account`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours, ios_forward_ports, copilot_account`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2160,11 +2271,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours, p.CopilotAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours, joinPorts(p.IOSForwardPorts), p.CopilotAccount)
 	return err
 }
 
@@ -2281,16 +2392,17 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var created int64
-		var allowed, opencode string
+		var allowed, opencode, ports string
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.CopilotAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
 		p.ClaudeAccounts = splitAccounts(allowed)
 		p.OpenCodeAccounts = ParseAccountMap(opencode)
+		p.IOSForwardPorts = splitPorts(ports)
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
@@ -2660,6 +2772,37 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectIOSForwardPorts sets the ports this project's agents may forward
+// to the Mac's localhost.
+func (s *Store) SetProjectIOSForwardPorts(ctx context.Context, name string, ports []int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET ios_forward_ports = ? WHERE name = ?`, joinPorts(ports), name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+func joinPorts(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitPorts(s string) []int {
+	var ports []int
+	for _, f := range strings.Split(s, ",") {
+		if p, err := strconv.Atoi(strings.TrimSpace(f)); err == nil {
+			ports = append(ports, p)
+		}
+	}
+	return ports
+}
+
 // SetProjectFullTestSuite sets whether this project's agents may run a whole
 // test suite while the installation blocks them.
 func (s *Store) SetProjectFullTestSuite(ctx context.Context, name string, on bool) error {
@@ -2842,14 +2985,15 @@ func (s *Store) SetProjectConsolidationModel(ctx context.Context, name, model st
 func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Project, error) {
 	var p Project
 	var created int64
-	var allowed, opencode string
+	var allowed, opencode, ports string
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.CopilotAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
+	p.IOSForwardPorts = splitPorts(ports)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
@@ -2929,6 +3073,11 @@ type Agent struct {
 	// It isn't cleared on start: a start after it (the machine's last use)
 	// makes it stale, which the reader checks. Zero when never recorded.
 	StoppedAt time.Time
+	// Hold is why this agent is On hold, HoldMemory or HoldIdle, since
+	// HoldAt; "" when it isn't. It is a mark beside the machine's state, never
+	// a reason to remove the agent.
+	Hold   string
+	HoldAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -3020,6 +3169,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return err
 	}
 	// A conversation left by an earlier agent of the same name isn't this one's.
+	// A lead's settings are kept: a session's name is never reused, so its
+	// chat row was written for it before its first turn made it — what its
+	// composer chose, or what it inherited from the session it was opened
+	// after (the daemon's inheritSessionSettings) — and is its own.
+	if a.Role == RoleLead {
+		return removeChatItems(ctx, s.db, a.Project, a.Name)
+	}
 	return removeChat(ctx, s.db, a.Project, a.Name)
 }
 
@@ -3250,7 +3406,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at, hold, hold_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3258,12 +3414,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt, stoppedAt int64
+		var created, pausedAt, stoppedAt, holdAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &a.CopilotAccount, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &a.CopilotAccount, &pausedAt, &stoppedAt, &a.Hold, &holdAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -3280,9 +3436,34 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if stoppedAt != 0 {
 			a.StoppedAt = time.Unix(stoppedAt, 0)
 		}
+		if holdAt != 0 {
+			a.HoldAt = time.Unix(holdAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	// HoldMemory: it waits, machine stopped, for the VM to have the memory
+	// to boot it, and boots by itself in turn.
+	HoldMemory = "memory"
+	// HoldIdle: its machine was stopped after it sat idle; whatever touches
+	// it (a message, opening it, its lead) starts it again.
+	HoldIdle = "idle"
+)
+
+// SetHold puts an agent On hold for why, or takes it off (""). Putting it
+// on hold again for the same reason keeps when it first was.
+func (s *Store) SetHold(ctx context.Context, project, name, why string) error {
+	if why == "" {
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = '', hold_at = 0 WHERE project = ? AND name = ?`, project, name)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = ?, hold_at = CASE WHEN hold = ? AND hold_at != 0 THEN hold_at ELSE ? END WHERE project = ? AND name = ?`,
+		why, why, time.Now().Unix(), project, name)
+	return err
 }
 
 // SetStoppedAt records when an agent's machine was stopped.

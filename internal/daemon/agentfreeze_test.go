@@ -43,7 +43,7 @@ func (f *fakeMachineCgroups) Freeze(instance string, on bool) error {
 	}
 	return nil
 }
-func (f *fakeMachineCgroups) Reclaim(instance string) error {
+func (f *fakeMachineCgroups) Reclaim(_ context.Context, instance string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reclaimed = append(f.reclaimed, instance)
@@ -100,6 +100,7 @@ func (f *fleetTest) step(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.srv.syncFleet(ctx, agents)
+	f.srv.countRunning(agents)
 	f.srv.stepPressure(ctx)
 }
 
@@ -128,10 +129,12 @@ func TestFleetOffFreezesNothing(t *testing.T) {
 	if f.mc.isFrozen(f.newer.Instance) || f.mc.isFrozen(f.instance) {
 		t.Fatal("a machine was frozen with the setting off")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// A boot still waits for the memory, On hold: admission is everybody's
+	// (admission.go, TestBootWaitsOnHoldForMemory).
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
-		t.Fatalf("a boot waited with the setting off: %v", err)
+	if err := f.srv.admitMachine(ctx, f.newer); err == nil {
+		t.Fatal("a machine booted with 0.5 GiB available")
 	}
 }
 
@@ -422,5 +425,28 @@ func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
 	defer fl.mu.Unlock()
 	if fl.saving || !equalStrings(fl.saved, fl.want) {
 		t.Fatalf("saving %v, saved %v, want %v", fl.saving, fl.saved, fl.want)
+	}
+}
+
+// Whether an agent's chat runs a turn is asked before the fleet's lock is
+// taken: Busy waits on the chat's own lock, which a chat storing its items
+// holds while the database is slow, and the pressure loop can't freeze
+// anything while the fleet's lock is held.
+func TestSyncFleetAsksTheChatsOutsideTheFleetsLock(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	var asked, locked bool
+	f.srv.fleetChatBusy = func(state.Agent) bool {
+		asked = true
+		if f.srv.frozen.mu.TryLock() {
+			f.srv.frozen.mu.Unlock()
+		} else {
+			locked = true
+		}
+		return true
+	}
+	f.step(t)
+	if !asked || locked {
+		t.Fatalf("asked the chats %t, with the fleet's lock held %t", asked, locked)
 	}
 }

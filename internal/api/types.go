@@ -140,6 +140,11 @@ type Project struct {
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
 	Nesting bool `json:"nesting"`
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost for the iOS Simulator (agentbox ios forward): none
+	// until the user names them, since such a port is their browser's
+	// localhost too.
+	IOSForwardPorts []int `json:"iosForwardPorts"`
 	// AgentPRs is whether this project's agents push their own branch and
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
@@ -386,6 +391,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// IOSForwardPorts replaces the ports this project's agents may forward
+	// to the Mac's localhost; an empty list allows none.
+	IOSForwardPorts *[]int `json:"iosForwardPorts,omitempty"`
 	// AgentPRs turns on or off whether this project's agents push their own
 	// branch and open their own pull request, in place of the lead.
 	AgentPRs *bool `json:"agentPRs,omitempty"`
@@ -649,12 +657,6 @@ type Settings struct {
 	// review: the daemon merges a pull request the user resolved once its
 	// checks pass. Off unless turned on.
 	MergeWhenGreen bool `json:"mergeWhenGreen"`
-	// AgentGoals is the experimental agent goals (AgentGoal): the AI tool's
-	// own /goal shown as the agent's goal, and create_agent's goal, whose
-	// checks the daemon verifies after each turn, sending the agent back
-	// until they pass or its budget runs out. Off unless turned on; while off
-	// nothing about agents or their chats changes.
-	AgentGoals bool `json:"agentGoals"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -682,6 +684,21 @@ type Settings struct {
 	// and DiskFloorPercent of the disk (DiskGuard).
 	DiskFloorMin     int64   `json:"diskFloorMin"`
 	DiskFloorPercent float64 `json:"diskFloorPercent"`
+	// AgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have: a process that takes it past that is killed
+	// inside its machine, and the agent told, so one runaway build can't take
+	// the VM's daemon, Incus and other agents down with it. It follows the
+	// VM's memory cap. DefaultAgentMemoryShare (50) until the user chose,
+	// from MinAgentMemoryShare to MaxAgentMemoryShare.
+	AgentMemoryShare        int `json:"agentMemoryShare"`
+	DefaultAgentMemoryShare int `json:"defaultAgentMemoryShare"`
+	MinAgentMemoryShare     int `json:"minAgentMemoryShare"`
+	MaxAgentMemoryShare     int `json:"maxAgentMemoryShare"`
+	// AgentMemoryLimit is what AgentMemoryShare comes to now, in bytes, and
+	// VMMemory what it is a share of: the most the VM may grow to. 0 when
+	// the VM's size isn't known.
+	AgentMemoryLimit int64 `json:"agentMemoryLimit"`
+	VMMemory         int64 `json:"vmMemory"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -866,8 +883,6 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
 	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
-	// AgentGoals turns the experimental agent goals on or off.
-	AgentGoals *bool `json:"agentGoals,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -909,6 +924,9 @@ type UpdateSettingsRequest struct {
 	// one going back to the default.
 	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
 	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
+	// AgentMemoryShare sets Settings.AgentMemoryShare, in percent, 0 going
+	// back to the default. Running agents take it at once.
+	AgentMemoryShare *int `json:"agentMemoryShare,omitempty"`
 	// ImageCache turns the shared image cache on or off, for running agents
 	// at once and for the others as they start.
 	ImageCache *bool `json:"imageCache,omitempty"`
@@ -1024,9 +1042,14 @@ type Agent struct {
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
 	Reclaimed string `json:"reclaimed,omitempty"`
-	// Goal is what it works towards, while agent goals are on
-	// (Settings.AgentGoals): absent for an agent with none, and whenever
-	// they are off.
+	// Hold says the agent is On hold, its machine stopped or not yet booted:
+	// HoldMemory while it waits its turn for the VM's memory (Memory says
+	// its place in line and why), and boots by itself; HoldIdle after it sat
+	// idle, until a message, opening it or its lead starts it again. Absent
+	// otherwise. Being on hold never removes an agent.
+	Hold string `json:"hold,omitempty"`
+	// Goal is what it works towards (AgentGoal): absent for an agent with
+	// none.
 	Goal      *AgentGoal `json:"goal,omitempty"`
 	IP        string     `json:"ip"`
 	CreatedAt time.Time  `json:"createdAt"`
@@ -1167,8 +1190,7 @@ type CreateAgentRequest struct {
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
 	// Goal is what the agent works towards, with checks the daemon verifies
-	// after each of its turns (AgentGoal). Refused while agent goals are off
-	// (Settings.AgentGoals).
+	// after each of its turns (AgentGoal).
 	Goal *GoalSpec `json:"goal,omitempty"`
 	// Queue and Size are accepted for the callers that still send them,
 	// and do nothing: every agent starts at once, and the VM's memory
@@ -1241,6 +1263,44 @@ type PressureStatus struct {
 	// Runs are the heavy commands running, oldest first, then those
 	// waiting, in the order they start.
 	Runs []HeavyRun `json:"runs"`
+	// Host is the last report of the user's computer's own load
+	// (internal/hostload), when one came within HostLoadTTL.
+	Host *HostLoad `json:"host,omitempty"`
+}
+
+// HostLoadTTL is how long the daemon goes by a HostLoad: a front end reports
+// every couple of seconds, and one that stops (the app closed, on a Mac or
+// Windows) holds nothing back.
+const HostLoadTTL = 15 * time.Second
+
+// HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
+// end reads it, PUT /v1/host/load. While Busy, heavy commands wait to start
+// and paused ones stay paused (Why "host"), so the user's own programs come
+// first.
+type HostLoad struct {
+	OS string `json:"os"` // "linux", "darwin" or "windows"
+	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
+	// -1 where there's none.
+	Memory float64 `json:"memory"`
+	CPU    float64 `json:"cpu"`
+	IO     float64 `json:"io"`
+	// CPUShare is the share of all cores busy, in percent (Windows); -1
+	// elsewhere.
+	CPUShare float64 `json:"cpuShare"`
+	// Level is a Mac's memory pressure level: normal, warn or critical.
+	Level       string `json:"level,omitempty"`
+	MemoryTotal int64  `json:"memoryTotal,omitempty"`
+	Available   int64  `json:"available,omitempty"`
+	// Busy says the host is loaded enough that the VM should hold back.
+	Busy bool `json:"busy"`
+	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
+	// while a busy host is calming down.
+	Why string `json:"why,omitempty"`
+	// Reclaim asks the daemon to drop the VM's caches so their memory goes
+	// back to the host: set by front ends that don't size the VM's memory
+	// themselves (Lima, WSL), while the host is short of memory.
+	Reclaim bool      `json:"reclaim,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // HeavyRun is one heavy command of an agent's.
@@ -1552,12 +1612,17 @@ type Usage struct {
 type DiskUsageItem struct {
 	Label string `json:"label"`
 	Bytes int64  `json:"bytes"`
+	// Kind is what the item is, for an app that names it in its own
+	// language (DiskItemBaseImage and so on); "" for an agent or a project,
+	// whose Label is its name. Name is the project or tool it belongs to.
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
-	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia or DiskState
+	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia, DiskCaches or DiskState
 	Label string          `json:"label"`
 	Bytes int64           `json:"bytes"`
 	Items []DiskUsageItem `json:"items,omitempty"`
@@ -1572,7 +1637,30 @@ const (
 	DiskWorktrees = "worktrees"
 	DiskMedia     = "media"
 	DiskState     = "state"
+	// DiskCaches is what agents share to save downloading and writing again:
+	// the package managers' caches and the Docker image cache.
+	DiskCaches = "caches"
 )
+
+// Kinds of DiskUsageItem.
+const (
+	DiskItemBaseImage    = "base-image"
+	DiskItemProjectBase  = "project-base"  // Name is the project
+	DiskItemPreviousBase = "previous-base" // Name is the project
+	DiskItemPackageCache = "package-cache" // Name is the tool's directory, "other" for the rest
+	DiskItemDockerImages = "docker-images"
+	DiskItemStateDB      = "state-db"
+	DiskItemDaemonLog    = "daemon-log"
+)
+
+// DiskTrim is the VM's last trim, which gives the host's disk back the space
+// the VM freed: when, how many bytes the VM's file systems reported trimmed,
+// and what failed. POST /v1/usage/disk/trim trims now and answers with it.
+type DiskTrim struct {
+	At    time.Time `json:"at"`
+	Bytes int64     `json:"bytes"`
+	Error string    `json:"error,omitempty"`
+}
 
 // DiskUsage is what AgentBox uses on disk, broken down by kind, largest
 // first, with a total. The "Storage pool" indicator in the top bar opens it,
@@ -1582,6 +1670,8 @@ const (
 type DiskUsage struct {
 	Total      int64               `json:"total"`
 	Categories []DiskUsageCategory `json:"categories"`
+	// Trim is the VM's last trim; nil outside a VM, and before the first.
+	Trim *DiskTrim `json:"trim,omitempty"`
 }
 
 // AgentDisk is what one agent takes up on disk, for its info card: its
@@ -2321,6 +2411,9 @@ type Question struct {
 	// project's connector's, or the one the agent gave for a new one.
 	Connector    string `json:"connector,omitempty"`
 	ConnectorURL string `json:"url,omitempty"`
+	// Ports are the ports a CredentialIOSPorts request asks the user to let
+	// the project's agents forward to the Mac.
+	Ports []int `json:"ports,omitempty"`
 	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
@@ -2348,6 +2441,10 @@ type AnswerQuestionRequest struct {
 const (
 	CredentialGitHub = "github"
 	CredentialSecret = "secret"
+	// CredentialIOSPorts is agentbox ios forward asking the user to let the
+	// project's agents forward Ports to the Mac's localhost, answered with
+	// Allow or a refusal.
+	CredentialIOSPorts = "ios_ports"
 )
 
 // CredentialRequest is an agent asking the user for a credential it lacks.
@@ -2378,6 +2475,8 @@ type AnswerCredentialRequest struct {
 	Connector     string `json:"connector,omitempty"`
 	Refuse        bool   `json:"refuse,omitempty"`
 	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
+	// Allow answers an iOS ports request: the ports join the project's.
+	Allow bool `json:"allow,omitempty"`
 }
 
 // EscalateQuestionRequest passes a question to the user.
@@ -2960,7 +3059,24 @@ type AgentChange struct {
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.
 	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold is Agent.Hold.
+	Hold string `json:"hold,omitempty"`
 }
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	HoldMemory = "memory"
+	HoldIdle   = "idle"
+)
+
+// Why machines waiting to boot wait (MemoryHold.Why, with Machine
+// "waiting" and pausing whole agents off): the VM hasn't the memory for
+// another boot, or agents' builds wait or are paused for it, which come
+// first.
+const (
+	HoldWhyMemory = "memory"
+	HoldWhyBuilds = "builds"
+)
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
 const (
@@ -3777,6 +3893,29 @@ type IOSOpenURLRequest struct {
 	URL    string `json:"url"`
 }
 
+// IOSForwardRequest makes ports of an agent's machine reach the Mac's
+// 127.0.0.1 at the same numbers, so an app in the iOS Simulator reaches
+// the agent's servers at http://localhost:<port>: a plain http:// host that
+// App Transport Security lets through, where the preview proxy's
+// *.localhost names aren't. No ports lists them; Stop gives them back (all
+// of the agent's, with no ports).
+type IOSForwardRequest struct {
+	Ports []int `json:"ports,omitempty"`
+	Stop  bool  `json:"stop,omitempty"`
+}
+
+// IOSForward is a port of the Mac's 127.0.0.1 that goes to an agent's.
+type IOSForward struct {
+	Port  int    `json:"port"`
+	Agent string `json:"agent"` // project/agent
+}
+
+// PreviewHeader routes a request through the preview proxy to
+// <port>.<agent>.<project> when its Host can't say so: the iOS Simulator's
+// forwards (internal/iossim) keep Host as localhost:<port>, which the
+// agent's servers then build their URLs from.
+const PreviewHeader = "X-AgentBox-Preview"
+
 // IOSResult is what a simulator command printed, when it printed anything.
 type IOSResult struct {
 	Output string `json:"output,omitempty"`
@@ -3801,6 +3940,8 @@ type (
 	HubLoginRequest             = hubapi.HubLoginRequest
 	HubSetupRequest             = hubapi.HubSetupRequest
 	HubSession                  = hubapi.HubSession
+	HubMCPPairing               = hubapi.HubMCPPairing
+	HubMCPPairingRequest        = hubapi.HubMCPPairingRequest
 	HubPairRequest              = hubapi.HubPairRequest
 	HubPairing                  = hubapi.HubPairing
 	HubPairTokenRequest         = hubapi.HubPairTokenRequest
@@ -3823,6 +3964,77 @@ type RemoteStatus struct {
 	// /v1/remote/pair), until it's approved and the machine connects, or it
 	// fails.
 	Pairing *RemotePairing `json:"pairing,omitempty"`
+}
+
+// What an app paired over remote MCP may do. Each level includes the ones
+// before it. They are hubapi's MCPAccess* values.
+const (
+	MCPAccessRead = "read" // see projects, agents, pull requests and the lead's chat
+	MCPAccessChat = "chat" // and send messages to a project's lead
+	MCPAccessFull = "full" // and call the lead's own tools
+)
+
+// The apps the wizard knows how to set up; anything else is MCPClientOther.
+const (
+	MCPClientClaude  = "claude"
+	MCPClientChatGPT = "chatgpt"
+	MCPClientPoke    = "poke"
+	MCPClientOther   = "other"
+)
+
+// MCPPairing lets another app — Claude, ChatGPT, Poke — use this machine's
+// AgentBox over remote MCP, through the hub. The machine keeps and enforces
+// Access and Projects; revoking it is deleting it.
+type MCPPairing struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Client string `json:"client"` // an MCPClient* value: which instructions to show
+	Access string `json:"access"` // an MCPAccess* value
+	// Projects are the projects it covers, by name; none is all of them,
+	// including those added later.
+	Projects   []string  `json:"projects"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastUsedAt time.Time `json:"lastUsedAt,omitzero,omitempty"`
+	// Apps are the OAuth clients signed in with it, by the name each gave
+	// the hub, when the hub could be asked.
+	Apps []string `json:"apps,omitempty"`
+}
+
+// MCPPairings is GET /v1/remote/mcp: whether other apps can be paired, and
+// those that are.
+type MCPPairings struct {
+	// Available is false when this machine has no hub to be reached
+	// through, or its hub is too old; Reason is "no-hub", "offline" (the
+	// hub can't be reached now) or "old-hub", and Error what the hub said.
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Hub       string `json:"hub,omitempty"`
+	// URL is the MCP endpoint apps are given: the hub's.
+	URL      string       `json:"url,omitempty"`
+	Pairings []MCPPairing `json:"pairings"`
+}
+
+// MCPPairRequest is POST /v1/remote/mcp/pairings.
+type MCPPairRequest struct {
+	Label    string   `json:"label"`
+	Client   string   `json:"client,omitempty"`
+	Access   string   `json:"access"`
+	Projects []string `json:"projects,omitempty"`
+	// Token asks for a bearer token as well as a code, for an app that
+	// takes an API key instead of signing in with OAuth.
+	Token bool `json:"token,omitempty"`
+}
+
+// MCPPairingSecret is a pairing with what its app is given, shown once: the
+// URL, the code to type when the app signs in (which works once, until
+// CodeExpiresAt), and the bearer token when one was asked for.
+type MCPPairingSecret struct {
+	Pairing       MCPPairing `json:"pairing"`
+	URL           string     `json:"url"`
+	Code          string     `json:"code"`
+	CodeExpiresAt time.Time  `json:"codeExpiresAt"`
+	Token         string     `json:"token,omitempty"`
 }
 
 // RemoteConnectRequest connects to a hub with an environment's token.
@@ -4150,4 +4362,36 @@ type GitHubRepo struct {
 	PushedAt string `json:"pushedAt,omitempty"`
 	// CloneURL is its https:// URL, what CloneProjectRequest.URL takes.
 	CloneURL string `json:"cloneUrl"`
+}
+
+// DebugStats is what `agentbox debug stats` prints: the daemon's process and
+// Go runtime figures, and the size of what it keeps in memory, to tell what
+// grows over a long uptime. Served on the socket only, at /debug/stats.
+type DebugStats struct {
+	UptimeSeconds float64 `json:"uptimeSeconds"`
+	CPUSeconds    float64 `json:"cpuSeconds"` // user and system, since it started
+	Goroutines    int     `json:"goroutines"`
+	Threads       int     `json:"threads"`
+	FDs           int     `json:"fds"`
+	RSS           int64   `json:"rss"`    // bytes resident
+	Locked        int64   `json:"locked"` // bytes mlocked (VmLck)
+	HeapAlloc     uint64  `json:"heapAlloc"`
+	HeapInuse     uint64  `json:"heapInuse"`
+	HeapIdle      uint64  `json:"heapIdle"`
+	HeapReleased  uint64  `json:"heapReleased"`
+	StackInuse    uint64  `json:"stackInuse"`
+	Sys           uint64  `json:"sys"` // all the Go runtime has from the OS
+	MemoryLimit   int64   `json:"memoryLimit"`
+	NumGC         uint32  `json:"numGC"`
+	GCCPUFraction float64 `json:"gcCPUFraction"`
+	// DBOpen and DBInUse are state.db's pooled connections.
+	DBOpen  int `json:"dbOpen"`
+	DBInUse int `json:"dbInUse"`
+	// Chats are the conversations in memory, ChatsLoaded those with their
+	// transcript loaded, and ChatItems the items those hold.
+	Chats            int `json:"chats"`
+	ChatsLoaded      int `json:"chatsLoaded"`
+	ChatItems        int `json:"chatItems"`
+	Jobs             int `json:"jobs"` // jobs kept in memory
+	EventSubscribers int `json:"eventSubscribers"`
 }

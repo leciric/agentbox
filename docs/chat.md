@@ -79,6 +79,27 @@ with a `subagent_spawned` ACP notification and represented as its own `ChatItem`
 `"subagent"`; whatever it says nests underneath by `Parent`, so the transcript reads as a tree
 rather than a flat log (`internal/chat/subagents.go`).
 
+## Background work
+
+Claude Code can leave work running after its turn ends: a command run in the background, a
+Monitor, a subagent. While any runs the agent shows as **Awaiting**, and the session wakes by
+itself when one finishes. The end of the chat lists each one as a chip with its status (running,
+done, failed, timed out, stopped). Click a chip to see its command, when it started and ended, its
+exit code, and its output, which follows the command live and loads earlier output on request; a
+subagent's chip goes to its card in the conversation instead. Ended work stays listed until the
+session's AI tool restarts.
+
+What is shown is what the tool's adapter reports (`internal/chat/background.go`):
+
+| | Claude Code | Codex | OpenCode, Cursor, Gemini CLI, Copilot CLI |
+| --- | --- | --- | --- |
+| Background commands | status, exit code, output read from the command's output file | status, and the output its tool call kept | not reported |
+| Monitors | status and summary, no output | n/a | n/a |
+| Subagents that outlive their turn | status, with a jump to the card | status, with a jump to the card | not reported |
+
+The same list is `backgroundTasks` on `GET …/chat`, and `GET …/chat/background/{task}` returns one
+task with the end of its output (`?before=<offset>` for the piece before).
+
 ## The token ledger
 
 [`internal/chat/tokens.go`](../internal/chat/tokens.go)'s `book()` runs once a turn ends: it reads

@@ -175,7 +175,7 @@ func TestNamedConsolidationModelIsUsedAsItIs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
-	if _, err := d.client.SetConsolidationModel(ctx, "hello-stack", "claude-fable-5-1"); err != nil {
+	if _, err := d.client.SetConsolidationModel(ctx, "hello-stack", "claude-fable-5-2"); err != nil {
 		t.Fatal(err)
 	}
 	var asked string
@@ -186,12 +186,12 @@ func TestNamedConsolidationModelIsUsedAsItIs(t *testing.T) {
 	if !d.srv.distillIfDue(ctx, lead) {
 		t.Fatal("a project with a named model didn't distil")
 	}
-	if asked != "claude-fable-5-1" {
+	if asked != "claude-fable-5-2" {
 		t.Errorf("the aside was asked for %q, want the model the project named", asked)
 	}
 	// A session that reports no model of its own still records what it was
 	// asked for: it is the best thing known about what ran.
-	if pass := lastPass(t, d); pass.Model != "claude-fable-5-1" {
+	if pass := lastPass(t, d); pass.Model != "claude-fable-5-2" {
 		t.Errorf("the pass says it ran on %q, want the model that was asked for", pass.Model)
 	}
 }
@@ -271,8 +271,8 @@ func TestConsolidationModelResolvesPerTool(t *testing.T) {
 	if got := cheap.ConsolidationModelFor("opencode"); got != "" {
 		t.Errorf("cheap on a tool with no cheap model = %q, want the chat's own", got)
 	}
-	named := state.Project{ConsolidationModel: "claude-fable-5-1"}
-	if got := named.ConsolidationModelFor("claude"); got != "claude-fable-5-1" {
+	named := state.Project{ConsolidationModel: "claude-fable-5-2"}
+	if got := named.ConsolidationModelFor("claude"); got != "claude-fable-5-2" {
 		t.Errorf("a named model resolved to %q", got)
 	}
 	chat := state.Project{ConsolidationModel: state.ConsolidationModelChat}

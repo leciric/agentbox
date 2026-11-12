@@ -434,6 +434,20 @@
     "height": 900
   },
   {
+    "id": "settings-storage-dark",
+    "description": "Settings at Storage and machine on a Linux machine in VM mode: what AgentBox takes on disk, by kind, with the last trim and Give space back now — dark",
+    "query": "settings=resources&chv=live&theme=dark",
+    "width": 1280,
+    "height": 1400
+  },
+  {
+    "id": "settings-storage-pt-light",
+    "description": "The same breakdown in Portuguese — light",
+    "query": "settings=resources&chv=live&theme=light&lang=pt-BR",
+    "width": 1280,
+    "height": 1400
+  },
+  {
     "id": "settings-essentials-dark",
     "description": "Settings as it first opens: Essentials, with every section folded under Advanced in the sidebar and at the page's end — dark",
     "query": "settings=essentials&theme=dark",
@@ -2148,6 +2162,14 @@
     "click": "[data-v2-idle-toggle]"
   },
   {
+    "id": "on-hold-v2-dark",
+    "description": "At 1920×1080, the lead's panel scrolled to agents On hold: agent-84 waiting to boot (its tooltip saying why), agent-83 waiting its turn for memory behind other agents' builds (2nd in line), agent-82 stopped after it sat idle — dark",
+    "query": "app=project&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "hover": "[data-list-agent='agentbox/agent-84']"
+  },
+  {
     "id": "frozen-badge-v2-dark",
     "description": "At 1920×1080, the lead's panel: agent-85 (machine paused for memory, 2 ahead) and agent-35 (idle, processes frozen by idle reclaim) carry a Frozen badge whose tooltip says why — dark",
     "query": "app=project&theme=dark",
@@ -2904,5 +2926,111 @@
     "query": "settings=phone&phones=long&theme=dark",
     "width": 420,
     "height": 2300
+  },
+  {
+    "id": "window-1440-review-aspect-phone-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, the 1080×1920 phone screenshot: its box as wide as the picture drawn, no black bars beside it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-iphone-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, the 1170×2532 iPhone screenshot: the box hugs the picture — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"4\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-square-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 1200×1200 square screenshot: the box hugs it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"5\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-four-three-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 1600×1200 (4:3) screenshot: the box hugs it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"6\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-triple-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 5760×1080 three-monitor screenshot: the box hugs it, no bars above and below — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"7\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-pair-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a pair whose before is 4:3 and after 16:9: each half at its own shape, neither stretched — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"1\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-unsized-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a screenshot recorded without a size: its own shape once its file loads, never 16:10 stretched — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"8\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-rotated-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a phone recording stored as 1280×720 whose video is portrait: shown at the video's own shape — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 5000,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "topbar-busy-dark",
+    "description": "The top bar while this computer is busy (its disk) and the daemon hasn't answered for a few seconds: two marks beside the machine's status, the views keeping what they had — dark",
+    "query": "app=project&busy=host,daemon&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 4500
+  },
+  {
+    "id": "topbar-busy-host-tip-dark",
+    "description": "The 'Computer busy' mark's tip: why, and that agents' builds and tests wait for it — dark",
+    "query": "app=project&busy=host&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 1500,
+    "hover": "[data-busy=\"host\"]"
   }
 ]

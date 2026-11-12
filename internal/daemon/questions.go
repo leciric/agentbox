@@ -293,7 +293,7 @@ func errOnlyTheUser(q state.Question) error {
 func toAPIQuestion(q state.Question) api.Question {
 	out := api.Question{
 		ID: q.ID, Project: q.Project, Agent: q.Agent, Ref: q.Ref(),
-		Kind: q.Kind, SecretName: q.SecretName, Connector: q.Connector, ConnectorURL: q.ConnectorURL, Question: q.Text, Context: q.Context, Status: q.Status,
+		Kind: q.Kind, SecretName: q.SecretName, Connector: q.Connector, ConnectorURL: q.ConnectorURL, Ports: q.Ports, Question: q.Text, Context: q.Context, Status: q.Status,
 		Answer: q.Answer, AnsweredBy: q.AnsweredBy, Escalation: q.Escalation,
 		CreatedAt: q.CreatedAt,
 	}

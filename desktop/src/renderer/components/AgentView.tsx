@@ -29,7 +29,7 @@ import { LeadName } from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
-import { api, type AgentAction } from '../lib/api';
+import { api, isLeadName, type AgentAction } from '../lib/api';
 import { composeIn } from '../lib/drafts';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
@@ -59,7 +59,7 @@ import { Tabs, TabsContent } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 import { PanelButton } from './v2/PanelButton';
 import { AgentMachineBar } from './v2/AgentMachineBar';
-import { GoalChip } from './GoalChip';
+import { GoalBar, GoalDialog, GoalIcon } from './GoalEditor';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -112,9 +112,23 @@ export function AgentView({
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(false);
   // A tab opened on purpose, by its tab, a link or the agent's menu; the one
   // an agent opens on by itself isn't counted.
   useEffect(() => countFeature(tab && agentTabFeatures[tab]), [tab, agentRef]);
+  // The daemon is told this agent is the one shown, now and while it stays
+  // open (its word lasts 90 seconds): its builds go first while memory is
+  // short, and one On hold after sitting idle starts again.
+  const isLead = isLeadName(refName);
+  useEffect(() => {
+    if (!agentRef || isLead) return;
+    const say = () => void api.viewAgent(agentRef).catch(() => {});
+    say();
+    const every = window.setInterval(() => {
+      if (document.visibilityState === 'visible') say();
+    }, 45_000);
+    return () => window.clearInterval(every);
+  }, [agentRef, isLead]);
 
   const replace = (updated: T.Agent) =>
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === updated.ref ? updated : a)));
@@ -183,6 +197,11 @@ export function AgentView({
       <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
         {t('agent.view.editTitle')}
       </MenuItem>
+      {usesChat(agent) && (
+        <MenuItem icon={GoalIcon} onSelect={() => setEditingGoal(true)} data-agent-menu-goal>
+          {t(agent.goal && agent.goal.status === 'active' ? 'goal.menu.edit' : 'goal.menu.set')}
+        </MenuItem>
+      )}
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
         {t('agent.view.openWorktree')}
       </MenuItem>
@@ -255,7 +274,6 @@ export function AgentView({
                 {agent.branch}
               </Chip>
             )}
-            {agent.goal && <GoalChip goal={agent.goal} ai={agent.ai} className="max-w-72 px-2 py-0.5" />}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 self-center">
@@ -283,6 +301,8 @@ export function AgentView({
           <Notice>{errorMessage(error)}</Notice>
         </div>
       )}
+      <GoalBar agent={agent} onEdit={() => setEditingGoal(true)} />
+      <GoalDialog agent={agent} open={editingGoal} onClose={() => setEditingGoal(false)} />
       <AgentMachineBar agent={agent} />
 
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">

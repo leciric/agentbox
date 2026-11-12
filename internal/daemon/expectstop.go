@@ -24,6 +24,20 @@ func (s *Server) expectStop(ref string) {
 	s.stopping[ref] = true
 }
 
+// stopOnPurpose runs stop, which takes ref's machine down, with expectStop's
+// mark set, and clears the mark when stop fails: a machine still up after a
+// failed pause or stop hasn't been taken down, and a crash of it later must
+// still report. The mark would otherwise last until its AI tool next
+// launches, which a paused-in-vain agent's never does.
+func (s *Server) stopOnPurpose(ref string, stop func() error) error {
+	s.expectStop(ref)
+	if err := stop(); err != nil {
+		s.agentBack(ref)
+		return err
+	}
+	return nil
+}
+
 // agentBack clears expectStop's mark: ref's machine or AI tool is running
 // again, and a turn that dies now is a real failure.
 func (s *Server) agentBack(ref string) {

@@ -139,6 +139,12 @@ const (
 	Low Reason = "low"
 	// Easing: it eased; paused runs resume first, one at a time.
 	Easing Reason = "easing"
+	// HostBusy: the user's computer is loaded (Sample.HostBusy).
+	HostBusy Reason = "host"
+	// Full: calm, but what is available doesn't fit another run on top of
+	// those that just started (Governor.BuildCost): runs wait for one to
+	// end, or for idle agents' memory to go out to swap.
+	Full Reason = "full"
 )
 
 // floor is the memory the VM keeps available, in bytes.
@@ -276,7 +282,44 @@ type Governor struct {
 	trend            Trend
 	why              Reason
 	trends           trends
+	// BuildCost is what a run is held to take until it shows in the
+	// readings (BuildSettle after it starts): a build ramps over tens of
+	// seconds, so four asking at once would otherwise all fit the same
+	// gigabyte. DefaultBuildCost until a test sets another.
+	BuildCost   int64
+	BuildSettle time.Duration
 }
+
+// Fitting runs: what the governor holds against available memory for each
+// run that started within BuildSettle.
+const (
+	DefaultBuildCost   = int64(1) << 30 // 1 GiB
+	DefaultBuildSettle = 20 * time.Second
+)
+
+// fits reports whether one more run fits in m now: what is available, with
+// what the VM may still grow by, less what the runs started within
+// BuildSettle are still to take, over a BuildCost and the floor. Swap's room
+// doesn't count: the kernel makes room there by stalling the VM, which is
+// what holding a run back is to spare. Unknown memory always fits.
+func (g *Governor) fits(m Mem, now time.Time) bool {
+	if !m.Known() || g.BuildCost <= 0 {
+		return true
+	}
+	room := float64(m.Available)
+	if m.Cap > m.Total {
+		room += float64(m.Cap - m.Total)
+	}
+	for _, r := range g.running {
+		if !r.Paused && now.Sub(r.Started) < g.BuildSettle {
+			room -= float64(g.BuildCost)
+		}
+	}
+	return room-float64(g.BuildCost) >= g.Policy.floor(m)
+}
+
+// Fits reports whether a run asking now would fit, as of the last reading.
+func (g *Governor) Fits(now time.Time) bool { return g.fits(g.last.Mem, now) }
 
 // trends keeps the readings of the last Policy.Window, at least a second
 // apart, oldest first, that a Trend is worked out from.
@@ -291,7 +334,9 @@ type reading struct {
 }
 
 // NewGovernor is a governor with policy.
-func NewGovernor(policy Policy) *Governor { return &Governor{Policy: policy} }
+func NewGovernor(policy Policy) *Governor {
+	return &Governor{Policy: policy, BuildCost: DefaultBuildCost, BuildSettle: DefaultBuildSettle}
+}
 
 // Ask is a run asking to start, or asking again: it reports the run, and
 // whether it has started. A run that waits starts in a later Step. ttl is how
@@ -454,7 +499,7 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 	g.trend = tr
 	room, why := p.Judge(s.Mem, tr)
 	high := psi.Full.Avg10 >= p.Freeze
-	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr)
+	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr) && !s.HostBusy
 	if !high {
 		g.highSince = time.Time{}
 	} else if g.highSince.IsZero() {
@@ -471,6 +516,8 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 		g.why = why
 	case stalling:
 		g.why = Stalling
+	case s.HostBusy && (len(g.waiting) > 0 || g.paused() > 0):
+		g.why = HostBusy
 	default:
 		g.why = ""
 	}
@@ -510,13 +557,16 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 				break
 			}
 		}
-	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && now.Sub(g.admitted) >= p.AdmitStep:
-		// Calm enough: the first waiter starts. Not while any run is paused,
-		// which resumes first.
+	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && !s.HostBusy && now.Sub(g.admitted) >= p.AdmitStep && g.fits(s.Mem, now):
+		// Calm enough, and it fits: the first waiter starts. Not while any
+		// run is paused, which resumes first.
 		out.Start = append(out.Start, g.start(now))
 	}
 	if g.why == "" && g.paused() > 0 {
 		g.why = Easing
+	}
+	if g.why == "" && len(g.waiting) > 0 && !g.fits(s.Mem, now) {
+		g.why = Full
 	}
 	return out
 }
@@ -606,4 +656,22 @@ func (g *Governor) ResumeAgent(agent string, now time.Time) []*Run {
 		}
 	}
 	return out
+}
+
+// Prefer moves agent's waiting runs to the front of the line, in the order
+// they asked, ahead of everybody else's: the agent the user is looking at
+// waits least. The others keep their order.
+func (g *Governor) Prefer(agent string) {
+	if agent == "" {
+		return
+	}
+	var first, rest []*Run
+	for _, r := range g.waiting {
+		if r.Agent == agent {
+			first = append(first, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	g.waiting = append(first, rest...)
 }

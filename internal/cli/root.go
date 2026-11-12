@@ -53,13 +53,28 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 		}
 		return api.HubClient{URL: h.URL, Token: h.Token}.Environment(e.ID), nil
 	}
+	// An agent has no daemon of its own, and one started here would be
+	// empty: every project and agent "not found". Only a nesting agent, which
+	// has its own Incus, runs one for real.
+	// The marker or the agent's socket, not insideAgent's hostname fallback,
+	// which any host named ab-… would match.
+	inAgent := onAgentMachine()
 	c := api.NewClient(a.paths.Socket())
 	autostart := os.Getenv("AGENTBOX_NO_AUTOSTART") == ""
 	if info, err := c.Version(cmd.Context()); err == nil {
+		// One that runs Incus is a nesting agent's; one that doesn't is used
+		// only when this process reaches Incus, which restartIfStale then
+		// restarts it to see (or one too old to say).
+		if inAgent && (info.Incus == nil || !*info.Incus) && !(incus.Client{}).Reachable() {
+			return nil, errInAgent()
+		}
 		if autostart {
 			a.restartIfStale(cmd, c, info)
 		}
 		return c, nil
+	}
+	if inAgent && !(incus.Client{}).Reachable() {
+		return nil, errInAgent()
 	}
 	if !autostart {
 		return nil, fmt.Errorf("the AgentBox daemon isn't running on %s: start it with agentbox daemon", c.Socket())
@@ -75,6 +90,17 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// errInAgent is a host command run inside an agent that isn't nesting.
+func errInAgent() error {
+	msg := "this runs inside an agent, where commands about the host's projects and agents " +
+		"(chat, exec, list, …) don't work. To reach the project's chat: agentbox ask for a decision, or end " +
+		"your turn saying what it should do, since it reads your last message when you finish"
+	if _, err := exec.LookPath((incus.Client{}).Path()); err == nil {
+		msg += ". In a nesting agent, run sudo agentbox host setup first: this user can't open Incus's socket yet"
+	}
+	return errors.New(msg)
 }
 
 // neededGroups are the groups that give AgentBox access to Incus and KVM.
@@ -287,6 +313,7 @@ func NewRootCmd() *cobra.Command {
 		newListCmd(a),
 		newPastCmd(a),
 		newTitleCmd(a),
+		newGoalCmd(a),
 		newChatCmd(a),
 		newFleetCmd(a),
 		newRetireCmd(a),
@@ -299,6 +326,7 @@ func NewRootCmd() *cobra.Command {
 		newDebugCmd(a),
 		newDoctorCmd(a),
 		newHeavyHookCmd(),
+		newHeavyShimCmd(),
 		newHeavyJoinCmd(),
 		newQuestionsCmd(a),
 		newAnswerCmd(a),

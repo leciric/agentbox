@@ -261,6 +261,15 @@ func TestASnoozedSessionWakesAtItsTimeOrWhenItsAgentNeedsYou(t *testing.T) {
 	d.srv.agentPermission(a1, api.ChatAgentPermission{Ref: a1.Ref(), Item: "p1", Permission: api.ChatPermission{Title: "Run go test"}})
 	waitFor(t, "the session to wake for its agent's permission", func() bool { return snoozed() == nil })
 
+	// Its own lead waits on a card — a permission it asks, an approval
+	// AgentBox asks for it — which the snooze would hide.
+	if _, err := d.client.SnoozeLeadSession(ctx, "hello-stack", ls.ID, until); err != nil {
+		t.Fatal(err)
+	}
+	lead := state.Agent{Project: "hello-stack", Name: state.LeadSessionName(ls.ID), Role: state.RoleLead}
+	d.srv.leadWaiting(lead)
+	waitFor(t, "the session to wake for its own lead's card", func() bool { return snoozed() == nil })
+
 	// An agent of no session wakes nobody.
 	if _, err := d.client.SnoozeLeadSession(ctx, "hello-stack", ls.ID, until); err != nil {
 		t.Fatal(err)

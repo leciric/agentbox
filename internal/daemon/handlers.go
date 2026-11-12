@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -63,12 +64,19 @@ func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Proje
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, IOSForwardPorts: nonNilPorts(p.IOSForwardPorts), AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
 	}
 	return info
+}
+
+func nonNilPorts(ports []int) []int {
+	if ports == nil {
+		return []int{}
+	}
+	return ports
 }
 
 // nonNil keeps an empty list a list in JSON, which the app's types promise.
@@ -496,6 +504,20 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.Nesting = *req.Nesting
+	}
+	if req.IOSForwardPorts != nil {
+		ports := slices.Clone(*req.IOSForwardPorts)
+		slices.Sort(ports)
+		ports = slices.Compact(ports)
+		for _, port := range ports {
+			if port < 1024 || port > 65535 {
+				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+			}
+		}
+		if err := s.setIOSPorts(r.Context(), p.Name, func([]int) []int { return ports }); err != nil {
+			return err
+		}
+		p.IOSForwardPorts = ports
 	}
 	if req.AgentPRs != nil {
 		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {
@@ -947,6 +969,7 @@ func (s *Server) removeBase(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
+	s.trim.Kick()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -997,6 +1020,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		CopilotAccount:   a.CopilotAccount,
 		GitHubAccount:    a.GitHubAccount,
 		Interface:        a.Interface,
+		Hold:             a.Hold,
 
 		State:     st.State,
 		IP:        st.IP,
@@ -1216,7 +1240,7 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 			return fail(err)
 		}
 	}
-	if req.Goal, err = s.checkGoal(req.Goal); err != nil {
+	if req.Goal, err = checkGoal(req.Goal); err != nil {
 		return fail(err)
 	}
 	if req.Goal != nil && strings.TrimSpace(req.Task) == "" && req.Issue == 0 {
@@ -1230,6 +1254,17 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	return req, nil
+}
+
+// createFailedNote is what a project's chat is told of a create_agent that
+// failed: whether anything was made, since a chat that tries again after a
+// create that did leave an agent behind makes a second one.
+func createFailedNote(err error) string {
+	var left *agent.LeftBehindError
+	if errors.As(err, &left) {
+		return fmt.Sprintf("create_agent failed: %v. %s still exists: retire it rather than create the agent again.", err, left.Agent)
+	}
+	return fmt.Sprintf("create_agent failed: %v. Nothing was created, so trying again is safe.", err)
 }
 
 // defaultTool fills in the AI tool of a request that names none: the one the
@@ -1337,7 +1372,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				failed := fmt.Sprintf("create_agent failed: %v", err)
+				failed := createFailedNote(err)
 				if req.OriginID != "" {
 					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
 						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
@@ -1452,15 +1487,21 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
+			if s.bootWaits() {
+				// Its boot waits its turn for memory, On hold, for as long
+				// as that takes: not in the request, which the app gives up
+				// on after minutes, and which left it On hold for good when
+				// it did, with nothing to start it.
+				s.wakeAside(ctx, m, a, "a start request")
+				break
+			}
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
 				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
-			s.expectStop(a.Ref())
-			err = s.stopAgent(ctx, m, a, "the agent was stopped")
+			err = s.stopOnPurpose(a.Ref(), func() error { return s.stopAgent(ctx, m, a, "the agent was stopped") })
 		case "pause":
-			s.expectStop(a.Ref())
-			err = m.Pause(ctx, a)
+			err = s.stopOnPurpose(a.Ref(), func() error { return m.Pause(ctx, a) })
 		case "resume":
 			if err = m.Resume(ctx, a); err == nil {
 				s.agentBack(a.Ref())
@@ -1654,7 +1695,7 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 	for _, c := range u.Categories {
 		cat := api.DiskUsageCategory{Kind: c.Kind, Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
 		for _, it := range c.Items {
-			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes})
+			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes, Kind: it.Kind, Name: it.Name})
 		}
 		out.Categories = append(out.Categories, cat)
 	}
@@ -1662,11 +1703,49 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 }
 
 func (s *Server) diskUsage(w http.ResponseWriter, r *http.Request) error {
-	usage, err := s.manager(nil).DiskUsage(r.Context())
+	usage, err := s.manager(nil).DiskUsage(r.Context(), s.cachesDiskUsage())
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, toAPIDiskUsage(usage))
+	out := toAPIDiskUsage(usage)
+	if t := s.trim.Last(); !t.At.IsZero() && hostos.InVM() {
+		out.Trim = &api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// cachesDiskUsage is what the caches agents share hold, from the sizes their
+// own trims keep: the package managers' by tool, and the Docker image cache.
+func (s *Server) cachesDiskUsage() agent.DiskUsageCategory {
+	caches := agent.DiskUsageCategory{Kind: api.DiskCaches, Label: "Shared caches"}
+	if s.packageCache != nil {
+		for _, p := range s.packageCache.Breakdown() {
+			name := p.Dir
+			if name == "" {
+				name = "other"
+			}
+			if p.Bytes > 0 {
+				caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Package cache: " + name, Bytes: p.Bytes, Kind: api.DiskItemPackageCache, Name: name})
+			}
+		}
+	}
+	if s.imageCache != nil {
+		if n := s.imageCache.Size(); n > 0 {
+			caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Docker images", Bytes: n, Kind: api.DiskItemDockerImages})
+		}
+	}
+	return caches
+}
+
+// trimDisk is POST /v1/usage/disk/trim: trims the VM's file systems now, and
+// has the package caches trimmed to their cap, for "Give space back now".
+func (s *Server) trimDisk(w http.ResponseWriter, r *http.Request) error {
+	if !hostos.InVM() {
+		return errors.New("only AgentBox's VM trims its disks: a host install's are its owner's")
+	}
+	s.kickPackageCache()
+	t := s.trim.trimOnce(context.WithoutCancel(r.Context()))
+	return writeJSON(w, http.StatusOK, api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err})
 }
 
 func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {

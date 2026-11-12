@@ -58,8 +58,21 @@ type diskWatch struct {
 
 	measure func(ctx context.Context) []agent.DiskSpace
 	writers func(ctx context.Context) ([]agent.DiskWriter, error)
-	pause   func(ctx context.Context, ref string) error
-	resume  func(ctx context.Context, ref string) error
+	// checkTimeout is how long one check may take (diskCheckTimeout for 0).
+	checkTimeout time.Duration
+	pause        func(ctx context.Context, ref string) error
+	resume       func(ctx context.Context, ref string) error
+}
+
+// diskCheckTimeout is how long one check may take, its Incus calls
+// included.
+const diskCheckTimeout = time.Minute
+
+func (w *diskWatch) timeout() time.Duration {
+	if w.checkTimeout > 0 {
+		return w.checkTimeout
+	}
+	return diskCheckTimeout
 }
 
 func (s *Server) newDiskWatch() *diskWatch {
@@ -82,8 +95,7 @@ func (s *Server) diskAgentAction(ctx context.Context, ref string, pause bool) er
 		return err
 	}
 	if pause {
-		s.expectStop(a.Ref())
-		return s.manager(nil).Pause(ctx, a)
+		return s.stopOnPurpose(a.Ref(), func() error { return s.manager(nil).Pause(ctx, a) })
 	}
 	if err := s.manager(nil).Resume(ctx, a); err != nil {
 		return err
@@ -119,6 +131,11 @@ func (s *Server) checkDisk(ctx context.Context) {
 	w := s.disk
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// A deadline of its own: a call in flight as Incus hung had none, and
+	// held the guard — and every check a floor change starts, piling up
+	// behind it — until Incus came back, if it did.
+	ctx, cancel := context.WithTimeout(ctx, w.timeout())
+	defer cancel()
 	if !w.loaded {
 		w.guard = agent.NewDiskGuard(s.diskGuardPaused(ctx))
 		w.loaded = true

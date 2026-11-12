@@ -438,7 +438,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 
 	// The lead is running on a model of its own, written into its settings by
 	// PrepareChatModel. Rewriting the brief must not take it away.
-	if err := f.m.PrepareChatModel(ctx, a, "claude-fable-5-1", state.DefaultClaudeCompactWindow); err != nil {
+	if err := f.m.PrepareChatModel(ctx, a, "claude-fable-5-2", state.DefaultClaudeCompactWindow); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.st.SetProjectAgentModel(ctx, "hello-stack", state.AgentModelAuto); err != nil {
@@ -461,7 +461,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(settings), "claude-fable-5-1") {
+	if !strings.Contains(string(settings), "claude-fable-5-2") {
 		t.Error("rewriting the brief lost the model the lead itself runs on")
 	}
 	if !strings.Contains(string(settings), `"autoCompactWindow": 500000`) {

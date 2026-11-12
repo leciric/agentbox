@@ -18,7 +18,7 @@ import { Archive, ChevronRight, ChevronsLeft, HardDrive, Plus, ShieldAlert } fro
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { avatarMood, chatLabel, isAsking, rank, settled, statusTip } from '../../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, machineHold, onHold, rank, settled, statusTip } from '../../lib/agentStatus';
 import { groupRows, tileLabels, type PanelGroup } from '../../lib/agentCounts';
 import { chatKey, peekThread } from '../../lib/chat';
 import { choiceName } from '../../lib/modelChoices';
@@ -244,6 +244,9 @@ function shortAgo(t: ReturnType<typeof useT>, iso: string, now = Date.now()): st
   return t('panel.list.agoDays', { n: Math.round(s / 86400) });
 }
 
+// heldOff is an agent On hold whose machine isn't running (T.Agent.hold).
+const heldOff = (agent: T.Agent) => !!agent.hold && agent.state !== 'running' && agent.state !== 'paused';
+
 // memShort is memory in a few characters: "1.4G", "820M".
 const memShort = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)}G` : `${Math.round(n / 1024 ** 2)}M`);
 
@@ -258,6 +261,10 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
     if (last.kind === 'assistant' && last.text) return { text: last.text.split('\n').find((l) => l.trim())?.trim() };
   }
   if (st === 'error') return { text: chatLabel(agent).text, tone: 'error' };
+  // On hold, for memory with its place in line or after sitting idle: what
+  // it is doing now, before what it last reported.
+  const hold = machineHold(agent) ?? onHold(agent);
+  if (hold) return { text: hold.text };
   return { text: report };
 }
 
@@ -309,7 +316,8 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
   const tip = [title, owner && t('sessions.owner', { topic: owner.session.topic }), statusTip(agent), pr && `#${pr.number} ${pr.title}`, live && t('panel.list.desktopLive'), loadTip, model, context, changes && `+${changes.insertions} −${changes.deletions} · ${t('panel.list.files', { count: changes.files })}`, disk !== undefined && `${t('agent.rail.machineDisk')}: ${humanBytes(disk)}`].filter(Boolean).join('\n');
-  const screen = monitorScreen(st, { live, running: agent.state === 'running' });
+  // On hold, its machine stopped: its screen is off, whatever group it is in.
+  const screen = heldOff(agent) ? 'idle' : monitorScreen(st, { live, running: agent.state === 'running' });
   const pace = typingPace((thread.data?.items ?? []).filter((it) => it.tool).map((it) => it.createdAt));
   const monitor = (
     <span className="block shrink-0 pt-0.5" data-list-slot data-list-screen={screen}>
@@ -417,7 +425,7 @@ export function AgentStrip({ project, chat, onSelect, onUnfold }: { project: str
       </Tip>
       {rows.map(({ agent, st }) => {
         const label = `${agent.title || agent.name} · ${t(stName[st])}`;
-        const screen = monitorScreen(st, { live: live.has(agent.ref), running: agent.state === 'running' });
+        const screen = heldOff(agent) ? 'idle' : monitorScreen(st, { live: live.has(agent.ref), running: agent.state === 'running' });
         return (
           <Tip key={agent.ref} label={label} side="left">
             <button

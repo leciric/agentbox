@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -29,6 +33,9 @@ type iosState struct {
 	client  *iossim.Client
 	mu      sync.Mutex
 	devices map[string]string // agent ref → UDID
+	// forwardMu makes one forward at a time, so two agents can't both find
+	// a port free.
+	forwardMu sync.Mutex
 }
 
 func (s *Server) iosClient() *iossim.Client {
@@ -148,7 +155,7 @@ func iosAppPath(a state.Agent, path string) (string, error) {
 }
 
 // iosActions are the POST routes under an agent's /ios.
-var iosActions = []string{"open", "close", "input", "install", "launch", "openurl"}
+var iosActions = []string{"open", "close", "input", "install", "launch", "openurl", "forward"}
 
 // ios serves an agent's simulator endpoints, on the agent's own socket and
 // under the agent for the app and the CLI alike.
@@ -234,6 +241,8 @@ func (s *Server) ios(action string, agentOf func(*http.Request) (state.Agent, er
 				return err
 			}
 			return writeJSON(w, http.StatusOK, struct{}{})
+		case "forward":
+			return s.iosForward(w, r, a)
 		}
 		return writeJSON(w, http.StatusOK, s.iosStatus(ctx, a))
 	}
@@ -280,4 +289,198 @@ func (s *Server) iosView(w http.ResponseWriter, r *http.Request) error {
 	}
 	_ = viewer.Close(websocket.StatusNormalClosure, "")
 	return nil
+}
+
+// iosForward makes the agent's ports reach the Mac's localhost, through the
+// helper and the preview proxy, or gives them back, and lists its project's.
+// One at a time: a port another running agent holds is refused.
+func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agent) error {
+	var req api.IOSForwardRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	ctx, c := r.Context(), s.iosClient()
+	if !req.Stop && len(req.Ports) > 0 {
+		for _, port := range req.Ports {
+			if port < 1024 || port > 65535 {
+				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+			}
+		}
+		// Ports the project doesn't allow yet are the user's to allow: the
+		// call waits for them, without the lock.
+		p, err := s.store.Project(ctx, a.Project)
+		if err != nil {
+			return err
+		}
+		if missing := missingPorts(p.IOSForwardPorts, req.Ports); len(missing) > 0 {
+			q := state.Question{
+				ID: newID(), Project: a.Project, Agent: a.Name, Kind: state.QuestionIOSPorts, Ports: missing,
+				Text:   fmt.Sprintf("To reach its Metro or API from an app in the iOS Simulator, %s wants to forward %s to your Mac's localhost.", a.Name, portsWords(missing)),
+				Status: state.QuestionEscalated, CreatedAt: time.Now(),
+			}
+			answered, err := s.askUser(ctx, a, q)
+			if err != nil {
+				return err
+			}
+			if answered.Answer != iosPortsAllowed {
+				return fmt.Errorf("the user %s", answered.Answer)
+			}
+		}
+	}
+	// The list is read again under the lock iosRevoke takes, so a forward
+	// meets the newest one or is stopped by the revoke.
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	if !req.Stop && len(req.Ports) > 0 {
+		p, err := s.store.Project(ctx, a.Project)
+		if err != nil {
+			return err
+		}
+		if missing := missingPorts(p.IOSForwardPorts, req.Ports); len(missing) > 0 {
+			return fmt.Errorf("%s no longer lets its agents forward %s", a.Project, portsWords(missing))
+		}
+	}
+	one := iossim.ForwardRequest{Project: a.Project, Agent: a.Name}
+	if req.Stop && len(req.Ports) == 0 {
+		if _, err := c.Forward(ctx, one, true); err != nil {
+			return err
+		}
+	}
+	if !req.Stop && len(req.Ports) > 0 {
+		forwards, err := c.Forwards(ctx)
+		if err != nil {
+			return err
+		}
+		for _, f := range forwards {
+			if slices.Contains(req.Ports, f.Port) && f.Agent != a.Ref() && s.iosRunning(ctx, f.Agent) {
+				return fmt.Errorf("port %d of the Mac is %s's, which is running: use another port, or it gives the port back with agentbox ios forward --stop", f.Port, f.Agent)
+			}
+		}
+	}
+	for _, port := range req.Ports {
+		one.Port = port
+		if _, err := c.Forward(ctx, one, req.Stop); err != nil {
+			return err
+		}
+	}
+	forwards, err := c.Forwards(ctx)
+	if err != nil {
+		return err
+	}
+	// Other projects' agents aren't this agent's to know of.
+	ours := []api.IOSForward{}
+	for _, f := range forwards {
+		if strings.HasPrefix(f.Agent, a.Project+"/") {
+			ours = append(ours, f)
+		}
+	}
+	return writeJSON(w, http.StatusOK, ours)
+}
+
+// iosRunning is whether the agent a forward is for may still be running: a
+// port of a stopped or removed one is free to take. Unsure is running.
+func (s *Server) iosRunning(ctx context.Context, ref string) bool {
+	project, name, _ := strings.Cut(ref, "/")
+	a, err := s.store.Agent(ctx, project, name)
+	if errors.Is(err, state.ErrNotFound) {
+		return false
+	} else if err != nil {
+		return true
+	}
+	info, err := s.describe(ctx, a)
+	return err != nil || info.State == "running"
+}
+
+// iosUnforward gives a removed agent's ports on the Mac back, in the
+// background: the helper may not answer.
+func (s *Server) iosUnforward(a state.Agent) {
+	if hostos.OS() != "darwin" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.iosSim.forwardMu.Lock()
+		defer s.iosSim.forwardMu.Unlock()
+		_, _ = s.iosClient().Forward(ctx, iossim.ForwardRequest{Project: a.Project, Agent: a.Name}, true)
+	}()
+}
+
+// setIOSPorts changes the ports the project's agents may forward and stops
+// its forwards on ports no longer among them, under the lock forwards are
+// checked under: a forward meets the new list or is stopped, and two changes
+// don't write over each other.
+func (s *Server) setIOSPorts(ctx context.Context, project string, change func(cur []int) []int) error {
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return err
+	}
+	ports := change(slices.Clone(p.IOSForwardPorts))
+	if err := s.store.SetProjectIOSForwardPorts(ctx, project, ports); err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	if hostos.OS() != "darwin" {
+		return nil
+	}
+	// Saved, the list is the user's word: its forwards stop even if the
+	// request that changed it is gone.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	c := s.iosClient()
+	forwards, err := c.Forwards(ctx)
+	var timeout net.Error
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return err // a helper that doesn't answer in time may still be forwarding
+	} else if errors.Is(err, iossim.ErrUnavailable) {
+		return nil // no helper, no forwards
+	} else if err != nil {
+		return err
+	}
+	for _, f := range forwards {
+		p, name, _ := strings.Cut(f.Agent, "/")
+		if p == project && !slices.Contains(ports, f.Port) {
+			if _, err := c.Forward(ctx, iossim.ForwardRequest{Project: p, Agent: name, Port: f.Port}, true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// iosPortsAllowed is what an agent waiting on an iOS ports request is told
+// when the user allows them.
+const iosPortsAllowed = "allowed the ports: they are this project's now, and the forward goes ahead."
+
+func missingPorts(allowed, wanted []int) []int {
+	var missing []int
+	for _, p := range wanted {
+		if !slices.Contains(allowed, p) && !slices.Contains(missing, p) {
+			missing = append(missing, p)
+		}
+	}
+	return missing
+}
+
+// allowIOSPorts adds ports to those the project's agents may forward.
+func (s *Server) allowIOSPorts(ctx context.Context, project string, ports []int) error {
+	return s.setIOSPorts(ctx, project, func(cur []int) []int {
+		all := append(cur, missingPorts(cur, ports)...)
+		slices.Sort(all)
+		return all
+	})
+}
+
+// portsWords names ports in a sentence: "port 8081", "ports 8081 and 5236".
+func portsWords(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	if len(parts) == 1 {
+		return "port " + parts[0]
+	}
+	return "ports " + strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }

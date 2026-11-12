@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	incusclient "github.com/lxc/incus/v7/client"
 	"github.com/lxc/incus/v7/shared/api"
 )
@@ -104,9 +105,11 @@ func (c Client) UserExec(ctx context.Context, name, user, command string, stdin 
 // does without a terminal: TERM passed on, the output copied until the command
 // has closed it. It returns the command's exit status, and an error when Incus
 // couldn't run it — with the status too, when it has one. If ctx ends first,
-// it returns ctx's error without waiting for the command, which goes on
-// running, as it did when the incus command was killed; nothing is written to
-// stdout or stderr after it returns.
+// it returns ctx's error without waiting for the command, which is sent
+// SIGKILL: left running, as it was when the incus command was killed, a
+// command given up on (a timed-out git, a check retried every pass) went on
+// holding the machine's CPU and memory, another of it stacking up with each
+// retry. Nothing is written to stdout or stderr after it returns.
 func (c Client) exec(ctx context.Context, name string, command []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	s, err := c.server(ctx)
 	if err != nil {
@@ -121,19 +124,27 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 	}
 	out := &outputs{}
 	defer out.close()
+	control := make(chan *websocket.Conn, 1)
 	args := &incusclient.InstanceExecArgs{
 		Stdin:    stdin,
 		Stdout:   out.to(stdout),
 		Stderr:   out.to(stderr),
 		DataDone: make(chan bool),
+		Control:  func(conn *websocket.Conn) { control <- conn },
 	}
 	op, err := s.ExecInstance(name, api.InstanceExecPost{Command: command, WaitForWS: true, Environment: env}, args)
-	if err != nil {
+	if err == nil {
+		err = wait(ctx, op, nil)
+	}
+	// Past ctx, what Incus's client answers names the deadline only in its
+	// text, and can come before ctx itself reports it: the error is ctx's
+	// own, so callers can tell it from a failure.
+	if err := ended(ctx); err != nil {
+		killExec(control)
 		return -1, err
 	}
-	err = wait(ctx, op, nil)
-	if ctx.Err() != nil {
-		return -1, ctx.Err()
+	if op == nil {
+		return -1, err
 	}
 	code := -1
 	if status, ok := op.Get().Metadata["return"].(float64); ok {
@@ -145,9 +156,34 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 	select {
 	case <-args.DataDone: // the output has all been copied
 	case <-ctx.Done():
+		killExec(control)
 		return -1, ctx.Err()
 	}
 	return code, nil
+}
+
+// ended is ctx's error once it is done or past its deadline, which a
+// connection's own deadline reaches a moment before ctx's timer fires.
+func ended(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// killExec sends SIGKILL to a command given up on, over its exec's control
+// socket, when Incus gave it one.
+func killExec(control <-chan *websocket.Conn) {
+	select {
+	case conn := <-control:
+		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.WriteJSON(api.InstanceExecControl{Command: "signal", Signal: 9}) // SIGKILL, in the machine
+		_ = conn.Close()
+	default:
+	}
 }
 
 // outputs guards a command's stdout and stderr: one write at a time, since
