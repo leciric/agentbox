@@ -5,7 +5,7 @@
 //! the others waiting when it waits too.
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agentbox_api::{Client, Project, WorkItem, WorkPage};
 use agentbox_i18n::{t, tv};
@@ -30,6 +30,66 @@ const FILTERS: &[(&str, &str)] = &[
     ("closed", "work.filter.closed"),
 ];
 
+/// How many pieces of work a page reads: the first shows at once, and the
+/// next is read as the list is scrolled within READ_AHEAD lines of the end of
+/// what is loaded.
+const PAGE: usize = 50;
+const READ_AHEAD: usize = 12;
+/// The most a request may ask for (the daemon's reviewPageMax).
+const PAGE_MAX: usize = 200;
+/// How long after a fresh list arrives its rows still slide in.
+const ARRIVE: Duration = Duration::from_millis(500);
+
+/// Line is a line of the page as the list draws it: only the ones in view
+/// are built and laid out (gpui's `list`), however much work is loaded.
+#[derive(Clone, Debug, PartialEq)]
+enum Line {
+    /// The title, the filters and the search, which scroll with the list.
+    Head,
+    /// The list's card when it has no rows: loading, failed or empty.
+    Body,
+    /// A day's heading; the first one opens the card.
+    Day { day: String, first: bool },
+    /// A piece of work, `ix` in `shown`; `first` under its day's heading.
+    Work { ix: usize, first: bool },
+    /// The card's closing edge, and "More" while there is more.
+    Foot,
+}
+
+/// lines is the page's lines for `shown`, newest first, under their days.
+fn lines(shown: &[WorkItem], blank: bool) -> Vec<Line> {
+    if blank || shown.is_empty() {
+        return vec![Line::Head, Line::Body];
+    }
+    let mut out = vec![Line::Head];
+    let mut last = String::new();
+    for (ix, w) in shown.iter().enumerate() {
+        let day = day_of(&w.at);
+        let first = day != last;
+        if first {
+            out.push(Line::Day {
+                day: day.clone(),
+                first: ix == 0,
+            });
+            last = day;
+        }
+        out.push(Line::Work { ix, first });
+    }
+    out.push(Line::Foot);
+    out
+}
+
+/// What a read of the list is for.
+enum Read {
+    /// The filters changed: the first page, from the top.
+    Fresh,
+    /// The page after `cursor`, added to what is shown.
+    More(String),
+    /// Something changed (a verdict, a merge): as much as is loaded, read
+    /// again in place, where the list is scrolled to.
+    Again(usize),
+}
+
 pub enum WorkEvent {
     /// Open the review on an item; queue is the walk through what waits,
     /// empty when the item is only looked at.
@@ -45,6 +105,19 @@ pub struct WorkView {
     search: Entity<InputState>,
     q: String,
     page: Option<WorkPage>,
+    /// The work listed (the page's, without what `held` keeps out of "to
+    /// review") and the lines drawn for it, which `list` scrolls.
+    shown: Vec<WorkItem>,
+    lines: Vec<Line>,
+    list: ListState,
+    /// Which read the list is waiting for: an answer to an earlier one (the
+    /// filters changed meanwhile) is dropped.
+    reading: u64,
+    /// When a fresh list arrived, while its rows slide in.
+    arrived: Option<Instant>,
+    /// AGENTBOX_NATIVE_WORK_BENCH: how much work to load before scrolling
+    /// through it, timing the frames (bench.rs).
+    bench: Option<usize>,
     error: Option<SharedString>,
     loading: bool,
     /// Agents whose state keeps their work out of "to review" (needs, error,
@@ -87,6 +160,18 @@ impl WorkView {
                 .ok();
             }));
         });
+        let list = ListState::new(2, ListAlignment::Top, px(600.));
+        // Scrolled near the end of what is loaded: read the page after it.
+        let view = cx.entity().downgrade();
+        list.set_scroll_handler(move |ev, _, cx| {
+            let end = ev.visible_range.end;
+            view.update(cx, |this, cx| {
+                if end + READ_AHEAD >= this.lines.len() {
+                    this.load_more(cx);
+                }
+            })
+            .ok();
+        });
         let mut this = Self {
             client,
             projects: Vec::new(),
@@ -95,6 +180,14 @@ impl WorkView {
             search,
             q: String::new(),
             page: None,
+            shown: Vec::new(),
+            lines: vec![Line::Head, Line::Body],
+            list,
+            reading: 0,
+            arrived: None,
+            bench: std::env::var("AGENTBOX_NATIVE_WORK_BENCH")
+                .ok()
+                .map(|n| n.parse().unwrap_or(500)),
             error: None,
             loading: false,
             held: HashMap::new(),
@@ -116,6 +209,8 @@ impl WorkView {
     pub fn set_held(&mut self, held: HashMap<String, &'static str>, cx: &mut Context<Self>) {
         if self.held != held {
             self.held = held;
+            // "To review" lists only what isn't held.
+            self.sync(true);
             cx.notify();
         }
     }
@@ -132,9 +227,18 @@ impl WorkView {
         self.load(cx);
     }
 
-    /// load reads the page as the filters have it now.
+    /// load reads the list as the filters have it now, from its top.
     pub fn load(&mut self, cx: &mut Context<Self>) {
-        self.fetch(None, cx);
+        self.fetch(Read::Fresh, cx);
+    }
+
+    /// reload reads again what is loaded, where the list is: something
+    /// changed that a row may show.
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        match self.page.as_ref().map(|p| p.items.len()) {
+            Some(n) if n > 0 => self.fetch(Read::Again(n), cx),
+            _ => self.load(cx),
+        }
     }
 
     /// load_more reads the page after the ones shown, adding it to them.
@@ -143,13 +247,14 @@ impl WorkView {
             && !next.is_empty()
             && !self.loading
         {
-            self.fetch(Some(next), cx);
+            self.fetch(Read::More(next), cx);
         }
     }
 
-    fn fetch(&mut self, cursor: Option<String>, cx: &mut Context<Self>) {
-        let mut query = vec!["limit=200".to_string()];
-        if let Some(c) = &cursor {
+    /// path is the list's request for `limit` pieces of work after `cursor`.
+    fn path(&self, limit: usize, cursor: Option<&str>) -> String {
+        let mut query = vec![format!("limit={limit}")];
+        if let Some(c) = cursor {
             query.push(format!("cursor={}", enc(c)));
         }
         if !self.filter.is_empty() {
@@ -163,27 +268,72 @@ impl WorkView {
         } else {
             format!("/v1/projects/{}/work", self.project)
         };
-        let path = format!("{base}?{}", query.join("&"));
+        format!("{base}?{}", query.join("&"))
+    }
+
+    fn fetch(&mut self, read: Read, cx: &mut Context<Self>) {
         let client = self.client.clone();
         self.loading = true;
-        cx.spawn(async move |this, cx| {
-            let res = client.get::<WorkPage>(&path).await;
+        self.reading += 1;
+        let reading = self.reading;
+        // A read in place asks for as much as is loaded, as many at once as
+        // the daemon gives, each request after the one before it.
+        let (want, first) = match &read {
+            Read::Fresh => (PAGE, self.path(PAGE, None)),
+            Read::More(cursor) => (PAGE, self.path(PAGE, Some(cursor))),
+            Read::Again(n) => (*n, self.path((*n).min(PAGE_MAX), None)),
+        };
+        let this = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
+            let mut res = client.get::<WorkPage>(&first).await;
+            while let Ok(p) = &mut res
+                && p.items.len() < want
+                && !p.next.is_empty()
+            {
+                let Ok(path) = this.read_with(cx, |this, _| {
+                    this.path((want - p.items.len()).min(PAGE_MAX), Some(&p.next))
+                }) else {
+                    return;
+                };
+                match client.get::<WorkPage>(&path).await {
+                    Ok(mut more) => {
+                        p.items.append(&mut more.items);
+                        p.next = more.next;
+                    }
+                    Err(e) => res = Err(e),
+                }
+            }
             this.update(cx, |this, cx| {
+                if this.reading != reading {
+                    return; // the filters changed since: theirs is on its way
+                }
                 this.loading = false;
                 match res {
                     Ok(mut p) => {
-                        if cursor.is_some()
-                            && let Some(old) = this.page.take()
-                        {
+                        let more = matches!(read, Read::More(_));
+                        if more && let Some(old) = this.page.take() {
                             let mut items = old.items;
                             items.append(&mut p.items);
                             p.items = items;
                             p.counts = old.counts;
+                            p.total = old.total;
                         }
                         this.page = Some(p);
                         this.error = None;
+                        if matches!(read, Read::Fresh) {
+                            this.arrived = Some(Instant::now());
+                            crate::bench::mark("work-loaded");
+                        }
+                        this.sync(!matches!(read, Read::Fresh));
+                        // The bench loads its fill before it scrolls.
+                        if this.bench.is_some_and(|n| this.shown.len() < n) {
+                            this.load_more(cx);
+                        }
                     }
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    Err(e) => {
+                        this.error = Some(e.to_string().into());
+                        this.sync(false);
+                    }
                 }
                 cx.notify();
             })
@@ -191,6 +341,55 @@ impl WorkView {
         })
         .detach();
         cx.notify();
+    }
+
+    /// sync makes the lines the list draws those of what is loaded now. With
+    /// `keep` the list stays where it is scrolled to, and lines added at its
+    /// end leave the ones before them as they were measured.
+    fn sync(&mut self, keep: bool) {
+        self.shown = self.items();
+        let blank = self.error.is_some() || self.page.is_none();
+        let new = lines(&self.shown, blank);
+        let old = std::mem::replace(&mut self.lines, new);
+        let (was, now) = (old.len(), self.lines.len());
+        if keep && was > 1 && now >= was && old[..was - 1] == self.lines[..was - 1] {
+            self.list.splice(was - 1..was, now - (was - 1));
+        } else if keep {
+            let top = self.list.logical_scroll_top();
+            self.list.reset(now);
+            self.list.scroll_to(top);
+        } else {
+            self.list.reset(now);
+        }
+    }
+
+    /// scroll_bench scrolls the list 24 px a frame for 600 frames, timing the
+    /// frames, then reports (bench.rs), once the bench's fill is loaded.
+    fn scroll_bench(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        fn tick(
+            view: Entity<WorkView>,
+            left: usize,
+            last: Instant,
+            window: &mut Window,
+            cx: &mut App,
+        ) {
+            let now = Instant::now();
+            crate::bench::sample("work-scroll-frame-interval", now - last);
+            if left == 0 {
+                crate::bench::report();
+                return;
+            }
+            view.update(cx, |this, cx| {
+                this.list.scroll_by(px(24.));
+                cx.notify();
+            });
+            window.on_next_frame(move |window, cx| tick(view, left - 1, now, window, cx));
+        }
+        self.bench = None;
+        eprintln!("bench work-filled {} loaded", self.shown.len());
+        let view = cx.entity();
+        let start = Instant::now();
+        window.on_next_frame(move |window, cx| tick(view, 600, start, window, cx));
     }
 
     /// status is a row's status as the counts read it: to review only while
@@ -221,9 +420,10 @@ impl WorkView {
 
     fn open(&mut self, w: WorkItem, cx: &mut Context<Self>) {
         let queue = if self.status(&w) == "review" {
-            self.items()
-                .into_iter()
+            self.shown
+                .iter()
                 .filter(|i| self.status(i) == "review")
+                .cloned()
                 .collect()
         } else {
             Vec::new()
@@ -258,7 +458,7 @@ impl WorkView {
             .unwrap_or_else(|| name.to_string())
     }
 
-    fn render_filters(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_filters(&self, view: Entity<Self>) -> AnyElement {
         let counts = self
             .page
             .as_ref()
@@ -305,10 +505,15 @@ impl WorkView {
                             .hover(|s| s.text_color(theme::primary()))
                             .active(|s| s.opacity(0.7))
                     })
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.filter = f.clone();
-                        this.load(cx);
-                    }))
+                    .on_click({
+                        let view = view.clone();
+                        move |_: &ClickEvent, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.filter = f.clone();
+                                this.load(cx);
+                            })
+                        }
+                    })
                     .child(t(key))
                     .when_some(n, |el, n| {
                         el.child(
@@ -322,7 +527,7 @@ impl WorkView {
             .into_any_element()
     }
 
-    fn render_row(&self, w: &WorkItem, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(&self, w: &WorkItem, view: Entity<Self>) -> AnyElement {
         let i = &w.item;
         let status = self.status(w);
         let outcome = match &w.report {
@@ -443,7 +648,9 @@ impl WorkView {
             .cursor_pointer()
             .hover(|el| el.bg(theme::surface_faint()))
             .active(|s| s.bg(theme::surface()))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open(open.clone(), cx)))
+            .on_click(move |_: &ClickEvent, _, cx| {
+                view.update(cx, |this, cx| this.open(open.clone(), cx))
+            })
             .child(
                 div()
                     .flex_none()
@@ -527,19 +734,186 @@ impl WorkView {
     }
 }
 
-impl Render for WorkView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let items = self.items();
-        // By day, newest first, as they come.
-        let mut days: Vec<(String, Vec<WorkItem>)> = Vec::new();
-        for w in items {
-            let day = day_of(&w.at);
-            match days.last_mut() {
-                Some((d, list)) if *d == day => list.push(w),
-                _ => days.push((day, vec![w])),
+impl WorkView {
+    /// column is the page's column, as wide as max-w-6xl inside px-8, which
+    /// every line stands in.
+    fn column(inner: impl IntoElement) -> Div {
+        div()
+            .w_full()
+            .max_w(px(1152.)) // max-w-6xl
+            .mx_auto()
+            .px_8()
+            .child(inner)
+    }
+
+    /// card is a slice of the list's panel: its sides, with its top edge on
+    /// the line that opens it. The panel's ground eases from top to bottom
+    /// over the whole card, which a list of any length doesn't show: each
+    /// slice is its top's.
+    fn card(open: bool) -> Div {
+        div()
+            .min_w_0()
+            .border_l_1()
+            .border_r_1()
+            .border_color(theme::line())
+            .bg(theme::panel_top())
+            .overflow_hidden()
+            .when(open, |el| el.border_t_1().rounded_t(theme::radius::XXL))
+    }
+
+    /// render_line draws line `ix` of the page (Line).
+    fn render_line(&self, ix: usize, view: Entity<Self>, cx: &App) -> AnyElement {
+        let Some(line) = self.lines.get(ix) else {
+            return div().into_any_element();
+        };
+        match line {
+            Line::Head => Self::column(self.render_head(view, cx))
+                .pt_7()
+                .pb_3()
+                .into_any_element(),
+            Line::Body => Self::column(
+                Self::card(true)
+                    .border_b_1()
+                    .rounded_b(theme::radius::XXL)
+                    .shadow(theme::shadow_card())
+                    .map(|el| match (&self.error, &self.page) {
+                        (Some(e), _) => {
+                            el.child(div().p_4().child(controls::error_line(e.clone())))
+                        }
+                        (None, None) => el.children(
+
+                    [0.33f32, 0.5, 0.25, 0.42, 0.3]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(n, width)| {
+                            h_flex()
+                                .gap_3()
+                                .px_4()
+                                .py_3()
+                                .when(n > 0, |el| {
+                                    el.border_t_1()
+                                        .border_color(theme::line_faint())
+                                })
+                                .child(crate::motion::skeleton(
+                                    ElementId::Name(
+                                        format!("work-skel-a-{n}").into(),
+                                    ),
+                                    relative(width),
+                                    px(14.),
+                                ))
+                                .child(div().flex_1())
+                                .child(crate::motion::skeleton(
+                                    ElementId::Name(
+                                        format!("work-skel-b-{n}").into(),
+                                    ),
+                                    px(56.),
+                                    px(12.),
+                                ))
+                        }),
+                        ),
+                        (None, Some(_)) => el.child(
+
+                    v_flex()
+                        .items_center()
+                        .gap_2()
+                        .px_4()
+                        .py_8()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::subtle())
+                        .child(
+                            crate::icons::ic("briefcase")
+                                .size_5()
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            if self.q.is_empty() && self.filter.is_empty() {
+                                t("work.empty")
+                            } else {
+                                t("work.noMatch")
+                            },
+                        ),
+                        ),
+                    }),
+            )
+            .pb_7()
+            .into_any_element(),
+            Line::Day { day, first } => Self::column(
+                Self::card(*first).child(
+                    div()
+                        .px_4()
+                        .py_1p5()
+                        .border_b_1()
+                        .border_color(theme::line_faint())
+                        .bg(theme::surface_faint())
+                        // text-caption font-semibold uppercase tracking-wide text-subtle
+                        .text_size(theme::text::CAPTION)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::subtle())
+                        .child(day_label(day).to_uppercase()),
+                ),
+            )
+            .into_any_element(),
+            Line::Work { ix: n, first } => {
+                let Some(w) = self.shown.get(*n) else {
+                    return div().into_any_element();
+                };
+                crate::bench::mark("work-rows");
+                // ul divide-y: a line between rows only.
+                let row = div()
+                    .when(!*first, |el| {
+                        el.border_t_1().border_color(theme::line_faint())
+                    })
+                    .child(self.render_row(w, view));
+                // A fresh list's rows slide in; one scrolled into view later
+                // is simply there.
+                let row = if self.arrived.is_some_and(|at| at.elapsed() < ARRIVE) {
+                    crate::motion::enter(
+                        row,
+                        SharedString::from(format!("work-in-{}", w.item.r#ref)),
+                        *n,
+                    )
+                    .into_any_element()
+                } else {
+                    row.into_any_element()
+                };
+                Self::column(Self::card(false).child(row)).into_any_element()
+            }
+            Line::Foot => {
+                let more = self.page.as_ref().is_some_and(|p| !p.next.is_empty());
+                Self::column(
+                    v_flex()
+                        .gap_3()
+                        .child(
+                            Self::card(false)
+                                .h(theme::radius::XXL)
+                                .border_b_1()
+                                .rounded_b(theme::radius::XXL),
+                        )
+                        .when(more, |el| {
+                            el.child(h_flex().justify_center().child(controls::button(
+                                "work-more",
+                                if self.loading {
+                                    t("agent.mediaTab.loadingMore")
+                                } else {
+                                    t("common.more")
+                                },
+                                controls::Btn::Ghost,
+                                self.loading,
+                                move |_: &ClickEvent, _, cx| {
+                                    view.update(cx, |this, cx| this.load_more(cx))
+                                },
+                            )))
+                        }),
+                )
+                .pb_7()
+                .into_any_element()
             }
         }
-        let empty = days.is_empty();
+    }
+
+    /// render_head is the page's title, its project picker, the filters and
+    /// the search.
+    fn render_head(&self, view: Entity<Self>, cx: &App) -> AnyElement {
         let mut choices = vec![Choice::new("", t("shell.allMedia.allProjects"))];
         choices.extend(self.projects.iter().map(|p| {
             Choice::new(
@@ -551,7 +925,7 @@ impl Render for WorkView {
                 },
             )
         }));
-        let me = cx.entity().downgrade();
+        let me = view.downgrade();
         let pick: controls::Pick<str> = Rc::new(move |v: &str, _, cx| {
             let v = v.to_string();
             me.update(cx, |this, cx| {
@@ -560,289 +934,199 @@ impl Render for WorkView {
             })
             .ok();
         });
+        v_flex()
+            .gap_3()
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .items_end()
+                    .gap_3()
+                    .mb_2()
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(theme::text::DISPLAY)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::title())
+                                    .child(t("work.title")),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text::BODY)
+                                    .line_height(px(20.))
+                                    .text_color(theme::muted())
+                                    .child(t("work.description")),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    // ml-auto flex items-center gap-2
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .id("work-recap")
+                                    .h(px(36.))
+                                    .px_3()
+                                    .gap_1p5()
+                                    .rounded_xl()
+                                    .border_1()
+                                    .border_color(theme::brand(500).opacity(0.3))
+                                    .bg(gpui::linear_gradient(
+                                        180.,
+                                        gpui::linear_color_stop(
+                                            theme::brand(500).opacity(0.15),
+                                            0.,
+                                        ),
+                                        gpui::linear_color_stop(
+                                            theme::brand(600).opacity(0.1),
+                                            1.,
+                                        ),
+                                    ))
+                                    .cursor_pointer()
+                                    .hover(|el| {
+                                        el.border_color(theme::brand(400).opacity(0.5))
+                                            .bg(theme::brand(500).opacity(0.25))
+                                    })
+                                    .text_size(theme::text::UI)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::primary())
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_: &ClickEvent, window, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.open_recap(window, cx)
+                                            })
+                                        }
+                                    })
+                                    .child(
+                                        crate::icons::ic("sparkles")
+                                            .size_3p5()
+                                            .text_color(theme::brand(400)),
+                                    )
+                                    .child(t("recap.open")),
+                            )
+                            // ProjectFilter: a Select, w-56.
+                            .child(div().w(px(224.)).child(controls::field_select(
+                                "work-project",
+                                choices,
+                                &self.project,
+                                false,
+                                pick,
+                                Anchor::TopRight,
+                                None,
+                            ))),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .child(self.render_filters(view.clone()))
+                    .child(
+                        // ui/input.tsx's Input, h-9 pl-8, the Search
+                        // icon at left-3.
+                        h_flex()
+                            .flex_1()
+                            .min_w(px(192.))
+                            .h_9()
+                            .pl(px(11.))
+                            .pr_3()
+                            .gap(px(7.))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::sunken())
+                            .text_size(theme::text::BODY)
+                            .child(
+                                crate::icons::ic("search")
+                                    .size_3p5()
+                                    .flex_none()
+                                    .text_color(theme::subtle()),
+                            )
+                            .child(
+                                div()
+                                    .relative()
+                                    .flex_1()
+                                    .min_w_0()
+                                    // placeholder:text-faint
+                                    .when(
+                                        self.search.read(cx).value().is_empty(),
+                                        |el| {
+                                            el.child(
+                                                div()
+                                                    .absolute()
+                                                    .inset_0()
+                                                    .flex()
+                                                    .items_center()
+                                                    .truncate()
+                                                    .text_color(theme::faint())
+                                                    .child(t("work.search")),
+                                            )
+                                        },
+                                    )
+                                    .child(
+                                        Input::new(&self.search)
+                                            .appearance(false)
+                                            .with_size(gpui_component::Size::Size(px(
+                                                14. / 0.875,
+                                            )))
+                                            .px_0()
+                                            .cleanable(true),
+                                    ),
+                            ),
+                    )
+                    .when(self.loading && self.page.is_some(), |el| {
+                        el.child(
+                            div()
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::subtle())
+                                .child("…"),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for WorkView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.bench.is_some_and(|n| {
+            self.shown.len() >= n || self.page.as_ref().is_some_and(|p| p.next.is_empty())
+        }) && !self.loading
+        {
+            self.scroll_bench(window, cx);
+        }
+        // The rows that slid in are redrawn plain once they have arrived.
+        if let Some(at) = self.arrived {
+            if at.elapsed() >= ARRIVE + Duration::from_millis(300) {
+                self.arrived = None;
+            } else {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(ARRIVE + Duration::from_millis(350))
+                        .await;
+                    this.update(cx, |_, cx| cx.notify()).ok();
+                })
+                .detach();
+            }
+        }
         let recap = self.recap.as_ref().map(|(v, _)| v.clone());
+        let view = cx.entity();
         div()
             .relative()
             .size_full()
             .child(
-                div().id("work-page").size_full().overflow_y_scroll().child(
-                    v_flex()
-                        .w_full()
-                        .max_w(px(1152.)) // max-w-6xl
-                        .mx_auto()
-                        .px_8()
-                        .py_7()
-                        .gap_3()
-                        .child(
-                            h_flex()
-                                .flex_wrap()
-                                .items_end()
-                                .gap_3()
-                                .mb_2()
-                                .child(
-                                    v_flex()
-                                        .min_w_0()
-                                        .gap_1()
-                                        .child(
-                                            div()
-                                                .text_size(theme::text::DISPLAY)
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(theme::title())
-                                                .child(t("work.title")),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(theme::text::BODY)
-                                                .line_height(px(20.))
-                                                .text_color(theme::muted())
-                                                .child(t("work.description")),
-                                        ),
-                                )
-                                .child(div().flex_1())
-                                // ml-auto flex items-center gap-2
-                                .child(
-                                    h_flex()
-                                        .gap_2()
-                                        .child(
-                                            h_flex()
-                                                .id("work-recap")
-                                                .h(px(36.))
-                                                .px_3()
-                                                .gap_1p5()
-                                                .rounded_xl()
-                                                .border_1()
-                                                .border_color(theme::brand(500).opacity(0.3))
-                                                .bg(gpui::linear_gradient(
-                                                    180.,
-                                                    gpui::linear_color_stop(
-                                                        theme::brand(500).opacity(0.15),
-                                                        0.,
-                                                    ),
-                                                    gpui::linear_color_stop(
-                                                        theme::brand(600).opacity(0.1),
-                                                        1.,
-                                                    ),
-                                                ))
-                                                .cursor_pointer()
-                                                .hover(|el| {
-                                                    el.border_color(theme::brand(400).opacity(0.5))
-                                                        .bg(theme::brand(500).opacity(0.25))
-                                                })
-                                                .text_size(theme::text::UI)
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .text_color(theme::primary())
-                                                .on_click(cx.listener(
-                                                    |this, _: &ClickEvent, window, cx| {
-                                                        this.open_recap(window, cx)
-                                                    },
-                                                ))
-                                                .child(
-                                                    crate::icons::ic("sparkles")
-                                                        .size_3p5()
-                                                        .text_color(theme::brand(400)),
-                                                )
-                                                .child(t("recap.open")),
-                                        )
-                                        // ProjectFilter: a Select, w-56.
-                                        .child(div().w(px(224.)).child(controls::field_select(
-                                            "work-project",
-                                            choices,
-                                            &self.project,
-                                            false,
-                                            pick,
-                                            Anchor::TopRight,
-                                            None,
-                                        ))),
-                                ),
-                        )
-                        .child(
-                            h_flex()
-                                .min_w_0()
-                                .flex_wrap()
-                                .items_center()
-                                .gap_2()
-                                .child(self.render_filters(cx))
-                                .child(
-                                    // ui/input.tsx's Input, h-9 pl-8, the Search
-                                    // icon at left-3.
-                                    h_flex()
-                                        .flex_1()
-                                        .min_w(px(192.))
-                                        .h_9()
-                                        .pl(px(11.))
-                                        .pr_3()
-                                        .gap(px(7.))
-                                        .rounded_lg()
-                                        .border_1()
-                                        .border_color(theme::line_strong())
-                                        .bg(theme::sunken())
-                                        .text_size(theme::text::BODY)
-                                        .child(
-                                            crate::icons::ic("search")
-                                                .size_3p5()
-                                                .flex_none()
-                                                .text_color(theme::subtle()),
-                                        )
-                                        .child(
-                                            div()
-                                                .relative()
-                                                .flex_1()
-                                                .min_w_0()
-                                                // placeholder:text-faint
-                                                .when(
-                                                    self.search.read(cx).value().is_empty(),
-                                                    |el| {
-                                                        el.child(
-                                                            div()
-                                                                .absolute()
-                                                                .inset_0()
-                                                                .flex()
-                                                                .items_center()
-                                                                .truncate()
-                                                                .text_color(theme::faint())
-                                                                .child(t("work.search")),
-                                                        )
-                                                    },
-                                                )
-                                                .child(
-                                                    Input::new(&self.search)
-                                                        .appearance(false)
-                                                        .with_size(gpui_component::Size::Size(px(
-                                                            14. / 0.875,
-                                                        )))
-                                                        .px_0()
-                                                        .cleanable(true),
-                                                ),
-                                        ),
-                                )
-                                .when(self.loading && self.page.is_some(), |el| {
-                                    el.child(
-                                        div()
-                                            .text_size(theme::text::CAPTION)
-                                            .text_color(theme::subtle())
-                                            .child("…"),
-                                    )
-                                }),
-                        )
-                        .child(
-                            v_flex()
-                                .min_w_0()
-                                .rounded(theme::radius::XXL)
-                                .border_1()
-                                .border_color(theme::line())
-                                .bg(theme::linear_panel())
-                                .shadow(theme::shadow_card())
-                                .overflow_hidden()
-                                .map(|el| match (&self.error, &self.page) {
-                                    (Some(e), _) => {
-                                        el.child(div().p_4().child(controls::error_line(e.clone())))
-                                    }
-                                    (None, None) => el.children(
-                                        [0.33f32, 0.5, 0.25, 0.42, 0.3]
-                                            .into_iter()
-                                            .enumerate()
-                                            .map(|(n, width)| {
-                                                h_flex()
-                                                    .gap_3()
-                                                    .px_4()
-                                                    .py_3()
-                                                    .when(n > 0, |el| {
-                                                        el.border_t_1()
-                                                            .border_color(theme::line_faint())
-                                                    })
-                                                    .child(crate::motion::skeleton(
-                                                        ElementId::Name(
-                                                            format!("work-skel-a-{n}").into(),
-                                                        ),
-                                                        relative(width),
-                                                        px(14.),
-                                                    ))
-                                                    .child(div().flex_1())
-                                                    .child(crate::motion::skeleton(
-                                                        ElementId::Name(
-                                                            format!("work-skel-b-{n}").into(),
-                                                        ),
-                                                        px(56.),
-                                                        px(12.),
-                                                    ))
-                                            }),
-                                    ),
-                                    (None, Some(_)) if empty => el.child(
-                                        v_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .px_4()
-                                            .py_8()
-                                            .text_size(theme::text::UI)
-                                            .text_color(theme::subtle())
-                                            .child(
-                                                crate::icons::ic("briefcase")
-                                                    .size_5()
-                                                    .text_color(theme::faint()),
-                                            )
-                                            .child(
-                                                if self.q.is_empty() && self.filter.is_empty() {
-                                                    t("work.empty")
-                                                } else {
-                                                    t("work.noMatch")
-                                                },
-                                            ),
-                                    ),
-                                    (None, Some(_)) => {
-                                        el.children(days.into_iter().map(|(day, list)| {
-                                            v_flex()
-                                                .child(
-                                                    div()
-                                                        .px_4()
-                                                        .py_1p5()
-                                                        .border_b_1()
-                                                        .border_color(theme::line_faint())
-                                                        .bg(theme::surface_faint())
-                                                        // text-caption font-semibold uppercase tracking-wide text-subtle
-                                                        .text_size(theme::text::CAPTION)
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .text_color(theme::subtle())
-                                                        .child(day_label(&day).to_uppercase()),
-                                                )
-                                                .children(list.iter().enumerate().map(|(n, w)| {
-                                                    crate::motion::enter(
-                                                        // ul divide-y: a line between rows only.
-                                                        div()
-                                                            .when(n > 0, |el| {
-                                                                el.border_t_1().border_color(
-                                                                    theme::line_faint(),
-                                                                )
-                                                            })
-                                                            .child(self.render_row(w, cx)),
-                                                        SharedString::from(format!(
-                                                            "work-in-{}",
-                                                            w.item.r#ref
-                                                        )),
-                                                        n,
-                                                    )
-                                                }))
-                                        }))
-                                    }
-                                }),
-                        )
-                        .when(
-                            self.error.is_none()
-                                && self.page.as_ref().is_some_and(|p| !p.next.is_empty()),
-                            |el| {
-                                el.child(h_flex().justify_center().child(controls::button(
-                                    "work-more",
-                                    if self.loading {
-                                        t("agent.mediaTab.loadingMore")
-                                    } else {
-                                        t("common.more")
-                                    },
-                                    controls::Btn::Ghost,
-                                    self.loading,
-                                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_more(cx)),
-                                )))
-                            },
-                        ),
-                ),
+                list(self.list.clone(), move |ix, _, cx| {
+                    let cx: &App = cx;
+                    view.read(cx).render_line(ix, view.clone(), cx)
+                })
+                .size_full(),
             )
             .children(recap)
     }
@@ -1046,7 +1330,7 @@ impl AppView {
     pub(super) fn reload_review(&mut self, cx: &mut Context<Self>) {
         self.load_review(cx);
         if let Some(w) = &self.work {
-            w.update(cx, |w, cx| w.load(cx));
+            w.update(cx, |w, cx| w.reload(cx));
         }
     }
 }
