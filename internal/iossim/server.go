@@ -354,7 +354,11 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 		// The user's finger holds the simulator from down to up, so an
 		// agent's tap doesn't land in the middle of their drag.
 		holding, fingerDown := false, false
+		var lastX, lastY float64
 		defer func() {
+			if fingerDown { // the viewer left mid-drag: lift the finger
+				_ = h.send(op{Op: "touch", Phase: "up", X: lastX, Y: lastY})
+			}
 			if holding {
 				h.acting.Unlock()
 			}
@@ -387,7 +391,7 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 				err = h.run(ctx, steps)
 			}
 			if touch {
-				fingerDown = planned.Phase != "up"
+				fingerDown, lastX, lastY = planned.Phase != "up", planned.X, planned.Y
 			}
 			if !fingerDown { // a key mid-drag keeps the drag's hold
 				h.acting.Unlock()

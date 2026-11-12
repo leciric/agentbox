@@ -163,7 +163,7 @@ copy 600 pixels wide to look at, and prints its path.`,
 				if err != nil {
 					return fmt.Errorf("saved in media, but not the copy to look at: %w", err)
 				}
-				printIOSLook(cmd, path, size)
+				printIOSLook(cmd, path, size, "")
 			}
 			return nil
 		},
@@ -198,13 +198,16 @@ func iosUI(a *app, cmd *cobra.Command, ref string, req api.IOSUIRequest) error {
 		if err != nil {
 			return fmt.Errorf("couldn't save the screenshot to look at: %w", err)
 		}
-		printIOSLook(cmd, path, size)
+		printIOSLook(cmd, path, size, req.Device)
 	}
 	return nil
 }
 
-func printIOSLook(cmd *cobra.Command, path string, size image.Point) {
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s (%d×%d; to tap a point in it: agentbox ios tap <x÷%d> <y÷%d> --fraction)\n", path, size.X, size.Y, size.X, size.Y)
+func printIOSLook(cmd *cobra.Command, path string, size image.Point, device string) {
+	if device != "" {
+		device = fmt.Sprintf(" --device %q", device)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s (%d×%d; to tap a point in it: agentbox ios tap <x÷%d> <y÷%d> --fraction%s)\n", path, size.X, size.Y, size.X, size.Y, device)
 }
 
 func newIOSUICmd(a *app, device *string) *cobra.Command {
