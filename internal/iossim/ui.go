@@ -697,7 +697,7 @@ func settle(ctx context.Context, read func(context.Context) (*snapshot, error), 
 // change says what an action did to the screen.
 func change(before, after *snapshot, changed, moving bool, full func() string) string {
 	if !changed {
-		return "Nothing changed in the accessibility tree within 1.5s. If it may be slow, agentbox ios wait --text <text>; if the change may only be visual, take a screenshot. Don't repeat the action blindly.\n"
+		return "Nothing changed in the accessibility tree within 1.5s. If it may be slow, agentbox ios wait --text <text>; if the change may only be visual, a screenshot shows it. Don't repeat the action blindly.\n"
 	}
 	prefix := ""
 	if moving {

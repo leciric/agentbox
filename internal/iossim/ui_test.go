@@ -462,3 +462,15 @@ func TestWhatsPressedIsLetGoWhenAnInputIsCanceled(t *testing.T) {
 		t.Fatalf("after the finger lifts: %+v", held)
 	}
 }
+
+func TestATapThatChangesNothingSaysSo(t *testing.T) {
+	h, _ := uiHelper(t, "profile")
+	out, err := h.client.UI(testContext(t), testUDID, api.IOSUIRequest{Action: "tap", Target: "My network"})
+	if err != nil || !out.Unchanged || !strings.Contains(out.Text, "Nothing changed") {
+		t.Fatalf("%v, %+v", err, out)
+	}
+	h, _ = uiHelper(t, "profile", "home")
+	if out, err = h.client.UI(testContext(t), testUDID, api.IOSUIRequest{Action: "tap", Target: "My network"}); err != nil || out.Unchanged {
+		t.Fatalf("a navigation: %v, %+v", err, out)
+	}
+}

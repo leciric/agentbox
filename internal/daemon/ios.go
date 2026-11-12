@@ -256,6 +256,9 @@ func (s *Server) ios(action string, agentOf func(*http.Request) (state.Agent, er
 			if err != nil {
 				return err
 			}
+			if out.Unchanged {
+				out.Look, _ = c.Screenshot(ctx, udid) // without it, the agent still reads that nothing changed
+			}
 			return writeJSON(w, http.StatusOK, out)
 		case "apps":
 			var req api.IOSDeviceRequest

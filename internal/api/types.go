@@ -3941,6 +3941,10 @@ type IOSUIRequest struct {
 type IOSUIResult struct {
 	Screen string `json:"screen"`
 	Text   string `json:"text"`
+	// Unchanged: an action changed nothing in the accessibility tree, so
+	// Look is a screenshot (PNG) for the agent to see whether it did.
+	Unchanged bool   `json:"unchanged,omitempty"`
+	Look      []byte `json:"look,omitempty"`
 }
 
 // IOSApp is an app installed on a simulator. A development build (Expo's

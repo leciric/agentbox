@@ -535,6 +535,7 @@ func (s *Server) ui(r *http.Request, udid string) (any, error) {
 		return after.render(false)
 	}
 	text := did + change(before, after, changed, moving, full)
+	unchanged := !changed
 	if req.Action == "scroll-to" {
 		if err := after.check(ctx, hit); err == nil {
 			if e, err := after.findTarget(req.Target, req.Near, false); err == nil {
@@ -543,10 +544,11 @@ func (s *Server) ui(r *http.Request, udid string) (any, error) {
 				} else {
 					text = after.line(e, false) + ": scrolling didn't bring it fully into view; take a screenshot\n"
 				}
+				unchanged = false
 			}
 		}
 	}
-	return result(after, text)
+	return api.IOSUIResult{Screen: after.title, Text: text, Unchanged: unchanged}, nil
 }
 
 // uiSync waits until the input sent so far has reached the simulator.

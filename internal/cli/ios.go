@@ -1,11 +1,13 @@
 package cli
 
 import (
-	"context"
+	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -152,11 +154,16 @@ copy 600 pixels wide to look at, and prints its path.`,
 			}
 			printSaved(cmd, item)
 			if ref == "" {
-				path, size, err := saveIOSPreview(cmd.Context(), c, item)
+				body, err := c.MediaFile(cmd.Context(), "", item.ID)
 				if err != nil {
 					return fmt.Errorf("saved in media, but not the copy to look at: %w", err)
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s (%d×%d; to tap a point in it: agentbox ios tap <x÷%d> <y÷%d> --fraction)\n", path, size.X, size.Y, size.X, size.Y)
+				defer func() { _ = body.Close() }()
+				path, size, err := saveIOSLook(body, cmp.Or(item.Name, item.ID))
+				if err != nil {
+					return fmt.Errorf("saved in media, but not the copy to look at: %w", err)
+				}
+				printIOSLook(cmd, path, size)
 			}
 			return nil
 		},
@@ -186,7 +193,18 @@ func iosUI(a *app, cmd *cobra.Command, ref string, req api.IOSUIRequest) error {
 		return err
 	}
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), out.Text)
+	if len(out.Look) > 0 && ref == "" {
+		path, size, err := saveIOSLook(bytes.NewReader(out.Look), "nothing-changed")
+		if err != nil {
+			return fmt.Errorf("couldn't save the screenshot to look at: %w", err)
+		}
+		printIOSLook(cmd, path, size)
+	}
 	return nil
+}
+
+func printIOSLook(cmd *cobra.Command, path string, size image.Point) {
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s (%d×%d; to tap a point in it: agentbox ios tap <x÷%d> <y÷%d> --fraction)\n", path, size.X, size.Y, size.X, size.Y)
 }
 
 func newIOSUICmd(a *app, device *string) *cobra.Command {
@@ -575,16 +593,11 @@ AgentBox update does: forward again.`,
 	return cmd
 }
 
-// saveIOSPreview writes a screenshot, 600 pixels wide, to the agent's
+// saveIOSLook writes a screenshot, 600 pixels wide, to the agent's
 // temporary directory, to look at: small enough to read, and kept out of
-// its media, which has the original.
-func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (string, image.Point, error) {
-	body, err := c.MediaFile(ctx, "", item.ID)
-	if err != nil {
-		return "", image.Point{}, err
-	}
-	defer func() { _ = body.Close() }()
-	src, err := png.Decode(body)
+// its media.
+func saveIOSLook(r io.Reader, name string) (string, image.Point, error) {
+	src, err := png.Decode(r)
 	if err != nil {
 		return "", image.Point{}, err
 	}
@@ -597,15 +610,12 @@ func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (str
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", image.Point{}, err
 	}
-	name := strings.Map(func(r rune) rune {
+	name = strings.Map(func(r rune) rune {
 		if r == '-' || r == '_' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
 			return r
 		}
 		return '-'
-	}, item.Name)
-	if strings.Trim(name, "-.") == "" {
-		name = item.ID
-	}
+	}, name)
 	path := filepath.Join(dir, name+".png")
 	f, err := os.Create(path)
 	if err != nil {
