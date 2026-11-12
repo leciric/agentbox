@@ -31,7 +31,7 @@ use super::setup::{step_mark, step_title, usable};
 use crate::{prefs, theme};
 
 const STEPS: [&str; 6] = ["tool", "machine", "login", "github", "project", "check"];
-const TOOLS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "gemini"];
+const TOOLS: [&str; 6] = ["claude", "codex", "opencode", "cursor", "gemini", "copilot"];
 /// The machine's steps (machineIds), less the tool's own (cli).
 const MACHINE: [&str; 4] = ["incus", "host", "image", "storage"];
 /// MARK keeps where this computer's first run is: "started" or "done".

@@ -123,6 +123,7 @@ fn tool_name(tool: &str) -> &'static str {
         "opencode" => "OpenCode",
         "cursor" => "Cursor",
         "gemini" => "Gemini CLI",
+        "copilot" => "GitHub Copilot CLI",
         _ => "Claude",
     }
 }
@@ -373,7 +374,12 @@ impl AppView {
         });
         let (Some(account), Some(five)) = (account, five) else {
             // A tool with no limits says so; Claude with no reading hides.
-            if codex || matches!(pick.tool.as_str(), "opencode" | "cursor" | "gemini") {
+            if codex
+                || matches!(
+                    pick.tool.as_str(),
+                    "opencode" | "cursor" | "gemini" | "copilot"
+                )
+            {
                 let tool = tool_name(&pick.tool);
                 return Some(
                     h_flex()

@@ -33,10 +33,10 @@ use crate::theme;
 
 /// The tools with a card under "AI tools", in the order the daemon lists
 /// its checks when it hasn't answered yet.
-const TOOLS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "gemini"];
+const TOOLS: [&str; 6] = ["claude", "codex", "opencode", "cursor", "gemini", "copilot"];
 
 /// The form fields: (name, placeholder key or literal, masked).
-pub(super) const FIELDS: [(&str, &str, bool); 19] = [
+pub(super) const FIELDS: [(&str, &str, bool); 21] = [
     ("claude-login-account", "default", false),
     ("claude-code", "settings.claudeLogin.codePlaceholder", false),
     ("claude-token-account", "default", false),
@@ -47,6 +47,12 @@ pub(super) const FIELDS: [(&str, &str, bool); 19] = [
     (
         "gemini-key",
         "settings.toolAccounts.keyPlaceholderGemini",
+        true,
+    ),
+    ("copilot-account", "default", false),
+    (
+        "copilot-key",
+        "settings.toolAccounts.keyPlaceholderCopilot",
         true,
     ),
     ("codex-account", "default", false),
@@ -147,6 +153,7 @@ fn tool_accounts<'a>(auth: &'a AuthStatus, tool: &str) -> &'a [ToolAccount] {
         "opencode" => &auth.open_code_accounts,
         "cursor" => &auth.cursor_accounts,
         "gemini" => &auth.gemini_accounts,
+        "copilot" => &auth.copilot_accounts,
         _ => &[],
     }
 }
@@ -157,6 +164,7 @@ fn account_kind(a: &ToolAccount) -> String {
         "chatgpt" => t("settings.toolAccounts.kindChatGPT"),
         "google" => t("settings.toolAccounts.kindGoogle"),
         "oauth" => t("settings.toolAccounts.kindOAuth"),
+        "token" => t("settings.toolAccounts.kindGitHubToken"),
         "wellknown" => t("settings.toolAccounts.kindWellKnown"),
         k => k.to_string(),
     };
@@ -328,6 +336,7 @@ impl AppView {
         let count = |field: &str| match field.split('-').next().unwrap_or("") {
             "claude" => a.claude_accounts.len(),
             "gemini" => a.gemini_accounts.len(),
+            "copilot" => a.copilot_accounts.len(),
             "codex" => a.codex_accounts.len(),
             "opencode" => a.open_code_accounts.len(),
             "cursor" => a.cursor_accounts.len(),
@@ -582,6 +591,7 @@ impl AppView {
             "cursor-key" | "cursor-account" => self.save_cursor_key(window, cx),
             "codex-key" | "codex-account" => self.save_tool_key("codex", window, cx),
             "gemini-key" | "gemini-account" => self.save_tool_key("gemini", window, cx),
+            "copilot-key" | "copilot-account" => self.save_tool_key("copilot", window, cx),
             "opencode-key" | "opencode-account" | "opencode-provider" => {
                 self.save_tool_key("opencode", window, cx)
             }
@@ -1279,6 +1289,31 @@ impl AppView {
                 out.push(note(t("settings.gemini.cliBody")));
                 out.push(command_box(id, command("agentbox auth gemini"), cx));
             }
+            // A GitHub token with Copilot access pasted here: Copilot's own
+            // login keeps its token in the OS keychain, so there's no sign-in
+            // to run, and the command line can take the GitHub CLI's token.
+            "copilot" => {
+                out.push(signed_in_line(
+                    auth.copilot,
+                    if auth.copilot_user.is_empty() {
+                        t("settings.copilot.signedInPlain")
+                    } else {
+                        tv(
+                            "settings.copilot.signedInAs",
+                            &[("user", (&auth.copilot_user).into())],
+                        )
+                    },
+                    t("settings.copilot.notSignedIn"),
+                ));
+                out.push(self.tool_lines("copilot", &auth, cx));
+                out.push(self.key_form("copilot", cx));
+                out.push(note(t("settings.copilot.cliBody")));
+                out.push(command_box(
+                    id,
+                    command("agentbox auth copilot --from-gh"),
+                    cx,
+                ));
+            }
             _ => {}
         }
         out
@@ -1884,12 +1919,13 @@ impl AppView {
     }
 
     /// key_form adds an account from an API key: Codex's, OpenCode's (for a
-    /// provider), Gemini CLI's, or Cursor's.
+    /// provider), Gemini CLI's, a GitHub token for Copilot, or Cursor's.
     fn key_form(&self, tool: &'static str, cx: &mut Context<Self>) -> AnyElement {
         let intro = match tool {
             "codex" => Some("settings.toolAccounts.introCodex"),
             "opencode" => Some("settings.toolAccounts.introOpenCode"),
             "gemini" => Some("settings.toolAccounts.introGemini"),
+            "copilot" => Some("settings.toolAccounts.introCopilot"),
             _ => None,
         };
         let key_label = if tool == "cursor" {

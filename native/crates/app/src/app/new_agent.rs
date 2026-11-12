@@ -404,7 +404,7 @@ impl AppView {
                 d.iface().to_string()
             },
             autonomous: Some(d.autonomous),
-            model: if ["claude", "opencode", "cursor", "gemini"].contains(&ai.as_str()) {
+            model: if ["claude", "opencode", "cursor", "gemini", "copilot"].contains(&ai.as_str()) {
                 some(&d.model)
             } else {
                 None
@@ -701,7 +701,7 @@ impl AppView {
             ),
         ];
         // The AI tool, two to a row.
-        let tools: [(&str, String, String); 6] = [
+        let tools: [(&str, String, String); 7] = [
             ("claude", "Claude Code".into(), "Anthropic".into()),
             ("codex", "Codex".into(), "OpenAI".into()),
             (
@@ -711,6 +711,7 @@ impl AppView {
             ),
             ("cursor", "Cursor".into(), t("project.newAgent.tool.cursor")),
             ("gemini", "Gemini CLI".into(), "Google".into()),
+            ("copilot", "Copilot CLI".into(), "GitHub".into()),
             (
                 "none",
                 t("project.newAgent.tool.shellOnly"),
@@ -858,6 +859,7 @@ impl AppView {
             "opencode" => !a.opencode,
             "cursor" => !a.cursor,
             "gemini" => !a.gemini,
+            "copilot" => !a.copilot,
             _ => false,
         });
         if needs_login {
@@ -1055,6 +1057,20 @@ impl AppView {
                         set(|d, v| d.model = v),
                     ),
                     Some(t("project.newAgent.geminiModelHint")),
+                ));
+            }
+            "copilot" => {
+                let list = s.map_or(&empty, |s| &s.copilot_model_choices);
+                rows.push(field(
+                    t("project.newAgent.modelLabel"),
+                    select(
+                        "new-agent-copilot-model",
+                        default_of(list, "project.newAgent.copilotDefault"),
+                        choices_of(list),
+                        &d.model,
+                        set(|d, v| d.model = v),
+                    ),
+                    Some(t("project.newAgent.copilotModelHint")),
                 ));
             }
             "claude" => {

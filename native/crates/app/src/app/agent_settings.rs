@@ -528,6 +528,7 @@ impl AppView {
             "codex" => a.codex_account.clone(),
             "cursor" => a.cursor_account.clone(),
             "gemini" => a.gemini_account.clone(),
+            "copilot" => a.copilot_account.clone(),
             _ => String::new(),
         };
         let mut rows = vec![(t("agent.overview.tool"), ai_label(&a.ai), false)];

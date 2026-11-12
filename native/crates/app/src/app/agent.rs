@@ -170,6 +170,7 @@ pub fn ai_label(ai: &str) -> String {
         "opencode" => "OpenCode".into(),
         "cursor" => "Cursor".into(),
         "gemini" => "Gemini CLI".into(),
+        "copilot" => "GitHub Copilot CLI".into(),
         other => other.to_string(),
     }
 }
@@ -1262,6 +1263,7 @@ impl AppView {
             "codex" => a.codex_account.clone(),
             "cursor" => a.cursor_account.clone(),
             "gemini" => a.gemini_account.clone(),
+            "copilot" => a.copilot_account.clone(),
             "opencode" => a
                 .open_code_accounts
                 .iter()

@@ -434,7 +434,7 @@ impl Fake {
     /// neighbours are the other projects' agents (--neighbours): in every
     /// state a desk shows, and on every AI tool.
     fn neighbours(&self) -> Vec<FleetAgent> {
-        const AIS: [&str; 5] = ["claude", "codex", "gemini", "opencode", "cursor"];
+        const AIS: [&str; 6] = ["claude", "codex", "gemini", "opencode", "cursor", "copilot"];
         let mut out = Vec::new();
         for (pi, (project, n)) in self.opts.neighbours.iter().enumerate() {
             for i in 0..*n {
@@ -1010,6 +1010,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                         c("opencode", "OpenCode login", "optional", false, ""),
                         c("cursor", "Cursor sign-in", "optional", false, ""),
                         c("gemini", "Gemini CLI sign-in", "optional", false, ""),
+                        c("copilot", "GitHub Copilot CLI sign-in", "optional", false, ""),
                         c("preview", "Preview URLs", "ok", false, ""),
                     ],
                     ..Default::default()

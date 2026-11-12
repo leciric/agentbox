@@ -144,6 +144,7 @@ fn origin_of(source: &str) -> &'static str {
         "opencode",
         "cursor",
         "gemini",
+        "copilot",
     ] {
         if prefix == o {
             return o;
@@ -171,6 +172,7 @@ fn origin_label(origin: &str, plugin: &str) -> String {
         "opencode" => "OpenCode".into(),
         "cursor" => "Cursor".into(),
         "gemini" => "Gemini CLI".into(),
+        "copilot" => "GitHub Copilot CLI".into(),
         "git" => t("skills.origin.git"),
         _ => t("skills.origin.folder"),
     }
