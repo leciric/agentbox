@@ -442,3 +442,23 @@ func TestALabelOnlyInsideAnotherIsRefusedWhenThereAreSeveral(t *testing.T) {
 		t.Fatalf("wait --text Saved matched %d", len(found))
 	}
 }
+
+func TestWhatsPressedIsLetGoWhenAnInputIsCanceled(t *testing.T) {
+	var held []op
+	for _, o := range []op{
+		{Op: "key", Usage: usageShift, Down: true},
+		{Op: "touch", Phase: "down", X: 0.1, Y: 0.2},
+		{Op: "touch", Phase: "move", X: 0.3, Y: 0.4},
+		{Op: "key", Usage: 0x04, Down: true},
+		{Op: "key", Usage: 0x04},
+	} {
+		held = holding(held, o)
+	}
+	want := []op{{Op: "key", Usage: usageShift}, {Op: "touch", Phase: "up", X: 0.3, Y: 0.4}}
+	if !slices.Equal(held, want) {
+		t.Fatalf("held %+v, want %+v", held, want)
+	}
+	if held = holding(held, op{Op: "touch", Phase: "up", X: 0.3, Y: 0.4}); len(held) != 1 {
+		t.Fatalf("after the finger lifts: %+v", held)
+	}
+}

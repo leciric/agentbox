@@ -152,11 +152,11 @@ copy 600 pixels wide to look at, and prints its path.`,
 			}
 			printSaved(cmd, item)
 			if ref == "" {
-				path, err := saveIOSPreview(cmd.Context(), c, item)
+				path, size, err := saveIOSPreview(cmd.Context(), c, item)
 				if err != nil {
 					return fmt.Errorf("saved in media, but not the copy to look at: %w", err)
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s\n", path)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "To look at it: %s (%d×%d; to tap a point in it: agentbox ios tap <x÷%d> <y÷%d> --fraction)\n", path, size.X, size.Y, size.X, size.Y)
 			}
 			return nil
 		},
@@ -270,6 +270,13 @@ func newIOSAppsCmd(a *app, device *string) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			openurl := "agentbox ios openurl"
+			if ref != "" {
+				openurl += " " + ref
+			}
+			if *device != "" {
+				openurl += fmt.Sprintf(" --device %q", *device)
+			}
 			if len(apps) == 0 {
 				_, _ = fmt.Fprintln(out, "No apps of yours are installed on this simulator")
 			}
@@ -278,7 +285,7 @@ func newIOSAppsCmd(a *app, device *string) *cobra.Command {
 				if app.DevClient && app.OpenURL == "" {
 					_, _ = fmt.Fprintln(out, "  a development build: ios launch only opens its launcher, where Enter URL manually takes http://localhost:<Metro's port>")
 				} else if app.DevClient {
-					_, _ = fmt.Fprintf(out, "  a development build: ios launch only opens its launcher; open it on your Metro (<port>: its port) with\n  agentbox ios openurl %q\n", app.OpenURL)
+					_, _ = fmt.Fprintf(out, "  a development build: ios launch only opens its launcher; open it on your Metro (<port>: its port) with\n  %s %q\n", openurl, app.OpenURL)
 				}
 			}
 			return nil
@@ -571,15 +578,15 @@ AgentBox update does: forward again.`,
 // saveIOSPreview writes a screenshot, 600 pixels wide, to the agent's
 // temporary directory, to look at: small enough to read, and kept out of
 // its media, which has the original.
-func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (string, error) {
+func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (string, image.Point, error) {
 	body, err := c.MediaFile(ctx, "", item.ID)
 	if err != nil {
-		return "", err
+		return "", image.Point{}, err
 	}
 	defer func() { _ = body.Close() }()
 	src, err := png.Decode(body)
 	if err != nil {
-		return "", err
+		return "", image.Point{}, err
 	}
 	b := src.Bounds()
 	w := min(600, b.Dx())
@@ -588,7 +595,7 @@ func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (str
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Src, nil)
 	dir := filepath.Join(os.TempDir(), "ios")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+		return "", image.Point{}, err
 	}
 	name := strings.Map(func(r rune) rune {
 		if r == '-' || r == '_' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
@@ -602,11 +609,11 @@ func saveIOSPreview(ctx context.Context, c *api.Client, item api.MediaItem) (str
 	path := filepath.Join(dir, name+".png")
 	f, err := os.Create(path)
 	if err != nil {
-		return "", err
+		return "", image.Point{}, err
 	}
 	if err := png.Encode(f, dst); err != nil {
 		_ = f.Close()
-		return "", err
+		return "", image.Point{}, err
 	}
-	return path, f.Close()
+	return path, dst.Bounds().Size(), f.Close()
 }

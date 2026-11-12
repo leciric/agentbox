@@ -1032,6 +1032,11 @@ static NSDictionary *axHit(NSArray *points) {
     return @{@"hits" : hits};
 }
 
+static BOOL expired(NSDictionary *o) {
+    NSNumber *deadline = o[@"deadline"];
+    return [deadline isKindOfClass:[NSNumber class]] && [[NSDate date] timeIntervalSince1970] * 1000 > deadline.doubleValue;
+}
+
 // axScroll scrolls the element at index into view, if it's still the one the
 // helper means (same identifier and label); else the first that is.
 static NSDictionary *axScroll(NSDictionary *o) {
@@ -1042,7 +1047,8 @@ static NSDictionary *axScroll(NSDictionary *o) {
     NSArray *kids = axChildren(app);
     NSString *identifier = o[@"identifier"] ?: @"", *label = o[@"label"] ?: @"";
     BOOL (^same)(id<ABAXElement>) = ^BOOL(id<ABAXElement> el) {
-      return [([el accessibilityIdentifier] ?: @"") isEqualToString:identifier] && [([el accessibilityLabel] ?: @"") isEqualToString:label];
+      NSString *own = [([el accessibilityLabel] ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+      return [([el accessibilityIdentifier] ?: @"") isEqualToString:identifier] && [own isEqualToString:label];
     };
     NSInteger index = [o[@"index"] integerValue];
     id<ABAXElement> target = nil;
@@ -1056,6 +1062,9 @@ static NSDictionary *axScroll(NSDictionary *o) {
     }
     if (!target) {
         return @{@"error" : @"the element is gone"};
+    }
+    if (expired(o)) { // the helper gave up while this looked for it
+        return @{@"error" : @"timed out"};
     }
     [target performScrollToVisible];
     return @{};
@@ -1073,11 +1082,6 @@ static void reply(id requestID, NSDictionary *body) {
 
 // expired says the helper has given up on an op: run late, it would only
 // hold up the ones after it.
-static BOOL expired(NSDictionary *o) {
-    NSNumber *deadline = o[@"deadline"];
-    return [deadline isKindOfClass:[NSNumber class]] && [[NSDate date] timeIntervalSince1970] * 1000 > deadline.doubleValue;
-}
-
 static void handleAX(NSString *name, NSDictionary *o) {
     id requestID = o[@"id"];
     dispatch_async(axQueue, ^{

@@ -262,10 +262,10 @@ func (s *snapshot) check(ctx context.Context, hit hitter) error {
 			case h == nil:
 				again = append(again, e)
 				continue
-			case s.lands(e, h):
-				e.tappable, e.tapX, e.tapY = true, points[i][0], points[i][1]
 			case h.PID != 0 && h.PID != s.app.PID && s.app.PID != 0:
 				e.coveredBy = "the system's " + cmpOr(strings.TrimSpace(h.Label), "interface")
+			case s.lands(e, h):
+				e.tappable, e.tapX, e.tapY = true, points[i][0], points[i][1]
 			default:
 				e.coveredBy = describeHit(s, h)
 			}
@@ -463,7 +463,7 @@ func (s *snapshot) render(all bool) string {
 		b.WriteString(`agentbox ios scroll-to <target> scrolls one into view; lists load more as they scroll, so an item not listed may need scroll-to on the last one` + "\n")
 	}
 	if shown == 0 || area < 0.25*s.screen.w*s.screen.h && !s.keyboard {
-		b.WriteString("This screen tells accessibility little (a canvas, a web view, a game?): look at it with agentbox ios screenshot\n")
+		b.WriteString("This screen tells accessibility little (a canvas, a web view, a game?): look at it with agentbox ios screenshot, and tap what you see with agentbox ios tap --fraction\n")
 	}
 	return b.String()
 }
@@ -624,13 +624,13 @@ func (e *uiElement) key() string {
 // leaving out those still moving (a carousel, a shimmer).
 func (s *snapshot) shape(moving map[string]bool) uint64 {
 	h := fnv.New64a()
-	fmt.Fprintf(h, "%s\x01%d\x01", s.app.Label, s.app.PID)
+	_, _ = fmt.Fprintf(h, "%s\x01%d\x01", s.app.Label, s.app.PID)
 	for _, e := range s.elements {
 		if moving[e.key()] {
 			continue
 		}
 		f := frameOf(e.axElement)
-		fmt.Fprintf(h, "%s\x01%.0f %.0f %.0f %.0f\x01", e.key(), f.x, f.y, f.w, f.h)
+		_, _ = fmt.Fprintf(h, "%s\x01%.0f %.0f %.0f %.0f\x01", e.key(), f.x, f.y, f.w, f.h)
 	}
 	return h.Sum64()
 }
@@ -639,7 +639,7 @@ func (s *snapshot) shape(moving map[string]bool) uint64 {
 func (s *snapshot) values() uint64 {
 	h := fnv.New64a()
 	for _, e := range s.elements {
-		fmt.Fprintf(h, "%s\x01%s\x01%t\x01%t\x01%t\x01", e.key(), e.Value, e.Selected, e.Enabled, e.Focused)
+		_, _ = fmt.Fprintf(h, "%s\x01%s\x01%t\x01%t\x01%t\x01", e.key(), e.Value, e.Selected, e.Enabled, e.Focused)
 	}
 	return h.Sum64()
 }

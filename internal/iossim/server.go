@@ -278,6 +278,9 @@ func (s *Server) input(r *http.Request, udid string) (any, error) {
 	}
 	h.acting.Lock()
 	defer h.acting.Unlock()
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
 	return nil, s.apply(r.Context(), h, in)
 }
 
@@ -350,7 +353,7 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 		defer cancel()
 		// The user's finger holds the simulator from down to up, so an
 		// agent's tap doesn't land in the middle of their drag.
-		holding := false
+		holding, fingerDown := false, false
 		defer func() {
 			if holding {
 				h.acting.Unlock()
@@ -383,7 +386,10 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 			} else if err == nil {
 				err = h.run(ctx, steps)
 			}
-			if !touch || planned.Phase == "up" {
+			if touch {
+				fingerDown = planned.Phase != "up"
+			}
+			if !fingerDown { // a key mid-drag keeps the drag's hold
 				h.acting.Unlock()
 				holding = false
 			}
@@ -510,7 +516,7 @@ func (s *Server) ui(r *http.Request, udid string) (any, error) {
 		if target.where == onScreen && target.tappable {
 			return result(before, fmt.Sprintf("%s is already on the screen\n", before.line(target, false)))
 		}
-		err = h.request(ctx, map[string]any{"op": "scroll", "index": target.index, "identifier": target.Identifier, "label": target.axElement.Label}, 5*time.Second, nil)
+		err = h.request(ctx, map[string]any{"op": "scroll", "index": target.index, "identifier": target.Identifier, "label": target.Label}, 5*time.Second, nil)
 	}
 	if err != nil {
 		return nil, err
@@ -559,7 +565,7 @@ func focused(ctx context.Context, read func(context.Context) (*snapshot, error),
 			return err
 		}
 		for _, e := range snap.elements {
-			if e.Focused && (e.Identifier != "" && e.Identifier == target.Identifier || e.index == target.index && e.Role == target.Role) {
+			if e.Focused && (target.Identifier != "" && e.Identifier == target.Identifier || target.Identifier == "" && e.index == target.index && e.Role == target.Role) {
 				return nil
 			}
 		}

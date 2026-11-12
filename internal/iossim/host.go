@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -120,19 +121,46 @@ func (h *host) why() string {
 
 // run sends steps in order, waiting between them as each says.
 func (h *host) run(ctx context.Context, steps []step) error {
+	var held []op // pressed by these steps and not let go yet
 	for _, s := range steps {
 		if err := h.send(s.op); err != nil {
 			return err
 		}
+		held = holding(held, s.op)
 		if s.wait > 0 {
 			select {
 			case <-time.After(s.wait):
 			case <-ctx.Done():
+				// Let go of what's pressed, or the simulator keeps a finger or a key down.
+				for i := len(held) - 1; i >= 0; i-- {
+					_ = h.send(held[i])
+				}
 				return ctx.Err()
 			}
 		}
 	}
 	return nil
+}
+
+// holding is held after o: the release of each touch, key or button down.
+func holding(held []op, o op) []op {
+	switch {
+	case o.Op == "touch" && o.Phase == "down":
+		return append(held, op{Op: "touch", Phase: "up", X: o.X, Y: o.Y})
+	case o.Op == "touch" && o.Phase == "move":
+		for i := range held {
+			if held[i].Op == "touch" {
+				held[i].X, held[i].Y = o.X, o.Y
+			}
+		}
+	case o.Op == "touch" && o.Phase == "up":
+		return slices.DeleteFunc(held, func(h op) bool { return h.Op == "touch" })
+	case (o.Op == "key" || o.Op == "button") && o.Down:
+		return append(held, op{Op: o.Op, Usage: o.Usage, Button: o.Button})
+	case o.Op == "key" || o.Op == "button":
+		return slices.DeleteFunc(held, func(h op) bool { return h.Op == o.Op && h.Usage == o.Usage && h.Button == o.Button })
+	}
+	return held
 }
 
 // request sends an op with an id and decodes simhost's reply into out.
