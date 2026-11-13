@@ -652,7 +652,7 @@ impl AppView {
             Dialog::SectionName { section, name, .. } => modal(
                 "section-name",
                 match section {
-                    Some(s) => tv("shell.sidebar.renameTitle", &[("name", (&s.name).into())]),
+                    Some(s) => tv("shell.sidebar.editTitle", &[("name", (&s.name).into())]),
                     None => t("shell.sidebar.newSection"),
                 },
                 None,
