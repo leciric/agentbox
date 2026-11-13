@@ -180,6 +180,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
   const grouping = useGroupIdle();
   const drafts = useDraftProjects();
+  const sec = useSections();
+  // The user's own order of the projects in no section (the daemon's
+  // ProjectLayout.Loose, through sec.lists). The rest follow it unless
+  // "Group idle projects" sorts them by activity, which dragging doesn't change.
+  const manual = !grouping;
+  const looseOrder = useMemo(() => sec.lists.find((l) => !l.section)?.projects.map((p) => p.name), [sec.lists]);
   const order = useMemo(() => {
     return orderProjects({
       groupIdle: grouping,
@@ -188,11 +194,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
       active,
       drafts,
+      manual: looseOrder,
       label,
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, active, drafts, kept.pins, grouping]);
+  }, [projects.data, activity.data, active, drafts, kept.pins, grouping, looseOrder]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const { layout, save } = useSidebarLayout();
@@ -201,11 +208,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // project on screen alone doesn't count as: opened from Hidden, it stays there.
   // What needs you, then what finished, come first among the projects in
   // no list of the user's own order: the pins and the sections keep theirs.
+  // With the rest in the user's own order (manual) they keep it too: attention
+  // reordering what was just dragged would put the row back where it came from.
   const placed = arrange(order, layout, activeGrace);
-  const arranged = { ...placed, rest: byAttention(placed.rest, needsSort, finishedSort, workingSort) };
+  const arranged = { ...placed, rest: manual ? placed.rest : byAttention(placed.rest, needsSort, finishedSort, workingSort) };
   // The user's sections, each with the projects in it that aren't with the
   // pins or the hidden; the rest of the lists are the projects in none.
-  const sec = useSections();
   const dnd = useSectionDrag(sec.lists, sec.apply);
   const { sections: userSections, shown: inSection } = sectionsAside(sec.lists, new Set([...arranged.pinned, ...arranged.hidden].map((p) => p.name)));
   const loose = (ps: T.Project[]) => ps.filter((p) => !inSection.has(p.name));
@@ -283,22 +291,23 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     sec.apply(dropOn(sec.lists, { kind: 'project', name }, at), name);
     refocus(name);
   };
-  const stepProject = (name: string) => (delta: -1 | 1) => moveTo(name, stepTarget(shownLists, name, delta));
+  const stepProject = (name: string) => (delta: -1 | 1) => moveTo(name, stepTarget(shownLists, name, delta, manual));
 
   // Dragging a project into a section, out of one or within one. Dropped on
-  // a project in a section it goes beside it; on one in no section, out of
-  // its section (the projects in none have no order of their own here).
+  // a project in a section it goes beside it; on one in no section, beside
+  // it in the user's order (manual); with the rest sorted by activity they have
+  // no order of their own, so it goes out of its section only.
   const rowTarget = (name: string, section: string | null, at: 'before' | 'after'): DropTarget | null => {
     const what = dnd.draggingRef.current;
     if (what?.kind !== 'project') return null;
-    if (section !== null) return { kind: 'project', name, edge: at };
+    if (section !== null || manual) return { kind: 'project', name, edge: at };
     return inSection.has(what.name) ? { kind: 'list', section: null } : null;
   };
   const anySection = userSections.length > 0;
-  const sectionDrag = (name: string, section: string | null): Drag | undefined =>
-    anySection
+  const sectionDrag = (name: string, section: string | null, ordered = false): Drag | undefined =>
+    anySection || (manual && ordered)
       ? {
-          over: section === null ? undefined : (['before', 'after'] as const).find((at) => dnd.isTarget({ kind: 'project', name, edge: at })),
+          over: section === null && !ordered ? undefined : (['before', 'after'] as const).find((at) => dnd.isTarget({ kind: 'project', name, edge: at })),
           dragged: dnd.dragging?.kind === 'project' && dnd.dragging.name === name,
           onStart: dnd.startDrag({ kind: 'project', name }),
           onEnd: dnd.finishDrag,
@@ -491,7 +500,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             {t('shell.sidebar.projects')}
           </ListHead>
           {!top.includes('sections') && nameSection}
-          {lists.rest.map((p) => lead(p, sectionDrag(p.project.name, null), stepProject(p.project.name)))}
+          {lists.rest.map((p) => lead(p, sectionDrag(p.project.name, null, true), stepProject(p.project.name)))}
         </div>
       );
     if (s === 'idle')
