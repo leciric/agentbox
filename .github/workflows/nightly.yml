@@ -464,6 +464,26 @@ jobs:
       - if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: scripts/build-ffmpeg.sh ffmpeg-static
 
+      # The agentbox command-line tool of this version, which the app has
+      # built in (scripts/native-cli.sh): it keeps the daemon's copy current
+      # from it, and restarts an older daemon into its own version.
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - name: Build the agentbox tool
+        run: |
+          scripts/native-cli.sh linux "$VERSION" "$RUNNER_TEMP/cli"
+          echo "AGENTBOX_BUNDLED_CLI=$RUNNER_TEMP/cli/agentbox" >>"$GITHUB_ENV"
+
       - name: Build it
         working-directory: native
         env:
@@ -517,6 +537,31 @@ jobs:
           workspaces: native
           shared-key: nightly-native
 
+      # The agentbox command-line tool of this version, which the app has
+      # built in (scripts/native-cli.sh): it keeps the daemon's copy current
+      # from it, and restarts an older daemon into its own version.
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~\AppData\Local\go-build
+            ~\go\pkg\mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      # agentbox.exe, and the Linux agentbox it installs in AgentBox's WSL
+      # distro, as the Electron app ships both.
+      - name: Build the agentbox tool
+        run: |
+          scripts/native-cli.sh windows "$VERSION" "$RUNNER_TEMP/cli"
+          {
+            echo "AGENTBOX_BUNDLED_CLI=$RUNNER_TEMP/cli/agentbox.exe"
+            echo "AGENTBOX_BUNDLED_CLI_LINUX=$RUNNER_TEMP/cli/agentbox-linux"
+          } >>"$GITHUB_ENV"
+
       - name: Build it
         working-directory: native
         run: cargo build --release --locked -p agentbox-native --no-default-features
@@ -569,17 +614,10 @@ jobs:
           workspaces: native
           shared-key: nightly-native
 
-      - name: Build it
-        working-directory: native
-        env:
-          MACOSX_DEPLOYMENT_TARGET: '11.0'
-        run: cargo build --release --locked -p agentbox-native --no-default-features
-
       # The keychain as the Mac job's command-line tool step makes it.
-      - name: Sign, package and notarize it
-        id: package
+      # Before the build: the agentbox tool is signed, then built into the app.
+      - name: Set up signing
         run: |
-          signed=false
           if [ -n "$CSC_LINK" ]; then
             keychain=$RUNNER_TEMP/agentbox.keychain-db
             password=$(openssl rand -hex 16)
@@ -594,10 +632,48 @@ jobs:
             security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
             MAC_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
             [ -n "$MAC_SIGN_IDENTITY" ] || { echo "::error::the certificate has no Developer ID Application identity"; exit 1; }
-            export MAC_SIGN_IDENTITY
+            echo "MAC_SIGN_IDENTITY=$MAC_SIGN_IDENTITY" >>"$GITHUB_ENV"
           else
             echo "::warning::No signing certificate: the native app is signed ad hoc, and not notarized"
           fi
+
+      # The agentbox command-line tool of this version, which the app has
+      # built in (scripts/native-cli.sh): it keeps the daemon's copy current
+      # from it, and restarts an older daemon into its own version.
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      # The Mac's agentbox, signed, and the Linux agentbox it installs in
+      # AgentBox's VM, as the Electron app ships both.
+      - name: Build the agentbox tool
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          scripts/native-cli.sh mac "$VERSION" "$RUNNER_TEMP/cli"
+          {
+            echo "AGENTBOX_BUNDLED_CLI=$RUNNER_TEMP/cli/agentbox"
+            echo "AGENTBOX_BUNDLED_CLI_LINUX=$RUNNER_TEMP/cli/agentbox-linux"
+          } >>"$GITHUB_ENV"
+
+      - name: Build it
+        working-directory: native
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      - name: Package and notarize it
+        id: package
+        run: |
+          signed=false
           scripts/native-package.sh mac "$VERSION" native-out
           if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
             for dmg in native-out/*.dmg; do

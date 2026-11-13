@@ -40,6 +40,7 @@ mod settings;
 mod sidebar;
 mod sidebar_actions;
 mod sidebar_dialogs;
+mod stale;
 mod topbar;
 mod tour;
 mod usage;
@@ -74,6 +75,8 @@ pub struct AppView {
     connected: bool,
     /// The daemon's connection, and its start (connection.rs).
     conn: connection::Conn,
+    /// A daemon older than this app, and its restart (stale.rs).
+    stale: stale::StaleDaemon,
     /// The top bar's chips (topbar.rs).
     topbar: topbar::TopBar,
     /// The welcome tour and What's new (tour.rs).
@@ -195,6 +198,7 @@ impl AppView {
             error: None,
             connected: false,
             conn: Default::default(),
+            stale: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
             meters: Default::default(),
@@ -1391,6 +1395,10 @@ impl Render for AppView {
                                     .when(!self.connected && self.conn.answered, |el| {
                                         el.child(self.render_offline_notice())
                                     })
+                                    .when_some(
+                                        self.render_stale_notice(cx).filter(|_| self.connected),
+                                        |el, notice| el.child(notice),
+                                    )
                                     .when(
                                         !self.settings
                                             && self.work.is_none()

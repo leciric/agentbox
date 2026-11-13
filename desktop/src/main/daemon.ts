@@ -1,9 +1,8 @@
 // Talks to the AgentBox daemon over its unix socket, and starts the daemon
 // through the CLI when it isn't running.
-import { app } from 'electron';
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { agentboxBin } from './cli';
+import { agentboxBin, daemonVersion } from './cli';
 import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
@@ -151,13 +150,22 @@ export type { StaleDaemon };
 
 const staleListeners = new Set<(s: StaleDaemon | null) => void>();
 let tracker: StaleTracker | undefined;
+let trackerFor: string | undefined;
 
-// stale tracks a daemon of another version than this packaged app
-// (staledaemon.ts); an app from a checkout has no version of its own.
+// stale tracks a daemon of another version than the one this packaged app
+// starts (staledaemon.ts): its own, or the native app's newer tool, when
+// that's the managed copy (cli.ts's daemonVersion). An app from a checkout
+// has no version of its own.
 function stale(): StaleTracker | undefined {
-  if (!app.isPackaged) return undefined;
+  const version = daemonVersion();
+  if (version === undefined) return undefined;
+  if (tracker && trackerFor !== version) {
+    tracker.clear();
+    tracker = undefined;
+  }
+  trackerFor = version;
   tracker ??= new StaleTracker(
-    app.getVersion(),
+    version,
     {
       version: async () => (JSON.parse((await request('GET', '/v1/version')).body) as { version?: string }).version,
       runningJobs,
@@ -224,7 +232,7 @@ async function checkStale(): Promise<void> {
   // is what it takes. A daemon too old to report this is left alone.
   const blind = info.incus === false && !vm && canUseIncus();
   const tracking = stale();
-  if (tracking && isOutdated(info.version, app.getVersion())) return tracking.handle(info.version!);
+  if (tracking && isOutdated(info.version, trackerFor)) return tracking.handle(info.version!);
   tracking?.clear();
   if (missing.length === 0 && !blind) return;
   await restart();
