@@ -56,7 +56,7 @@ func seedWork(t *testing.T, d testDaemon, projects, agents int) []string {
 		name := fmt.Sprintf("agent-%04d", i+1)
 		branch := "agentbox/" + name
 		// Newest first by number, a few a day back to 180 days ago.
-		at := now.Add(-time.Duration(i) * 180 * 24 * time.Hour / time.Duration(agents)).Add(-time.Hour)
+		at := now.Add(-time.Duration(i) * (180 * 24 * time.Hour / time.Duration(agents))).Add(-time.Hour)
 		a := state.Agent{
 			Project: project, Name: name, ID: name, Title: fmt.Sprintf("Change %d: the reminders list pages and sorts", i+1),
 			AI: []string{"claude", "claude", "codex", "opencode"}[i%4], Interface: state.InterfaceChat,
