@@ -83,6 +83,9 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		if json.Unmarshal(data, &e) != nil || e.Error == "" {
 			e.Error = strings.TrimSpace(string(data))
 		}
+		if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(e.Error, "404 page not found") {
+			e.Error = "the simulator helper on your Mac is older than AgentBox here: update AgentBox on the Mac (or run any agentbox command there to restart it)"
+		}
 		return nil, &api.StatusError{Code: resp.StatusCode, Message: e.Error}
 	}
 	return resp, nil
@@ -157,6 +160,23 @@ func (c *Client) OpenURL(ctx context.Context, udid, url string) error {
 func (c *Client) Input(ctx context.Context, udid string, in api.IOSInput) error {
 	in.Device = ""
 	return c.post(ctx, udid, "input", in, nil)
+}
+
+// UI reads a simulator's screen, or acts on it (api.IOSUIRequest).
+func (c *Client) UI(ctx context.Context, udid string, req api.IOSUIRequest) (api.IOSUIResult, error) {
+	req.Device = ""
+	var out api.IOSUIResult
+	return out, c.post(ctx, udid, "ui", req, &out)
+}
+
+// Apps are the apps installed on a simulator.
+func (c *Client) Apps(ctx context.Context, udid string) ([]api.IOSApp, error) {
+	path, err := devicePath(udid, "apps")
+	if err != nil {
+		return nil, err
+	}
+	var out []api.IOSApp
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
 // Forward makes a port of the Mac's 127.0.0.1 go to an agent's, or with stop

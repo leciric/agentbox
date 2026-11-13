@@ -1,0 +1,373 @@
+{
+ "elements": [
+  {
+   "frame": [
+    332,
+    74,
+    44,
+    44
+   ],
+   "enabled": true,
+   "label": "Notifications",
+   "identifier": "home-bell",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    380,
+    74,
+    44,
+    44
+   ],
+   "enabled": true,
+   "label": "Profile",
+   "identifier": "home-avatar",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    46,
+    86,
+    65,
+    20
+   ],
+   "enabled": true,
+   "label": "Acme",
+   "role": "AXHeading",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    134,
+    126.66667175292969,
+    16
+   ],
+   "enabled": true,
+   "label": "Monday, March 2",
+   "role": "AXStaticText",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    154,
+    285,
+    28
+   ],
+   "enabled": true,
+   "label": "Good afternoon, Ana",
+   "role": "AXHeading",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    198,
+    408,
+    48
+   ],
+   "enabled": true,
+   "label": "Find an app or tool, 30 apps",
+   "identifier": "home-search",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    376.6666564941406,
+    278,
+    47.333343505859375,
+    44
+   ],
+   "enabled": true,
+   "label": "See all apps",
+   "role": "AXLink",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    292,
+    104.33333587646484,
+    16
+   ],
+   "enabled": true,
+   "label": "APP SHORTCUTS",
+   "role": "AXHeading",
+   "pid": 76741
+  },
+  {
+   "enabled": true,
+   "frame": [
+    16,
+    322,
+    61.666664123535156,
+    40
+   ],
+   "role": "AXGenericElement",
+   "selected": true,
+   "identifier": "shortcuts-tab-pinned",
+   "label": "Pinned 2",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    97.66666412353516,
+    322,
+    60.666664123535156,
+    40
+   ],
+   "enabled": true,
+   "label": "Recent 1",
+   "identifier": "shortcuts-tab-recent",
+   "role": "AXGenericElement",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    178.3333282470703,
+    322,
+    74.33334350585938,
+    40
+   ],
+   "enabled": true,
+   "label": "Frequent 1",
+   "identifier": "shortcuts-tab-frequent",
+   "role": "AXGenericElement",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    375,
+    72,
+    98
+   ],
+   "enabled": true,
+   "label": "Org Chart",
+   "identifier": "shortcut-11",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    96,
+    375,
+    72,
+    98
+   ],
+   "enabled": true,
+   "label": "People",
+   "identifier": "shortcut-12",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    176,
+    375,
+    72,
+    98
+   ],
+   "enabled": true,
+   "label": "Add",
+   "identifier": "shortcuts-add",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    521,
+    384,
+    192
+   ],
+   "enabled": true,
+   "label": "Banner 14",
+   "identifier": "home-banner-14",
+   "role": "AXLink",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    412,
+    521,
+    384,
+    192
+   ],
+   "enabled": true,
+   "label": "Banner 15",
+   "identifier": "home-banner-15",
+   "role": "AXLink",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    370.6666564941406,
+    757,
+    53.333343505859375,
+    44
+   ],
+   "enabled": true,
+   "label": "View all, Latest news",
+   "role": "AXLink",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    767,
+    103.33333587646484,
+    24
+   ],
+   "enabled": true,
+   "label": "Latest news",
+   "role": "AXHeading",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    813,
+    408,
+    312
+   ],
+   "enabled": true,
+   "label": "News story 18, News \u00b7 Mar 18",
+   "identifier": "news-18",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    1137,
+    408,
+    84
+   ],
+   "enabled": true,
+   "label": "News story 19, News \u00b7 Mar 19",
+   "identifier": "news-19",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    1233,
+    408,
+    84
+   ],
+   "enabled": true,
+   "label": "News story 20, News \u00b7 Mar 20",
+   "identifier": "news-20",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    1329,
+    408,
+    84
+   ],
+   "enabled": true,
+   "label": "News story 21, News \u00b7 Mar 21",
+   "identifier": "news-21",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    16,
+    1425,
+    408,
+    44
+   ],
+   "enabled": true,
+   "label": "View all, Latest news",
+   "identifier": "home-news-view-all",
+   "role": "AXLink",
+   "pid": 76741
+  },
+  {
+   "enabled": true,
+   "frame": [
+    8,
+    864,
+    84.66666412353516,
+    50
+   ],
+   "role": "AXGenericElement",
+   "selected": true,
+   "identifier": "tab-home",
+   "label": "Home",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    92.66666412353516,
+    864,
+    85.00000762939453,
+    50
+   ],
+   "enabled": true,
+   "label": "Feed",
+   "identifier": "tab-feed",
+   "role": "AXGenericElement",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    177.6666717529297,
+    864,
+    84.66667175292969,
+    50
+   ],
+   "enabled": true,
+   "label": "Assistant",
+   "identifier": "tabbar-assistant",
+   "role": "AXButton",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    262.3333435058594,
+    864,
+    85,
+    50
+   ],
+   "enabled": true,
+   "label": "Career",
+   "identifier": "tab-jobs",
+   "role": "AXGenericElement",
+   "pid": 76741
+  },
+  {
+   "frame": [
+    347.3333435058594,
+    864,
+    84.66665649414062,
+    50
+   ],
+   "enabled": true,
+   "label": "Learn",
+   "identifier": "tab-learning",
+   "role": "AXGenericElement",
+   "pid": 76741
+  }
+ ],
+ "enabled": true,
+ "frame": [
+  0,
+  0,
+  440,
+  956
+ ],
+ "role": "AXApplication",
+ "label": "Acme (Preview)",
+ "pid": 76741
+}

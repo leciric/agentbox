@@ -1,0 +1,74 @@
+{
+ "enabled": true,
+ "frame": [
+  0,
+  0,
+  440,
+  956
+ ],
+ "role": "AXApplication",
+ "label": " ",
+ "pid": 51840,
+ "elements": [
+  {
+   "pid": 51840,
+   "frame": [
+    90,
+    341,
+    260,
+    42.333333333333314
+   ],
+   "enabled": true,
+   "label": "Allow \u201cMaps\u201d to use your location?",
+   "role": "AXStaticText"
+  },
+  {
+   "pid": 51840,
+   "frame": [
+    90,
+    390.6666666666667,
+    260,
+    78
+   ],
+   "enabled": true,
+   "label": "Your location is used to show your position on the map, get directions, estimate travel times, and improve search results.",
+   "role": "AXStaticText"
+  },
+  {
+   "pid": 51840,
+   "frame": [
+    76,
+    489,
+    288,
+    48
+   ],
+   "enabled": true,
+   "label": "Allow Once",
+   "role": "AXButton"
+  },
+  {
+   "pid": 51840,
+   "frame": [
+    76,
+    545,
+    288,
+    48
+   ],
+   "enabled": true,
+   "label": "Allow While Using App",
+   "role": "AXButton"
+  },
+  {
+   "pid": 51840,
+   "frame": [
+    76,
+    601,
+    288,
+    48
+   ],
+   "enabled": true,
+   "label": "Don\u2019t Allow",
+   "role": "AXButton"
+  }
+ ]
+}

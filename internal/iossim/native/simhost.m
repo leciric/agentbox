@@ -12,6 +12,13 @@
 //   {"op":"key","usage":4,"down":true}              a USB HID keyboard usage
 //   {"op":"button","button":"home","down":true}     home, lock, siri, volumeUp, volumeDown
 //
+// and ops with an "id", each answered by a reply (kind 4, below) with that id:
+//
+//   {"id":1,"op":"tree"}                       the frontmost app's accessibility elements
+//   {"id":2,"op":"hit","points":[[x,y],…]}      the element at each point (points, not pixels)
+//   {"id":3,"op":"scroll","index":7,"identifier":"…","label":"…"}  scroll that element into view
+//   {"id":4,"op":"sync"}                       once the input sent before it has reached the simulator
+//
 // and writes frames on stdout: a big-endian uint32 length (of what follows),
 // a kind byte, and a payload. 1: the stream's config, JSON, with its codec
 // string and its AVCDecoderConfigurationRecord (description, base64), before
@@ -20,6 +27,7 @@
 // and its NAL units each after a 4-byte length (AVCC), as VideoToolbox makes
 // them: the shapes of internal/devicestream's wire format, which the helper
 // passes on. 3: an event, JSON: {"screen":{…}}, {"input":…} or {"error":…}.
+// 4: a reply to an op with an id, JSON: {"id":…, …} or {"id":…,"error":"…"}.
 //
 // The screen is CoreSimulator's framebuffer, an IOSurface, encoded on the
 // Mac's hardware H.264 encoder (software only when it has none) with no
@@ -160,7 +168,7 @@ typedef IndigoMessage *(*IndigoMouseFn)(CGPoint *point, CGPoint *point2, uint32_
 
 #pragma mark - Output
 
-enum { KindConfig = 1, KindFrame = 2, KindEvent = 3 };
+enum { KindConfig = 1, KindFrame = 2, KindEvent = 3, KindReply = 4 };
 
 static dispatch_queue_t outQueue;     // stdout, in order
 static dispatch_queue_t captureQueue; // the screen and its encoder
@@ -823,6 +831,304 @@ static void sendButton(NSString *name, BOOL down) {
     }
 }
 
+#pragma mark - Accessibility (AccessibilityPlatformTranslation)
+
+// The frontmost app's accessibility elements, as VoiceOver has them: a flat
+// list of what can be read or used, no layout groups. AXPTranslator asks the
+// simulator for each attribute through its bridge delegate, which sends the
+// request with -[SimDevice sendAccessibilityRequestAsync:…]. Shapes from
+// facebook/idb's (MIT) notes, looked up at run time like the rest.
+
+@protocol ABAXTranslator <NSObject>
++ (id)sharedInstance;
+- (void)setBridgeTokenDelegate:(id)delegate;
+- (void)setSupportsDelegateTokens:(BOOL)supports;
+- (void)setAccessibilityEnabled:(BOOL)enabled;
+- (id)frontmostApplicationWithDisplayId:(unsigned)displayId bridgeDelegateToken:(NSString *)token;
+- (id)objectAtPoint:(CGPoint)point displayId:(unsigned)displayId bridgeDelegateToken:(NSString *)token;
+- (id)macPlatformElementFromTranslation:(id)translation;
+@end
+
+@protocol ABAXTranslation <NSObject>
+- (void)setBridgeDelegateToken:(NSString *)token;
+- (pid_t)pid;
+@end
+
+@protocol ABAXElement <NSObject>
+- (id)translation;
+- (CGRect)accessibilityFrame;
+- (NSString *)accessibilityRole;
+- (NSString *)accessibilityLabel;
+- (NSString *)accessibilityIdentifier;
+- (id)accessibilityValue;
+- (BOOL)isAccessibilityEnabled;
+- (NSArray *)accessibilityChildren;
+- (id)accessibilityAttributeValue:(NSString *)attribute;
+- (void)performScrollToVisible;
+@end
+
+@protocol ABSimDeviceAX <NSObject>
+- (void)sendAccessibilityRequestAsync:(id)request completionQueue:(dispatch_queue_t)queue completionHandler:(void (^)(id response))handler;
+@end
+
+typedef id (^ABAXCallback)(id request);
+
+static dispatch_queue_t axQueue;      // tree, hit and scroll ops, one at a time
+static dispatch_queue_t axReplyQueue; // the simulator's answers to them
+static id translator;
+static NSString *axToken;
+
+@interface ABAXBridge : NSObject
+@end
+
+@implementation ABAXBridge
+- (ABAXCallback)accessibilityTranslationDelegateBridgeCallbackWithToken:(NSString *)token {
+    return ^id(id request) {
+      __block id response = nil;
+      dispatch_semaphore_t done = dispatch_semaphore_create(0);
+      [(id<ABSimDeviceAX>)device sendAccessibilityRequestAsync:request
+                                               completionQueue:axReplyQueue
+                                             completionHandler:^(id r) {
+                                               response = r;
+                                               dispatch_semaphore_signal(done);
+                                             }];
+      // A request the simulator never answers fails this op rather than
+      // holding the queue.
+      if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC)) != 0) {
+          return nil;
+      }
+      return response;
+    };
+}
+// Frames stay in the simulator's points.
+- (CGRect)accessibilityTranslationConvertPlatformFrameToSystem:(CGRect)rect withToken:(NSString *)token {
+    return rect;
+}
+- (id)accessibilityTranslationRootParentWithToken:(NSString *)token {
+    return nil;
+}
+@end
+
+static ABAXBridge *axBridge;
+
+static NSString *ensureAX(void) {
+    if (translator) {
+        return nil;
+    }
+    if (![(NSObject *)device respondsToSelector:@selector(sendAccessibilityRequestAsync:completionQueue:completionHandler:)]) {
+        return @"this Xcode's CoreSimulator can't read a simulator's accessibility";
+    }
+    NSString *path = @"/System/Library/PrivateFrameworks/AccessibilityPlatformTranslation.framework/AccessibilityPlatformTranslation";
+    if (!dlopen(path.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL)) {
+        return [NSString stringWithFormat:@"AccessibilityPlatformTranslation didn't load: %s", dlerror()];
+    }
+    Class c = NSClassFromString(@"AXPTranslator");
+    if (!c) {
+        return @"this macOS has no AXPTranslator";
+    }
+    axBridge = [ABAXBridge new];
+    axToken = NSUUID.UUID.UUIDString;
+    id t = [(Class<ABAXTranslator>)c sharedInstance];
+    [t setBridgeTokenDelegate:axBridge];
+    [t setSupportsDelegateTokens:YES];
+    [t setAccessibilityEnabled:YES];
+    translator = t;
+    return nil;
+}
+
+static id axElement(id translation) {
+    if (!translation) {
+        return nil;
+    }
+    [(id<ABAXTranslation>)translation setBridgeDelegateToken:axToken];
+    id el = [translator macPlatformElementFromTranslation:translation];
+    [(id<ABAXTranslation>)[el translation] setBridgeDelegateToken:axToken];
+    return el;
+}
+
+static NSArray *axFrame(id<ABAXElement> el) {
+    CGRect f = [el accessibilityFrame];
+    double v[4] = {f.origin.x, f.origin.y, f.size.width, f.size.height};
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:4];
+    for (int i = 0; i < 4; i++) {
+        [out addObject:@(isfinite(v[i]) ? v[i] : 0)]; // JSON has no infinity
+    }
+    return out;
+}
+
+static NSDictionary *axDescribe(id<ABAXElement> el) {
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    d[@"role"] = [el accessibilityRole] ?: @"";
+    d[@"frame"] = axFrame(el);
+    d[@"enabled"] = @([el isAccessibilityEnabled]);
+    NSString *label = [el accessibilityLabel];
+    if (label.length) {
+        d[@"label"] = label;
+    }
+    NSString *identifier = [el accessibilityIdentifier];
+    if (identifier.length) {
+        d[@"identifier"] = identifier;
+    }
+    id value = [el accessibilityValue];
+    if ([value isKindOfClass:[NSAttributedString class]]) {
+        value = [(NSAttributedString *)value string];
+    }
+    // An empty field reports its placeholder as its value.
+    if (value && value != [NSNull null] && ![value isEqual:[el accessibilityAttributeValue:@"AXPlaceholderValue"]]) {
+        d[@"value"] = [value description];
+    }
+    if ([[el accessibilityAttributeValue:@"AXSelected"] boolValue]) {
+        d[@"selected"] = @YES;
+    }
+    NSString *role = d[@"role"];
+    BOOL field = [role hasSuffix:@"TextField"] || [role isEqual:@"AXTextArea"] || [role isEqual:@"AXSearchField"];
+    if (field && [[el accessibilityAttributeValue:@"AXFocused"] boolValue]) {
+        d[@"focused"] = @YES;
+    }
+    id translation = [el translation];
+    if ([translation respondsToSelector:@selector(pid)]) {
+        d[@"pid"] = @([(id<ABAXTranslation>)translation pid]);
+    }
+    return d;
+}
+
+static id<ABAXElement> axApp(void) {
+    return axElement([translator frontmostApplicationWithDisplayId:0 bridgeDelegateToken:axToken]);
+}
+
+static NSArray *axChildren(id<ABAXElement> app) {
+    NSArray *kids = [app accessibilityChildren] ?: @[];
+    for (id k in kids) {
+        [(id<ABAXTranslation>)[k translation] setBridgeDelegateToken:axToken];
+    }
+    return kids;
+}
+
+static NSDictionary *axTree(void) {
+    id<ABAXElement> app = axApp();
+    if (!app) {
+        return @{@"error" : @"no app is in front, or the simulator didn't answer"};
+    }
+    NSMutableArray *elements = [NSMutableArray array];
+    for (id k in axChildren(app)) {
+        [elements addObject:axDescribe(k)];
+    }
+    NSMutableDictionary *r = [axDescribe(app) mutableCopy];
+    r[@"elements"] = elements;
+    return r;
+}
+
+static NSDictionary *axHit(NSArray *points) {
+    NSMutableArray *hits = [NSMutableArray array];
+    for (NSArray *p in points) {
+        if (![p isKindOfClass:[NSArray class]] || p.count != 2) {
+            [hits addObject:[NSNull null]];
+            continue;
+        }
+        CGPoint at = CGPointMake([p[0] doubleValue], [p[1] doubleValue]);
+        id el = axElement([translator objectAtPoint:at displayId:0 bridgeDelegateToken:axToken]);
+        [hits addObject:el ? axDescribe(el) : [NSNull null]];
+    }
+    return @{@"hits" : hits};
+}
+
+static BOOL expired(NSDictionary *o) {
+    NSNumber *deadline = o[@"deadline"];
+    return [deadline isKindOfClass:[NSNumber class]] && [[NSDate date] timeIntervalSince1970] * 1000 > deadline.doubleValue;
+}
+
+// axScroll scrolls the element at index into view, if it's still the one the
+// helper means (same identifier and label); else the first that is.
+static NSDictionary *axScroll(NSDictionary *o) {
+    id<ABAXElement> app = axApp();
+    if (!app) {
+        return @{@"error" : @"no app is in front"};
+    }
+    NSArray *kids = axChildren(app);
+    NSString *identifier = o[@"identifier"] ?: @"", *label = o[@"label"] ?: @"";
+    BOOL (^same)(id<ABAXElement>) = ^BOOL(id<ABAXElement> el) {
+      NSString *own = [([el accessibilityLabel] ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+      return [([el accessibilityIdentifier] ?: @"") isEqualToString:identifier] && [own isEqualToString:label];
+    };
+    NSInteger index = [o[@"index"] integerValue];
+    id<ABAXElement> target = nil;
+    if (index >= 0 && index < (NSInteger)kids.count && same(kids[index])) {
+        target = kids[index];
+    }
+    for (NSUInteger i = 0; !target && i < kids.count; i++) {
+        if (same(kids[i])) {
+            target = kids[i];
+        }
+    }
+    if (!target) {
+        return @{@"error" : @"the element is gone"};
+    }
+    if (expired(o)) { // the helper gave up while this looked for it
+        return @{@"error" : @"timed out"};
+    }
+    [target performScrollToVisible];
+    return @{};
+}
+
+static void reply(id requestID, NSDictionary *body) {
+    NSMutableDictionary *r = [body mutableCopy];
+    r[@"id"] = requestID;
+    @try {
+        emitJSON(KindReply, r);
+    } @catch (NSException *e) {
+        emitJSON(KindReply, @{@"id" : requestID, @"error" : [NSString stringWithFormat:@"accessibility: %@", e.reason]});
+    }
+}
+
+// expired says the helper has given up on an op: run late, it would only
+// hold up the ones after it.
+static void handleAX(NSString *name, NSDictionary *o) {
+    id requestID = o[@"id"];
+    dispatch_async(axQueue, ^{
+      @autoreleasepool {
+          if (expired(o)) {
+              return;
+          }
+          NSString *problem = ensureAX();
+          if (problem) {
+              reply(requestID, @{@"error" : problem});
+              return;
+          }
+          NSDictionary *body;
+          @try {
+              if ([name isEqualToString:@"tree"]) {
+                  body = axTree();
+              } else if ([name isEqualToString:@"hit"]) {
+                  body = axHit(o[@"points"]);
+              } else {
+                  body = axScroll(o);
+              }
+          } @catch (NSException *e) {
+              body = @{@"error" : [NSString stringWithFormat:@"accessibility: %@", e.reason]};
+          }
+          reply(requestID, body);
+      }
+    });
+}
+
+// syncInput answers once the input sent before it has reached the simulator:
+// dtuhidd answers a barrier after it has taken everything sent before it.
+static void syncInput(id requestID) {
+    dispatch_async(hidQueue, ^{
+      if (!ensureInput()) {
+          reply(requestID, @{@"error" : @"input isn't ready"});
+          return;
+      }
+      if (!useDTUHID) {
+          reply(requestID, @{}); // Indigo messages are sent in order on this queue
+          return;
+      }
+      xpc_connection_send_message_with_reply(hid, dtuhidMessage("IndigoKeyboardButtonEvent", keyPayload(0, NO), true), hidQueue, ^(xpc_object_t r) {
+        reply(requestID, xpc_get_type(r) == XPC_TYPE_ERROR ? @{@"error" : @"dtuhidd didn't answer"} : @{});
+      });
+    });
+}
+
 #pragma mark - Ops
 
 static void handle(NSDictionary *o) {
@@ -839,6 +1145,16 @@ static void handle(NSDictionary *o) {
               stopStream();
           }
         });
+        return;
+    }
+    if (o[@"id"]) {
+        if ([name isEqualToString:@"sync"]) {
+            syncInput(o[@"id"]);
+        } else if ([@[ @"tree", @"hit", @"scroll" ] containsObject:name]) {
+            handleAX(name, o);
+        } else {
+            reply(o[@"id"], @{@"error" : [NSString stringWithFormat:@"no op %@", name]});
+        }
         return;
     }
     if ([name isEqualToString:@"keyframe"]) {
@@ -889,6 +1205,8 @@ int main(int argc, char **argv) {
         captureQueue = dispatch_queue_create("agentbox.simhost.capture",
                                              dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
         hidQueue = dispatch_queue_create("agentbox.simhost.hid", DISPATCH_QUEUE_SERIAL);
+        axQueue = dispatch_queue_create("agentbox.simhost.ax", DISPATCH_QUEUE_SERIAL);
+        axReplyQueue = dispatch_queue_create("agentbox.simhost.ax-reply", DISPATCH_QUEUE_SERIAL);
         const char *dev = getenv("DEVELOPER_DIR");
         developerDir = dev ? @(dev) : @"/Applications/Xcode.app/Contents/Developer";
         if (!loadFrameworks() || !(device = findDevice(@(argv[1])))) {

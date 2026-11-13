@@ -24,6 +24,12 @@ func TestIOSCmdsOnAnUnknownAgent(t *testing.T) {
 		{"ios", "install", "hello-stack/agent-01", "Pawly.app"},
 		{"ios", "launch", "hello-stack/agent-01", "com.example.pawly"},
 		{"ios", "screenshot", "hello-stack/agent-01"},
+		{"ios", "ui", "hello-stack/agent-01"},
+		{"ios", "tap", "hello-stack/agent-01", "id:profile-save"},
+		{"ios", "type", "hello-stack/agent-01", "hello", "--into", "id:bio"},
+		{"ios", "scroll-to", "hello-stack/agent-01", "Sign out"},
+		{"ios", "wait", "hello-stack/agent-01", "--text", "Saved"},
+		{"ios", "apps", "hello-stack/agent-01"},
 	} {
 		if _, err := run(t, "", args...); err == nil {
 			t.Errorf("agentbox %s on an unknown agent succeeded", strings.Join(args, " "))

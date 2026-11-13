@@ -1051,6 +1051,18 @@ func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLReque
 	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
 }
 
+// IOSUI reads the agent's simulator's screen, or acts on it.
+func (c *Client) IOSUI(ctx context.Context, ref string, req IOSUIRequest) (IOSUIResult, error) {
+	var result IOSUIResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/ui", req, &result)
+}
+
+// IOSApps are the apps installed on the agent's simulator.
+func (c *Client) IOSApps(ctx context.Context, ref string, req IOSDeviceRequest) ([]IOSApp, error) {
+	var apps []IOSApp
+	return apps, c.iosDo(ctx, http.MethodPost, ref, "/apps", req, &apps)
+}
+
 // ForwardIOS makes the agent's ports reach the Mac's localhost, or with
 // Stop gives them back, and lists every agent's forwards.
 func (c *Client) ForwardIOS(ctx context.Context, ref string, req IOSForwardRequest) ([]IOSForward, error) {

@@ -1,0 +1,305 @@
+{
+ "enabled": true,
+ "frame": [
+  0,
+  0,
+  440,
+  956
+ ],
+ "role": "AXApplication",
+ "label": "Acme (Preview)",
+ "pid": 52149,
+ "elements": [
+  {
+   "enabled": true,
+   "frame": [
+    24.000000000000004,
+    62,
+    44,
+    44
+   ],
+   "role": "AXButton",
+   "label": "Back",
+   "pid": 52149,
+   "identifier": "profile-back"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    191.83333333333331,
+    71.66666666666667,
+    56.33333333333334,
+    24.66666666666667
+   ],
+   "enabled": true,
+   "label": "Profile",
+   "role": "AXHeading"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    105,
+    153,
+    242,
+    24
+   ],
+   "enabled": true,
+   "label": "Ana Souza",
+   "role": "AXHeading"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    363,
+    155,
+    44,
+    44
+   ],
+   "role": "AXButton",
+   "label": "Open settings",
+   "pid": 52149,
+   "identifier": "profile-settings"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    105,
+    181,
+    242,
+    20
+   ],
+   "enabled": true,
+   "label": "ana@example.com",
+   "role": "AXStaticText"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    33,
+    263,
+    374,
+    20
+   ],
+   "enabled": true,
+   "label": "About me",
+   "role": "AXHeading"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    33,
+    291,
+    374,
+    20
+   ],
+   "enabled": true,
+   "label": "Shown on your profile. Up to 500 characters.",
+   "role": "AXStaticText"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    34,
+    320,
+    372,
+    108
+   ],
+   "role": "AXTextArea",
+   "label": "About me Tell your colleagues about yourself",
+   "pid": 52149,
+   "identifier": "profile-bio-input"
+  },
+  {
+   "enabled": false,
+   "frame": [
+    340.3333435058594,
+    437,
+    66.66665649414062,
+    44
+   ],
+   "role": "AXButton",
+   "label": "Save",
+   "pid": 52149,
+   "identifier": "profile-bio-save"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    33,
+    451,
+    295.3333435058594,
+    16
+   ],
+   "enabled": true,
+   "label": "0 of 500 characters",
+   "role": "AXStaticText"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    17,
+    523,
+    406,
+    48
+   ],
+   "role": "AXButton",
+   "label": "My network",
+   "pid": 52149,
+   "identifier": "profile-network"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    33,
+    613,
+    374,
+    20
+   ],
+   "enabled": true,
+   "label": "My LinkedIn",
+   "role": "AXHeading"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    33,
+    641,
+    374,
+    40
+   ],
+   "enabled": true,
+   "label": "Optional. Colleagues who get you as a suggestion can open this profile.",
+   "role": "AXStaticText"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    34,
+    690,
+    372,
+    42
+   ],
+   "role": "AXTextField",
+   "value": "https://www.linkedin.com/in/your-name",
+   "label": "My LinkedIn",
+   "pid": 52149,
+   "identifier": "profile-linkedin-input"
+  },
+  {
+   "enabled": false,
+   "frame": [
+    33,
+    741,
+    66.66666412353516,
+    44
+   ],
+   "role": "AXButton",
+   "label": "Save",
+   "pid": 52149,
+   "identifier": "profile-linkedin-save"
+  },
+  {
+   "pid": 52149,
+   "frame": [
+    16,
+    826,
+    408,
+    16
+   ],
+   "enabled": true,
+   "label": "ABOUT",
+   "role": "AXHeading"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    17,
+    851,
+    406,
+    46
+   ],
+   "role": "AXGenericElement",
+   "label": "App version, 0.1.1",
+   "pid": 52149,
+   "identifier": "profile-version"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    16,
+    922,
+    408,
+    44
+   ],
+   "role": "AXButton",
+   "label": "Sign out",
+   "pid": 52149,
+   "identifier": "profile-sign-out"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    8,
+    864,
+    84.66666412353516,
+    50
+   ],
+   "role": "AXGenericElement",
+   "label": "Home",
+   "pid": 52149,
+   "identifier": "tab-home"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    92.66666412353516,
+    864,
+    85.00000762939453,
+    50
+   ],
+   "role": "AXGenericElement",
+   "label": "Feed",
+   "pid": 52149,
+   "identifier": "tab-feed"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    177.6666717529297,
+    864,
+    84.66667175292969,
+    50
+   ],
+   "role": "AXButton",
+   "label": "Assistant",
+   "pid": 52149,
+   "identifier": "tabbar-assistant"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    262.3333435058594,
+    864,
+    85,
+    50
+   ],
+   "role": "AXGenericElement",
+   "label": "Career",
+   "pid": 52149,
+   "identifier": "tab-jobs"
+  },
+  {
+   "enabled": true,
+   "frame": [
+    347.3333435058594,
+    864,
+    84.66665649414062,
+    50
+   ],
+   "role": "AXGenericElement",
+   "label": "Learn",
+   "pid": 52149,
+   "identifier": "tab-learning"
+  }
+ ]
+}

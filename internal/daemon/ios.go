@@ -155,7 +155,7 @@ func iosAppPath(a state.Agent, path string) (string, error) {
 }
 
 // iosActions are the POST routes under an agent's /ios.
-var iosActions = []string{"open", "close", "input", "install", "launch", "openurl", "forward"}
+var iosActions = []string{"open", "close", "input", "install", "launch", "openurl", "forward", "ui", "apps"}
 
 // ios serves an agent's simulator endpoints, on the agent's own socket and
 // under the agent for the app and the CLI alike.
@@ -243,6 +243,37 @@ func (s *Server) ios(action string, agentOf func(*http.Request) (state.Agent, er
 			return writeJSON(w, http.StatusOK, struct{}{})
 		case "forward":
 			return s.iosForward(w, r, a)
+		case "ui":
+			var req api.IOSUIRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			udid, err := s.iosDevice(ctx, a, req.Device, false)
+			if err != nil {
+				return err
+			}
+			out, err := c.UI(ctx, udid, req)
+			if err != nil {
+				return err
+			}
+			if out.Unchanged {
+				out.Look, _ = c.Screenshot(ctx, udid) // without it, the agent still reads that nothing changed
+			}
+			return writeJSON(w, http.StatusOK, out)
+		case "apps":
+			var req api.IOSDeviceRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			udid, err := s.iosDevice(ctx, a, req.Device, false)
+			if err != nil {
+				return err
+			}
+			apps, err := c.Apps(ctx, udid)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, apps)
 		}
 		return writeJSON(w, http.StatusOK, s.iosStatus(ctx, a))
 	}
