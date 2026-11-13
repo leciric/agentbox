@@ -303,6 +303,8 @@ impl AppView {
                 UpdateSectionRequest {
                     name: Some(name),
                     collapsed: None,
+                    color: None,
+                    description: None,
                 },
                 cx,
             ),
