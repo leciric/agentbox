@@ -2728,6 +2728,8 @@ const (
 // WorkPage is a page of GET /v1/work, newest first, after ?cursor=. Total is
 // how many the filter and the search keep; Counts is how many each filter
 // keeps under the search, by filter, "" being all.
+// With ?brief=1 an item is what a list's row shows: no Task, and of its
+// Report only the Status, whoever opens one reading the rest.
 type WorkPage struct {
 	Items  []WorkItem     `json:"items"`
 	Next   string         `json:"next,omitempty"`
