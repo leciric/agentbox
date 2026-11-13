@@ -162,10 +162,25 @@ type SectionUpdate struct {
 // UpdateSection renames a section, folds it away or unfolds it, colours it
 // or describes it.
 func (s *Store) UpdateSection(ctx context.Context, id string, u SectionUpdate) (Section, error) {
-	sec, err := s.Section(ctx, id)
+	// The read and the write share one transaction: two partial updates — one
+	// folding the section, another colouring it — each read the row and wrote
+	// all of it back, so the second could undo the first's field.
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return Section{}, err
 	}
+	defer func() { _ = tx.Rollback() }()
+	var sec Section
+	var created int64
+	err = tx.QueryRowContext(ctx, `SELECT `+sectionColumns+` FROM project_sections WHERE id = ?`, id).
+		Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &sec.Color, &sec.Description, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Section{}, fmt.Errorf("section %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return Section{}, err
+	}
+	sec.CreatedAt = time.Unix(created, 0)
 	if u.Name != nil {
 		if sec.Name, err = sectionName(*u.Name); err != nil {
 			return Section{}, err
@@ -185,8 +200,11 @@ func (s *Store) UpdateSection(ctx context.Context, id string, u SectionUpdate) (
 			return Section{}, err
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE project_sections SET name = ?, collapsed = ?, color = ?, description = ? WHERE id = ?`,
+	if _, err := tx.ExecContext(ctx, `UPDATE project_sections SET name = ?, collapsed = ?, color = ?, description = ? WHERE id = ?`,
 		sec.Name, sec.Collapsed, sec.Color, sec.Description, sec.ID); err != nil {
+		return Section{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Section{}, err
 	}
 	return sec, nil

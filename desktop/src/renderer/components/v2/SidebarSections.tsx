@@ -1,8 +1,9 @@
 import { Check, ChevronRight, Folder, GripVertical, MoreHorizontal, Palette, Pencil, Trash2 } from 'lucide-react';
 import type { DragEvent, KeyboardEvent, ReactElement } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { t as tNow, useT } from '../../lib/i18n';
+import { nextRadio, sectionChanges } from '../../lib/sectionEdit';
 import { SESSION_COLORS } from '../../lib/sessions';
 import type { Dragging, SidebarList } from '../../lib/sidebar';
 import { cn } from '../../lib/utils';
@@ -220,19 +221,36 @@ export function NameSection({ onSave, onCancel }: { onSave: (name: string) => vo
 // EditSection is a section's name, description and colour in a dialog, which
 // is where the app puts anything it asks for a word.
 export function EditSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (req: T.UpdateSectionRequest) => void; onClose: () => void }) {
-  const t = useT();
-  const [name, setName] = useState(section?.name ?? '');
-  const [description, setDescription] = useState(section?.description ?? '');
-  const [color, setColor] = useState(section?.color ?? '');
   if (!section) return null;
+  return <EditSectionDialog section={section} onSave={onSave} onClose={onClose} />;
+}
+
+function EditSectionDialog({ section, onSave, onClose }: { section: T.Section; onSave: (req: T.UpdateSectionRequest) => void; onClose: () => void }) {
+  const t = useT();
+  // What the dialog opened with. The section prop is live and may refresh while
+  // this is open; comparing against it would send a field the user never touched
+  // and overwrite a change made meanwhile, so the changes are measured from here.
+  const [opened] = useState(() => ({ name: section.name, description: section.description, color: section.color }));
+  const [name, setName] = useState(opened.name);
+  const [description, setDescription] = useState(opened.description);
+  const [color, setColor] = useState(opened.color);
+  const radios = useRef<(HTMLButtonElement | null)[]>([]);
+  const colors: string[] = ['', ...SECTION_COLORS];
+  // The tab stop is the chosen colour, or the first when it's one the palette lost.
+  const stop = colors.includes(color) ? color : '';
   const save = () => {
-    const req: T.UpdateSectionRequest = {};
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== section.name) req.name = trimmed;
-    if (description.trim() !== section.description) req.description = description.trim();
-    if (color !== section.color) req.color = color;
+    const req = sectionChanges(opened, { name, description, color });
     if (Object.keys(req).length) onSave(req);
     else onClose();
+  };
+  // A radio group is one Tab stop: the chosen colour holds it and the arrows
+  // move within, selecting as they go.
+  const pickWithKeys = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const next = nextRadio(e.key, i, colors.length);
+    if (next === undefined) return;
+    e.preventDefault();
+    setColor(colors[next]!);
+    radios.current[next]?.focus();
   };
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -258,12 +276,17 @@ export function EditSection({ section, onSave, onClose }: { section: T.Section |
         <div role="radiogroup" aria-label={t('shell.sidebar.color')} className="flex flex-col gap-1.5">
           <span className="text-caption font-medium text-muted">{t('shell.sidebar.color')}</span>
           <div className="flex flex-wrap gap-1.5">
-            {['', ...SECTION_COLORS].map((c) => (
+            {colors.map((c, i) => (
               <Tip key={c || 'none'} label={c ? t('shell.sidebar.colorName', { color: c }) : t('shell.sidebar.colorNone')} side="top">
                 <button
+                  ref={(el) => {
+                    radios.current[i] = el;
+                  }}
                   type="button"
                   role="radio"
                   aria-checked={color === c}
+                  tabIndex={stop === c ? 0 : -1}
+                  onKeyDown={(e) => pickWithKeys(e, i)}
                   aria-label={c ? t('shell.sidebar.colorName', { color: c }) : t('shell.sidebar.colorNone')}
                   onClick={() => setColor(c)}
                   data-v2-pick-color={c || 'none'}

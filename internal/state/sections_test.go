@@ -325,3 +325,41 @@ func TestSectionNamesAndCollapsing(t *testing.T) {
 		t.Errorf("clearing the description = %+v, %v", sec, err)
 	}
 }
+
+// Partial updates are read-modify-write in one transaction, so two that run
+// at once — folding the section while another window colours and describes it
+// — each keep their own field instead of one writing back the other's old value.
+func TestConcurrentPartialSectionUpdatesKeepEachField(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	for round := 0; round < 25; round++ {
+		sec, err := st.AddSection(ctx, "Work", time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		collapsed, mint, desc := true, "mint", "Apps for the shop"
+		updates := []state.SectionUpdate{{Collapsed: &collapsed}, {Color: &mint}, {Description: &desc}}
+		errs := make(chan error, len(updates))
+		start := make(chan struct{})
+		for _, u := range updates {
+			go func() {
+				<-start
+				_, err := st.UpdateSection(ctx, sec.ID, u)
+				errs <- err
+			}()
+		}
+		close(start)
+		for range updates {
+			if err := <-errs; err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := st.Section(ctx, sec.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Collapsed || got.Color != mint || got.Description != desc || got.Name != "Work" {
+			t.Fatalf("round %d: a partial update lost another's field: %+v", round, got)
+		}
+	}
+}
