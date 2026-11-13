@@ -144,7 +144,8 @@ func (s *Store) searchArchived(ctx context.Context, q ArchivedPageQuery, text st
 			&a.GitHubAccount, &created, &archived, &a.PR.Number, &a.PR.Title, &a.PR.URL, &a.PR.State); err != nil {
 			return nil, ArchivedCounts{}, err
 		}
-		if !(number > 0 && a.PR.Number == number) && !containsFold(text, a.Title, a.Name, a.Branch, a.Task, a.PR.Title) {
+		isNumber := number > 0 && a.PR.Number == number
+		if !isNumber && !containsFold(text, a.Title, a.Name, a.Branch, a.Task, a.PR.Title) {
 			continue
 		}
 		counts.add(a.PR)
