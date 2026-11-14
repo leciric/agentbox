@@ -372,5 +372,6 @@ function fakeSpeech(kind: string | null) {
       this.stop();
     }
   }
+  w.SpeechRecognition = Fake;
   w.webkitSpeechRecognition = Fake;
 }
