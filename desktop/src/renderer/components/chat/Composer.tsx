@@ -882,7 +882,7 @@ export function Composer({
                   className={cn(
                     'flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent',
                     dictation.support === 'insecure' && 'pointer-events-none',
-                    dictation.listening && 'animate-pulse bg-rose-500/90 text-white hover:bg-rose-500 hover:text-white',
+                    dictation.listening && 'animate-pulse bg-brand-500 text-on-brand ring-4 ring-brand-500/30 hover:bg-brand-600 hover:text-on-brand',
                   )}
                 >
                   <Mic className="size-4" />

@@ -13,9 +13,10 @@
 //                           page, for watching it on a wide screen
 //   &controls=1             a button to drop the connection and get it back
 //                           (beside the phone, with ?phone=frame)
+//   &still=1                no turn running live: the agent stays idle
 //   &offline=1              starts with the connection dropped
 //   &speech=fake            a made-up speech recogniser, for the composer's mic
-//                           (it "hears" a sentence, word by word, then pauses);
+//                           (it "hears" a sentence, word by word, and listens until the mic is tapped);
 //                           =insecure is the plain-http LAN page, =none a
 //                           browser with no speech API
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -273,7 +274,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
       setTimeout(step, wait);
     }
   };
-  setTimeout(live, 600);
+  if (params.get('still') !== '1') setTimeout(live, 600);
 
   fakeSpeech(new URLSearchParams(location.search).get('speech'));
   if (mode === 'chat') location.hash = `#/a/${PROJECT}/agent-12`;
@@ -354,18 +355,21 @@ function fakeSpeech(kind: string | null) {
     onresult: ((e: unknown) => void) | null = null;
     onend: (() => void) | null = null;
     timer = 0;
+    said = '';
     start() {
       let n = 0;
       this.timer = window.setInterval(() => {
         n++;
-        const done = n > words.length;
-        const text = words.slice(0, Math.min(n, words.length)).join(' ');
-        this.onresult?.({ results: [Object.assign([{ transcript: text }], { isFinal: done })] });
-        if (done) this.stop();
+        // Listening carries on after the last word until the mic is tapped, so
+        // a screenshot can catch it.
+        this.said = words.slice(0, Math.min(n, words.length)).join(' ');
+        this.onresult?.({ results: [Object.assign([{ transcript: this.said }], { isFinal: false })] });
       }, 700);
     }
     stop() {
       window.clearInterval(this.timer);
+      if (this.said) this.onresult?.({ results: [Object.assign([{ transcript: this.said }], { isFinal: true })] });
+      this.said = '';
       this.onend?.();
     }
     abort() {
