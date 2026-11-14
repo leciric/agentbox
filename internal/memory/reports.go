@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -129,4 +130,30 @@ func scanReport(rows scanner) (Report, error) {
 	r.Discoveries, r.Decisions = readList(discoveries), readList(decisions)
 	r.RemainingIssues, r.Artifacts = readList(remaining), readList(artifacts)
 	return r, nil
+}
+
+// LatestReports is the newest report of each of these agents, by
+// {project, agent}, in one query: a list's rows, which would otherwise read
+// every report of every agent they show.
+func (s *Store) LatestReports(ctx context.Context, agents [][2]string) (map[[2]string]Report, error) {
+	out := map[[2]string]Report{}
+	const batch = 400 // two variables each, well under SQLite's limit
+	for ; len(agents) > 0; agents = agents[min(len(agents), batch):] {
+		part := agents[:min(len(agents), batch)]
+		args := make([]any, 0, 2*len(part))
+		for _, a := range part {
+			args = append(args, a[0], a[1])
+		}
+		reports, err := s.queryReports(ctx, `WHERE (agent_reports.project, agent_reports.agent) IN (VALUES `+
+			strings.TrimSuffix(strings.Repeat("(?, ?),", len(part)), ",")+`) ORDER BY agent_reports.created_at DESC, agent_reports.rowid DESC`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range reports {
+			if _, ok := out[[2]string{r.Project, r.Agent}]; !ok {
+				out[[2]string{r.Project, r.Agent}] = r
+			}
+		}
+	}
+	return out, nil
 }

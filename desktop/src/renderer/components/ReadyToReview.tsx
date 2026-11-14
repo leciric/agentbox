@@ -266,13 +266,16 @@ function ReviewCarousel({
     queryKey: past ? ['media', item.ref, 'past'] : ['media', item.ref],
     queryFn: () => (past ? api.projectMedia(item.project, item.agent) : api.media(item.ref)),
   });
-  // Its final report, on top: the Work page has it; opened elsewhere it's read.
+  // Its final report, on top. The Work page's rows carry only its status
+  // (lib/work.ts workQuery), which says whether there is one to read; work
+  // listed in full has it, and opened elsewhere it's read.
+  const listed = work?.report?.summary ? work.report : undefined;
   const reports = useQuery({
     queryKey: ['memory', item.project, 'reports', item.agent],
     queryFn: () => api.memoryReports(item.project, item.agent),
-    enabled: !work,
+    enabled: !listed && (!work || !!work.report),
   });
-  const report = work ? work.report : reports.data?.[0];
+  const report = listed ?? reports.data?.[0];
   // Merge, Mark reviewed and Request changes are verdicts on work that
   // waits for one; anything else is only looked at.
   const awaiting = work ? work.status === 'review' : awaitingReview(item);
@@ -515,7 +518,10 @@ function ReviewCarousel({
     act(action);
   };
 
-  const summary = firstLine(item.summary);
+  // A past agent said what its report says: the Work page's rows no longer
+  // carry it (lib/work.ts workQuery).
+  const said = item.summary || report?.summary || '';
+  const summary = firstLine(said);
   // The case, what the agent said and reported, sits beside the proof where
   // the window is wide; elsewhere it's the header's line and the report's
   // strip, and the details hold the rest.
@@ -605,7 +611,7 @@ function ReviewCarousel({
             {/* Beside the proof, wide, the case says all of it, and the
                 details do. */}
             {pane !== 'details' && (
-              <p className={cn('min-w-0 truncate pl-8 text-ui', summary ? 'text-secondary' : 'text-subtle', withCase && 'lg:hidden')} title={item.summary || undefined} data-review-summary-line>
+              <p className={cn('min-w-0 truncate pl-8 text-ui', summary ? 'text-secondary' : 'text-subtle', withCase && 'lg:hidden')} title={said || undefined} data-review-summary-line>
                 {summary || t('review.noSummary')}
               </p>
             )}
@@ -681,7 +687,7 @@ function ReviewCarousel({
                   <span className="text-ui font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
                   <section data-review-summary>
                     <h3 className="mb-2 text-caption font-medium text-muted">{t('review.summary')}</h3>
-                    {item.summary ? <Markdown text={item.summary} className="text-ui" /> : <p className="text-ui text-subtle">{t('review.noSummary')}</p>}
+                    {said ? <Markdown text={said} className="text-ui" /> : <p className="text-ui text-subtle">{t('review.noSummary')}</p>}
                   </section>
                   {pr && (
                     <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
@@ -1033,7 +1039,7 @@ function CaseRail({ item, report, inert }: { item: T.ReviewItem; report?: T.Agen
     <aside aria-label={t('review.case')} className="grid w-[340px] shrink-0 content-start gap-6 overflow-y-auto border-l border-line px-5 py-4 max-lg:hidden" inert={inert} data-review-case>
       <section className="min-w-0" data-review-summary>
         <h3 className="mb-1.5 text-caption font-medium text-muted">{t('review.summary')}</h3>
-        {item.summary ? <Markdown text={item.summary} className="text-body [overflow-wrap:anywhere]" /> : <p className="text-body text-subtle">{t('review.noSummary')}</p>}
+        {item.summary || report?.summary ? <Markdown text={item.summary || report?.summary || ''} className="text-body [overflow-wrap:anywhere]" /> : <p className="text-body text-subtle">{t('review.noSummary')}</p>}
       </section>
       {report && (
         <section className="grid min-w-0 gap-1.5" data-review-report={report.status}>

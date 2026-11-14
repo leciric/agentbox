@@ -139,10 +139,10 @@ func TestRecapLoad(t *testing.T) {
 		_, err := d.srv.store.TokenTotals(ctx, state.TokenFilter{Since: start, Until: end})
 		return err
 	})
-	timed("projectWorkEntries (all)", func() error {
+	timed("liveWorkEntries (all)", func() error {
 		ps, _ := d.srv.store.Projects(ctx)
 		for _, p := range ps {
-			if _, err := d.srv.projectWorkEntries(ctx, p); err != nil {
+			if _, err := d.srv.liveWorkEntries(ctx, p); err != nil {
 				return err
 			}
 		}

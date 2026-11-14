@@ -115,3 +115,6 @@ pointers are `Option`, and unknown fields are ignored, so an older app reads a n
 time between frames while a chat streams. `AGENTBOX_NATIVE_OPEN=agent-02` opens that agent's chat
 at start, and `AGENTBOX_NATIVE_SCROLL_BENCH=3` scrolls it 24 px a frame for 600 frames, three
 seconds in, and prints the frame intervals.
+`AGENTBOX_NATIVE_VIEW=work AGENTBOX_NATIVE_WORK_BENCH=500` opens the Work page, prints when its
+first page arrived (`work-loaded`) and its first rows were drawn (`work-rows`), loads 500 pieces of
+work and scrolls through them the same way.

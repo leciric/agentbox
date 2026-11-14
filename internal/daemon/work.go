@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -76,71 +77,112 @@ func (s *Server) writeWork(w http.ResponseWriter, r *http.Request, projects []st
 		}
 		limit = min(n, reviewPageMax)
 	}
-	var all []workEntry
+	// Live agents are few and read as "Ready to review" reads them; past ones
+	// are every agent the install ever had, so the archive counts them and
+	// answers one page (state.ArchivedPage) instead of being read whole.
+	q := strings.ToLower(strings.TrimSpace(v.Get("q")))
+	filters := []string{api.WorkFilterReview, api.WorkFilterOpen, api.WorkFilterMerged, api.WorkFilterClosed, api.WorkFilterNone}
+	page := api.WorkPage{Items: []api.WorkItem{}, Counts: map[string]int{}}
+	roots := map[string]string{}
+	var kept []workEntry
 	for _, p := range projects {
-		more, err := s.projectWorkEntries(ctx, p)
+		roots[p.Name] = p.Root
+		live, err := s.liveWorkEntries(ctx, p)
 		if err != nil {
 			return err
 		}
-		all = append(all, more...)
-	}
-	q := strings.ToLower(strings.TrimSpace(v.Get("q")))
-	page := api.WorkPage{Items: []api.WorkItem{}, Counts: map[string]int{}}
-	var kept []workEntry
-	for _, e := range all {
-		if !e.matches(q) {
-			continue
-		}
-		page.Counts[""]++
-		for _, f := range []string{api.WorkFilterReview, api.WorkFilterOpen, api.WorkFilterMerged, api.WorkFilterClosed, api.WorkFilterNone} {
-			if e.in(f) {
-				page.Counts[f]++
+		for _, e := range live {
+			if !e.matches(q) {
+				continue
+			}
+			page.Counts[""]++
+			for _, f := range filters {
+				if e.in(f) {
+					page.Counts[f]++
+				}
+			}
+			if filter == "" || e.in(filter) {
+				kept = append(kept, e)
 			}
 		}
-		if filter == "" || e.in(filter) {
-			kept = append(kept, e)
-		}
 	}
-	page.Total = len(kept)
-	// The ref breaks a tie, so a cursor always names one place in the list.
-	key := func(e workEntry) int64 { return e.item.At.UnixNano() }
-	slices.SortStableFunc(kept, func(a, b workEntry) int {
-		return cmp.Or(cmp.Compare(key(b), key(a)), cmp.Compare(a.item.Item.Ref, b.item.Item.Ref))
-	})
+	slices.SortFunc(kept, workEntry.compare)
+	var after *workKey
 	if cursor := v.Get("cursor"); cursor != "" {
-		at, ref, ok := strings.Cut(cursor, ":")
-		n, err := strconv.ParseInt(at, 10, 64)
-		if !ok || err != nil {
+		k, ok := parseWorkCursor(cursor)
+		if !ok {
 			return fmt.Errorf("cursor %q isn't one this list gave", cursor)
 		}
-		kept = slices.DeleteFunc(kept, func(e workEntry) bool {
-			return cmp.Or(cmp.Compare(key(e), n), cmp.Compare(ref, e.item.Item.Ref)) >= 0
-		})
+		after = &k
+		kept = slices.DeleteFunc(kept, func(e workEntry) bool { return e.key().compare(k) <= 0 })
 	}
-	if len(kept) > limit {
-		last := kept[limit-1]
-		page.Next = fmt.Sprintf("%d:%s", key(last), last.item.Item.Ref)
-		kept = kept[:limit]
+	// One project's, or every project's: a removed project's past agents went
+	// with it.
+	archived := state.ArchivedPageQuery{Query: q}
+	if len(projects) == 1 {
+		archived.Project = projects[0].Name
 	}
-	// What costs a query or a git process each is read for the page only,
-	// a few at once, against each repository's branches read once.
-	tips := map[string]map[string]string{}
-	for _, e := range kept {
-		if _, ok := tips[e.root]; e.past != nil && !ok {
-			tips[e.root], _ = worktreefs.BranchTips(e.root)
+	if len(projects) > 0 && filter != api.WorkFilterReview {
+		// No past agent waits for review. One more than the page says whether
+		// another follows.
+		archived.PRState, archived.Limit = filter, limit+1
+		if after != nil {
+			sec := time.Unix(after.at/int64(time.Second), 0)
+			archived.After = &state.ArchivedCursor{At: sec, Through: after.at%int64(time.Second) != 0, Project: after.project, Name: after.agent}
 		}
 	}
-	page.Items = make([]api.WorkItem, len(kept))
-	var g errgroup.Group
-	g.SetLimit(changesConcurrency)
-	for i, e := range kept {
-		g.Go(func() error {
-			page.Items[i] = s.filledWork(ctx, e, tips[e.root])
-			return nil
-		})
+	var past []state.ArchivedAgent
+	var counts state.ArchivedCounts
+	if len(projects) > 0 {
+		var err error
+		if past, counts, err = s.store.ArchivedPage(ctx, archived); err != nil {
+			return err
+		}
 	}
-	_ = g.Wait()
+	// A filter that keeps nothing has no count, as before.
+	for _, f := range append([]string{""}, filters[1:]...) {
+		if n := counts.Of(f); n > 0 {
+			page.Counts[f] += n
+		}
+	}
+	page.Total = page.Counts[filter]
+	if after == nil {
+		// Behind the first page only: the ones after it are the same list.
+		go s.refreshPastPRs(archived.Project)
+	}
+	for i := range past {
+		kept = append(kept, pastWorkEntry(&past[i], roots[past[i].Project]))
+	}
+	// Each half is in order already; the ref breaks a tie, so a cursor always
+	// names one place in the list.
+	slices.SortStableFunc(kept, workEntry.compare)
+	if len(kept) > limit {
+		page.Next = kept[limit-1].key().cursor()
+		kept = kept[:limit]
+	}
+	page.Items = s.filledWork(ctx, kept, v.Get("brief") != "")
 	return writeJSON(w, http.StatusOK, page)
+}
+
+// workKey is where a piece of work sorts: newest first, then by project and
+// agent, as the archive orders past agents (state.ArchivedPage).
+type workKey struct {
+	at             int64 // WorkItem.At, in nanoseconds
+	project, agent string
+}
+
+func (k workKey) compare(o workKey) int {
+	return cmp.Or(cmp.Compare(o.at, k.at), cmp.Compare(k.project, o.project), cmp.Compare(k.agent, o.agent))
+}
+
+// cursor is the key as ?cursor= takes it.
+func (k workKey) cursor() string { return fmt.Sprintf("%d:%s/%s", k.at, k.project, k.agent) }
+
+func parseWorkCursor(cursor string) (workKey, bool) {
+	at, ref, ok := strings.Cut(cursor, ":")
+	n, err := strconv.ParseInt(at, 10, 64)
+	project, agent, found := strings.Cut(ref, "/")
+	return workKey{n, project, agent}, ok && found && err == nil
 }
 
 // workEntry is one agent's work before its page is filled in: past agents
@@ -150,6 +192,12 @@ type workEntry struct {
 	past *state.ArchivedAgent
 	root string // the project's repository
 }
+
+func (e workEntry) key() workKey {
+	return workKey{e.item.At.UnixNano(), e.item.Item.Project, e.item.Item.Agent}
+}
+
+func (e workEntry) compare(o workEntry) int { return e.key().compare(o.key()) }
 
 // matches is whether the search q (lower case) is in the work's title, task,
 // branch or pull request title, or is its pull request's number.
@@ -186,104 +234,176 @@ func (e workEntry) in(f string) bool {
 	}
 }
 
-// projectWorkEntries is every agent's work in p, live and past, but not
-// filled in (filledWork).
-func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]workEntry, error) {
-	var out []workEntry
-	if !s.prReconciling(p.Name) {
-		agents, err := s.store.Agents(ctx, p.Name)
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range s.liveWork(ctx, p, agents, true, false) {
-			item := api.WorkItem{Item: e.item, Status: api.WorkWorking, At: e.agent.CreatedAt}
-			switch {
-			case !e.finished:
-			case e.item.Verdict != "":
-				item.Status = api.WorkReviewed
-			case e.ended:
-				item.Status = api.WorkDone
-			default:
-				item.Status = api.WorkReview
-			}
-			if e.finished {
-				item.At = e.item.FinishedAt
-			}
-			if task, err := s.store.FirstMessage(ctx, p.Name, e.agent.Name); err == nil {
-				item.Task = task
-			}
-			out = append(out, workEntry{item: item, root: p.Root})
-		}
+// liveWorkEntries is the work of p's live agents, not filled in (filledWork).
+func (s *Server) liveWorkEntries(ctx context.Context, p state.Project) ([]workEntry, error) {
+	if s.prReconciling(p.Name) {
+		return nil, nil
 	}
-	past, err := s.store.ArchivedAgents(ctx, state.ArchivedQuery{Project: p.Name})
+	agents, err := s.store.Agents(ctx, p.Name)
 	if err != nil {
 		return nil, err
 	}
-	go s.refreshPastPRs(p.Name, slices.Clone(past))
-	marks := s.mergeMarks(ctx, p.Name)
-	for i := range past {
-		a := &past[i]
-		item := api.WorkItem{
-			Item: api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, BaseRef: a.BaseRef, AI: a.AI, FinishedAt: a.ArchivedAt},
-			Task: a.Task, Past: true, Status: api.WorkDone, At: a.ArchivedAt,
+	var out []workEntry
+	for _, e := range s.liveWork(ctx, p, agents, true, false) {
+		item := api.WorkItem{Item: e.item, Status: api.WorkWorking, At: e.agent.CreatedAt}
+		switch {
+		case !e.finished:
+		case e.item.Verdict != "":
+			item.Status = api.WorkReviewed
+		case e.ended:
+			item.Status = api.WorkDone
+		default:
+			item.Status = api.WorkReview
 		}
-		if a.PR.Number > 0 {
-			item.Item.PR = &api.PullRequest{Number: a.PR.Number, Title: a.PR.Title, URL: a.PR.URL, State: a.PR.State}
-			markItem(&item.Item, marks)
+		if e.finished {
+			item.At = e.item.FinishedAt
 		}
-		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
-			at := r.At
-			item.Item.Verdict, item.Item.ReviewedAt, item.Status = r.Verdict, &at, api.WorkReviewed
+		if task, err := s.store.FirstMessage(ctx, p.Name, e.agent.Name); err == nil {
+			item.Task = task
 		}
-		out = append(out, workEntry{item: item, past: a, root: p.Root})
+		out = append(out, workEntry{item: item, root: p.Root})
 	}
 	return out, nil
 }
 
-// refreshPastPRs re-reads from GitHub the pull requests of p's past agents
-// that were open, behind the page that listed them: waiting for it held the
-// page half a second for each project, every few minutes. When one moved, the
-// app is told as for any pull request's, and reads the page again.
-func (s *Server) refreshPastPRs(project string, past []state.ArchivedAgent) {
+// pastWorkEntry is a past agent's work, not filled in (filledWork).
+func pastWorkEntry(a *state.ArchivedAgent, root string) workEntry {
+	item := api.WorkItem{
+		Item: api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, BaseRef: a.BaseRef, AI: a.AI, FinishedAt: a.ArchivedAt},
+		Task: a.Task, Past: true, Status: api.WorkDone, At: a.ArchivedAt,
+	}
+	if a.PR.Number > 0 {
+		item.Item.PR = &api.PullRequest{Number: a.PR.Number, Title: a.PR.Title, URL: a.PR.URL, State: a.PR.State}
+	}
+	return workEntry{item: item, past: a, root: root}
+}
+
+// refreshPastPRs re-reads from GitHub the pull requests of past agents that
+// were open, of project or of every one, behind the page that listed them:
+// waiting for it held the page half a second for each project, every few
+// minutes. When one moved, the app is told as for any pull request's, and
+// reads the page again.
+func (s *Server) refreshPastPRs(project string) {
+	ctx := s.background()
+	past, err := s.store.ArchivedAgents(ctx, state.ArchivedQuery{Project: project, PRState: state.PROpen})
+	if err != nil || len(past) == 0 {
+		return
+	}
 	before := make([]state.ArchivedPR, len(past))
 	for i, a := range past {
 		before[i] = a.PR
 	}
-	for i, a := range s.refreshArchivedPRs(s.background(), past) {
-		if a.PR != before[i] {
-			s.events.publish(api.EventPulls, api.PullsChange{Project: project})
-			return
+	moved := map[string]bool{}
+	for i, a := range s.refreshArchivedPRs(ctx, past) {
+		if a.PR != before[i] && !moved[a.Project] {
+			moved[a.Project] = true
+			s.events.publish(api.EventPulls, api.PullsChange{Project: a.Project})
 		}
 	}
 }
 
-// filledWork is e with its report, its media and, for a past agent, what its
-// kept branch changed. tips is its repository's branches (BranchTips), nil
-// when they couldn't be read.
-func (s *Server) filledWork(ctx context.Context, e workEntry, tips map[string]string) api.WorkItem {
-	item := e.item
-	i := item.Item
-	if reports, err := s.memory().Reports(ctx, i.Project, i.Agent); err == nil && len(reports) > 0 {
-		r := apiReport(reports[0])
-		item.Report = &r
-		if item.Item.Summary == "" {
-			item.Item.Summary = r.Summary
+// filledWork is a page's entries as its items: each with its report, its
+// media, a past agent's verdict, merge mark and what its kept branch changed.
+// What the store holds is one query for the page, not one for each row, and
+// only the changes cost a git process each, a few at once, against each
+// repository's branches read once. With brief an item is what a list's row
+// shows: no task, and of its report only the status; whoever opens one reads
+// the rest (GET /v1/projects/{project}/memory/reports).
+func (s *Server) filledWork(ctx context.Context, entries []workEntry, brief bool) []api.WorkItem {
+	keys := make([]state.AgentKey, len(entries))
+	refs := make([][2]string, len(entries))
+	var pastKeys []state.AgentKey
+	tips := map[string]map[string]string{}
+	marks := map[string]map[int]state.MergeWhenGreen{}
+	for i, e := range entries {
+		keys[i] = state.AgentKey{Project: e.item.Item.Project, Agent: e.item.Item.Agent}
+		refs[i] = [2]string{keys[i].Project, keys[i].Agent}
+		if e.past == nil {
+			continue
+		}
+		pastKeys = append(pastKeys, keys[i])
+		if _, ok := tips[e.root]; !ok {
+			tips[e.root] = s.tipsOf(e.root)
+		}
+		if _, ok := marks[keys[i].Project]; !ok && e.past.PR.Number > 0 {
+			marks[keys[i].Project] = s.mergeMarks(ctx, keys[i].Project)
 		}
 	}
-	if tallies, err := s.store.MediaTallies(ctx, state.MediaFilter{Project: i.Project, Agent: i.Agent}); err == nil {
-		for _, t := range tallies {
-			switch t.Kind {
-			case "screenshot":
-				item.Screenshots += t.Count
-			case "recording":
-				item.Recordings += t.Count
+	reports, _ := s.memory().LatestReports(ctx, refs)
+	media, _ := s.store.MediaKindCounts(ctx, keys)
+	reviews, _ := s.store.AgentReviewsOf(ctx, pastKeys)
+	items := make([]api.WorkItem, len(entries))
+	var g errgroup.Group
+	g.SetLimit(changesConcurrency)
+	for i, e := range entries {
+		item := e.item
+		if e.past != nil {
+			markItem(&item.Item, marks[keys[i].Project])
+			if r, ok := reviews[keys[i]]; ok {
+				at := r.At
+				item.Item.Verdict, item.Item.ReviewedAt, item.Status = r.Verdict, &at, api.WorkReviewed
 			}
 		}
+		if r, ok := reports[refs[i]]; ok {
+			if brief {
+				item.Report = &api.AgentReport{Status: r.Status}
+			} else {
+				full := apiReport(r)
+				item.Report = &full
+				if item.Item.Summary == "" {
+					item.Item.Summary = r.Summary
+				}
+			}
+		}
+		if brief {
+			item.Task = ""
+		}
+		item.Screenshots, item.Recordings = media[keys[i]]["screenshot"], media[keys[i]]["recording"]
+		items[i] = item
+		if e.past != nil && item.Item.Changes == nil {
+			g.Go(func() error {
+				items[i].Item.Changes = s.pastChangesOf(e.root, *e.past, tips[e.root])
+				return nil
+			})
+		}
 	}
-	if e.past != nil && item.Item.Changes == nil {
-		item.Item.Changes = s.pastChangesOf(e.root, *e.past, tips)
+	_ = g.Wait()
+	return items
+}
+
+// tipsRead is a repository's branches (worktreefs.BranchTips) and when they
+// were read.
+type tipsRead struct {
+	tips map[string]string
+	at   time.Time
+}
+
+// tipsTTL is how long a repository's branches are taken as read. Reading
+// them is a git process for each project on a page, which was most of what a
+// page of every project's work still waited for; a past agent's kept branch
+// moves about never, and its changes are only this much behind when it does.
+const tipsTTL = 5 * time.Second
+
+// tipsOf is the branches of the repository at root, nil when they can't be
+// read, which isn't kept.
+func (s *Server) tipsOf(root string) map[string]string {
+	s.mu.Lock()
+	read, ok := s.branchTips[root]
+	s.mu.Unlock()
+	if ok && time.Since(read.at) < tipsTTL {
+		return read.tips
 	}
-	return item
+	tips, err := worktreefs.BranchTips(root)
+	if err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	if s.branchTips == nil {
+		s.branchTips = map[string]tipsRead{}
+	}
+	s.branchTips[root] = tipsRead{tips, time.Now()}
+	s.mu.Unlock()
+	return tips
 }
 
 // pastChangesKey is what a past agent's changes are measured from: its kept

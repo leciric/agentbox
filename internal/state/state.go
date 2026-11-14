@@ -1646,6 +1646,18 @@ var migrations = []string{
 	// project's choice and the one an agent holds.
 	`ALTER TABLE projects ADD COLUMN copilot_account TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN copilot_account TEXT NOT NULL DEFAULT ''`,
+	// The Work page reads the archive a page at a time (ArchivedPage), and an
+	// install has every agent it ever had in it: the order it pages in, most
+	// recently archived first and then by project and name, of one project
+	// and of every one (which archived_agents_by_time, on the time alone, is
+	// a prefix of); how many each pull request state keeps, from an index
+	// alone; and the few whose pull request is still open, which are read
+	// again from GitHub behind the page.
+	`CREATE INDEX archived_agents_by_project_time ON archived_agents (project, archived_at DESC, name)`,
+	`CREATE INDEX archived_agents_by_time_name ON archived_agents (archived_at DESC, project, name)`,
+	`DROP INDEX archived_agents_by_time`,
+	`CREATE INDEX archived_agents_by_pr ON archived_agents (project, pr_state, pr_number)`,
+	`CREATE INDEX archived_agents_open_prs ON archived_agents (archived_at DESC, project, name) WHERE pr_state = 'open'`,
 	// project_sections.color is a sidebar section's colour, one of
 	// SectionColors, '' for none: what every section made before colours has.
 	`ALTER TABLE project_sections ADD COLUMN color TEXT NOT NULL DEFAULT ''`,

@@ -288,7 +288,10 @@ type Server struct {
 	archivedPRChecked map[string]time.Time
 	// pastChanges is what past agents' kept branches changed, by where they
 	// were measured (work.go).
-	pastChanges  map[pastChangesKey]*api.AgentChanges
+	pastChanges map[pastChangesKey]*api.AgentChanges
+	// branchTips is each repository's branches as last read, for the Work
+	// page (work.go's tipsOf).
+	branchTips   map[string]tipsRead
 	nudged       map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
 	outcomes     map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
 	outcomesRead map[string]bool         // projects whose outcomes have been read from their events since the daemon started
