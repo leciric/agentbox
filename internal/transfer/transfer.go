@@ -360,14 +360,18 @@ type section struct {
 	Name      string `json:"name"`
 	Position  int    `json:"position"`
 	Collapsed bool   `json:"collapsed"`
-	CreatedAt int64  `json:"createdAt"`
+	// Color is the section's colour (state.SectionColors), absent in an
+	// export made before sections had one.
+	Color       string `json:"color,omitempty"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
 }
 
 func (in Instance) projectSection(ctx context.Context, project string) (sectionEntry, error) {
 	var s section
-	err := in.Store.DB().QueryRowContext(ctx, `SELECT s.id, s.name, s.position, s.collapsed, s.created_at
+	err := in.Store.DB().QueryRowContext(ctx, `SELECT s.id, s.name, s.position, s.collapsed, s.color, s.description, s.created_at
 		FROM project_sections s JOIN projects p ON p.section = s.id WHERE p.name = ?`, project).
-		Scan(&s.ID, &s.Name, &s.Position, &s.Collapsed, &s.CreatedAt)
+		Scan(&s.ID, &s.Name, &s.Position, &s.Collapsed, &s.Color, &s.Description, &s.CreatedAt)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return sectionEntry{}, nil

@@ -84,7 +84,7 @@ func seed(t *testing.T, in Instance, root string) {
 	}
 	db := in.Store.DB()
 	for _, q := range []string{
-		`INSERT INTO project_sections (id, name, position, created_at) VALUES ('sec1', 'Work', 1, 1)`,
+		`INSERT INTO project_sections (id, name, position, color, description, created_at) VALUES ('sec1', 'Work', 1, 'mint', 'Paid work', 1)`,
 		`UPDATE projects SET section = 'sec1' WHERE name = 'web'`,
 		`INSERT INTO project_icons (project, chosen, emoji, image, mime) VALUES ('web', 'image', '', x'89504e47', 'image/png')`,
 		`INSERT INTO skills (name, description, created_at, updated_at, enabled) VALUES ('deploy', 'how to deploy', 1, 1, 0)`,
@@ -221,6 +221,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if p.Section != "sec1" {
 		t.Errorf("section = %q", p.Section)
+	}
+	if sec, err := dst.Store.Section(ctx, "sec1"); err != nil || sec.Color != "mint" || sec.Description != "Paid work" {
+		t.Errorf("section = %+v, %v; want its colour and description carried", sec, err)
 	}
 	if text, _ := notes.Read(dst.NotesPath("web")); text != "Be kind.\n" && text != "Be kind." {
 		t.Errorf("notes = %q", text)

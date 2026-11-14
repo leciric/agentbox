@@ -148,7 +148,7 @@ test('place describes where a project landed, in its section or in none', () => 
   const lists = buildLists([project('a', 's1'), project('b', 's1')], [section('s1', 'Work')]);
   assert.equal(place(lists, 'b'), 'b is now 2 of 2 in Work');
   const loose = buildLists([project('c')], []);
-  assert.equal(place(loose, 'c'), 'c is now 1 of 1 in no section');
+  assert.equal(place(loose, 'c'), 'c is now 1 of 1 in no folder');
 });
 
 test('place is empty for a project that is not in any list', () => {

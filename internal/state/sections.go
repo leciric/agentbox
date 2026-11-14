@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +33,10 @@ import (
 // sidebar, not a sentence.
 const MaxSectionNameLen = 40
 
+// MaxSectionDescriptionLen bounds a section's description, which is a
+// tooltip: a line, not notes.
+const MaxSectionDescriptionLen = 200
+
 // Section is one group of projects in the sidebar.
 type Section struct {
 	ID   string
@@ -42,8 +47,17 @@ type Section struct {
 	// than in the app so a machine talking to the same daemon — or to the
 	// same hub — shows the sidebar the same way.
 	Collapsed bool
-	CreatedAt time.Time
+	// Color is the section's colour, one of SectionColors, or "" for none.
+	Color string
+	// Description is a line about the section, "" for none.
+	Description string
+	CreatedAt   time.Time
 }
+
+// SectionColors are the colours a section can have, by name: the app draws
+// them with the same palette as a chat session's (styles.css'
+// [data-session-color]), so the names are SessionColors'.
+var SectionColors = SessionColors
 
 // Layout is the whole of the sidebar's order: every section, in order, with
 // the projects in each, and the projects that are in no section. A caller
@@ -66,7 +80,7 @@ type SectionProjects struct {
 	Projects []string
 }
 
-const sectionColumns = `id, name, position, collapsed, created_at`
+const sectionColumns = `id, name, position, collapsed, color, description, created_at`
 
 // Sections lists the sections in the order the sidebar draws them.
 func (s *Store) Sections(ctx context.Context) ([]Section, error) {
@@ -85,7 +99,7 @@ func scanSections(rows *sql.Rows) ([]Section, error) {
 	for rows.Next() {
 		var sec Section
 		var created int64
-		if err := rows.Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &created); err != nil {
+		if err := rows.Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &sec.Color, &sec.Description, &created); err != nil {
 			return nil, err
 		}
 		sec.CreatedAt = time.Unix(created, 0)
@@ -99,7 +113,7 @@ func (s *Store) Section(ctx context.Context, id string) (Section, error) {
 	var sec Section
 	var created int64
 	err := s.db.QueryRowContext(ctx, `SELECT `+sectionColumns+` FROM project_sections WHERE id = ?`, id).
-		Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &created)
+		Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &sec.Color, &sec.Description, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Section{}, fmt.Errorf("section %q: %w", id, ErrNotFound)
 	}
@@ -126,8 +140,8 @@ func (s *Store) AddSection(ctx context.Context, name string, now time.Time) (Sec
 		return Section{}, err
 	}
 	sec.Position = last + 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO project_sections (`+sectionColumns+`) VALUES (?, ?, ?, ?, ?)`,
-		sec.ID, sec.Name, sec.Position, sec.Collapsed, sec.CreatedAt.Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO project_sections (`+sectionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sec.ID, sec.Name, sec.Position, sec.Collapsed, sec.Color, sec.Description, sec.CreatedAt.Unix()); err != nil {
 		return Section{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -136,23 +150,61 @@ func (s *Store) AddSection(ctx context.Context, name string, now time.Time) (Sec
 	return sec, nil
 }
 
-// UpdateSection renames a section, folds it away or unfolds it. A nil field
-// stays as it is.
-func (s *Store) UpdateSection(ctx context.Context, id string, name *string, collapsed *bool) (Section, error) {
-	sec, err := s.Section(ctx, id)
+// SectionUpdate is what UpdateSection changes: a nil field stays as it is.
+// An empty Color or Description takes it off.
+type SectionUpdate struct {
+	Name        *string
+	Collapsed   *bool
+	Color       *string
+	Description *string
+}
+
+// UpdateSection renames a section, folds it away or unfolds it, colours it
+// or describes it.
+func (s *Store) UpdateSection(ctx context.Context, id string, u SectionUpdate) (Section, error) {
+	// The read and the write share one transaction: two partial updates — one
+	// folding the section, another colouring it — each read the row and wrote
+	// all of it back, so the second could undo the first's field.
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return Section{}, err
 	}
-	if name != nil {
-		if sec.Name, err = sectionName(*name); err != nil {
+	defer func() { _ = tx.Rollback() }()
+	var sec Section
+	var created int64
+	err = tx.QueryRowContext(ctx, `SELECT `+sectionColumns+` FROM project_sections WHERE id = ?`, id).
+		Scan(&sec.ID, &sec.Name, &sec.Position, &sec.Collapsed, &sec.Color, &sec.Description, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Section{}, fmt.Errorf("section %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return Section{}, err
+	}
+	sec.CreatedAt = time.Unix(created, 0)
+	if u.Name != nil {
+		if sec.Name, err = sectionName(*u.Name); err != nil {
 			return Section{}, err
 		}
 	}
-	if collapsed != nil {
-		sec.Collapsed = *collapsed
+	if u.Collapsed != nil {
+		sec.Collapsed = *u.Collapsed
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE project_sections SET name = ?, collapsed = ? WHERE id = ?`,
-		sec.Name, sec.Collapsed, sec.ID); err != nil {
+	if u.Color != nil {
+		if *u.Color != "" && !slices.Contains(SectionColors, *u.Color) {
+			return Section{}, fmt.Errorf("a section's colour is one of %s, or none; not %q", strings.Join(SectionColors, ", "), *u.Color)
+		}
+		sec.Color = *u.Color
+	}
+	if u.Description != nil {
+		if sec.Description, err = sectionDescription(*u.Description); err != nil {
+			return Section{}, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE project_sections SET name = ?, collapsed = ?, color = ?, description = ? WHERE id = ?`,
+		sec.Name, sec.Collapsed, sec.Color, sec.Description, sec.ID); err != nil {
+		return Section{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Section{}, err
 	}
 	return sec, nil
@@ -364,6 +416,19 @@ func sectionName(name string) (string, error) {
 		return "", fmt.Errorf("the section name %q has a line break in it", name)
 	}
 	return name, nil
+}
+
+// sectionDescription is a description as it is kept: trimmed, one line, and
+// short enough to be a tooltip.
+func sectionDescription(d string) (string, error) {
+	d = strings.TrimSpace(d)
+	switch {
+	case len([]rune(d)) > MaxSectionDescriptionLen:
+		return "", fmt.Errorf("the section description is longer than %d characters", MaxSectionDescriptionLen)
+	case strings.ContainsAny(d, "\n\r\t"):
+		return "", errors.New("the section description has a line break in it")
+	}
+	return d, nil
 }
 
 // newSectionID is a short id with a prefix that says what it names, the way

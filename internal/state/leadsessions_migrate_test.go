@@ -159,7 +159,7 @@ func TestSessionColoursMigrationColoursEachSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	before := migrationIndex(t, "ADD COLUMN color")
+	before := migrationIndex(t, "lead_sessions ADD COLUMN color")
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
