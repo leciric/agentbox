@@ -60,6 +60,10 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 	if err != nil {
 		return nil, err
 	}
+	if a.IsLead() {
+		// Under the lead chats' shared limit, before it starts anything.
+		s.capLeadChat(a, proc, cmd.Process.Pid)
+	}
 	// Its AI tool runs again: a turn that dies from here on is a failure.
 	s.agentBack(a.Ref())
 	proc.Notice, proc.Moved, proc.Auth = where.notice, where.moved, auth

@@ -226,6 +226,7 @@ func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
 		return
 	}
 	m.logf("Starting %s to hand its node_modules back to you", a.Ref())
+	ClearStaleCgroups(a.Instance)
 	if err := m.Incus.Start(ctx, a.Instance); err != nil {
 		m.logf("Starting %s: %v; what root made in its node_modules stays", a.Ref(), err)
 		return

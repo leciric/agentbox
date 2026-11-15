@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"path/filepath"
-	"strings"
 
 	"agentbox/internal/incus"
 )
@@ -63,9 +62,11 @@ func unsetConfig(instance, key string) incusStep {
 
 // oldLimitSteps are the changes that take what an earlier release set off an
 // instance, from have and devices, its own configuration and devices (not the
-// expanded ones: what a profile sets isn't AgentBox's to take off). The limits
-// and the device come off live; the shared budget's placement in raw.lxc
-// applies when the machine next starts.
+// expanded ones: what a profile sets isn't AgentBox's to take off), and put
+// its cgroup in the agents' parent (AgentPlacement) in AgentBox's VM. The
+// limits and the device come off live; raw.lxc's placement, the shared
+// budget's out and the agents' parent's in, applies when the machine next
+// starts.
 func oldLimitSteps(instance string, have map[string]string, devices map[string]map[string]string) []incusStep {
 	var steps []incusStep
 	if _, ok := devices[oldGPUDevice]; ok {
@@ -76,7 +77,7 @@ func oldLimitSteps(instance string, have map[string]string, devices map[string]m
 			steps = append(steps, unsetConfig(instance, key))
 		}
 	}
-	switch want := withoutBudgetPlacement(have["raw.lxc"]); want {
+	switch want := placedRawLXC(have["raw.lxc"], instance, SharedCgroups()); want {
 	case have["raw.lxc"]:
 	case "":
 		steps = append(steps, unsetConfig(instance, "raw.lxc"))
@@ -84,20 +85,6 @@ func oldLimitSteps(instance string, have map[string]string, devices map[string]m
 		steps = append(steps, setConfig(instance, "raw.lxc="+want))
 	}
 	return steps
-}
-
-// withoutBudgetPlacement is raw.lxc without the lines that put a machine in
-// the shared budget's cgroup.
-func withoutBudgetPlacement(rawLXC string) string {
-	var lines []string
-	for _, line := range strings.Split(rawLXC, "\n") {
-		key, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		if strings.HasPrefix(strings.TrimSpace(key), "lxc.cgroup.dir.") || strings.TrimSpace(line) == "" {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
 }
 
 // dropOldLimits takes what an earlier release set off one instance.

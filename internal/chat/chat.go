@@ -2010,6 +2010,9 @@ func (c *conversation) run(ad *adapter) {
 	if line := failureLine(ad.proc.Stderr()); line != "" {
 		msg += ": " + line
 	}
+	if why := killedWhy(ad.proc); why != "" {
+		msg = ToolNames[c.agent.AI] + " was " + why
+	}
 	c.session.Detail, c.session.Error = "", msg
 	c.adapterGone(errors.New(msg))
 	c.session.State = c.stateNow()
@@ -2465,6 +2468,9 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	}, &res)
 	span.Set("stopReason", res.StopReason)
 	span.End(err)
+	if errors.Is(err, acp.ErrClosed) {
+		err = killedTurn(ad.proc, ToolNames[a.AI], err)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// A turn that failed still spent what it spent before it did: its

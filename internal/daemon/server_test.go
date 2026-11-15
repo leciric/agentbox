@@ -205,6 +205,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.killLargest = func(string) (agent.OOMVictim, error) { return agent.OOMVictim{}, nil }
 	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }
 	srv.oomVictim = func(string) (agent.OOMVictim, bool) { return agent.OOMVictim{}, false }
+	srv.shared.on = func() bool { return false }
 	if tc.setup != nil {
 		tc.setup(srv)
 	}

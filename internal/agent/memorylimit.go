@@ -424,14 +424,8 @@ func writeCgroup(path, value string) error {
 }
 
 func makeCgroup(dir string) error {
-	err := os.Mkdir(dir, 0o755)
-	switch {
-	case err == nil, errors.Is(err, fs.ErrExist):
-		return nil
-	case !errors.Is(err, fs.ErrPermission) || !hostos.InVM():
-		return err
-	}
-	if err := sudo("mkdir", "", "-p", dir); err != nil {
+	sudoed, err := mkdirCgroupSudo(dir)
+	if err != nil || !sudoed {
 		return err
 	}
 	// Its freezer and reclaim are the daemon's user's from now on, so
@@ -440,6 +434,25 @@ func makeCgroup(dir string) error {
 	// run is paused. Without them it falls back to sudo.
 	_ = sudo("chown", "", strconv.Itoa(os.Getuid()), filepath.Join(dir, "cgroup.freeze"), filepath.Join(dir, "memory.reclaim"))
 	return nil
+}
+
+// mkdirCgroup makes a cgroup unless it is there, through sudo when it isn't
+// the daemon's to make and the daemon runs in AgentBox's VM.
+func mkdirCgroup(dir string) error {
+	_, err := mkdirCgroupSudo(dir)
+	return err
+}
+
+// mkdirCgroupSudo is mkdirCgroup, and says whether it took sudo.
+func mkdirCgroupSudo(dir string) (sudoed bool, err error) {
+	err = os.Mkdir(dir, 0o755)
+	switch {
+	case err == nil, errors.Is(err, fs.ErrExist):
+		return false, nil
+	case !errors.Is(err, fs.ErrPermission) || !hostos.InVM():
+		return false, err
+	}
+	return true, sudo("mkdir", "", "-p", dir)
 }
 
 func removeCgroup(dir string) error {

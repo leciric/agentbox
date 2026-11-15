@@ -934,7 +934,10 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
 		func(ctx context.Context, _ incus.Client) error { return m.admit(ctx, a) },
-		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
+		func(ctx context.Context, c incus.Client) error {
+			ClearStaleCgroups(a.Instance)
+			return c.Start(ctx, a.Instance)
+		},
 	)
 	for i, step := range steps {
 		if err := run(step); err != nil {
@@ -2225,6 +2228,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
 		m.buildOutputSources(ctx, a)
+		ClearStaleCgroups(a.Instance)
 		err := m.Incus.Start(ctx, a.Instance)
 		release()
 		if err != nil && !m.startedMeanwhile(ctx, a) {
