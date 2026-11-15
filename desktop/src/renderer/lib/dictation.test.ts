@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dictationSupport, draftAt, heard, micRefused, recognitionLang, spoken } from './dictation.ts';
+import { dictationSupport, draftAt, heard, micMissing, micRefused, recognitionLang, speak, spoken } from './dictation.ts';
 
 test('support: absent, insecure or ready', () => {
   assert.equal(dictationSupport({}), 'missing');
@@ -16,14 +16,13 @@ test('the language follows the app', () => {
   assert.equal(recognitionLang('fr'), 'en-US');
 });
 
-test('heard splits settled from interim text and skips what was taken', () => {
+test('heard splits settled from interim text and reads the list', () => {
   const results = [
     Object.assign([{ transcript: 'hello ' }], { isFinal: true }),
     Object.assign([{ transcript: 'world ' }], { isFinal: true }),
     Object.assign([{ transcript: 'and mo' }], { isFinal: false }),
   ];
   assert.deepEqual(heard(results), { final: 'hello world ', interim: 'and mo' });
-  assert.deepEqual(heard(results, 1), { final: 'world ', interim: 'and mo' });
   assert.deepEqual(heard([]), { final: '', interim: '' });
 });
 
@@ -45,4 +44,17 @@ test('refusing the mic', () => {
   assert.ok(micRefused('not-allowed'));
   assert.ok(micRefused('service-not-allowed'));
   assert.ok(!micRefused('no-speech'));
+});
+
+test('speech does not overwrite what was typed or cleared meanwhile', () => {
+  const draft = draftAt('hi', 2);
+  assert.deepEqual(speak(draft, 'hi', 'hi', 'there'), { text: 'hi there', cursor: 8 });
+  assert.equal(speak(draft, 'hi there', 'hi there!', 'there again'), null);
+  assert.equal(speak(draft, 'hi there', '', 'there again'), null); // sent: the draft was cleared
+});
+
+test('a missing mic is told apart from a refused one', () => {
+  assert.equal(micMissing('audio-capture'), true);
+  assert.equal(micMissing('not-allowed'), false);
+  assert.equal(micRefused('audio-capture'), false);
 });

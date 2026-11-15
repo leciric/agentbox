@@ -46,7 +46,7 @@ import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type M
 import { onComposerFocus, requestSessionFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, draftAttachmentsLoaded, getDraft, getDraftAttachments, setDraft, setDraftAttachments } from '../../lib/drafts';
 import { formatTime, t as translate, useLanguage, useT } from '../../lib/i18n';
-import { useDictation } from '../../web/useDictation';
+import { useDictation } from '../../lib/useDictation';
 import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
 import { useReviewCardShown } from '../v2/ReviewV2';
@@ -114,6 +114,7 @@ export function Composer({
       setText(next);
     },
     onRefused: () => toast.error(t('chat.composer.micDenied')),
+    onNoMic: () => toast.error(t('chat.composer.micMissing')),
   });
   const session = thread?.session;
   const busy = !!session?.turnStartedAt;
@@ -182,6 +183,7 @@ export function Composer({
   const send = (message: { text: string; images: Pending[] }, to?: { to: string }) => {
     const { images, files } = uploads(message.images, !session?.noImages);
     const text = withPicks(message.text, message.images.filter(isElement));
+    dictation.stop();
     setText('');
     setImages([]);
     onSent();
@@ -452,6 +454,7 @@ export function Composer({
     }
     if (cacheCard) {
       setHeld({ text: text.trim(), images });
+      dictation.stop();
       setText('');
       setImages([]);
       return;
@@ -622,6 +625,7 @@ export function Composer({
             }
             if (text.trim() === '' && images.length === 0) return null;
             const draft = { text: text.trim(), images };
+            dictation.stop();
             setText('');
             setImages([]);
             return draft;

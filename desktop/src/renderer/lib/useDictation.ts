@@ -4,7 +4,7 @@
 // interim guess goes to onText as it comes, so the composer shows it live;
 // nothing is ever sent from here.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { dictationSupport, draftAt, heard, micRefused, recognitionLang, spoken, type Support } from './dictation';
+import { dictationSupport, draftAt, heard, micMissing, micRefused, recognitionLang, speak, type Support } from './dictation';
 
 // The composer is the phone's only where PhoneApp says so: the desktop app
 // shares it and has no button.
@@ -22,29 +22,40 @@ type Recognition = {
   abort(): void;
 };
 
-export type Dictation = { support: Support | 'off'; listening: boolean; toggle: () => void };
+export type Dictation = { support: Support | 'off'; listening: boolean; toggle: () => void; stop: () => void };
 
 export function useDictation({
   language,
   current,
   onText,
   onRefused,
+  onNoMic,
 }: {
   language: string;
   // current is the composer's text and cursor (selection) right now.
   current: () => { text: string; start: number; end: number };
   onText: (text: string, cursor: number) => void;
   onRefused: () => void;
+  onNoMic: () => void;
 }): Dictation {
   const phone = useContext(PhoneMode);
   const [listening, setListening] = useState(false);
   const rec = useRef<Recognition | null>(null);
-  const latest = useRef({ current, onText, onRefused });
-  latest.current = { current, onText, onRefused };
+  const latest = useRef({ current, onText, onRefused, onNoMic });
+  latest.current = { current, onText, onRefused, onNoMic };
   const support: Support = dictationSupport(window as unknown as Parameters<typeof dictationSupport>[0]);
 
   // Leaving the screen stops the mic.
   useEffect(() => () => rec.current?.abort(), []);
+
+  // stop ends the listening now and drops what it hasn't delivered: the
+  // composer was sent or cleared, or the agent changed.
+  const stop = () => {
+    const r = rec.current;
+    rec.current = null;
+    r?.abort();
+    setListening(false);
+  };
 
   const toggle = () => {
     if (rec.current) {
@@ -56,17 +67,22 @@ export function useDictation({
     if (!Ctor) return;
     const here = latest.current.current();
     const draft = draftAt(here.text, here.start, here.end);
+    let shown = here.text;
     const r = new Ctor();
     r.lang = recognitionLang(language);
     r.interimResults = true;
     r.continuous = false;
     r.onresult = (e) => {
+      if (rec.current !== r) return;
       const { final, interim } = heard(e.results);
-      const next = spoken(draft, final + interim);
+      const next = speak(draft, shown, latest.current.current().text, final + interim);
+      if (!next) return stop();
+      shown = next.text;
       latest.current.onText(next.text, next.cursor);
     };
     r.onerror = (e) => {
       if (micRefused(e.error)) latest.current.onRefused();
+      else if (micMissing(e.error)) latest.current.onNoMic();
     };
     r.onend = () => {
       if (rec.current === r) rec.current = null;
@@ -81,5 +97,5 @@ export function useDictation({
     }
   };
 
-  return { support: phone ? support : 'off', listening, toggle };
+  return { support: phone ? support : 'off', listening, toggle, stop };
 }

@@ -2437,6 +2437,7 @@ export const ptBR: Messages = {
   'chat.composer.micTip': 'Falar para digitar (digita o que você diz; nada é enviado)',
   'chat.composer.micStop': 'Parar de ouvir',
   'chat.composer.micInsecure': 'Ditar exige uma página segura (https): abra o AgentBox pelo link https do túnel. A tecla de ditado do teclado também funciona aqui.',
+  'chat.composer.micMissing': 'Nenhum microfone encontrado: conecte um, ou use a tecla de ditado do teclado.',
   'chat.composer.micDenied': 'Microfone bloqueado: permita-o para esta página nas configurações do navegador, ou use a tecla de ditado do teclado.',
   'chat.composer.stopTurn': 'Parar o turno',
   'chat.composer.sendWhileWorking': 'Enviar para {tool} enquanto ele trabalha',

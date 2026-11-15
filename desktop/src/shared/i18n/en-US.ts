@@ -2436,6 +2436,7 @@ export const enUS = {
   'chat.composer.micTip': 'Speak to type (it types what you say; nothing is sent)',
   'chat.composer.micStop': 'Stop listening',
   'chat.composer.micInsecure': 'Speech to text needs a secure (https) page: open AgentBox from the tunnel’s https link. Your keyboard’s own dictation key works here too.',
+  'chat.composer.micMissing': 'No microphone found: plug one in, or use your keyboard’s dictation key.',
   'chat.composer.micDenied': 'Microphone blocked: allow it for this page in the browser’s settings, or use your keyboard’s dictation key.',
   'chat.composer.stopTurn': 'Stop the turn',
   'chat.composer.sendWhileWorking': 'Send to {tool} while it works',

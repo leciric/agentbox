@@ -27,12 +27,11 @@ export type Heard = { final: string; interim: string };
 
 type Result = { isFinal: boolean; [i: number]: { transcript: string } };
 
-// heard reads a recogniser's results list. Results before from were taken
-// already, so a restart, or a phone that resends the list, doesn't repeat them.
-export function heard(results: ArrayLike<Result>, from = 0): Heard {
+// heard reads a recogniser's results list.
+export function heard(results: ArrayLike<Result>): Heard {
   let final = '';
   let interim = '';
-  for (let i = from; i < results.length; i++) {
+  for (let i = 0; i < results.length; i++) {
     const text = results[i][0]?.transcript ?? '';
     if (results[i].isFinal) final += text;
     else interim += text;
@@ -65,4 +64,17 @@ export function spoken(draft: Draft, speech: string): { text: string; cursor: nu
 // no mic to give.
 export function micRefused(error: string): boolean {
   return error === 'not-allowed' || error === 'service-not-allowed';
+}
+
+// A recogniser's error that means the phone has no mic to listen with.
+export function micMissing(error: string): boolean {
+  return error === 'audio-capture';
+}
+
+// speak is what a result puts in the composer: the draft with the speech in
+// it, unless the person has typed (or the composer was cleared) since the last
+// thing dictation put there. Then it's null, and dictation should stop rather
+// than overwrite them.
+export function speak(draft: Draft, shown: string, now: string, speech: string): { text: string; cursor: number } | null {
+  return now === shown ? spoken(draft, speech) : null;
 }

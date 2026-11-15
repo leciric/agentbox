@@ -43,7 +43,7 @@ import { cn, errorMessage } from '../lib/utils';
 import { reconnectNow } from './bridge';
 import { parseRoute, routeHash, type Route } from './route';
 import { PlainHTTPNote } from './PhonePair';
-import { PhoneMode } from './useDictation';
+import { PhoneMode } from '../lib/useDictation';
 import { seen } from './seen';
 
 // Nav is how a screen moves: open pushes a screen, so back (the arrow, or
