@@ -40,7 +40,7 @@
 # (internal/tunnel/tailscale.go); moving it on means adding the new tarballs'
 # sha256 sums to internal/tunnel/tailscale_install.go.
 
--        go@1.27.3                                         go version
+-        go@1.27.4                                         go version
 -        node@24.21.0                                      node --version
 -        pnpm@12.4.2                                       pnpm --version
 -        claude@2.1.322                                    claude --version
