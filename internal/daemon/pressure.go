@@ -712,7 +712,9 @@ func (s *Server) watchMemory(ctx context.Context) {
 	s.syncFleet(ctx, agents)
 	s.countRunning(agents)
 	share := s.agentMemoryShare(ctx)
-	limit := agent.MemoryLimit(s.vmMemory(), share)
+	total := s.vmMemory()
+	agentsHit, agentsLimit := s.watchShared(total)
+	limit := agent.MemoryLimit(total, share)
 	caps := agent.AgentCaps(limit, s.vmSwap(), share)
 	for _, a := range agents {
 		if a.IsLead() || a.Instance == "" {
@@ -756,7 +758,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 		if known && now.Kills > seen.Kills {
 			// A limit nested in the machine, when one reached it since; else
 			// its own, when it did; else the VM ran out.
-			k := killCause{limit: now.Limit, own: now.OwnLimit > seen.OwnLimit}
+			k := killCause{limit: now.Limit, own: now.OwnLimit > seen.OwnLimit, shared: agentsHit, sharedLimit: agentsLimit, total: total}
 			for path, n := range now.Nested {
 				if n.Reached > seen.Nested[path].Reached && (k.nestedPath == "" || path < k.nestedPath) {
 					k.nestedPath, k.nestedLimit = path, n.Limit
@@ -876,12 +878,16 @@ func (s *Server) logOnce(key, msg string) {
 
 // killCause is whose memory limit a kill was for: a cgroup nested in the
 // machine (nestedPath, from the machine's cgroup, with nestedLimit), the
-// machine's own memory.max (own, limit), or neither, the VM's.
+// machine's own memory.max (own, limit), every agent's together (shared,
+// sharedLimit, of a VM of total), or none of them, the VM's.
 type killCause struct {
 	limit       int64
 	own         bool
 	nestedPath  string
 	nestedLimit int64
+	shared      bool
+	sharedLimit int64
+	total       int64
 }
 
 // tellKilled tells an agent that n of its processes were killed for memory,
@@ -905,6 +911,12 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n int64, k killC
 			k.nestedPath, agent.HumanBytes(k.nestedLimit))
 	case k.own:
 		why = fmt.Sprintf("your machine reached its limit of %s, all one agent can have in this VM", agent.HumanBytes(k.limit))
+	case k.shared:
+		why = fmt.Sprintf("every agent's machine together reached the limit they share, %s", agent.HumanBytes(k.sharedLimit))
+		if k.total > 0 {
+			why += fmt.Sprintf(" of this VM's %s", agent.HumanBytes(k.total))
+		}
+		why += ", which keeps the rest for AgentBox and the project chats; your machine was under its own"
 	default:
 		why = "the VM ran out of memory, with every agent's work together"
 	}
@@ -921,10 +933,15 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n int64, k killC
 		cause = "nested"
 	case k.own:
 		cause = "own"
+	case k.shared:
+		cause = "agents"
 	}
 	payload := map[string]any{"kills": n, "limit": k.limit, "own_limit": k.own && k.nestedPath == "", "cause": cause}
 	if k.nestedPath != "" {
 		payload["cgroup"], payload["cgroup_limit"] = k.nestedPath, k.nestedLimit
+	}
+	if cause == "agents" {
+		payload["shared_limit"] = k.sharedLimit
 	}
 	if found {
 		payload["process"], payload["pid"], payload["rss"] = v.Name, v.PID, v.RSS

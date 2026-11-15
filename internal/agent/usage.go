@@ -242,14 +242,20 @@ func hostCPU() (cpuTimes, error) {
 }
 
 // cgroupRoot is where cgroup2 is mounted. Incus runs each container in
-// lxc.payload.<instance> under it, or, until it restarts, in
+// lxc.payload.<instance> under it or in its agentbox.agents, or, until it restarts, in
 // agentbox/<instance> inside an earlier release's shared budget (agentCgroup).
 const cgroupRoot = "/sys/fs/cgroup"
 
 // agentCgroup is the directory of an agent's cgroup: lxc.payload.<instance>
-// at the root, or inside the shared budget's parent for a machine an earlier
-// release started there and nothing has restarted since.
+// in the agents' parent (sharedmemory.go), or at the root for a machine
+// started before it was placed there, or inside the shared budget's parent
+// for a machine an earlier release started there and nothing has restarted
+// since.
 func agentCgroup(root, instance string) string {
+	shared := filepath.Join(root, AgentsCgroup, "lxc.payload."+instance)
+	if _, err := os.Stat(shared); err == nil {
+		return shared
+	}
 	inside := filepath.Join(root, oldBudgetCgroup, instance)
 	if _, err := os.Stat(inside); err == nil {
 		return inside

@@ -444,6 +444,9 @@ type Server struct {
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
+	// shared is the agents' and lead chats' shared memory ceilings
+	// (sharedmemory.go).
+	shared *sharedCgroups
 	// wakes makes one start of each stopped machine for a message at a time
 	// (wake.go, wakeLock).
 	wakes keyedMutex
@@ -541,6 +544,7 @@ func New(cfg Config) (*Server, error) {
 		oomSeen:          map[string]agent.MemoryCounts{},
 		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
+		shared:           newSharedCgroups(),
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},

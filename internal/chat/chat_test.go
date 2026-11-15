@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2866,5 +2867,51 @@ func TestQueuedAgentStartsOnItsSavedModel(t *testing.T) {
 	defer f.mu.Unlock()
 	if got := f.values["model"]; got != "opus" {
 		t.Errorf("session model = %q, want opus", got)
+	}
+}
+
+// A tool killed for memory (Process.Killed, a lead chat's cgroup) fails its
+// turn saying so, not with a closed pipe, and the next message starts it
+// again.
+func TestAToolKilledForMemoryFailsTheTurnSayingSo(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
+		f.crash()
+		return acp.PromptResponse{StopReason: "end_turn"}
+	})
+	m, _ := newManager(t, openStore(t), f)
+	var killed atomic.Bool
+	killed.Store(true)
+	launch := m.Launch
+	m.Launch = func(ctx context.Context, a state.Agent, status func(string)) (*Process, error) {
+		p, err := launch(ctx, a, status)
+		if p != nil && killed.Load() {
+			p.Killed = func() string {
+				return "killed: out of memory (the project chats together reached their limit of 4.0 GiB)"
+			}
+		}
+		return p, err
+	}
+	if _, err := m.Send(testAgent, "go"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, testAgent, "the turn to end", func(th api.ChatThread) bool {
+		return turnsEnded(1)(th) && th.Session.State == api.ChatError
+	})
+	want := "Claude Code was killed: out of memory (the project chats together reached their limit of 4.0 GiB)"
+	if e := find(th, "error", 0); e.Text != want {
+		t.Errorf("error = %q, want %q", e.Text, want)
+	}
+	if th.Session.Error != want {
+		t.Errorf("the session's error is %q", th.Session.Error)
+	}
+	killed.Store(false)
+	f.setTurn(answerHello)
+	if _, err := m.Send(testAgent, "try again"); err != nil {
+		t.Fatal(err)
+	}
+	th = waitThread(t, m, testAgent, "the second turn", turnsEnded(2))
+	if th.Session.State != api.ChatReady || th.Session.Error != "" {
+		t.Errorf("session %s %q", th.Session.State, th.Session.Error)
 	}
 }

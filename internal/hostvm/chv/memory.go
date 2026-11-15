@@ -561,14 +561,14 @@ func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB
 
 // memScript prints what parseMemSample reads, in one ssh round trip. An
 // agent's machine is a cgroup of its own while it runs: lxc.payload.<name>,
-// or agentbox/<name> where an earlier release's shared budget started it,
+// at the root or in agentbox.agents, or agentbox/<name> where an earlier release's shared budget started it,
 // beside its .monitor.
 const memScript = `cat /proc/meminfo /proc/pressure/memory 2>/dev/null
 head -n1 /proc/stat
 grep -E '^workingset_refault(_file)? ' /proc/vmstat 2>/dev/null
 echo "disk_swap_used $(awk 'NR>1 && $1 !~ /^\/dev\/zram/ {u+=$4} END {print u+0}' /proc/swaps 2>/dev/null)"
 echo "auto_online $(cat /sys/devices/system/memory/auto_online_blocks 2>/dev/null)"
-echo "agents $(ls -d /sys/fs/cgroup/lxc.payload.* /sys/fs/cgroup/agentbox/*/ 2>/dev/null | grep -vc '\.monitor/*$')"`
+echo "agents $(ls -d /sys/fs/cgroup/lxc.payload.* /sys/fs/cgroup/agentbox.agents/lxc.payload.* /sys/fs/cgroup/agentbox/*/ 2>/dev/null | grep -vc '\.monitor/*$')"`
 
 // parseMemSample reads memScript's output.
 func parseMemSample(out string) (memSample, error) {

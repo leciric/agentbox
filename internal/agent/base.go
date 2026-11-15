@@ -132,6 +132,7 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 			return fail(err)
 		}
 	}
+	ClearStaleCgroups(next)
 	if err := m.Incus.Start(ctx, next); err != nil {
 		return fail(err)
 	}
