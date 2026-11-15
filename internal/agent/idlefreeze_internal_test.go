@@ -197,22 +197,6 @@ func TestThawIdleWithNothingKnownWakesWhatIsFrozenButRuns(t *testing.T) {
 	}
 }
 
-func TestReclaimIdleAsksForAllOfTheMachine(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	machine := filepath.Join(root, "lxc.payload.m")
-	writeCgroupFile(t, filepath.Join(machine, "memory.current"), "3000\n")
-	var asked string
-	before, after, err := reclaimIdle(root, "m", func(path, value string) error {
-		asked = filepath.Base(path) + "=" + value
-		writeCgroupFile(t, filepath.Join(machine, "memory.current"), "1000\n")
-		return errReclaimShort
-	})
-	if err != nil || before != 3000 || after != 1000 || asked != "memory.reclaim=3000" {
-		t.Errorf("reclaimIdle = %d, %d, %v after asking %q", before, after, err, asked)
-	}
-}
-
 func TestKeepsRunning(t *testing.T) {
 	t.Parallel()
 	for cmd, want := range map[string]bool{

@@ -1,0 +1,33 @@
+[
+  {
+    "name": "demo",
+    "displayName": "demo",
+    "root": "/home/me/agentbox",
+    "branch": "HEAD",
+    "envFiles": [],
+    "android": false,
+    "claudeAccount": "",
+    "claudeAccounts": [],
+    "githubAccount": "",
+    "codexAccount": "",
+    "openCodeAccounts": {},
+    "cursorAccount": "",
+    "autonomy": "ask",
+    "agentModel": "",
+    "branchPrefix": "agentbox/",
+    "finishNotices": "lead",
+    "rolloverThreshold": 80,
+    "contextBudget": 4000,
+    "consolidation": 200,
+    "consolidationModel": "cheap",
+    "section": "",
+    "position": 0,
+    "nesting": false,
+    "agentPRs": false,
+    "prWatch": "",
+    "syncBase": true,
+    "prWatching": true,
+    "createdAt": "2026-11-05T03:55:00Z",
+    "iconVersion": 1793852446709
+  }
+]

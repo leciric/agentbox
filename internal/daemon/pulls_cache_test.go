@@ -740,7 +740,7 @@ func TestAgentChangesMeasuresEveryAgent(t *testing.T) {
 		agents[i] = state.Agent{Name: fmt.Sprintf("agent-%02d", i)}
 	}
 	var running, peak atomic.Int64
-	out := agentChanges(agents, func(a state.Agent) api.AgentChanges {
+	out := agentChanges(agents, nil, func(a state.Agent, _ ...string) api.AgentChanges {
 		n := running.Add(1)
 		for {
 			was := peak.Load()
@@ -775,7 +775,7 @@ func BenchmarkAgentChanges(b *testing.B) {
 	for i := range agents {
 		agents[i] = state.Agent{Name: fmt.Sprintf("agent-%02d", i)}
 	}
-	measure := func(state.Agent) api.AgentChanges {
+	measure := func(state.Agent, ...string) api.AgentChanges {
 		time.Sleep(20 * time.Millisecond)
 		return api.AgentChanges{Files: 1}
 	}
@@ -788,7 +788,7 @@ func BenchmarkAgentChanges(b *testing.B) {
 	})
 	b.Run("concurrently", func(b *testing.B) {
 		for b.Loop() {
-			agentChanges(agents, measure)
+			agentChanges(agents, nil, measure)
 		}
 	})
 }

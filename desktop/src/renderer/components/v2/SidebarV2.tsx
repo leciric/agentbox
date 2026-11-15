@@ -10,7 +10,7 @@
 // bottom, above the foot, the Idle list of the rest, folded unless nothing is
 // going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
-// The user's sections, Classic's (lib/sidebar.ts, the same data), go between
+// The user's sections (lib/sidebar.ts, kept by the daemon) go between
 // the pins and the rest, each with its projects in the order the user put
 // them: a section is a place the user chose, so neither activity nor Idle
 // moves a project out of one. A pin is still with the pins and a hidden
@@ -22,15 +22,17 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { AlarmClock, Armchair, Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { activeProjects, agentSt, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, filterCount, foldLeads, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import type { Tally } from '../../lib/agentCounts';
+import { useAgentCounts } from '../../lib/useAgentCounts';
+import { useDraftProjects } from '../../lib/drafts';
 import { useGroupIdle } from '../../lib/groupIdle';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
@@ -39,18 +41,24 @@ import { arrange, hide, pinsAfterHide, sections, unhide, type Slot } from '../..
 import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, type SidebarList } from '../../lib/sidebar';
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
+import { useUiOffice } from '../../lib/uiOffice';
 import { useGrace } from '../../lib/grace';
-import { projectLabel } from '../../lib/projectName';
+import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
+import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
+import { projectLabel } from '../../lib/projectName';
 import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isNightly, isUpgrade } from '../../lib/nightly';
+import { useStaleDaemon } from '../StaleDaemonNotice';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
-import { openNewTask, requestComposerFocus } from '../../lib/newTask';
-import { openPanelOn, setPanel } from '../../lib/rightPanel';
-import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
+import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
+import { setPanel, settingsOpen, toggleSettings, usePanel } from '../../lib/rightPanel';
+import { Logo } from '../Logo';
+import { describeDelete, dropLine, EditSection, moveKeys, NameSection, SectionHeader } from './SidebarSections';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { dotLabel, FeatureDot, useFeatureDot } from '../FeatureDot';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount, useOpenWork } from './ReviewV2';
 import { projectActions, type ProjectAction } from './ProjectHeader';
@@ -59,6 +67,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, snoozedOf, useSeenAt } from '../../lib/sessions';
+import { wakeTime } from '../chat/SessionHeader';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -68,27 +78,31 @@ const stLabel: Record<AgentSt, MessageKey> = {
   done: 'v2.st.done',
 };
 
-// The counts on a folded lead, in the order they read.
+// The counts on a lead's row, in the order they read. To review is its "N to
+// review" button (ReviewCount), from the same count, so it isn't here twice.
 const countKeys: { st: AgentSt; key: MessageKey }[] = [
-  { st: 'working', key: 'v2.count.working' },
-  { st: 'review', key: 'v2.count.review' },
   { st: 'needs', key: 'v2.count.needs' },
   { st: 'error', key: 'v2.count.error' },
+  { st: 'working', key: 'v2.count.working' },
 ];
 
 export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: View; onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: (project: string) => void }) {
   const t = useT();
+  const office = useUiOffice();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
+  const footDots = { settings: useFeatureDot('foot:settings'), work: useFeatureDot('foot:work'), media: useFeatureDot('foot:media') };
   // The same test as Sidebar's: a nightly is one by its version, or by the update check's word.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
   const nightly = isNightly(info.data?.version) || !!update.data?.nightly;
-  const reviewing = useReviewing();
-  const head = useReviewHead(reviewing);
-  const questions = useQuestions();
+  // Every agent's state and every count, the same reading the panel, its
+  // Pull requests tab and Home make (lib/useAgentCounts.ts).
+  const counts = useAgentCounts();
+  // What the Office's "need you" counts: asks, failures and leads waiting on
+  // a permission (office/model.ts's board).
+  const officeNeeds = counts.all.needs + counts.all.error + [...counts.leads.values()].filter((c) => c === 'waiting').length;
   const kept = useV2Projects();
   const [q, setQ] = useState('');
   const filters: Filters = { st: kept.st, projects: kept.projects, q };
@@ -101,33 +115,26 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
 
-  // Each agent's pull request number, from the fleet the panel's list reads
-  // (the same query), so a search can find an agent by it.
-  const fleets = useQueries({
-    queries: (projects.data ?? []).map((p) => ({ queryKey: ['fleet', p.name], queryFn: () => api.fleet(p.name), staleTime: 30_000 })),
-  });
-  const prKey = fleets.flatMap((f) => (f.data?.agents ?? []).flatMap((a) => (a.pr?.number ? [`${a.ref}\t${a.pr.number}`] : []))).join('\n');
-  const prs = useMemo(() => new Map(prKey ? prKey.split('\n').map((l) => { const [ref, n] = l.split('\t'); return [ref, Number(n)] as const; }) : []), [prKey]);
-  const rows: Row[] = useMemo(() => {
-    const ctx = {
-      review: new Set((reviewing ? (head.data?.items ?? []) : []).map((i) => i.ref)),
-      asking: new Set(pageItems(questions.data).map((n) => n.ref)),
-    };
-    return (agents.data ?? []).map((agent) => ({ agent, st: agentSt(agent, ctx), pr: prs.get(agent.ref) }));
-  }, [agents.data, head.data, questions.data, reviewing, prs]);
+  // Each agent with its state and its pull request's number, which a search
+  // finds it by.
+  const rows: Row[] = counts.rows;
   const label = (p: T.Project) => projectLabel(p);
   const currentAgentProject = view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
 
-  // Each lead's chat, the same queries its row reads: a lead mid-turn counts
-  // as working, for the filter, the counts and the sort, and with one waiting
-  // on the user's permission keeps its project out of the Idle list.
-  const leadChats = useQueries({
-    queries: (projects.data ?? []).map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name), refetchInterval: 60_000 })),
-  });
-  const leadKey = (projects.data ?? []).map((p, i) => `${p.name}\t${leadChats[i]?.data?.chat ?? ''}`).join('\n');
-  const leads = useMemo(() => new Map(leadKey ? leadKey.split('\n').map((l) => l.split('\t') as [string, string]) : []), [leadKey]);
+  // Each lead's chat: a lead mid-turn counts as working, for the filter, the
+  // counts and the sort, and with one waiting on the user's permission keeps
+  // its project out of the Idle list.
+  // Each project's lead sessions are the rows' own queries; one waiting or
+  // mid-turn counts as the lead's state, whichever session the chat shows.
+  const names = (projects.data ?? []).map((p) => p.name);
+  const sessionLists = useQueries({ queries: names.map((name) => ({ queryKey: ['leadSessions', name], queryFn: () => api.leadSessions(name) })) });
+  const folded = foldLeads(counts.leads, names, sessionLists.map((q) => q.data));
+  const leadsKey = [...folded].map(([name, chat]) => `${name}:${chat ?? ''}`).join('\n');
+  // The same map again while no lead's state changed, for the memos below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const leads = useMemo(() => folded, [leadsKey]);
   const busyNow = useMemo(() => new Set([...leads].filter(([, chat]) => leadBusy(chat)).map(([name]) => name)), [leads]);
-  const activeNow = useMemo(() => activeProjects(rows, leads, pageItems(questions.data).map((n) => n.ref)), [rows, leads, questions.data]);
+  const activeNow = useMemo(() => activeProjects(rows, leads, counts.asking), [rows, leads, counts.asking]);
   // Both with a grace (lib/grace.ts): a busy project goes through moments
   // with nothing to show for it, between a lead's turns or as an agent
   // finishes, which would drop it to Idle and bring it back.
@@ -138,7 +145,47 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
   const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
+  // Each project's attention level (lib/attention.ts): what needs you, and
+  // what finished since you last had it on screen, the window focused. The
+  // project you're looking at has nothing unseen.
+  const projectSeen = useProjectSeen();
+  const focused = useWindowFocused();
+  const looking = focused ? onScreen : undefined;
+  const head = useReviewHead(useReviewing()).data;
+  const attention = useMemo(() => {
+    const finishedAt = new Map((head?.items ?? []).map((i) => [i.ref, i.finishedAt]));
+    const out = new Map<string, Attention>();
+    for (const p of projects.data ?? []) {
+      const finished = p.name === looking ? 0 : unseenFinished(rows, p.name, projectSeen.seen[p.name] ?? projectSeen.since, finishedAt).length;
+      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting', finished));
+    }
+    return out;
+  }, [projects.data, rows, head, projectSeen, counts, leads, looking]);
+  // Marked again as what it shows changes, so what finishes while you look
+  // is seen too.
+  useEffect(() => {
+    if (looking) markProjectSeen(looking);
+  }, [looking, rows, head]);
+  // The sort reads the levels with the same grace as active, and the project
+  // on screen keeps its place until you leave it.
+  const needsNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'needs').map(([n]) => n)), [attention]);
+  const finishedNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'finished').map(([n]) => n)), [attention]);
+  const needsSort = useKeepOnScreen(useGrace(needsNow), onScreen);
+  const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
+  const workingNow = useMemo(
+    () => new Set((projects.data ?? []).filter((p) => counts.of(p.name).working > 0 || busyNow.has(p.name)).map((p) => p.name)),
+    [projects.data, counts, busyNow],
+  );
+  const workingSort = useKeepOnScreen(useGrace(workingNow), onScreen);
+
   const grouping = useGroupIdle();
+  const drafts = useDraftProjects();
+  const sec = useSections();
+  // The user's own order of the projects in no section (the daemon's
+  // ProjectLayout.Loose, through sec.lists). The rest follow it unless
+  // "Group idle projects" sorts them by activity, which dragging doesn't change.
+  const manual = !grouping;
+  const looseOrder = useMemo(() => sec.lists.find((l) => !l.section)?.projects.map((p) => p.name), [sec.lists]);
   const order = useMemo(() => {
     return orderProjects({
       groupIdle: grouping,
@@ -146,21 +193,27 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       pins: kept.pins,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
       active,
+      drafts,
+      manual: looseOrder,
       label,
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, active, kept.pins, grouping]);
+  }, [projects.data, activity.data, active, drafts, kept.pins, grouping, looseOrder]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const { layout, save } = useSidebarLayout();
   const hiddenSet = new Set(layout.hidden);
   // A hidden project comes back while it has something going on, which the
   // project on screen alone doesn't count as: opened from Hidden, it stays there.
-  const arranged = arrange(order, layout, activeGrace);
+  // What needs you, then what finished, come first among the projects in
+  // no list of the user's own order: the pins and the sections keep theirs.
+  // With the rest in the user's own order (manual) they keep it too: attention
+  // reordering what was just dragged would put the row back where it came from.
+  const placed = arrange(order, layout, activeGrace);
+  const arranged = { ...placed, rest: manual ? placed.rest : byAttention(placed.rest, needsSort, finishedSort, workingSort) };
   // The user's sections, each with the projects in it that aren't with the
   // pins or the hidden; the rest of the lists are the projects in none.
-  const sec = useSections();
   const dnd = useSectionDrag(sec.lists, sec.apply);
   const { sections: userSections, shown: inSection } = sectionsAside(sec.lists, new Set([...arranged.pinned, ...arranged.hidden].map((p) => p.name)));
   const loose = (ps: T.Project[]) => ps.filter((p) => !inSection.has(p.name));
@@ -182,7 +235,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [naming, setNaming] = useState<{ id: string; move?: string } | null>(null); // a section being named: its id, or '' for a new one
   const [deleting, setDeleting] = useState<T.Section | null>(null);
   // Until the agents are in, every project would read idle.
-  const loaded = !!agents.data;
+  const loaded = counts.loaded;
   // With nothing above it, the Idle list is the list: open, and not a fold.
   const idleOnly = lists.pinned.length + lists.rest.length + sectionLists.length === 0;
   // Otherwise it is folded, and a click opens it only until something starts:
@@ -201,7 +254,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
   // Review all goes after the first list's label, whichever list is first.
   const openWork = useOpenWork();
-  const toReview = reviewing ? (head.data?.total ?? 0) : 0;
+  const toReview = counts.all.review;
   let reviewPlaced = false;
   const reviewAll = () => {
     if (reviewPlaced || !openWork || toReview === 0) return null;
@@ -211,7 +264,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <button
           type="button"
           onClick={() => openWork({ filter: 'review' })}
-          className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium normal-case tracking-normal tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+          className="ml-1.5 shrink-0 rounded-full bg-surface px-1.5 py-px text-caption font-medium tabular-nums text-secondary transition hover:bg-surface-strong hover:text-title"
           data-v2-review-all={toReview}
         >
           {t('v2.review.all', { count: toReview })}
@@ -221,7 +274,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   };
 
   // Moving a project with the keyboard (Alt+↑/↓): a pin among the pins, and
-  // any other among the sections, as Classic does (stepTarget). The row is
+  // any other among the sections (stepTarget). The row is
   // drawn again where it lands, often in another list, so it takes the focus
   // back.
   const refocus = (name: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-v2-lead="${CSS.escape(name)}"]`)?.focus());
@@ -238,22 +291,23 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     sec.apply(dropOn(sec.lists, { kind: 'project', name }, at), name);
     refocus(name);
   };
-  const stepProject = (name: string) => (delta: -1 | 1) => moveTo(name, stepTarget(shownLists, name, delta));
+  const stepProject = (name: string) => (delta: -1 | 1) => moveTo(name, stepTarget(shownLists, name, delta, manual));
 
   // Dragging a project into a section, out of one or within one. Dropped on
-  // a project in a section it goes beside it; on one in no section, out of
-  // its section (the projects in none have no order of their own here).
+  // a project in a section it goes beside it; on one in no section, beside
+  // it in the user's order (manual); with the rest sorted by activity they have
+  // no order of their own, so it goes out of its section only.
   const rowTarget = (name: string, section: string | null, at: 'before' | 'after'): DropTarget | null => {
     const what = dnd.draggingRef.current;
     if (what?.kind !== 'project') return null;
-    if (section !== null) return { kind: 'project', name, edge: at };
+    if (section !== null || manual) return { kind: 'project', name, edge: at };
     return inSection.has(what.name) ? { kind: 'list', section: null } : null;
   };
   const anySection = userSections.length > 0;
-  const sectionDrag = (name: string, section: string | null): Drag | undefined =>
-    anySection
+  const sectionDrag = (name: string, section: string | null, ordered = false): Drag | undefined =>
+    anySection || (manual && ordered)
       ? {
-          over: section === null ? undefined : (['before', 'after'] as const).find((at) => dnd.isTarget({ kind: 'project', name, edge: at })),
+          over: section === null && !ordered ? undefined : (['before', 'after'] as const).find((at) => dnd.isTarget({ kind: 'project', name, edge: at })),
           dragged: dnd.dragging?.kind === 'project' && dnd.dragging.name === name,
           onStart: dnd.startDrag({ kind: 'project', name }),
           onEnd: dnd.finishDrag,
@@ -274,8 +328,9 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     <ProjectLead
       key={p.project.name}
       project={p.project}
-      all={p.all}
-      approvals={p.approvals}
+      counts={counts.of(p.project.name)}
+      attention={attention.get(p.project.name) ?? { count: 0 }}
+      rows={rows}
       pinned={pinned.has(p.project.name)}
       hidden={hiddenSet.has(p.project.name)}
       view={view}
@@ -363,7 +418,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const { top, dock } = sections({ ...lists, sections: sectionLists });
   const draggingOut = dnd.dragging?.kind === 'project' && inSection.has(dnd.dragging.name);
   const dropBox = (targeted: boolean) =>
-    cn('mx-2 mb-1 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11.5px] text-faint transition-colors', targeted && 'border-brand-400/60 bg-brand-400/10 text-brand-300');
+    cn('mx-2 mb-1 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-micro text-faint transition-colors', targeted && 'border-brand-400/60 bg-brand-400/10 text-brand-300');
   const section = (s: Slot) => {
     if (s === 'pinned')
       return (
@@ -401,6 +456,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
                   onToggle={() => sec.patchSection.mutate({ id: it.id, req: { collapsed: !it.collapsed } })}
                   onMove={(delta) => sec.moveSectionBy(it, delta)}
                   onRename={() => setNaming({ id: it.id })}
+                  onColor={(color) => sec.patchSection.mutate({ id: it.id, req: { color } })}
                   onDelete={() => setDeleting(it)}
                   onDragStart={dnd.startDrag({ kind: 'section', id: it.id })}
                   onDragEnd={dnd.finishDrag}
@@ -445,7 +501,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             {t('shell.sidebar.projects')}
           </ListHead>
           {!top.includes('sections') && nameSection}
-          {lists.rest.map((p) => lead(p, sectionDrag(p.project.name, null), stepProject(p.project.name)))}
+          {lists.rest.map((p) => lead(p, sectionDrag(p.project.name, null, true), stepProject(p.project.name)))}
         </div>
       );
     if (s === 'idle')
@@ -461,14 +517,14 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               }
             >
               {t('v2.sidebar.idle')}
-              <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
+              <span className="ml-1.5 tabular-nums text-subtle">{lists.idle.length}</span>
             </ListHead>
           ) : (
             <button
               type="button"
               aria-expanded={idleOpen}
               onClick={() => setIdleOpened(!idleOpened)}
-              className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
+              className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-caption text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
               data-v2-idle-toggle
             >
               <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
@@ -487,7 +543,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           type="button"
           aria-expanded={hiddenOpen}
           onClick={() => setHiddenOpen(!kept.hiddenOpen)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-[11.5px] text-subtle hover:bg-surface hover:text-secondary"
+          className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-micro text-subtle hover:bg-surface hover:text-secondary"
           data-v2-hidden-toggle
         >
           <ChevronRight className={cn('size-3 shrink-0 transition-transform', hiddenOpen && 'rotate-90')} />
@@ -501,10 +557,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   };
 
   return (
-    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
+    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line-faint bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
-        <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+        <span className="text-body font-semibold tracking-tight text-title">AgentBox</span>
         {nightly && (
           <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
             <span className="nightly-badge inline-flex shrink-0 items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
@@ -531,15 +587,16 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       >
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
-        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
+        {office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
+        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
-          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
+          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-ui text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
             {t('shell.sidebar.addFirst')}
           </button>
         )}
         {loaded && top.map(section)}
-        {loaded && nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
+        {loaded && nothing && <div className="px-2.5 py-1.5 text-micro text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
         {/* Idle and Hidden dock at the bottom, just above the foot, the free space above them. */}
         {loaded && dock.length > 0 && (
           <div className="mt-auto pt-3" data-v2-dock>
@@ -551,12 +608,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         </p>
       </nav>
       {naming && naming.id !== '' && (
-        <RenameSection
+        <EditSection
           section={sec.sections.data?.find((it) => it.id === naming.id)}
           onClose={() => setNaming(null)}
-          onSave={(name) => {
+          onSave={(req) => {
             setNaming(null);
-            sec.patchSection.mutate({ id: naming.id, req: { name } });
+            sec.patchSection.mutate({ id: naming.id, req });
           }}
         />
       )}
@@ -575,7 +632,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           across every project, the one open highlighted, and the update check.
           Home, the chat and its Status tab, heads the list above; which
           AgentBox this window drives is under Settings → General. */}
-      <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
+      <div className="flex items-center gap-1 border-t border-line-faint p-2" data-v2-foot>
         {(
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
@@ -585,13 +642,17 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           ] as const
         ).map(({ kind, icon: Icon, label, alert }) => {
           const active = view.kind === kind;
+          const dot = kind === 'jobs' ? undefined : footDots[kind];
           return (
-            <Tip key={kind} label={label}>
+            <Tip key={kind} label={dot ? dotLabel(label, dot) : label}>
               <button
                 type="button"
                 aria-label={label}
                 aria-current={active ? 'page' : undefined}
-                onClick={() => onSelect({ kind })}
+                onClick={() => {
+                  dot?.clear();
+                  onSelect({ kind });
+                }}
                 className={cn(
                   'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
                   active && 'bg-surface-raised text-title',
@@ -600,6 +661,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               >
                 <Icon className={cn('size-4', active ? 'text-brand-300' : 'text-subtle')} />
                 {alert && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+                {!alert && dot && <FeatureDot dot={dot} />}
               </button>
             </Tip>
           );
@@ -613,7 +675,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
+      <span data-heading className="text-caption text-muted">{children}</span>
       {extra}
     </div>
   );
@@ -621,10 +683,9 @@ function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode 
 
 // FilterBar is the search box and the filter button beside it, and under
 // them a chip for each filter that's on, each removable, with Reset.
-function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; rows: Row[] }) {
+function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; counts: Tally }) {
   const t = useT();
   const on = filterCount(filters);
-  const counts = countSt(rows.map((r) => r.st));
   const chips: { key: string; label: string; st?: AgentSt; remove: () => void }[] = [
     ...filters.st.map((st) => ({ key: `st:${st}`, label: t(stLabel[st]), st, remove: () => onFilters({ ...filters, st: filters.st.filter((x) => x !== st) }) })),
     ...filters.projects.map((name) => ({
@@ -644,7 +705,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
             onKeyDown={(e) => e.key === 'Escape' && filters.q && (e.stopPropagation(), onFilters({ ...filters, q: '' }))}
             placeholder={t('v2.filters.search')}
             aria-label={t('v2.filters.search')}
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-primary outline-none placeholder:text-faint"
+            className="min-w-0 flex-1 bg-transparent text-caption text-primary outline-none placeholder:text-faint"
             data-v2-search
           />
           {filters.q && (
@@ -666,7 +727,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
               data-v2-filter-button
             >
               <ListFilter className="size-4" />
-              {on > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-raised px-1 text-[9.5px] font-semibold text-title ring-1 ring-line-strong">{on}</span>}
+              {on > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-raised px-1 text-[9.5px] font-semibold text-title">{on}</span>}
             </button>
           </PopoverTrigger>
           </Tip>
@@ -695,7 +756,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
       {chips.length > 0 && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
           {chips.map((c) => (
-            <span key={c.key} className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-secondary" data-v2-chip={c.key}>
+            <span key={c.key} className="inline-flex max-w-full items-center gap-1 rounded-full bg-surface px-2 py-0.5 text-micro text-secondary" data-v2-chip={c.key}>
               {c.st && <StMark st={c.st} />}
               <span className="min-w-0 truncate">{c.label}</span>
               <button type="button" aria-label={t('v2.filters.remove', { name: c.label })} onClick={c.remove} className="-mr-0.5 text-faint hover:text-title">
@@ -703,7 +764,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
               </button>
             </span>
           ))}
-          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
+          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-micro text-subtle hover:text-title" data-v2-reset>
             {t('v2.filters.reset')}
           </button>
         </div>
@@ -715,7 +776,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
 function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <div className="pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{title}</div>
+      <div className="pb-1.5 text-caption text-muted">{title}</div>
       <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   );
@@ -727,7 +788,7 @@ function Chip({ on, onClick, data, children }: { on: boolean; onClick: () => voi
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={cn('inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px]', on ? 'border-line-heavy bg-surface-strong text-title' : 'border-line text-secondary hover:bg-surface')}
+      className={cn('inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-micro bg-surface-raised', on ? 'border-line-heavy bg-surface-strong text-title' : 'border-line text-secondary hover:bg-surface')}
       data-v2-chip-option={data}
     >
       {on && <Check className="size-3 text-secondary" />}
@@ -759,8 +820,8 @@ export function StMark({ st, className }: { st: AgentSt; className?: string }) {
 // Lead is a chat's row. A click opens it; a right-click (or Ctrl+click on a
 // Mac) is for the row's menu only, where it has one, and opens nothing. The
 // rest of props is ContextMenuTrigger's, as its asChild child.
-// With onMove, Alt+↑/↓ moves it, Classic's keys (Sidebar.tsx).
-function Lead({ active, onClick, onMove, children, data, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
+// With onMove, Alt+↑/↓ moves it.
+function Lead({ active, onClick, onMove, children, data, className, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
   return (
     <div
       {...props}
@@ -778,7 +839,7 @@ function Lead({ active, onClick, onMove, children, data, ...props }: { active: b
         onClick();
       }}
       aria-keyshortcuts={onMove ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
-      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', className)}
       {...data}
     >
       {children}
@@ -794,15 +855,41 @@ function NewTaskRow() {
     <button
       type="button"
       onClick={openNewTask}
-      className="group mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-secondary transition-colors hover:bg-surface hover:text-title"
+      className="group mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui font-medium text-secondary transition-colors hover:bg-surface hover:text-title"
       data-v2-new-task
     >
       <span className="flex size-6 shrink-0 items-center justify-center">
         <SquarePen className="size-4" />
       </span>
       <span className="flex-1">{t('v2.sidebar.newTask')}</span>
-      <kbd className="rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle">{shortcut('N')}</kbd>
+      <kbd className="rounded-md bg-surface-raised px-1.5 font-mono text-micro text-subtle">{shortcut('N')}</kbd>
     </button>
+  );
+}
+
+// CountBadge is how many need you, on a row that points at where they are.
+function CountBadge({ count }: { count: number }) {
+  return (
+    <span className="min-w-4 shrink-0 rounded-full bg-amber-400 px-1 text-center text-micro font-semibold tabular-nums leading-4 text-black" data-count-badge={count}>
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
+// OfficeRow opens the Office (lib/uiOffice.ts), with how many need you.
+function OfficeRow({ active, needs, onClick }: { active: boolean; needs: number; onClick: () => void }) {
+  const t = useT();
+  return (
+    <Lead active={active} onClick={onClick} data={{ 'data-v2-office': '' }}>
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-strong text-secondary">
+        <Armchair className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-ui font-medium text-title">{t('office.title')}</span>
+        <span className="block truncate text-micro text-subtle">{t('office.hint.nav')}</span>
+      </span>
+      {needs > 0 && <CountBadge count={needs} />}
+    </Lead>
   );
 }
 
@@ -819,11 +906,11 @@ function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) 
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-title">{t('shell.nav.home')}</span>
+          <span className="truncate text-ui font-medium text-title">{t('shell.nav.home')}</span>
           {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
-          {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
+          {chat.data?.last && <span className="ml-auto shrink-0 text-micro text-faint">{timeAgo(chat.data.last.at, now)}</span>}
         </span>
-        <span className="block truncate text-[11.5px] text-subtle">{line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.homeHint')}</span>
+        <span className="block truncate text-micro text-subtle">{line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.homeHint')}</span>
       </span>
     </Lead>
   );
@@ -849,8 +936,9 @@ type Drag = {
 // A pinned one drags among the pins, any other among the sections.
 function ProjectLead({
   project,
-  all,
-  approvals,
+  counts,
+  attention,
+  rows,
   pinned,
   hidden,
   view,
@@ -863,8 +951,12 @@ function ProjectLead({
   sectionMenu,
 }: {
   project: T.Project;
-  all: Row[];
-  approvals: number;
+  // Its agents' counts (lib/agentCounts.ts); its lead mid-turn is the spinner by its name.
+  counts: Tally;
+  // How loudly it calls for you (lib/attention.ts), and every agent's row,
+  // for what the first one that needs you asks.
+  attention: Attention;
+  rows: readonly Row[];
   pinned: boolean;
   hidden: boolean;
   view: View;
@@ -879,7 +971,14 @@ function ProjectLead({
   sectionMenu?: { sections: T.Section[]; current: string; onMove: (id: string | null) => void; onNew: () => void };
 }) {
   const t = useT();
+  const drafted = useDraftProjects().has(project.name);
+  const queryClient = useQueryClient();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
+  // The chat's sessions are listed above the chat, not here: the row's spinner
+  // and dot say that any of them is working or has said something unseen.
+  const sessions = useQuery({ queryKey: ['leadSessions', project.name], queryFn: () => api.leadSessions(project.name) }).data ?? [];
+  const seen = useSeenAt();
+  const sessionWorking = sessions.some(isWorking);
   const now = useNow(60_000);
   const [iconOpen, setIconOpen] = useState(false);
   const [talk, setTalk] = useState(false);
@@ -892,17 +991,28 @@ function ProjectLead({
   // Talk to another project needs another project.
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const line = leadLine(chat.data?.last);
-  const counts = countSt(all.map((r) => r.st));
-  // The lead at work counts as one working.
-  if (leadBusy(chat.data?.chat)) counts.working++;
-  const counted = counts.working + counts.review + counts.needs + counts.error > 0;
+  const questions = useQuery({ queryKey: ['questions', project.name], queryFn: () => api.questions(project.name) }).data;
+  // Needing you, the row says what was asked in place of the lead's last line.
+  const ask = attention.level === 'needs' ? askOf(rows, project.name, Array.isArray(questions) ? questions : undefined) : undefined;
+  const anyCount = counts.working + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
+  const sessionUnread = !active && sessions.some((s) => isUnread(s, seen[s.ref]));
+  // A permission request waiting in one of its sessions needs you too.
+  const needs = attention.level === 'needs' || sessions.some((s) => sessionStatus(s) === 'needsYou');
+  const dot = attention.level === 'finished' || sessionUnread;
+  // Working marks the row only when nothing louder does.
+  const leadRunning = chat.data?.chat === 'running' || sessionWorking;
+  const working = !attention.level && (leadRunning || counts.working > 0);
   const open_ = () => onSelect({ kind: 'project', project: project.name });
+  const panel = usePanel();
+  const onProject = view.kind === 'project' && view.project === project.name;
   const openSettings = () => {
+    // The gear closes Settings while they are open on this project.
+    if (onProject && settingsOpen(panel, leadRef)) return void toggleSettings(leadRef, true);
     open_();
     setPanel({ section: 'general' });
-    openPanelOn(leadRef, 'settings');
+    toggleSettings(leadRef, false);
   };
   const { main, more } = projectActions(t, {
     project,
@@ -951,18 +1061,57 @@ function ProjectLead({
             active={active}
             onMove={onMove}
             onClick={() => {
+              // The session an agent's question waits in, when one does;
+              // otherwise the one shown last.
+              const sessions = queryClient.getQueryData<T.LeadSession[]>(['leadSessions', project.name]) ?? [];
+              const questions = queryClient.getQueryData<T.Question[]>(['questions', project.name]) ?? [];
+              const agents = queryClient.getQueryData<T.Agent[]>(['agents']) ?? [];
+              const to = openSession(sessions, chosenSession(project.name), questions, agents);
+              if (to) chooseSession(project.name, to.id);
               onSelect({ kind: 'project', project: project.name });
-              requestComposerFocus(leadRef);
+              if (to) requestSessionFocus(to.ref);
+              else requestComposerFocus(leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
+            // Needing you, a faint amber wash.
+            className={cn(needs && !active && 'bg-amber-400/5 hover:bg-amber-400/10', working && "before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-sky-400 before:content-['']")}
+            data-v2-working={working ? '' : undefined}
+            aria-busy={working || undefined}
           >
-            <ProjectIcon project={project} className="mt-px" />
+            {/* The icon's corner says it at any width: amber for what needs
+                you, the brand's for what finished or a session's unread line. */}
+            <span className="relative mt-px shrink-0">
+              <ProjectIcon project={project} />
+              {(needs || dot) && (
+                <span
+                  className={cn('absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-rail', needs ? 'bg-amber-400' : 'bg-brand-400')}
+                  aria-label={needs ? t('shell.sidebar.needsYou') : attention.level === 'finished' ? t('v2.attention.finished', { count: attention.count }) : t('sessions.unread')}
+                  data-v2-attention-dot={needs ? 'needs' : attention.level === 'finished' ? 'finished' : 'unread'}
+                />
+              )}
+            </span>
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13px] font-medium text-title">{name}</span>
-                {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
-                {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-                {chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>}
+                <span className="truncate text-ui font-medium text-title">{name}</span>
+                {leadRunning && <LoaderCircle className={cn('size-3 shrink-0 animate-spin', working ? 'text-sky-400' : 'text-subtle')} />}
+                {drafted && (
+                  <Tip label={t('v2.sidebar.draft')}>
+                    <Pencil className="size-3 shrink-0 text-subtle" data-v2-draft aria-label={t('v2.sidebar.draft')} />
+                  </Tip>
+                )}
+                {/* What needs you, or what finished, in place of the time, which
+                    makes way for the gear on hover as the time does; on the
+                    project open, the two share the line. */}
+                {attention.level ? (
+                  <span
+                    className={cn('ml-auto shrink-0 whitespace-nowrap rounded-full px-1.5 py-px text-micro font-medium tabular-nums', !active && 'group-hover/lead:hidden', needs ? 'bg-amber-400/15 text-amber-300' : 'bg-brand-400/10 text-brand-300')}
+                    data-v2-attention={attention.level}
+                  >
+                    {t(needs ? 'v2.attention.needs' : 'v2.attention.finished', { count: attention.count })}
+                  </span>
+                ) : (
+                  chat.data?.last && <span className={cn('ml-auto shrink-0 text-micro text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>
+                )}
                 <Tip label={t('v2.sidebar.projectSettings')}>
                   <button
                     type="button"
@@ -971,7 +1120,7 @@ function ProjectLead({
                       e.stopPropagation();
                       openSettings();
                     }}
-                    className={cn('-my-1 ml-auto hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex', active && 'flex')}
+                    className={cn('-my-1 hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex', active && 'flex', !(active && attention.level) && 'ml-auto')}
                     data-v2-project-settings={project.name}
                   >
                     <Settings className="size-3.5" />
@@ -980,25 +1129,26 @@ function ProjectLead({
               </span>
               {/* "N to review" ends this line, not the name's: there it left the name a few letters. */}
               <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-v2-lead-line>
-                  {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
-                </span>
+                {ask ? (
+                  <span className="min-w-0 flex-1 truncate text-micro text-secondary" data-v2-lead-line="ask" title={t('v2.attention.ask', ask)}>
+                    {t('v2.attention.ask', ask)}
+                  </span>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-micro text-subtle" data-v2-lead-line>
+                    {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
+                  </span>
+                )}
                 <ReviewCount project={project.name} variant="button" />
               </span>
-              {/* Its agents' permission requests wait in this chat too, as cards. */}
-              {approvals > 0 && (
-                <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
-                  <ShieldAlert className="size-3 shrink-0" />
-                  {t('v2.sidebar.approvals', { count: approvals })}
-                </span>
-              )}
-              {counted && (
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
+              {/* Its agents' permission requests wait in this chat too, as
+                  cards: they are some of its asks, said in the same count. */}
+              {anyCount && (
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption tabular-nums" data-v2-counts>
                   {countKeys.map(({ st, key }) =>
                     counts[st] ? (
-                      <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st}>
-                        <StMark st={st} />
-                        {t(key, { count: counts[st] })}
+                      <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st} data-v2-approvals={st === 'needs' && counts.approvals ? counts.approvals : undefined}>
+                        {st === 'needs' && counts.approvals > 0 ? <ShieldAlert className="size-3 shrink-0" /> : <StMark st={st} />}
+                        {st === 'needs' && counts.approvals > 0 ? t('v2.count.needsApprovals', { count: counts.needs, approvals: counts.approvals }) : t(key, { count: counts[st] })}
                       </span>
                     ) : null,
                   )}
@@ -1063,6 +1213,58 @@ function ProjectLead({
       <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
         <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
       </div>
+      <SnoozedRows
+        sessions={snoozedOf(sessions)}
+        onWake={(s) => {
+          void api
+            .snoozeLeadSession(project.name, s.id)
+            .then(() => {
+              chooseSession(project.name, s.id);
+              onSelect({ kind: 'project', project: project.name });
+              requestSessionFocus(s.ref);
+            })
+            .catch((err) => toast.error(errorMessage(err)))
+            .finally(() => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project.name] }));
+        }}
+      />
+    </div>
+  );
+}
+
+// SnoozedRows is a project's snoozed chat sessions, under its row: folded to
+// a count, and open, each with when it comes back. Clicking one wakes it now
+// and shows it.
+function SnoozedRows({ sessions, onWake }: { sessions: T.LeadSession[]; onWake: (s: T.LeadSession) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (sessions.length === 0) return null;
+  return (
+    <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px]" data-v2-snoozed>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-micro text-subtle hover:bg-surface-raised hover:text-secondary"
+        data-v2-snoozed-toggle
+      >
+        <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+        <AlarmClock className="size-3 shrink-0" />
+        <span className="truncate">{t('sessions.snoozed.count', { count: sessions.length })}</span>
+      </button>
+      {open &&
+        sessions.map((s) => (
+          <Tip key={s.id} label={t('sessions.snoozed.wake')}>
+            <button
+              type="button"
+              onClick={() => onWake(s)}
+              className="flex min-w-0 items-center gap-2 rounded-md py-0.5 pl-7 pr-2 text-left text-micro hover:bg-surface-raised"
+              data-v2-snoozed-session={s.id}
+            >
+              <span className="min-w-0 flex-1 truncate text-secondary">{s.topic}</span>
+              <span className="shrink-0 tabular-nums text-faint">{wakeTime(s.snoozedUntil!)}</span>
+            </button>
+          </Tip>
+        ))}
     </div>
   );
 }
@@ -1078,7 +1280,9 @@ function UpdateCheck() {
   const app = useAppUpdate();
   const [checking, setChecking] = useState(false);
   const current = update.data?.current ?? '';
-  const offer = update.data?.available && isUpgrade(update.data.available.version, current) ? update.data.available : undefined;
+  // A stale daemon's offer is for its own version, not this app's.
+  const stale = useStaleDaemon();
+  const offer = !stale && update.data?.available && isUpgrade(update.data.available.version, current) ? update.data.available : undefined;
   const check = async () => {
     setChecking(true);
     try {

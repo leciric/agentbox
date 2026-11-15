@@ -19,7 +19,7 @@ container of its own.
   `agentbox/<slug>` (prefix configurable, `internal/agent/branch.go`), its own network and a tmux
   terminal with its AI tool running. A project's **lead** is its chat: it runs on the host with no
   machine, directs the agents over MCP and never does the work itself.
-- **Three AI tools**: Claude Code, Codex and OpenCode, driven by the app's chat through **ACP**
+- **Six AI tools**: Claude Code, Codex, OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI, driven by the app's chat through **ACP**
   adapters (`internal/acp`, `ChatAdapters` in `internal/agent/chat.go`, D40).
 - **Project memory** (`internal/memory`, D72): events, memories, tasks, artifacts and reports in the
   same database, searched with FTS5; no model calls or embeddings in the store. Capture from the
@@ -57,6 +57,14 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   desktop app is a key in `en-US.ts` and `pt-BR.ts`, shown with `useT()`/`t()` from
   `renderer/lib/i18n.tsx`; `i18n.test.ts` and the typecheck fail when pt-BR lacks a key. A language
   is a catalog file plus a line in `languages.ts`. The CLI, the brief and the chats stay in English.
+- **The look is one set of tokens for both apps**:
+  [`desktop/src/shared/design-tokens.json`](desktop/src/shared/design-tokens.json) holds the colours
+  (dark and light), type scale, spacing, radii and elevation. `node desktop/scripts/tokens.mjs`
+  writes `desktop/src/renderer/tokens.css` and `native/crates/app/src/theme/tokens.rs` from it;
+  a test in each app fails when they are stale. Don't write a colour, a `text-[Npx]` or a shadow
+  recipe in a component: ask for a role (`styles.css` says what each is for). Panels are flat with
+  a hairline, regions are separated by `border-line-faint`, labels are sentence case, and only
+  menus (`shadow-pop`) and dialogs (`shadow-modal`) cast a shadow.
 - **Migrations are appended, never edited**: `migrations` in
   [`internal/state/state.go`](internal/state/state.go), tracked with `PRAGMA user_version`.
 - **Decisions and features are explained in their pull request**: context, what was decided and
@@ -118,7 +126,7 @@ Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests s
 doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
 `internal/image/` (its tests aside), or by hand.
 
-## Previewing the rail and the sidebar
+## Previewing the sidebar and the right-hand panel
 
 Both are narrow fixed-width columns, prone to overflow: a `<pre>`, an unbroken URL, or any flex/grid
 child without `min-w-0` widens them. `desktop/src/renderer/dev/preview.tsx` renders both against
@@ -133,9 +141,9 @@ npm --prefix desktop run preview -- --shots out --only window-         # only th
 ```
 
 `?app=project` (or `home`, `pulls`, `agent-99`, `settings`) renders the whole App, where below `lg`
-the sidebar and below `xl` the rail become drawers; a page wider than its window is reported too.
+the sidebar and below 1100px the right-hand panel become drawers; a page wider than its window is reported too.
 
-A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
+A scenario is a URL (`?app=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
 present, else `npx playwright install chromium` once.
 
@@ -169,6 +177,11 @@ release-please and the update check never see it), and
   (`image.UpdateTools`, `internal/daemon/imagetools.go`), swapping the copy in only when every tool
   checks out (`image.UseBase`); on failure the base stays and Setup offers a rebuild.
   `internal/agent/chat.go` takes the ACP adapters' versions from the same file.
+- **OpenCode 2 is the exception**: it is not in `tools.txt` nor in the image. Each agent installs its
+  npm platform package at its first OpenCode 2 start (`ensureOpenCode2InAgent`,
+  `internal/agent/toolaccounts.go`), pinned by `image.OpenCode2Version` and linked as `opencode2`
+  (needs the network then); the host's lead installs it the first time it needs it. An installation
+  chooses with `state.SettingOpenCodeVersion`; OpenCode 1 is the default.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it

@@ -70,6 +70,42 @@ func TestBrowserCookiesFromBrowser(t *testing.T) {
 	}
 }
 
+// Importing cookies the desktop app read and decrypted on the host (a Windows
+// app-bound browser): the daemon validates and seals them, dropping an expired
+// one, and carries no cookie value in the answer.
+func TestBrowserCookiesImportDecrypted(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	cookies := []api.ImportedCookie{
+		{Domain: ".github.com", Name: "sess", Value: "secretvalue1", Path: "/", Expires: time.Now().Add(time.Hour).Unix(), Secure: true, HTTPOnly: true, SameSite: "Lax"},
+		{Domain: "linear.app", Name: "tok", Value: "secretvalue2", Path: "/"},
+		{Domain: "old.example", Name: "gone", Value: "x", Path: "/", Expires: time.Now().Add(-time.Hour).Unix()},
+	}
+	info, err := d.client.ImportDecryptedCookies(ctx, "hello-stack", "Google Chrome — Person 1", cookies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Imported || info.Cookies != 2 || info.Source != "Google Chrome — Person 1" || info.ImportedAt == nil {
+		t.Fatalf("import = %+v", info)
+	}
+	if len(info.Sites) != 2 {
+		t.Errorf("per-site counts = %+v", info.Sites)
+	}
+	raw, _ := json.Marshal(info)
+	if strings.Contains(string(raw), "secretvalue") {
+		t.Errorf("the answer carries a cookie value: %s", raw)
+	}
+
+	// No cookies that haven't expired is an error, not an empty import.
+	expired := []api.ImportedCookie{{Domain: "x.example", Name: "a", Value: "b", Path: "/", Expires: time.Now().Add(-time.Hour).Unix()}}
+	if _, err := d.client.ImportDecryptedCookies(ctx, "hello-stack", "src", expired); err == nil {
+		t.Error("importing only expired cookies should fail")
+	}
+}
+
 func writeFirefoxFixture(t *testing.T, home string) {
 	t.Helper()
 	root := filepath.Join(home, ".mozilla", "firefox")
@@ -102,14 +138,22 @@ func writeFirefoxFixture(t *testing.T, home string) {
 	}
 }
 
-// On Windows, Chrome and Edge are reported as installed but not importable,
-// wherever the VM finds the Windows home.
+// On Windows, Chrome and Edge are listed as app-bound profiles the desktop app
+// reads on the host, wherever the VM finds the Windows home.
 func TestBrowserCookieProfilesOnWindows(t *testing.T) {
 	win := t.TempDir()
 	t.Setenv(hostos.Env, "windows")
 	t.Setenv(hostos.HomeEnv, win)
-	for _, rel := range []string{"AppData/Local/Google/Chrome/User Data", "AppData/Local/Microsoft/Edge/User Data"} {
-		if err := os.MkdirAll(filepath.Join(win, filepath.FromSlash(rel)), 0o755); err != nil {
+	for _, b := range []struct{ root, name string }{
+		{"AppData/Local/Google/Chrome/User Data", "Google Chrome"},
+		{"AppData/Local/Microsoft/Edge/User Data", "Microsoft Edge"},
+	} {
+		dir := filepath.Join(win, filepath.FromSlash(b.root), "Default", "Network")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A Cookies database is what makes a profile discoverable.
+		if err := os.WriteFile(filepath.Join(dir, "Cookies"), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -122,10 +166,18 @@ func TestBrowserCookieProfilesOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Profiles) != 0 {
-		t.Errorf("profiles = %+v", list.Profiles)
+	if len(list.Profiles) != 2 {
+		t.Fatalf("profiles = %+v", list.Profiles)
 	}
-	if len(list.Unreadable) != 2 || list.Unreadable[0].Browser != "chrome" || list.Unreadable[1].Browser != "edge" {
-		t.Errorf("unreadable = %+v", list.Unreadable)
+	for _, p := range list.Profiles {
+		if !p.AppBound {
+			t.Errorf("%s profile should be app-bound: %+v", p.Browser, p)
+		}
+		if p.ProfileDir != "Default" {
+			t.Errorf("%s profileDir = %q, want Default", p.Browser, p.ProfileDir)
+		}
+	}
+	if list.Profiles[0].Browser != "chrome" || list.Profiles[1].Browser != "edge" {
+		t.Errorf("profiles = %+v", list.Profiles)
 	}
 }

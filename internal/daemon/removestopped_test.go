@@ -136,7 +136,7 @@ func TestStoppedVerdict(t *testing.T) {
 		{"open", with(func(f *stoppedFacts) { f.Changed, f.PR = true, pr("open", old) }), false},
 		{"open, no changes", with(func(f *stoppedFacts) { f.PR = pr("open", old) }), false},
 		{"merged before the agent existed", with(func(f *stoppedFacts) { f.Changed, f.PR = true, pr("merged", created.Add(-day)) }), false},
-		{"changes and no pull request", with(func(f *stoppedFacts) { f.Changed = true }), false},
+		{"changes, all pushed, and no pull request", with(func(f *stoppedFacts) { f.Changed = true }), true},
 		{"uncommitted or untracked", with(func(f *stoppedFacts) { f.Dirty = true }), false},
 		{"uncommitted, merged", with(func(f *stoppedFacts) { f.Dirty, f.PR = true, pr("merged", old) }), false},
 		{"unpushed", with(func(f *stoppedFacts) { f.Unpushed = true }), false},

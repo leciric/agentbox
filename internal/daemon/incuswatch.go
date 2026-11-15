@@ -254,34 +254,59 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 			ok = ok && !running[a.Instance]
 		}
 	}
-	// Each once it has booted, all at once, since they boot at once.
+	// Each once it has booted, several at once, since they boot at once —
+	// but not every agent at once: each is about six Incus calls and
+	// execs, all of them right as Incus came back (after its restart, or
+	// the daemon's), and thirty agents' worth at once is load enough to
+	// put a recovering Incus back into not answering (hungGrace).
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var booted []state.Agent
 	for _, a := range ready {
-		if !running[a.Instance] {
-			continue
+		if running[a.Instance] {
+			booted = append(booted, a)
 		}
+	}
+	forEachLimited(booted, plugParallel, func(a state.Agent) {
+		if err := m.RestoreAgentAPISocket(ctx, a); err != nil && ctx.Err() == nil {
+			s.logf("in-agent API socket for %s: %v", a.Ref(), err)
+			mu.Lock()
+			ok = false
+			mu.Unlock()
+			return
+		}
+		// Booted, its Docker can be pointed at the shared image cache:
+		// agents made before the cache existed get it here, with no
+		// rebuild, the first time a daemon that has it starts.
+		m.EnsureImageCache(ctx, a)
+		// And its Docker started on first use rather than at boot, and
+		// its browser closed when idle, without waiting for a restart.
+		m.EnsureDockerOnDemand(ctx, a)
+		m.RefreshBrowser(ctx, a)
+		// And the same for the shared package caches.
+		m.EnsurePackageCache(ctx, a)
+		// And /t's cap, so one already running stops growing its tmpfs
+		// into the VM's memory without waiting for a restart.
+		m.CapTmp(ctx, a)
+	})
+	return ok
+}
+
+// plugParallel is how many agents plugAgentSockets sees to at once.
+const plugParallel = 4
+
+// forEachLimited calls fn for each item, at most n at once, and returns once
+// every call has.
+func forEachLimited[T any](items []T, n int, fn func(T)) {
+	sem := make(chan struct{}, max(n, 1))
+	var wg sync.WaitGroup
+	for _, it := range items {
+		sem <- struct{}{}
 		wg.Go(func() {
-			if err := m.RestoreAgentAPISocket(ctx, a); err != nil && ctx.Err() == nil {
-				s.logf("in-agent API socket for %s: %v", a.Ref(), err)
-				mu.Lock()
-				ok = false
-				mu.Unlock()
-				return
-			}
-			// Booted, its Docker can be pointed at the shared image cache:
-			// agents made before the cache existed get it here, with no
-			// rebuild, the first time a daemon that has it starts.
-			m.EnsureImageCache(ctx, a)
-			// And the same for the shared package caches.
-			m.EnsurePackageCache(ctx, a)
-			// And /t's cap, so one already running stops growing its tmpfs
-			// into the VM's memory without waiting for a restart.
-			m.CapTmp(ctx, a)
+			defer func() { <-sem }()
+			fn(it)
 		})
 	}
 	wg.Wait()
-	return ok
 }
 
 // incusUnit is what systemd says of incus.service.

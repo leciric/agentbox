@@ -21,8 +21,8 @@ export function BuiltWithBadgeOffer() {
   return (
     <div role="status" data-built-with-badge-offer className="mx-4 mt-4 grid gap-3 rounded-xl border border-line bg-surface-raised px-4 py-3 md:mx-6">
       <div>
-        <div className="text-[13px] font-medium text-primary">{t('builtWithBadge.offer.title')}</div>
-        <p className="mt-1 text-[13px] leading-relaxed text-secondary">{t('builtWithBadge.offer.body')}</p>
+        <div className="text-ui font-medium text-primary">{t('builtWithBadge.offer.title')}</div>
+        <p className="mt-1 text-ui leading-relaxed text-secondary">{t('builtWithBadge.offer.body')}</p>
       </div>
       <div className="flex gap-2">
         <Button size="sm" disabled={answer.isPending} onClick={() => answer.mutate(true)}>

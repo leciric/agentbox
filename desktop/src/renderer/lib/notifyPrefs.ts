@@ -11,8 +11,9 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
 // review: an agent lands in Ready to review; question: something asks for
-// your answer or permission; error: an agent stopped on an error.
-export const kinds = ['review', 'question', 'error'] as const;
+// your answer or permission; error: an agent stopped on an error; session: a
+// chat session you aren't looking at finished its turn (useSessionAlerts).
+export const kinds = ['review', 'question', 'error', 'session'] as const;
 export type Kind = (typeof kinds)[number];
 export type Channel = 'sound' | 'system';
 export type KindPrefs = Record<Channel, boolean>;
@@ -33,6 +34,7 @@ export const defaults = (): Prefs => ({
     review: { sound: true, system: true },
     question: { sound: true, system: true },
     error: { sound: true, system: true },
+    session: { sound: true, system: true },
   },
   dndUntil: 0,
 });

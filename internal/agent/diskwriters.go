@@ -15,13 +15,11 @@ func (m *Manager) DiskWriters(ctx context.Context) ([]DiskWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	instances, err := m.Incus.Instances(ctx)
+	// Only what runs: every ten seconds, a full listing with each machine's
+	// state was a third of what an idle daemon allocated (diskguard.go).
+	status, err := m.Incus.Statuses(ctx)
 	if err != nil {
 		return nil, err
-	}
-	status := map[string]string{}
-	for _, inst := range instances {
-		status[inst.Name] = inst.Status
 	}
 	out := []DiskWriter{}
 	for _, a := range agents {

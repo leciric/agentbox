@@ -30,6 +30,7 @@ func TestUsageModelsComeFromTheList(t *testing.T) {
 		{"opus[1m]", "opus", ""},
 		{"claude-opus-5-5", "opus_5_5", ""},
 		{"Claude-Fable-5-1", "fable_5_1", ""},
+		{"claude-fable-5-2", "fable_5_2", ""},
 		{"claude-haiku-4-5-20251001", "haiku_4_5", ""},
 		{"anthropic/claude-sonnet-5", "sonnet_5", ""},
 		{"gpt-5.1-codex/high", "gpt_5_1_codex", "high"},

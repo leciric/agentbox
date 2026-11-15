@@ -65,7 +65,10 @@ Run inside the container before it's snapshotted:
   screen;
 - [mise](https://mise.jdx.dev), and through it the tools pinned in `tools.txt` that every agent
   gets: Go, Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
-  requested;
+  requested. OpenCode 2 is not in `tools.txt` or the image: each agent installs its npm
+  platform package at its first OpenCode 2 start (needs the network then) and links it as `opencode2`
+  in the user's `~/.local/bin`, the host's lead does the same the first time it needs it, and the
+  installation setting `opencode_version` chooses which one agents and the project chat run;
 - a placeholder user, `agent` (UID/GID 1000), in the `sudo` and `docker` groups;
 - a check at the end that every pinned tool actually reports the version it was asked to install.
 

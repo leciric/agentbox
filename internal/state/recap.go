@@ -67,9 +67,10 @@ func (s *Store) TurnDays(ctx context.Context, since time.Time, offset time.Durat
 }
 
 // UserPresence is when the user was at AgentBox in [since, until), as the
-// database can tell: each message they sent a lead (a project's chat or
-// Home's), and each verdict they gave an agent's work. A message to a worker
-// isn't counted, since the lead's tell_agent writes the same item.
+// database can tell: each message they sent a lead (any session of a
+// project's chat or Home's), and each verdict they gave an agent's work. A
+// message to a worker isn't counted, since the lead's tell_agent writes the
+// same item.
 func (s *Store) UserPresence(ctx context.Context, since, until time.Time) ([]time.Time, error) {
 	var out []time.Time
 	// Each project's (and Home's) stretch of chat_items_user_created, whose
@@ -82,7 +83,7 @@ func (s *Store) UserPresence(ctx context.Context, since, until time.Time) ([]tim
 			AND NOT coalesce(json_extract(data, '$.woken'), 0) AND NOT coalesce(json_extract(data, '$.hidden'), 0)
 			AND julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END) >= ?
 			AND julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END) < ?
-			AND agent = ? AND json_type(data, '$.projectMessage') IS NULL AND json_type(data, '$.scheduledRun') IS NULL`,
+			AND (agent = ? OR agent LIKE 'lead.%') AND json_type(data, '$.projectMessage') IS NULL AND json_type(data, '$.scheduledRun') IS NULL`,
 		HomeProject, julianDay(since)-1.0/24, julianDay(until)+1.0/24, LeadName)
 	if err != nil {
 		return nil, err

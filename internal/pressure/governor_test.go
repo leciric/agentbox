@@ -565,12 +565,16 @@ func TestAFullSwapWithMemoryToSpareHoldsNothing(t *testing.T) {
 		if len(got.Pause) > 0 {
 			t.Fatalf("at %ds paused %v: %s", sec, keys(got.Pause), trace20261012(sec))
 		}
-		if why := g.Why(); why != "" {
+		// Paced as they start, so six at once don't all fit the same
+		// gigabytes (Full), but never held for pressure.
+		if why := g.Why(); why != "" && why != Full {
 			t.Fatalf("at %ds held back for %q: %s", sec, why, trace20261012(sec))
 		}
-	}
-	if n := len(g.Waiting()); n != 0 {
-		t.Fatalf("%d runs still waiting", n)
+		if sec == 60 {
+			if n := len(g.Waiting()); n != 0 {
+				t.Fatalf("%d runs still waiting after a minute", n)
+			}
+		}
 	}
 }
 
@@ -640,5 +644,36 @@ func TestTheFleetPausesAnAgentsRunsAndStartAllLeavesThem(t *testing.T) {
 	}
 	if got := g.ResumeAgent("", t0.Add(3*time.Second)); len(got) != 0 {
 		t.Fatalf("resumed %v again", got)
+	}
+}
+
+// While the user's computer is busy, nothing starts or resumes, unless
+// nothing runs at all; what runs goes on, and nothing is paused for it.
+func TestHostBusyHoldsWaitersButPausesNothing(t *testing.T) {
+	g := NewGovernor(DefaultPolicy)
+	busy := psi(0, 0)
+	busy.HostBusy = true
+	g.Ask("p/a", "first", "", time.Minute, t0)
+	if got := g.Step(t0, busy); len(got.Start) != 1 {
+		t.Fatalf("nothing running, host busy: started %v, want the first", got.Start)
+	}
+	g.Ask("p/b", "second", "", time.Minute, t0)
+	now := t0
+	for range 30 {
+		now = now.Add(time.Second)
+		got := g.Step(now, busy)
+		if len(got.Start)+len(got.Pause) != 0 {
+			t.Fatalf("host busy: %+v", got)
+		}
+	}
+	if g.Why() != HostBusy {
+		t.Fatalf("why %q, want %q", g.Why(), HostBusy)
+	}
+	now = now.Add(time.Second)
+	if got := g.Step(now, psi(0, 0)); len(got.Start) != 1 || got.Start[0].Key != "second" {
+		t.Fatalf("host calm: started %v", got.Start)
+	}
+	if g.Why() != "" {
+		t.Fatalf("why %q once calm", g.Why())
 	}
 }

@@ -143,7 +143,7 @@ func (s *Server) captureLeadTurn(ev api.ChatEvent) {
 		return
 	}
 	project, name, ok := strings.Cut(ev.Agent, "/")
-	if !ok || name != state.LeadName {
+	if !ok || !state.IsLeadName(name) {
 		return
 	}
 	userMessage := truncateRunes(ev.Item.Text, 500)
@@ -155,12 +155,13 @@ func (s *Server) captureLeadTurn(ev api.ChatEvent) {
 	// is held, and LastMessage would deadlock taking it again.
 	go func() {
 		ctx := s.background()
-		lead, err := s.store.Agent(ctx, project, state.LeadName)
+		lead, err := s.store.Agent(ctx, project, name)
 		if err != nil {
 			return
 		}
 		reply := s.chat.LastMessage(lead)
 		s.captureEvent(ctx, project, "", "lead_turn", map[string]any{
+			"session":        lead.Session(),
 			"userMessage":    userMessage,
 			"assistantReply": truncateRunes(reply, 800),
 		}, "")
@@ -169,7 +170,7 @@ func (s *Server) captureLeadTurn(ev api.ChatEvent) {
 		// is on this goroutine rather than its own because the two belong in
 		// order — the event this turn produced is part of what is about to
 		// be distilled — and because nothing here blocks the turn either way.
-		s.consolidateAfterLeadTurn(ctx, project)
+		s.consolidateAfterLeadTurn(ctx, lead)
 	}()
 }
 

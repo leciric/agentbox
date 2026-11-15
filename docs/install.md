@@ -89,24 +89,43 @@ slow as your network. `AGENTBOX_VM_DISKS_URL=off` always does that. The release 
 package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
-of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
-every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
-`agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
+of your memory by default), and gives it back as they stop. Your computer always keeps the larger
+of 4 GiB and a quarter of its memory for itself: the cap can't go past the rest (a cap set higher by
+an earlier version is lowered to it), the VM stops growing while your computer has less than that
+free, and gives back what it can spare within seconds. The top bar's **Free resources** stops
+every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap (in GiB,
+or as a share of your computer's memory), as does `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
 shared with the VM at the same path, so projects and agents' worktrees stay where they are.
 `agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
 the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
 30–50 seconds rather than 20–25; GPUs aren't available in the VM.
 
-Agents share the VM's memory, and every agent starts at once. Each agent's machine may use all of
-the VM's memory cap but an eighth (at least 1 GiB): a process that outgrows that is stopped at
-once, and its agent is told what was stopped and to run fewer test workers at once. When memory
+Agents share the VM's memory, and every agent starts at once. Each agent's machine may use half of
+the VM's memory cap (Settings → Storage and machine → **Memory for one agent**, 10% to 90%): a
+process that outgrows that is stopped at once inside that machine, and its agent is told what was
+stopped and to run fewer test workers at once, while the daemon, Incus and the other agents keep
+the rest. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ
+scheduler, and each agent's machine gets a quarter of their weight, so a build writing as fast as it
+can doesn't keep Incus from answering. When memory
 runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
 they asked), and if pressure stays high the newest one already running is paused, its memory moved
 to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
 of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
 always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
 **Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
-themselves; any other command can join in as `agentbox heavy -- <command>`.
+themselves; any other command can join in as `agentbox heavy -- <command>`. Tests and builds that
+start while memory is short also run half as many parallel jobs (Go, make, cargo, vitest, turbo,
+nx, pnpm workspaces), back to the usual count two minutes after it eases.
+
+An agent that's only editing code holds little: its browser closes after five minutes unused (no
+browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,
+and its Docker starts on the first `docker` command instead of at boot, and stops after five
+minutes with no container running.
+
+## Upgrading from 0.16
+
+Upgrading to 0.17 removes the Tasks tab and deletes its tasks: they aren't exported anywhere, so
+copy any open tasks somewhere else before you upgrade.
 
 ## Moving an installation from before the VM
 
@@ -144,6 +163,31 @@ If the processor shows no virtualization at all, it's off in the firmware's sett
 AMD-V, often under CPU or Advanced), or, in a virtual machine, nested virtualization is off. Only
 you can turn that on; Setup says so.
 
+## When something doesn't work
+
+```bash
+agentbox doctor          # every check, in order, each ok, warn or FAIL, with its fix
+agentbox doctor --fix    # first fix what's safe to try again
+agentbox doctor --json   # the same, for a script
+```
+
+It checks that this computer can run a VM (KVM, or Lima on a Mac), that the VM runs and its daemon
+answers with this command's version, disk space, that downloads of the base image and GitHub are
+reachable, the base image, the Home chat's AI tool and its login, the GitHub CLI and your GitHub
+account. It exits 1 when a check fails.
+
+`--fix` starts the VM or the daemon, restarts a daemon older than the command, downloads the base
+image (building it when the download fails), and installs the chat's AI tool and the GitHub CLI.
+Everything else has a command to run, or a step only you can take, such as turning on
+virtualization in the firmware.
+
+Setup in the app shows the same list at the top, with **Fix it** on what fixes itself. A check that
+fails with no such fix also has **Ask Home to fix it**: it opens a new session of the Home chat,
+told what failed and the end of the daemon's log, on the Home chat's own AI tool and account. It
+looks into it from where the daemon runs, fixes what it can there, and gives you as commands what
+only you can do on your computer. It isn't offered for a warning, or when the failing check is
+the AI tool's login, which the Home chat needs to run at all.
+
 ## macOS and Windows (alpha)
 
 AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)
@@ -154,6 +198,19 @@ right-click AgentBox in Applications and choose **Open** the first time; on Wind
 and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
+
+The same memory rule holds there: AgentBox's VM never takes more than your computer's memory less
+the larger of 4 GiB and a quarter. On a Mac it's the most Settings and `agentbox vm resize` let you
+give the Lima VM. On Windows, WSL gives its distros half of your memory unless `memory=` under
+`[wsl2]` in `%UserProfile%\.wslconfig` says otherwise. Setup lowers a `memory=` set above the
+limit to it, and leaves one under it alone. WSL reads that file when it starts, so the new limit
+counts after `wsl --shutdown` or a restart. Setup doesn't run that for you, because it would also
+stop your other distros.
+
+On Windows, Android emulators run in agents when WSL has `/dev/kvm`: set
+`nestedVirtualization=true` under `[wsl2]` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.
+The Android SDK they use is a Linux one, installed in the WSL distro (in `~/Android/Sdk`, or where
+`AGENTBOX_ANDROID_SDK` says), not Android Studio's on Windows. On a Mac, Android is off.
 
 On a Mac with Apple Silicon, the VM is made with [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
 when it's installed: it has a GPU for agents, and gives the memory its agents stop using back to
@@ -184,7 +241,9 @@ VM made without krunkit has none.
 With Xcode installed, agents on a Mac can use the **iOS Simulator**, which runs on the Mac itself,
 beside the VM: an agent's panel has an iOS view to pick a simulator, boot it, and watch and use its
 screen, and agents drive it with `agentbox ios` (open, tap, swipe, type, screenshot, install a `.app`
-built for the simulator, launch). The simulators are the Mac's, shared by every agent. A small helper,
+built for the simulator, launch). An agent can't build for iOS, but a dev build already on the simulator runs its code:
+`agentbox ios forward 8081 <api port>` makes its Metro and API reach the Mac at `http://localhost:<port>`.
+The simulators are the Mac's, shared by every agent. A small helper,
 `agentbox ios-helper`, runs on the Mac for it, started by any `agentbox` command there (the app runs
 them); it listens on the Mac's `127.0.0.1` only, with a token in AgentBox's config, and the VM's
 daemon reaches it there. It doesn't run with the experimental vz driver below, and hasn't been tried

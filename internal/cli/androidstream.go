@@ -76,7 +76,26 @@ func newAndroidCaptureCmd() *cobra.Command {
 				return err
 			}
 			defer c.Close()
-			return devicestream.Record(cmd.Context(), emulator.NewDevice(c), args[0], time.Duration(seconds)*time.Second)
+			// The taps are drawn on it as they land, and nothing else: a
+			// phone recording isn't edited (devicestream.Touches). One whose
+			// taps can't be read is recorded without them.
+			touches := &devicestream.Touches{}
+			watch, stopWatch := context.WithCancel(cmd.Context())
+			watched := make(chan struct{})
+			go func() {
+				defer close(watched)
+				w, h, err := c.ScreenSize(watch)
+				if err == nil {
+					err = emulator.WatchTouches(watch, cmpOr(os.Getenv("ADB"), "adb"), w, h, touches)
+				}
+				if err != nil {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "recording without the taps: %v\n", err)
+				}
+			}()
+			err = devicestream.Record(cmd.Context(), emulator.NewDevice(c), args[0], time.Duration(seconds)*time.Second, touches)
+			stopWatch()
+			<-watched // which turns the input log back off
+			return err
 		},
 	}
 }

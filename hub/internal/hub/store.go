@@ -152,5 +152,71 @@ type Store interface {
 	TunnelRequested(ctx context.Context, environmentID string, at time.Time) error
 	DeleteEnvironmentTunnel(ctx context.Context, environmentID string) error
 
+	// MCP pairings (mcp.go). DeleteMCPPairing takes its tokens with it, and
+	// answers ErrNotFound for one that isn't that environment's.
+	CreateMCPPairing(ctx context.Context, p MCPPairing) error
+	MCPPairings(ctx context.Context, environmentID string) ([]MCPPairing, error)
+	MCPPairing(ctx context.Context, id string) (MCPPairing, error)
+	DeleteMCPPairing(ctx context.Context, environmentID, id string) error
+	TouchMCPPairing(ctx context.Context, id string, used time.Time) error
+	// MCPPairingClients names the OAuth clients holding a token of a pairing.
+	MCPPairingClients(ctx context.Context, pairingID string) ([]string, error)
+
+	CreateMCPToken(ctx context.Context, t MCPToken) error
+	// MCPToken returns a token that hasn't expired at now.
+	MCPToken(ctx context.Context, tokenHash string, now time.Time) (MCPToken, error)
+	// TakeMCPToken deletes a token that hasn't expired at now and returns
+	// it, so that a refresh token is only ever used once.
+	TakeMCPToken(ctx context.Context, tokenHash string, now time.Time) (MCPToken, error)
+	// DeleteMCPClientTokens signs one OAuth client out of a pairing.
+	DeleteMCPClientTokens(ctx context.Context, pairingID, clientID string) error
+	DeleteExpiredMCPTokens(ctx context.Context, now time.Time) error
+
+	CreateOAuthClient(ctx context.Context, c OAuthClient) error
+	OAuthClient(ctx context.Context, id string) (OAuthClient, error)
+	CountOAuthClients(ctx context.Context) (int, error)
+	// PruneOAuthClients deletes the clients registered before a time that
+	// hold no token: registrations nobody finished signing in with.
+	PruneOAuthClients(ctx context.Context, before time.Time) error
+
 	Close() error
+}
+
+// MCPPairing lets another app reach an environment over MCP (mcp.go). Access
+// and Projects are what the environment told the hub it will allow: the hub
+// shows them, and the environment enforces them.
+type MCPPairing struct {
+	ID            string
+	EnvironmentID string
+	Label         string
+	Access        string
+	Projects      []string
+	CreatedAt     time.Time
+	LastUsedAt    time.Time
+}
+
+// The kinds of MCPToken.
+const (
+	mcpTokenAccess  = "access"  // an OAuth access token
+	mcpTokenRefresh = "refresh" // an OAuth refresh token
+	mcpTokenStatic  = "static"  // the bearer token a pairing was made with
+)
+
+// MCPToken is a token of a pairing. Only its hash is stored.
+type MCPToken struct {
+	TokenHash string
+	PairingID string
+	Kind      string
+	ClientID  string    // the OAuth client it was issued to; none for a static one
+	CreatedAt time.Time //
+	ExpiresAt time.Time // zero: until the pairing is revoked
+}
+
+// OAuthClient is an app that registered itself (RFC 7591). All are public
+// clients: they hold no secret, and prove themselves with PKCE.
+type OAuthClient struct {
+	ID           string
+	Name         string
+	RedirectURIs []string
+	CreatedAt    time.Time
 }

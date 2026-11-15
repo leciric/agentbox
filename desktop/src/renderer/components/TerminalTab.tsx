@@ -56,7 +56,7 @@ export function TerminalTab({ agent, onStart, starting }: { agent: T.Agent; onSt
           data-session={status.state}
           title={status.state === 'open' ? t('agent.terminal.attached') : status.reason}
           className={cn(
-            'flex max-w-80 items-center gap-1.5 truncate rounded-full border px-2.5 py-1 text-[11px] backdrop-blur',
+            'flex max-w-80 items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-caption backdrop-blur bg-surface-raised',
             status.state === 'open' && 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300',
             status.state === 'closed' && 'border-amber-400/20 bg-amber-400/10 text-amber-200',
             (status.state === 'connecting' || status.state === 'idle') && 'border-line-strong bg-surface text-muted',
@@ -78,7 +78,7 @@ export function TerminalTab({ agent, onStart, starting }: { agent: T.Agent; onSt
             </div>
           }
         >
-          <button aria-label={t('agent.terminal.shortcuts')} className="rounded-full border border-line-strong bg-surface p-1.5 text-muted transition hover:text-primary">
+          <button aria-label={t('agent.terminal.shortcuts')} className="rounded-full bg-surface p-1.5 text-muted transition hover:text-primary">
             <Keyboard className="size-3.5" />
           </button>
         </Tip>

@@ -70,7 +70,7 @@ export function SecretsTab({ target }: { target: string }) {
           {secrets.error && <Notice>{errorMessage(secrets.error)}</Notice>}
           {secrets.isPending && <p className="py-3 text-sm text-subtle">{t('common.loading')}</p>}
           {!secrets.isPending && mine.length === 0 && (
-            <p className="py-3 text-[13px] leading-relaxed text-subtle">
+            <p className="py-3 text-ui leading-relaxed text-subtle">
               {t.rich('agent.secrets.none', { code: (c) => <Code>{c}</Code> })}
             </p>
           )}
@@ -148,7 +148,7 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
           <Field label={t('agent.secrets.name')} htmlFor="secret-name" hint={t('agent.secrets.nameHint')}>
             <Input
               id="secret-name"
-              className="font-mono text-[13px]"
+              className="font-mono text-ui"
               placeholder="OPENAI_API_KEY"
               autoComplete="off"
               spellCheck={false}
@@ -161,7 +161,7 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
               <Input
                 id="secret-value"
                 type={visible ? 'text' : 'password'}
-                className="font-mono text-[13px]"
+                className="font-mono text-ui"
                 placeholder={t('agent.secrets.valuePlaceholder')}
                 autoComplete="off"
                 spellCheck={false}
@@ -215,12 +215,12 @@ function SecretRow({ secret, onDelete, onChanged }: { secret: T.Secret; onDelete
       data-secret-scope={secret.scope}
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-line-faint bg-surface-faint px-3 py-2.5 transition hover:border-line-strong"
     >
-      <span className="font-mono text-[13px] text-primary">${secret.name}</span>
+      <span className="font-mono text-ui text-primary">${secret.name}</span>
       <Badge variant={secret.scope === 'project' ? 'info' : 'brand'}>{secret.scope === 'project' ? t('agent.secrets.scopeProject') : t('agent.secrets.scopeAgent')}</Badge>
-      <span className="text-[11.5px] text-subtle" title={formatDateTime(secret.updatedAt)}>
+      <span className="text-caption text-subtle" title={formatDateTime(secret.updatedAt)}>
         {t('agent.secrets.updated', { when: timeAgo(secret.updatedAt) })}
       </span>
-      <span className="text-[11.5px] text-subtle">{whereItIs(secret)}</span>
+      <span className="text-caption text-subtle">{whereItIs(secret)}</span>
       {secret.warning && (
         <Tip label={secret.warning}>
           <Badge variant="warning" data-secret-ai-tool-warning>{t('agent.secrets.forCodeOnly')}</Badge>
@@ -229,7 +229,7 @@ function SecretRow({ secret, onDelete, onChanged }: { secret: T.Secret; onDelete
       {secret.leadManaged && !switchable && <Badge variant="info">{t('agent.secrets.leadManaged')}</Badge>}
       {switchable && (
         <Tip label={t('agent.secrets.leadManagedTip')}>
-          <label className="ml-auto flex items-center gap-2 text-[11.5px] text-subtle">
+          <label className="ml-auto flex items-center gap-2 text-caption text-subtle">
             {t('agent.secrets.leadManaged')}
             <Switch
               aria-label={t('agent.secrets.leadManagedSwitch', { name: secret.name })}

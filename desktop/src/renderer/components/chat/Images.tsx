@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
+import { sendingImageUrl } from '../../lib/sending';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
@@ -35,7 +36,7 @@ export function ImageThumb({ src, name, onRemove, contain, className }: { src: s
       )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-auto max-w-[min(92vw,1400px)] gap-3 p-3 pt-10">
-          <DialogTitle className="absolute left-4 top-3 max-w-[70%] truncate text-[12.5px] font-normal text-muted">{label}</DialogTitle>
+          <DialogTitle className="absolute left-4 top-3 max-w-[70%] truncate text-ui font-normal text-muted">{label}</DialogTitle>
           <img src={src} alt={label} className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain" />
         </DialogContent>
       </Dialog>
@@ -48,7 +49,7 @@ export function SentImages({ chatRef, images }: { chatRef: string; images: T.Cha
   return (
     <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
       {images.map((image) => (
-        <ImageThumb key={image.id} src={api.chatImageUrl(chatRef, image.id)} name={image.name} className="size-24" />
+        <ImageThumb key={image.id} src={sendingImageUrl(image.id) ?? api.chatImageUrl(chatRef, image.id)} name={image.name} className="size-24" />
       ))}
     </div>
   );

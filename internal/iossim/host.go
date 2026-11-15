@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 	kindConfig = 1 // JSON: codec, width, height and description (an avcC, base64), before a keyframe when they change
 	kindFrame  = 2 // a flags byte (1: a keyframe), a big-endian uint64 timestamp (µs since 1970), an access unit in AVCC
 	kindEvent  = 3 // JSON: {"screen":{"width","height"}} once it found the screen, {"input":"dtuhid"} once input is ready, {"error":"…"}
+	kindReply  = 4 // JSON: the answer to an op with an id, {"id":…, …} or {"id":…,"error":"…"}
 )
 
 const maxFrame = 32 << 20
@@ -62,10 +64,19 @@ type host struct {
 	lastErr string
 	viewers map[*viewer]bool
 	used    time.Time
+
+	// The ops with an id that simhost hasn't answered yet.
+	nextID  int64
+	pending map[int64]chan json.RawMessage
+
+	// acting is held by an agent's action from its first input to its
+	// settled screen, and by every other input for its own length: simhost
+	// has one finger, so an agent's tap and the user's drag must not mix.
+	acting sync.Mutex
 }
 
 func newHost(udid string, proc *Proc) *host {
-	h := &host{udid: udid, proc: proc, screen: make(chan struct{}), viewers: map[*viewer]bool{}, used: time.Now()}
+	h := &host{udid: udid, proc: proc, screen: make(chan struct{}), viewers: map[*viewer]bool{}, used: time.Now(), pending: map[int64]chan json.RawMessage{}}
 	go h.read()
 	return h
 }
@@ -110,19 +121,109 @@ func (h *host) why() string {
 
 // run sends steps in order, waiting between them as each says.
 func (h *host) run(ctx context.Context, steps []step) error {
+	var held []op // pressed by these steps and not let go yet
 	for _, s := range steps {
 		if err := h.send(s.op); err != nil {
 			return err
 		}
+		held = holding(held, s.op)
 		if s.wait > 0 {
 			select {
 			case <-time.After(s.wait):
 			case <-ctx.Done():
+				// Let go of what's pressed, or the simulator keeps a finger or a key down.
+				for i := len(held) - 1; i >= 0; i-- {
+					_ = h.send(held[i])
+				}
 				return ctx.Err()
 			}
 		}
 	}
 	return nil
+}
+
+// holding is held after o: the release of each touch, key or button down.
+func holding(held []op, o op) []op {
+	switch {
+	case o.Op == "touch" && o.Phase == "down":
+		return append(held, op{Op: "touch", Phase: "up", X: o.X, Y: o.Y})
+	case o.Op == "touch" && o.Phase == "move":
+		for i := range held {
+			if held[i].Op == "touch" {
+				held[i].X, held[i].Y = o.X, o.Y
+			}
+		}
+	case o.Op == "touch" && o.Phase == "up":
+		return slices.DeleteFunc(held, func(h op) bool { return h.Op == "touch" })
+	case (o.Op == "key" || o.Op == "button") && o.Down:
+		return append(held, op{Op: o.Op, Usage: o.Usage, Button: o.Button})
+	case o.Op == "key" || o.Op == "button":
+		return slices.DeleteFunc(held, func(h op) bool { return h.Op == o.Op && h.Usage == o.Usage && h.Button == o.Button })
+	}
+	return held
+}
+
+// request sends an op with an id and decodes simhost's reply into out.
+func (h *host) request(ctx context.Context, o map[string]any, timeout time.Duration, out any) error {
+	h.mu.Lock()
+	h.nextID++
+	id := h.nextID
+	ch := make(chan json.RawMessage, 1)
+	h.pending[id] = ch
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.pending, id)
+		h.mu.Unlock()
+	}()
+	o["id"] = id
+	// simhost drops it once this has given up, rather than run it late.
+	o["deadline"] = time.Now().Add(timeout).UnixMilli()
+	data, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	h.writeMu.Lock()
+	h.touch()
+	_, err = h.proc.Stdin.Write(append(data, '\n'))
+	h.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("the simulator's helper stopped: %s", h.why())
+	}
+	select {
+	case raw := <-ch:
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &e) == nil && e.Error != "" {
+			return errors.New(e.Error)
+		}
+		if out == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, out)
+	case <-h.proc.Done:
+		return fmt.Errorf("the simulator's helper stopped: %s", h.why())
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(timeout):
+		return fmt.Errorf("the simulator didn't answer %s in %s", o["op"], timeout)
+	}
+}
+
+func (h *host) reply(payload []byte) {
+	var r struct {
+		ID int64 `json:"id"`
+	}
+	if json.Unmarshal(payload, &r) != nil {
+		return
+	}
+	h.mu.Lock()
+	ch := h.pending[r.ID]
+	h.mu.Unlock()
+	if ch != nil {
+		ch <- payload
+	}
 }
 
 // size is the screen's size in pixels, waiting for simhost to find it.
@@ -172,6 +273,8 @@ func (h *host) read() {
 			h.frame(payload)
 		case kindEvent:
 			h.event(payload)
+		case kindReply:
+			h.reply(payload)
 		}
 	}
 }

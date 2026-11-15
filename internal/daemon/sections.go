@@ -16,7 +16,7 @@ import (
 // changed rather than one project.
 
 func sectionInfo(sec state.Section) api.Section {
-	return api.Section{ID: sec.ID, Name: sec.Name, Position: sec.Position, Collapsed: sec.Collapsed, CreatedAt: sec.CreatedAt}
+	return api.Section{ID: sec.ID, Name: sec.Name, Position: sec.Position, Collapsed: sec.Collapsed, Color: sec.Color, Description: sec.Description, CreatedAt: sec.CreatedAt}
 }
 
 func (s *Server) listSections(w http.ResponseWriter, r *http.Request) error {
@@ -49,7 +49,9 @@ func (s *Server) updateSection(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	sec, err := s.store.UpdateSection(r.Context(), r.PathValue("id"), req.Name, req.Collapsed)
+	sec, err := s.store.UpdateSection(r.Context(), r.PathValue("id"), state.SectionUpdate{
+		Name: req.Name, Collapsed: req.Collapsed, Color: req.Color, Description: req.Description,
+	})
 	if err != nil {
 		return err
 	}

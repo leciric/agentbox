@@ -1,7 +1,7 @@
 // UI v2's right-hand panel (components/v2/RightPanel.tsx): what is pure about
 // it, and its state.
 //
-// It is always there beside a chat, as v1's rail of agents was: its home is
+// It is always there beside a chat, as the old rail of agents was: its home is
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
@@ -20,13 +20,13 @@ import { isLeadRef } from './pages.ts';
 import type { RichKind } from './rich.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'ios' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'ios' | 'timeline' | 'resources' | 'pulls' | 'issues' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'resources', 'pulls', 'issues', 'schedules', 'settings'];
 // The switch's views, in this order: the machine's first, then what the
 // work left, ending as the lead's does, Files, Evidence, then Schedules. The
 // project's Pull requests, Issues and Settings are off it: tabs of the
 // lead's panel, and on its header.
-export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules'];
+export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules'];
 // The agent's machine bar under its chat's header (AgentMachineBar): four.
 export const machineBarViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
 
@@ -36,8 +36,8 @@ export type WideView = 'pulls' | 'issues' | 'schedules' | 'settings';
 export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'issues' || view === 'schedules' || view === 'settings';
 
 // The views that show a machine: an agent's display, its shell, its dev
-// server, its Android emulator.
-export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser' || view === 'android';
+// server, its Android emulator, what it uses (Resources).
+export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser' || view === 'android' || view === 'resources';
 
 // The views only an agent has: the lead does no work of its own to show as a
 // timeline (its project's day is the Today page).
@@ -150,8 +150,13 @@ export function listBox(state: Pick<PanelState, 'listWidth' | 'listFolded'>, roo
 }
 // panelWant is how wide chat's panel would be: the one width beside a lead's
 // chat; beside an agent's own, its desktop is what you came for, so half the
-// room until you drag it.
-export const panelWant = (state: Pick<PanelState, 'width' | 'agentWidth'>, chat: string, room: number): number => (isLeadRef(chat) ? state.width : (state.agentWidth ?? Math.round(room / 2)));
+// room until you drag it, while its file tree, which has less to show, is as
+// narrow as the list.
+export const panelWant = (state: Pick<PanelState, 'width' | 'agentWidth'>, chat: string, room: number, view?: PanelView): number => {
+  if (isLeadRef(chat)) return state.width;
+  if (state.agentWidth !== undefined) return state.agentWidth;
+  return view === 'files' ? listDefault : Math.round(room / 2);
+};
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
   if (windowWidth < besideMin || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
@@ -377,6 +382,21 @@ export function panelToggle(chat: string): void {
   setPanel({ listFolded: !state.listFolded });
 }
 
+// settingsOpen is whether chat's panel shows the project's Settings.
+export const settingsOpen = (state: PanelState, chat: string) => chatPanel(state, chat).wide === 'settings';
+
+// toggleSettings is a project's gear: it opens chat's Settings, and while they
+// are open (and chat is where the user is, `here`) closes them, back to whoever
+// the panel showed under them.
+export function toggleSettings(chat: string, here: boolean): boolean {
+  if (here && settingsOpen(panelState(), chat)) {
+    panelBack(chat);
+    return false;
+  }
+  openPanelOn(chat, 'settings');
+  return true;
+}
+
 // openPanelOn opens chat's panel on view, of target when given (then picked
 // there), else of whoever it shows: the project's own views need none.
 export function openPanelOn(chat: string, view: PanelView, target?: string): void {
@@ -393,14 +413,18 @@ let beside = true;
 export const setFitsBeside = (fits: boolean) => void (beside = fits);
 export const fitsBeside = () => beside;
 
-// openAgentChat is opening an agent's chat: its panel shows its Desktop,
-// where there is room for it beside the chat; where there isn't, the strip
-// stays as it is, rather than a drawer over the chat you came to read. The
-// lead's panel keeps what it showed, its list most often, for coming back.
-export function openAgentChat(ref: string): void {
+// openAgentChat is opening an agent's chat: its panel opens on it, where
+// there is room for it beside the chat; where there isn't, the strip stays as
+// it is, rather than a drawer over the chat you came to read. The panel shows
+// its Desktop only when the agent is using it (usingDesktop): an idle display
+// is a blank screen, so then it shows the view last picked, Timeline at first.
+// The lead's panel keeps what it showed, its list most often, for coming back.
+export function openAgentChat(ref: string, usingDesktop = true): void {
   if (!beside) return;
   const state = panelState();
-  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' } });
+  const shown = state.views[ref];
+  const view: PanelView = usingDesktop ? 'desktop' : shown && shown !== 'desktop' ? shown : 'timeline';
+  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: view } });
 }
 
 // chaptersOf is a recording's chapters: the titled steps of its agent's

@@ -64,11 +64,15 @@ func toolColumn(tool string) (string, error) {
 		return "opencode_accounts", nil
 	case "cursor":
 		return "cursor_account", nil
+	case "gemini":
+		return "gemini_account", nil
+	case "copilot":
+		return "copilot_account", nil
 	}
-	return "", fmt.Errorf("%q has no accounts: use codex, opencode or cursor", tool)
+	return "", fmt.Errorf("%q has no accounts: use codex, opencode, cursor, gemini or copilot", tool)
 }
 
-// SetProjectToolAccount picks the Codex or Cursor account a project's new
+// SetProjectToolAccount picks the Codex, Cursor, Gemini CLI or Copilot account a project's new
 // agents and its lead use; "" for the machine's default.
 func (s *Store) SetProjectToolAccount(ctx context.Context, name, tool, account string) error {
 	if tool == "opencode" {
@@ -98,11 +102,11 @@ func (s *Store) updateProject(ctx context.Context, name, query string, args ...a
 	return nil
 }
 
-// SetAgentToolAccounts records the Codex, OpenCode and Cursor accounts whose
-// logins an agent, or a lead, holds.
-func (s *Store) SetAgentToolAccounts(ctx context.Context, project, name, codex string, opencode AccountMap, cursor string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE agents SET codex_account = ?, opencode_accounts = ?, cursor_account = ? WHERE project = ? AND name = ?`,
-		codex, opencode.String(), cursor, project, name)
+// SetAgentToolAccounts records the Codex, OpenCode, Cursor, Gemini CLI and
+// GitHub Copilot CLI accounts whose logins an agent, or a lead, holds.
+func (s *Store) SetAgentToolAccounts(ctx context.Context, project, name, codex string, opencode AccountMap, cursor, gemini, copilot string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET codex_account = ?, opencode_accounts = ?, cursor_account = ?, gemini_account = ?, copilot_account = ? WHERE project = ? AND name = ?`,
+		codex, opencode.String(), cursor, gemini, copilot, project, name)
 	if err != nil {
 		return err
 	}

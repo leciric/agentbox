@@ -5,7 +5,9 @@ import { recordRequest, clientSpansPath } from './appTiming.ts';
 import { recapQuery } from './recap.ts';
 import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
+import { t } from '../../shared/i18n/index.ts';
 import { ensureVMRunning } from './vm.ts';
+import { begin as beginRequest } from './daemonBusy.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -22,25 +24,52 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   let res: ApiResponse;
   // Each round trip is a span of the app's own (appTiming.ts).
   const started = performance.now();
+  // And counts toward the top bar's busy mark (daemonBusy.ts), but for the
+  // timing's own posts.
+  const done = path.startsWith(clientSpansPath) ? () => {} : beginRequest();
   try {
     res = await window.agentbox.request(method, path, body);
   } catch (err) {
+    done();
     recordRequest(method, path, started, 0, errorMessage(err));
     throw new ApiError(errorMessage(err), 0);
   }
+  done(res.status === 504 && res.body.includes('"daemon_timeout"'));
   recordRequest(method, path, started, res.status);
   if (res.status >= 400) {
     let message = res.body.trim();
     let code: string | undefined;
+    let json = false;
     try {
       ({ error: message, code } = JSON.parse(res.body) as T.Error);
+      json = true;
     } catch {
       // not JSON
+    }
+    if (!json && (res.status === 404 || res.status === 405)) {
+      const outdated = await outdatedDaemon();
+      if (outdated) throw new ApiError(t('shell.app.daemonOutdated', outdated), res.status, 'daemon_outdated');
     }
     throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
+}
+
+// outdatedDaemon is the daemon's version and the app's when they differ. A
+// request the daemon has no route for is answered by Go's own plain-text
+// "404 page not found" (or 405), never the daemon's JSON errors: it's a
+// request newer than the daemon, which is still the version from before the
+// app updated (main/daemon.ts restarts it once its jobs are done).
+async function outdatedDaemon(): Promise<{ daemon: string; app: string } | undefined> {
+  try {
+    const [info, version] = await Promise.all([window.agentbox.info(), window.agentbox.request('GET', '/v1/version')]);
+    const daemon = (JSON.parse(version.body) as { version?: string }).version;
+    if (!info.packaged || !daemon || daemon === 'dev' || daemon === info.version) return undefined;
+    return { daemon, app: info.version };
+  } catch {
+    return undefined;
+  }
 }
 
 // page is call for a list read a page at a time (?limit=), whose answer is
@@ -71,16 +100,45 @@ export const pagePath = (name: string, id: string) =>
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
 
+// isLeadName says a name is one a session of a project's chat runs under: the
+// lead's, "lead", or "lead.<session>" (internal/state/leadsessions.go).
+export const isLeadName = (name: string | undefined) => !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
+
+// sessionOfRef is the session of a project's chat, or of the Home chat, a
+// lead's ref names: "main" for "web/lead", the session every chat had before
+// sessions, and undefined for an agent's ref.
+export const sessionOfRef = (ref: string): string | undefined => {
+  const [, name] = ref.split('/');
+  if (!name) return undefined;
+  if (name === T.LeadName) return 'main';
+  return name.startsWith(`${T.LeadName}.`) ? name.slice(T.LeadName.length + 1) : undefined;
+};
+
+// untitledTopic shows an untitled session's placeholder topic in the app's
+// language.
+export const untitledTopic = (s: T.LeadSession): T.LeadSession => (s.untitled ? { ...s, topic: t('sessions.untitled') } : s);
+
+// sessionRef is the ref a session's lead, and its chat, are known by.
+export const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
+
+// A chat's routes for one of its sessions: the project's own, or the Home
+// chat's (T.HomeProject), under /sessions/<id>.
+const projectChatBase = (ref: string) => {
+  const [p] = ref.split('/');
+  const session = sessionOfRef(ref);
+  return session ? `${project(p)}/sessions/${encodeURIComponent(session)}` : project(p);
+};
+
 // A chat belongs to an agent, or to a project. A project's chat is driven by its
 // lead, which has no machine of its own, so it lives under the project.
 const chatBase = (ref: string) => {
-  const [project, name] = ref.split('/');
-  return !name || name === T.LeadName ? `/v1/projects/${encodeURIComponent(project)}/chat` : `${agent(ref)}/chat`;
+  const [, name] = ref.split('/');
+  return isLeadName(name) ? `${projectChatBase(ref)}/chat` : `${agent(ref)}/chat`;
 };
 
 export const isProjectChat = (ref: string) => {
   const [, name] = ref.split('/');
-  return !name || name === T.LeadName;
+  return isLeadName(name);
 };
 export const agentPath = agent;
 // The WebSocket paths of an agent's VNC displays, for lib/vnc.
@@ -98,8 +156,8 @@ export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;
 // A past agent's ("past:<ref>", lib/rightPanel.ts) are read from its branch.
 const filesBase = (ref: string) => {
   if (ref.startsWith('past:')) return `/v1/archived-agents/${ref.slice(5).split('/').map(encodeURIComponent).join('/')}/files`;
-  const [project, name] = ref.split('/');
-  return !name || name === T.LeadName ? `/v1/projects/${encodeURIComponent(project)}/files` : `${agent(ref)}/files`;
+  const [, name] = ref.split('/');
+  return isLeadName(name) ? `${projectChatBase(ref)}/files` : `${agent(ref)}/files`;
 };
 
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
@@ -167,6 +225,10 @@ export const api = {
   lan: () => call<T.LANStatus>('GET', '/v1/lan'),
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
+  mcpApps: () => call<T.MCPPairings>('GET', '/v1/remote/mcp'),
+  pairMCPApp: (req: T.MCPPairRequest) => call<T.MCPPairingSecret>('POST', '/v1/remote/mcp/pairings', req),
+  newMCPAppCode: (id: string) => call<T.MCPPairingSecret>('POST', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}/code`),
+  revokeMCPApp: (id: string) => call<void>('DELETE', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}`),
   removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
   updateLANPhone: (id: string, scopes: string[]) =>
     call<T.LANPhone>('PATCH', `/v1/lan/phones/${encodeURIComponent(id)}`, { scopes } satisfies T.UpdateLANPhoneRequest),
@@ -189,6 +251,9 @@ export const api = {
   updateTheme: (req: T.UpdateThemeRequest) => call<T.Theme>('PATCH', '/v1/theme', req),
   projects: () => call<T.Project[]>('GET', '/v1/projects'),
   addProject: (req: T.AddProjectRequest) => call<T.Project>('POST', '/v1/projects', req),
+  // cloneProject starts the job that clones a repository and adds it: the
+  // finished job's result is the Project.
+  cloneProject: (req: T.CloneProjectRequest) => call<T.Job>('POST', '/v1/projects/clone', req),
   updateProject: (name: string, req: T.UpdateProjectRequest) => call<T.Project>('PATCH', project(name), req),
   removeProject: (name: string) => call<void>('DELETE', project(name)),
   // When the user last wrote to each project and when anything last happened
@@ -196,6 +261,7 @@ export const api = {
   projectActivity: () => call<T.ProjectActivity[]>('GET', '/v1/project-activity'),
   // A project's icon: the user's choice, else the one found in its repository.
   projectIcon: (name: string) => call<T.ProjectIcon>('GET', `${project(name)}/icon`),
+  projectIconCandidates: (name: string) => call<T.ProjectIconCandidate[]>('GET', `${project(name)}/icon/candidates`),
   setProjectIcon: (name: string, req: T.SetProjectIconRequest) => call<T.ProjectIcon>('PUT', `${project(name)}/icon`, req),
   resetProjectIcon: (name: string) => call<T.ProjectIcon>('DELETE', `${project(name)}/icon`),
   // How the projects list is organised (D79): the sections, and one call that
@@ -204,7 +270,7 @@ export const api = {
   addSection: (name: string) => call<T.Section>('POST', '/v1/sections', { name } satisfies T.AddSectionRequest),
   updateSection: (id: string, req: T.UpdateSectionRequest) => call<T.Section>('PATCH', `/v1/sections/${encodeURIComponent(id)}`, req),
   removeSection: (id: string) => call<void>('DELETE', `/v1/sections/${encodeURIComponent(id)}`),
-  // UI v2's sidebar's hidden projects, replaced whole.
+  // The sidebar's hidden projects, replaced whole.
   sidebarLayout: () => call<T.SidebarLayout>('GET', '/v1/sidebar'),
   setSidebarLayout: (layout: T.SidebarLayout) => call<T.SidebarLayout>('PUT', '/v1/sidebar', layout),
   setProjectLayout: (layout: T.ProjectLayout) => call<T.Project[]>('PUT', '/v1/projects/layout', layout),
@@ -245,6 +311,10 @@ export const api = {
   closeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/close`),
   judgeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/judge`),
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
+  // An existing agent's goal set or changed, which sends it to work towards
+  // it, or cleared (internal/daemon/goals.go).
+  setGoal: (ref: string, spec: T.GoalSpec) => call<T.GoalResult>('PUT', `${agent(ref)}/goal`, spec),
+  clearGoal: (ref: string) => call<T.GoalResult>('DELETE', `${agent(ref)}/goal`),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
@@ -297,9 +367,18 @@ export const api = {
   // kinds narrows it to items of those kinds (user, aside, assistant…).
   searchChat: (ref: string, query: string, kinds: string[] = []) =>
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
+  // One of a chat's background tasks with the end of its output, or the
+  // piece of it that ends at byte offset before.
+  chatBackgroundTask: (ref: string, task: string, before?: number) =>
+    call<T.ChatBackgroundDetail>('GET', `${chatBase(ref)}/background/${encodeURIComponent(task)}${before ? `?before=${before}` : ''}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
-  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[]) =>
-    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined } satisfies T.ChatMessageRequest),
+  // viewAgent says the app shows an agent: its builds go first while memory is
+  // short, and one On hold after sitting idle starts again (daemon/viewing.go).
+  viewAgent: (ref: string) => call<void>('PUT', `${agent(ref)}/viewing`),
+  // to sends a message written in a project's chat to one of its agents
+  // instead (shared/messageTarget.ts).
+  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string }) =>
+    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined, ...to } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
   // openChatFile opens a file sent in a chat with the system's default app:
   // the desktop downloads it first, a browser saves it.
@@ -316,16 +395,17 @@ export const api = {
   // A lead's AI tool and account, chosen in its composer: what it can switch
   // to, and the choice, which applies from its next message. project is the
   // project's name, or T.HomeProject for the Home chat.
-  chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
-  setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
+  // ref is the chat's lead's: a session's, or the Home chat's.
+  chatRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
+  setChatRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // An agent's composer moves it to another account of its own tool, at
   // once, in the lead's shapes (an agent's tool can't change).
   agentRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
   setAgentRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
-  chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
-  chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
+  chatCache: (ref: string) => call<T.ChatCache>('GET', `${chatBase(ref)}/cache`),
+  chooseChatCache: (ref: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${chatBase(ref)}/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
   // The file tree and viewer beside a chat (components/files).
   listFolder: (ref: string, path: string, ignored: boolean) =>
@@ -390,6 +470,14 @@ export const api = {
       keyringSecret,
     } satisfies T.ImportFromBrowserRequest);
   },
+  // Seal cookies read and decrypted on the host (a Windows app-bound browser
+  // the daemon in the VM can't open; the host read them by launching the
+  // browser itself). source names the browser and profile for the card.
+  importDecryptedCookies: (name: string, source: string, cookies: T.ImportedCookie[]) =>
+    call<T.BrowserCookies>('POST', `${project(name)}/browser-cookies/from-browser-decrypted`, {
+      source,
+      cookies,
+    } satisfies T.ImportDecryptedCookiesRequest),
 
   // SnapShots waiting for the composer (agentbox snap), and sending one.
   snaps: () => call<T.Snap[]>('GET', '/v1/snaps'),
@@ -476,6 +564,12 @@ export const api = {
   // the daemon asks of a phone (internal/daemon/lan.go).
   mergePullRequest: (project: string, number: number, method: string, confirmed?: boolean) =>
     call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method, confirmed } satisfies T.MergePullRequestRequest),
+  // mergeWhenGreen resolves an agent's work and has the daemon merge its
+  // pull request once its checks pass; cancelMergeWhenGreen takes that back,
+  // or dismisses one the daemon gave up on.
+  mergeWhenGreen: (project: string, number: number, req: T.MergeWhenGreenRequest) =>
+    call<T.MergeWhenGreen>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge-when-green`, req satisfies T.MergeWhenGreenRequest),
+  cancelMergeWhenGreen: (project: string, number: number) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge-when-green`),
   pullRequestDetail: (project: string, number: number) => call<T.PullRequestDetail>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}`),
   pullRequestFiles: (project: string, number: number) => call<T.PullRequestFiles>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/files`),
   pullFileDiff: (project: string, number: number, path: string) =>
@@ -486,12 +580,56 @@ export const api = {
     window.agentbox.chatImageUrl(`/v1/projects/${encodeURIComponent(project)}/pulls/image?src=${encodeURIComponent(src)}`),
 
   saveGitHubToken: (token: string, account?: string) => call<{ user: string }>('POST', '/v1/auth/github', { token, account } satisfies T.GitHubTokenRequest),
+  // Signing in from the app: the daemon runs `gh auth login --web` as a job, and
+  // says which code to enter while it waits for you to enter it.
+  startGitHubLogin: (account?: string) => call<T.Job>('POST', '/v1/auth/github/login', { account } satisfies T.GitHubLoginRequest),
+  githubLogin: (job: string) => call<T.GitHubLogin>('GET', `/v1/auth/github/login/${encodeURIComponent(job)}`),
+  // githubRepos lists what the default GitHub account can push to, newest
+  // first: the first run's first project is cloned from it.
+  githubRepos: () => call<T.GitHubRepo[]>('GET', '/v1/github/repos'),
   removeGitHubAccount: (account: string) => call<void>('DELETE', `/v1/auth/github/${encodeURIComponent(account)}`),
   setDefaultGitHubAccount: (account: string) => call<void>('POST', `/v1/auth/github/${encodeURIComponent(account)}/default`),
   renameGitHubAccount: (account: string, name: string) =>
     call<T.RenamedGitHubAccount>('POST', `/v1/auth/github/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameGitHubAccountRequest),
 
-  projectChat: (project: string) => call<T.ProjectChat>('GET', `/v1/projects/${encodeURIComponent(project)}/lead`),
+  // session undefined is the session most recently active.
+  projectChat: (name: string, session?: string) => call<T.ProjectChat>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`),
+  // An untitled session's topic is the daemon's placeholder, in English: it
+  // reads in the app's language until its first turn names it.
+  leadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions`).then((list) => list.map(untitledTopic)),
+  // With no topic the session is untitled, and named after its first turn;
+  // from is the session whose tool, model, mode and effort it starts on.
+  newLeadSession: (name: string, req: T.NewLeadSessionRequest = {}) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest).then(untitledTopic),
+  renameLeadSession: (name: string, session: string, topic: string) =>
+    call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { topic } satisfies T.LeadSessionPatch),
+  // A tab pinned before the others, or unpinned; and the order the tabs were
+  // dragged into, which answers the open sessions in it.
+  pinLeadSession: (name: string, session: string, pinned: boolean) =>
+    call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { pinned } satisfies T.LeadSessionPatch).then(untitledTopic),
+  orderLeadSessions: (name: string, ids: string[]) =>
+    call<T.LeadSession[]>('PUT', `${project(name)}/sessions/order`, { ids } satisfies T.LeadSessionOrder).then((list) => list.map(untitledTopic)),
+  // The sessions in the chat's history (closeLeadSession), the most recently
+  // closed first; reopenLeadSession brings one back, deleteLeadSession removes
+  // one, open or closed, for good.
+  closedLeadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions?closed=true`).then((list) => list.map(untitledTopic)),
+  closeLeadSession: (name: string, session: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/close`).then(untitledTopic),
+  reopenLeadSession: (name: string, session: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/reopen`).then(untitledTopic),
+  // The session was on screen at at: every window and the phone show it read.
+  seeLeadSession: (name: string, session: string, at?: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/seen`, { at } satisfies T.SeeLeadSessionRequest).then(untitledTopic),
+  deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),
+  // snoozeLeadSession hides an open session from the tabs until a time, or
+  // with none brings it back now; it comes back early when one of its agents
+  // needs you (daemon/sessionsettle.go).
+  snoozeLeadSession: (name: string, session: string, until?: Date) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/snooze`, { until: until?.toISOString() } satisfies T.LeadSessionSnooze).then(untitledTopic),
+  // sessionOutput is what a session made: its agents, live and retired, with
+  // their pull requests.
+  sessionOutput: (name: string, session: string) => call<T.SessionOutput>('GET', `${project(name)}/sessions/${encodeURIComponent(session)}/output`),
+  handOverAgent: (ref: string, session: string) => call<void>('PUT', `${agent(ref)}/session`, { session } satisfies T.AgentSessionRequest),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),
 
   // Project memory (D72): what the project knows, over and above any one
@@ -600,6 +738,12 @@ export const api = {
   exportMedia: (ref: string) => call<T.ExportResult>('POST', `${agent(ref)}/media/export`, {}),
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
+  // Presence (lib/presence.ts): this window's lease on what it shows, and an
+  // agent's live resources, sampled while a lease asks for them.
+  renewPresence: (req: T.PresenceRequest) => call<T.PresenceResponse>('PUT', '/v1/presence', req),
+  endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
+  agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
+  pressure: () => call<T.PressureStatus>('GET', '/v1/pressure'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
@@ -609,6 +753,7 @@ export const api = {
   diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
+  trimDisk: () => call<T.DiskTrim>('POST', '/v1/usage/disk/trim'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
@@ -621,7 +766,7 @@ export const api = {
   saveCursorKey: (apiKey: string, account?: string) =>
     call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey, account } satisfies T.CursorKeyRequest),
   startCursorLogin: (account?: string) => call<T.CursorLogin>('POST', '/v1/auth/cursor/login', { account } satisfies T.CursorLoginRequest),
-  // Codex, OpenCode and Cursor accounts: an API key stored under a name
+  // Codex, OpenCode, Cursor and Gemini CLI accounts: an API key stored under a name
   // (OpenCode's for a provider), and the stored ones managed like GitHub's.
   saveToolAccount: (tool: string, req: T.ToolAccountRequest) => call<void>('POST', `/v1/auth/accounts/${encodeURIComponent(tool)}`, req),
   removeToolAccount: (tool: string, account: string, provider?: string) =>
@@ -635,6 +780,12 @@ export const api = {
       { name } satisfies T.RenameToolAccountRequest,
     ),
   cursorLogin: () => call<T.CursorLogin>('GET', '/v1/auth/cursor/login'),
+  // Gemini CLI's Google sign-in from the app: the same "open this page, paste
+  // the code" flow as Claude Code's, run by the daemon as a job.
+  startGeminiLogin: (account?: string) => call<T.Job>('POST', '/v1/auth/gemini/login', { account } satisfies T.ClaudeLoginRequest),
+  geminiLogin: (job: string) => call<T.ClaudeLogin>('GET', `/v1/auth/gemini/login/${encodeURIComponent(job)}`),
+  geminiLoginCode: (job: string, code: string) =>
+    call<void>('POST', `/v1/auth/gemini/login/${encodeURIComponent(job)}/code`, { code } satisfies T.ClaudeLoginCodeRequest),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and
   // says which page to open while it waits for you to approve it.
@@ -647,8 +798,19 @@ export const api = {
   renameClaudeAccount: (account: string, name: string) =>
     call<T.RenamedClaudeAccount>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameClaudeAccountRequest),
   setup: () => call<T.SetupStatus>('GET', '/v1/setup'),
+  // The doctor: Setup's checks as what's wrong and what fixes it, the fixes
+  // that fix themselves, and a hand-off of a failure to the Home chat.
+  doctor: () => call<T.DoctorReport>('GET', '/v1/doctor'),
+  doctorFix: (req: T.DoctorFixRequest = {}) => call<T.DoctorFixResult>('POST', '/v1/doctor/fix', req),
+  doctorHome: (req: T.DoctorHomeRequest) => call<T.DoctorHomeResult>('POST', '/v1/doctor/home', req),
   image: () => call<T.ImageStatus>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),
+
+  // Export and import of this instance's data (Settings → Export / Import).
+  exportPreview: () => call<T.InstanceExportPreview>('GET', '/v1/transfer/export'),
+  exportInstance: (req: T.InstanceExportRequest) => call<T.Job>('POST', '/v1/transfer/export', req),
+  inspectImport: (req: T.InstanceImportInspectRequest) => call<T.InstanceImportContents>('POST', '/v1/transfer/import/inspect', req),
+  importInstance: (req: T.InstanceImportRequest) => call<T.Job>('POST', '/v1/transfer/import', req),
 
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),
   job: (id: string) => call<T.Job>('GET', `/v1/jobs/${id}`),

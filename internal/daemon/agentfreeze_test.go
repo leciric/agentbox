@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +43,7 @@ func (f *fakeMachineCgroups) Freeze(instance string, on bool) error {
 	}
 	return nil
 }
-func (f *fakeMachineCgroups) Reclaim(instance string) error {
+func (f *fakeMachineCgroups) Reclaim(_ context.Context, instance string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reclaimed = append(f.reclaimed, instance)
@@ -72,6 +73,7 @@ func newFleetTest(t *testing.T, on bool) *fleetTest {
 	p.srv.machineCgroups = mc
 	pol := p.srv.heavy.g.Policy
 	p.srv.frozen.f.Policy = pol
+	p.srv.frozen.f.Queue = pressure.Queue{}
 	ctx := context.Background()
 	newer := state.Agent{
 		Project: "hello-stack", Name: "agent-02", Instance: "ab-hello-stack-agent-02", AI: "none",
@@ -98,6 +100,7 @@ func (f *fleetTest) step(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.srv.syncFleet(ctx, agents)
+	f.srv.countRunning(agents)
 	f.srv.stepPressure(ctx)
 }
 
@@ -126,10 +129,12 @@ func TestFleetOffFreezesNothing(t *testing.T) {
 	if f.mc.isFrozen(f.newer.Instance) || f.mc.isFrozen(f.instance) {
 		t.Fatal("a machine was frozen with the setting off")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// A boot still waits for the memory, On hold: admission is everybody's
+	// (admission.go, TestBootWaitsOnHoldForMemory).
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
-		t.Fatalf("a boot waited with the setting off: %v", err)
+	if err := f.srv.admitMachine(ctx, f.newer); err == nil {
+		t.Fatal("a machine booted with 0.5 GiB available")
 	}
 }
 
@@ -368,5 +373,80 @@ func TestFleetThawsOneItForgot(t *testing.T) {
 	}
 	if f.mc.isFrozen(f.newer.Instance) {
 		t.Fatal("the machine the fleet froze was never thawed once calm")
+	}
+}
+
+// 2026-10-24: another writer held the database past its busy timeout and the
+// list of frozen agents was lost, so a restarted daemon wouldn't have thawed
+// them. It is kept, and written once the database is free.
+func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	f.srv.frozen.saveBackoff = []time.Duration{time.Millisecond}
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite", "file:"+f.paths.StateDB()+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every attempt fails while the lock is held, and nothing is marked saved.
+	if f.srv.saveFleetFrozen(ctx, []string{"hello-stack/agent-02"}) {
+		t.Fatal("saved while the database was locked")
+	}
+	if !strings.Contains(f.log.String(), "will try again") {
+		t.Fatalf("no word of it in the log:\n%s", f.log.String())
+	}
+	fl := f.srv.frozen
+	fl.mu.Lock()
+	fl.want = []string{"hello-stack/agent-02"}
+	fl.saving = true
+	fl.mu.Unlock()
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+
+	// The next step finds saved behind want, and writes it.
+	f.srv.saveFrozenSet(ctx)
+	got, err := f.srv.store.Setting(ctx, state.SettingAgentFreezeFrozen)
+	if err != nil || !strings.Contains(got, "hello-stack/agent-02") {
+		t.Fatalf("stored %q, %v", got, err)
+	}
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	if fl.saving || !equalStrings(fl.saved, fl.want) {
+		t.Fatalf("saving %v, saved %v, want %v", fl.saving, fl.saved, fl.want)
+	}
+}
+
+// Whether an agent's chat runs a turn is asked before the fleet's lock is
+// taken: Busy waits on the chat's own lock, which a chat storing its items
+// holds while the database is slow, and the pressure loop can't freeze
+// anything while the fleet's lock is held.
+func TestSyncFleetAsksTheChatsOutsideTheFleetsLock(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	var asked, locked bool
+	f.srv.fleetChatBusy = func(state.Agent) bool {
+		asked = true
+		if f.srv.frozen.mu.TryLock() {
+			f.srv.frozen.mu.Unlock()
+		} else {
+			locked = true
+		}
+		return true
+	}
+	f.step(t)
+	if !asked || locked {
+		t.Fatalf("asked the chats %t, with the fleet's lock held %t", asked, locked)
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"agentbox/internal/naming"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
@@ -60,7 +61,13 @@ var Tools = map[string]Tool{
 	// Cursor runs through its SDK, which has no command line, so a Cursor
 	// agent has only the chat (interfaceFor).
 	"cursor": {},
-	"none":   {},
+	// Gemini CLI's terminal interface is its TUI, and --yolo approves every
+	// tool call, which an autonomous agent's machine-as-sandbox allows.
+	"gemini": {Command: "gemini", Autonomous: "gemini --yolo"},
+	// Copilot's terminal interface is its TUI; --yolo allows every tool, path
+	// and URL, and autopilot keeps it going without asking.
+	"copilot": {Command: "copilot " + strings.Join(copilotFlags, " "), Autonomous: "copilot " + strings.Join(copilotFlags, " ") + " --yolo --autopilot"},
+	"none":    {},
 }
 
 // claudeChatDefaults are the chat settings a new Claude Code agent starts
@@ -84,15 +91,17 @@ var Tools = map[string]Tool{
 // tool's own default instead of failing, which is why an effort is checked
 // here, at creation, where saying no is still visible (see ChatChoices).
 func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model, effort, window *string) (map[string]string, error) {
-	chosenModel, err := m.chosenSetting(ctx, model, p.DirectAgentModel(), state.SettingDefaultClaudeModel, state.DefaultClaudeModel)
+	projectModel, projectEffort, projectWindow, projectMode := p.AgentDefaults("claude")
+	chosenModel, err := m.chosenSetting(ctx, model, projectModel, state.SettingDefaultClaudeModel, state.DefaultClaudeModel)
 	if err != nil {
 		return nil, err
 	}
-	chosenEffort, err := m.chosenSetting(ctx, effort, "", state.SettingDefaultClaudeEffort, state.DefaultClaudeEffort)
+	chosenEffort, err := m.chosenSetting(ctx, effort, projectEffort, state.SettingDefaultClaudeEffort, state.DefaultClaudeEffort)
 	if err != nil {
 		return nil, err
 	}
 	options := map[string]string{"model": chosenModel, "effort": chosenEffort}
+	setModeKind(options, projectMode)
 	w, err := m.Store.ClaudeWindows(ctx)
 	if err != nil {
 		return nil, err
@@ -117,9 +126,12 @@ func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model
 	// run on another — the project's, or one the lead picked — and a model
 	// without that window gets the compact window instead of a refusal, since
 	// nobody asked for this one.
-	def, err := m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow)
-	if err != nil {
-		return nil, err
+	// The project's window comes first, read the same forgiving way.
+	def := projectWindow
+	if def == "" {
+		if def, err = m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow); err != nil {
+			return nil, err
+		}
 	}
 	if def != "" {
 		if chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), def, installation); err == nil {
@@ -199,16 +211,29 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 		}
 		return nil
 	}
-	if ai == "cursor" {
-		// Cursor has models and, for some of them, effort levels, both its
+	if ai == "cursor" || ai == "copilot" {
+		// Cursor and Copilot have models and, for some of them, effort
+		// levels (Copilot's reasoning effort), both their
 		// own names. Neither is checked against a menu here: which models an
 		// account can run is Cursor's answer, and a model's levels differ from
 		// one model to the next, so the adapter falls back to the model's own
 		// default for a level it doesn't have and the chat shows what it runs.
 		for name, chosen := range map[string]*string{"model": model, "effort": effort} {
 			if chosen != nil && strings.TrimSpace(*chosen) == "" {
-				return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s Cursor agents start on", name, name)
+				return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s %s agents start on", name, name, ChatAdapters[ai].Tool)
 			}
+		}
+		return nil
+	}
+	if ai == "gemini" {
+		// Gemini CLI has a model and no effort: its ACP mode offers no
+		// thinking setting. Its models aren't checked here either: the
+		// menu is the one its session names, which depends on the login.
+		if effort != nil {
+			return errors.New("the effort is a Claude Code and Cursor setting, and Gemini CLI agents have none: leave it out")
+		}
+		if model != nil && strings.TrimSpace(*model) == "" {
+			return errors.New("an empty model isn't a choice: leave it out to use the model Gemini CLI agents start on")
 		}
 		return nil
 	}
@@ -265,7 +290,7 @@ type Manager struct {
 	IOSScreenshot func(ctx context.Context, a state.Agent) ([]byte, error)
 	// LeadSocketPath, when set, returns the socket a project's chat reaches
 	// AgentBox through. Its tools are registered against it.
-	LeadSocketPath func(project string) string
+	LeadSocketPath func(project, session string) string
 	// DesktopTheme, when set, is the palette each agent's desktop is painted
 	// in — the host's Omarchy theme, when AgentBox is following one. Unset is
 	// BrandDesktopTheme, which is what the command-line tool gets.
@@ -281,6 +306,10 @@ type Manager struct {
 	// agent gets its node_modules there.
 	NodeModules   *nodemods.Store
 	NodeModulesOn func(ctx context.Context) bool
+	// WorktreeTrashed, when set, is told a destroyed agent's worktree was
+	// moved into Paths.WorktreeTrash, for EmptyWorktreeTrash to delete. Unset,
+	// a destroy deletes the worktree itself.
+	WorktreeTrashed func()
 	// ShareRoom, when set, waits for the shared home to have room for a
 	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
 	// for every inode the VM has looked at, and walking a worktree's
@@ -296,6 +325,9 @@ type Manager struct {
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
 	ghReleases string
+	// nodeDist, when set, is where the lead's Node is downloaded from
+	// instead of nodejs.org/dist, for tests.
+	nodeDist string
 
 	// RecheckAgentAPI runs Start's background recheck of a freshly booted
 	// agent's in-agent API socket (goRecheckAgentAPI); nil, the default, runs
@@ -357,12 +389,14 @@ type CreateOptions struct {
 	// ClaudeAccount picks a stored Claude Code account for this agent;
 	// empty means the project's account, then the machine's default.
 	ClaudeAccount string
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
-	// do the same for the other tools; each only applies to an agent that
-	// runs its tool.
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount,
+	// GeminiAccount and CopilotAccount do the same for the other tools; each
+	// only applies to an agent that runs its tool.
 	CodexAccount     string
 	OpenCodeAccounts state.AccountMap
 	CursorAccount    string
+	GeminiAccount    string
+	CopilotAccount   string
 	// GitHubAccount picks a stored GitHub account for this agent; empty means
 	// the project's account, then the machine's default, then none.
 	GitHubAccount string
@@ -372,6 +406,9 @@ type CreateOptions struct {
 	// project's chat when it genuinely finishes: state.FinishNoticesChat,
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
 	// the project's own FinishNotices is state.FinishNoticesLead.
+	// LeadSession is the session of the project's chat that asked for the
+	// agent, whose notices it goes to; "" is Main, as for the user's own.
+	LeadSession  string
 	FinishNotice string
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name: nil for every one, empty for none. Each must be one
@@ -400,7 +437,7 @@ type CreateOptions struct {
 // Create builds an agent from the project's saved base, or from the base image.
 func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions) (state.Agent, error) {
 	if _, ok := Tools[opts.AI]; !ok {
-		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor or none", opts.AI)
+		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor, gemini, copilot or none", opts.AI)
 	}
 	if opts.FinishNotice != "" && opts.FinishNotice != state.FinishNoticesChat && opts.FinishNotice != state.FinishNoticesOff {
 		return state.Agent{}, fmt.Errorf("unknown finish notice %q: use chat or off, or leave it out to follow the project", opts.FinishNotice)
@@ -443,7 +480,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	}
 	// Before anything is copied: the agent needs a login for its AI tool, and
 	// a machine with the tool on it.
-	logins, err := m.CheckLogin(opts.AI, p, Logins{Claude: opts.ClaudeAccount, Codex: opts.CodexAccount, OpenCode: opts.OpenCodeAccounts, Cursor: opts.CursorAccount})
+	logins, err := m.CheckLogin(opts.AI, p, Logins{Claude: opts.ClaudeAccount, Codex: opts.CodexAccount, OpenCode: opts.OpenCodeAccounts, Cursor: opts.CursorAccount, Gemini: opts.GeminiAccount, Copilot: opts.CopilotAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -523,6 +560,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		baseCommit:    commit,
 		copyEnv:       opts.CopyEnv,
 		finishNotice:  opts.FinishNotice,
+		leadSession:   opts.LeadSession,
 		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
@@ -601,11 +639,27 @@ type plan struct {
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
 	finishNotice  string                                   // this agent's own choice; see CreateOptions.FinishNotice
+	leadSession   string                                   // see CreateOptions.LeadSession
 	connectors    []string                                 // see CreateOptions.Connectors
 	task          string                                   // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
 	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
 }
+
+// LeftBehindError is a create that failed and couldn't take back the agent it
+// had already stored: the agent is still listed, and creating it again would
+// make a second one. Every other error from Create means nothing was created.
+type LeftBehindError struct {
+	Agent string
+	Err   error // why the create failed
+	Undo  error // why removing the agent failed
+}
+
+func (e *LeftBehindError) Error() string {
+	return fmt.Sprintf("%v; %s was left behind (removing it failed: %v)", e.Err, e.Agent, e.Undo)
+}
+
+func (e *LeftBehindError) Unwrap() error { return e.Err }
 
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
 // the finished steps are undone.
@@ -644,10 +698,13 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		CodexAccount:     pl.logins.Codex,
 		OpenCodeAccounts: pl.logins.OpenCode,
 		CursorAccount:    pl.logins.Cursor,
+		GeminiAccount:    pl.logins.Gemini,
+		CopilotAccount:   pl.logins.Copilot,
 		GitHubAccount:    pl.githubAccount,
 		Interface:        pl.iface,
 		FinishNotice:     pl.finishNotice,
 		Connectors:       pl.connectors,
+		CreatedBySession: pl.leadSession,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -656,12 +713,19 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// Undo steps run even when ctx was cancelled (Ctrl-C).
 	cleanup := context.WithoutCancel(ctx)
 	var undo []func()
+	// leftBehind is why the agent's own row couldn't be taken back out: the
+	// one leftover that makes trying again create a second agent.
+	var leftBehind error
 	fail := func(step string, err error) (state.Agent, error) {
 		m.logf("%s failed; rolling back", step)
 		for i := len(undo) - 1; i >= 0; i-- {
 			undo[i]()
 		}
-		return state.Agent{}, &CreateError{Ref: a.Ref(), Step: step, Err: err}
+		err = &CreateError{Ref: a.Ref(), Step: step, Err: err}
+		if leftBehind != nil {
+			return state.Agent{}, &LeftBehindError{Agent: a.Ref(), Err: err, Undo: leftBehind}
+		}
+		return state.Agent{}, err
 	}
 
 	if pl.queued != nil {
@@ -674,7 +738,11 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	} else if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
-	undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
+	undo = append(undo, func() {
+		if err := m.Store.RemoveAgent(cleanup, a.Project, a.Name); err != nil && !errors.Is(err, state.ErrNotFound) {
+			leftBehind = err
+		}
+	})
 
 	if a.AI == "claude" {
 		options, err := m.claudeChatDefaults(ctx, pl.project, pl.model, pl.effort, pl.contextWindow)
@@ -687,19 +755,45 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	// OpenCode has no installation-wide default model of its own — its models
 	// are a provider's, not a plan's — so only a model chosen for this one
-	// agent is stored. The chat applies it over ACP when the session starts.
-	if a.AI == "opencode" && pl.model != nil {
-		options := map[string]string{"model": strings.TrimSpace(*pl.model)}
-		if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
-			return fail("chat defaults", err)
+	// agent, or by its project, is stored. The chat applies it over ACP when
+	// the session starts. Codex has neither: only the project's permission
+	// mode, when it names one.
+	if a.AI == "opencode" || a.AI == "codex" {
+		projectModel, _, _, projectMode := pl.project.AgentDefaults(a.AI)
+		options := map[string]string{}
+		if pl.model != nil {
+			options["model"] = strings.TrimSpace(*pl.model)
+		} else if projectModel != "" && a.AI == "opencode" {
+			options["model"] = projectModel
+		}
+		setModeKind(options, projectMode)
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
 		}
 	}
 
 	// Cursor's model and effort: the ones chosen for this agent, else the
-	// ones Settings → Models names for new Cursor agents, else none, which is
-	// Cursor's own Auto.
+	// project's, else the ones Settings → Models names for new Cursor agents,
+	// else none, which is Cursor's own Auto.
 	if a.AI == "cursor" {
-		options, err := m.cursorChatDefaults(ctx, pl.model, pl.effort)
+		options, err := m.cursorChatDefaults(ctx, pl.project, pl.model, pl.effort)
+		if err != nil {
+			return fail("chat defaults", err)
+		}
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
+		}
+	}
+
+	// Gemini CLI's and Copilot's model: the one chosen for this agent, else
+	// the project's, else the one Settings → Models names for the tool's new
+	// agents, else none, which is the tool's own default.
+	if a.AI == "gemini" || a.AI == "copilot" {
+		options, err := m.toolChatDefaults(ctx, a.AI, pl.project, pl.model, pl.effort)
 		if err != nil {
 			return fail("chat defaults", err)
 		}
@@ -762,6 +856,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	a.Status = state.AgentReady
 	m.EnsureImageCache(ctx, a)
+	m.EnsureDockerOnDemand(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
@@ -839,7 +934,10 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
 		func(ctx context.Context, _ incus.Client) error { return m.admit(ctx, a) },
-		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
+		func(ctx context.Context, c incus.Client) error {
+			ClearStaleCgroups(a.Instance)
+			return c.Start(ctx, a.Instance)
+		},
 	)
 	for i, step := range steps {
 		if err := run(step); err != nil {
@@ -882,6 +980,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// Before the brief, which names them, and the session, so the AI tool
 	// finds node_modules already there when its lockfile was installed before.
 	m.ensureNodeModules(ctx, a)
+	m.ensureBuildOutputs(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -922,26 +1021,43 @@ func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
 	if err != nil {
 		return nil
 	}
-	if ai == "opencode" {
-		if installed.Components.OpenCode {
+	if ai == "codex" {
+		if installed.Components.Codex {
 			return nil
 		}
-		return fmt.Errorf("OpenCode is %s: run agentbox image build --opencode (or use --ai claude)", image.OpenCodeMissing)
+		return fmt.Errorf("this agent's Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
 	}
-	if installed.Components.Codex {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if version == opencode.V2 {
+		// Installed by the agent itself at its first start on OpenCode 2, so
+		// the image has nothing to carry.
 		return nil
 	}
-	return fmt.Errorf("this agent's Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
+	if installed.Components.OpenCode {
+		return nil
+	}
+	return fmt.Errorf("OpenCode is %s: run agentbox image build --opencode (or use --ai claude)", image.OpenCodeMissing)
 }
 
 // OpenCodeReady reports whether an agent could run OpenCode right now: the
 // base image was built with it, and AgentBox has a login to give it. Both
 // halves matter and the image comes first, exactly as they do for Codex — a
-// login is no use to an agent whose machine has no OpenCode to run.
+// login is no use to an agent whose machine has no OpenCode to run. OpenCode 2
+// is not in the image: each agent installs it on demand, so under it only the
+// login counts.
 func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
-	on, err := m.Store.Flag(ctx, state.SettingImageOpenCode)
-	if err != nil || !on {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
 		return false, err
+	}
+	if version != opencode.V2 {
+		on, err := m.Store.Flag(ctx, state.SettingImageOpenCode)
+		if err != nil || !on {
+			return false, err
+		}
 	}
 	return m.Creds.HasOpenCodeLogin(nil), nil
 }
@@ -951,30 +1067,91 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 // in a machine that still lacks it), so only the sign-in decides.
 func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin("") }
 
-// cursorChatDefaults is the chat options a new Cursor agent starts with.
-func (m *Manager) cursorChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
+// GeminiReady reports whether an agent could run Gemini CLI right now. Every
+// base image has it (or gets it from image.UpdateTools, and a chat installs
+// it in a machine that still lacks it), so only the login decides.
+func (m *Manager) GeminiReady() bool { return m.Creds.HasGeminiLogin("") }
+
+// CopilotReady reports whether an agent could run GitHub Copilot CLI right
+// now: each machine installs it (it isn't in the published image), and a chat
+// installs it in one that still lacks it, so only the login decides.
+func (m *Manager) CopilotReady() bool { return m.Creds.HasCopilotLogin("") }
+
+// setModeKind stores the permission mode a project starts its agents on, by
+// kind: plan is the chat's Plan toggle (chat/plan.go), on beside whatever
+// level the agent would have had, and any other kind is turned into its tool's
+// own value once the session names its modes.
+func setModeKind(options map[string]string, kind string) {
+	switch kind {
+	case "":
+	case "plan":
+		options[api.ChatOptionPlan] = "true"
+	default:
+		options[state.ChatOptionModeKind] = kind
+	}
+}
+
+// cursorChatDefaults is the chat options a new Cursor agent of p starts with.
+// The project's model and effort, when it names either, take the place of the
+// pair Settings → Models names: an effort belongs to a model, so the two are
+// never mixed. For the same reason an effort isn't carried over to a model
+// chosen for this one agent.
+func (m *Manager) cursorChatDefaults(ctx context.Context, p state.Project, model, effort *string) (map[string]string, error) {
 	options := map[string]string{}
-	for id, chosen := range map[string]*string{"model": model, "effort": effort} {
-		if chosen != nil {
-			options[id] = strings.TrimSpace(*chosen)
-			continue
-		}
-		key := state.SettingDefaultCursorModel
-		if id == "effort" {
-			key = state.SettingDefaultCursorEffort
-		}
-		value, err := m.Store.Setting(ctx, key)
-		if err != nil {
+	defModel, defEffort, _, mode := p.AgentDefaults("cursor")
+	setModeKind(options, mode)
+	if defModel == "" && defEffort == "" {
+		var err error
+		if defModel, err = m.Store.Setting(ctx, state.SettingDefaultCursorModel); err != nil {
 			return nil, err
 		}
-		if value = strings.TrimSpace(value); value != "" {
-			options[id] = value
+		if defEffort, err = m.Store.Setting(ctx, state.SettingDefaultCursorEffort); err != nil {
+			return nil, err
 		}
 	}
-	// An effort belongs to a model: Settings' effort is the one for Settings'
-	// model, so it isn't carried over to a model chosen for this one agent.
-	if model != nil && effort == nil {
-		delete(options, "effort")
+	if model != nil {
+		options["model"] = strings.TrimSpace(*model)
+	} else if v := strings.TrimSpace(defModel); v != "" {
+		options["model"] = v
+	}
+	if effort != nil {
+		options["effort"] = strings.TrimSpace(*effort)
+	} else if v := strings.TrimSpace(defEffort); v != "" && model == nil {
+		options["effort"] = v
+	}
+	return options, nil
+}
+
+// toolChatDefaults is the chat options a new Gemini CLI or Copilot agent of p
+// starts with: the model chosen for it, else the project's, else Settings →
+// Models', the project's permission mode, and for Copilot the effort chosen
+// for it or by the project (Settings → Models names none), which, belonging
+// to a model, isn't carried over to a model chosen for this one agent.
+func (m *Manager) toolChatDefaults(ctx context.Context, tool string, p state.Project, model, effort *string) (map[string]string, error) {
+	options := map[string]string{}
+	defModel, defEffort, _, mode := p.AgentDefaults(tool)
+	setModeKind(options, mode)
+	if defModel == "" {
+		setting := state.SettingDefaultGeminiModel
+		if tool == "copilot" {
+			setting = state.SettingDefaultCopilotModel
+		}
+		var err error
+		if defModel, err = m.Store.Setting(ctx, setting); err != nil {
+			return nil, err
+		}
+	}
+	if model != nil {
+		options["model"] = strings.TrimSpace(*model)
+	} else if v := strings.TrimSpace(defModel); v != "" {
+		options["model"] = v
+	}
+	if tool == "copilot" {
+		if effort != nil {
+			options["effort"] = strings.TrimSpace(*effort)
+		} else if v := strings.TrimSpace(defEffort); v != "" && model == nil {
+			options["effort"] = v
+		}
 	}
 	return options, nil
 }
@@ -1164,7 +1341,9 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	// ~/.codex/auth.json, Cursor's SDK's ~/.cursor/sdk/auth.json (an API key
 	// or a browser sign-in alike, credentials.CursorLogin), and OpenCode's
 	// every provider in $XDG_DATA_HOME/opencode — the agent's own home, never
-	// the host's (D6).
+	// the host's (D6). OpenCode 2 keeps its credentials in a database there
+	// instead of an auth.json, so they are imported after these files are
+	// written (importOpenCodeAccounts).
 	logins, err := m.toolLoginFiles(ctx, a)
 	if err != nil {
 		return err
@@ -1217,7 +1396,11 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		return err
 	}
 	codexConfig := codexConfigFor(a.Worktree, servers, window)
-	opencodeConfig, err := openCodeConfig(servers, a.Autonomous)
+	ocVersion, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	opencodeConfig, err := openCodeConfig(ocVersion, servers, a.Autonomous)
 	if err != nil {
 		return err
 	}
@@ -1228,6 +1411,9 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		file{home + "/.codex/config.toml", codexConfig, 0o600},
 		file{home + "/.config/opencode/opencode.json", string(opencodeConfig), 0o600},
 		file{home + "/" + cursorMCPFile, string(cursorMCPConfig(servers)), 0o600},
+		file{home + "/" + geminiSettingsFile, string(geminiSettings(servers, m.geminiAuthType(ctx, a))), 0o600},
+		file{home + "/" + copilotMCPFile, string(copilotMCPConfig(servers, nil)), 0o600},
+		file{home + "/" + copilotSettingsFile, string(copilotSettings(a.Worktree)), 0o600},
 	)
 
 	text, err := m.brief(ctx, a, ip, envFiles, task)
@@ -1242,6 +1428,9 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		if err := m.Incus.WriteFile(ctx, a.Instance, f.path, []byte(f.content), m.User.UID, m.User.GID, f.mode); err != nil {
 			return err
 		}
+	}
+	if err := m.importOpenCodeAccounts(ctx, a, ocVersion); err != nil {
+		return err
 	}
 	// The compact window, the subagent limits and the output caps go in now
 	// rather than waiting for the first chat, because the agent's terminal
@@ -1292,24 +1481,42 @@ func (m *Manager) agentCompactWindow(ctx context.Context, a state.Agent) (int64,
 }
 
 // openCodeConfig is OpenCode's ~/.config/opencode/opencode.json: the MCP
-// servers every AI tool gets, and — for an autonomous agent — the permissions
-// it runs with.
+// servers every AI tool gets, and, for an autonomous agent, the permissions it
+// runs with.
 //
-// An MCP server is a "local" one there: the command and its arguments as a
-// single argv array, rather than Claude Code's command-and-args pair or
-// Codex's TOML table. "permission": "allow" at the top level is OpenCode's
-// shorthand for every permission, and is what --dangerously-skip-permissions
-// is for Claude Code: the agent's machine is the sandbox and there is nobody
-// at its chat to answer. An agent that stops to ask gets no permission key at
-// all, so OpenCode asks and the chat shows the request.
-func openCodeConfig(servers []mcpServer, autonomous bool) ([]byte, error) {
+// An MCP server is a "local" one in both versions: the command and its
+// arguments as a single argv array, rather than Claude Code's command-and-args
+// pair or Codex's TOML table. The two versions read different shapes around
+// them. OpenCode 1 takes its servers as a map under "mcp" and
+// "permission": "allow" as shorthand for every permission, which is what
+// --dangerously-skip-permissions is for Claude Code: the agent's machine is
+// the sandbox and there is nobody at its chat to answer. OpenCode 2 nests the
+// servers under "mcp.servers" and takes an ordered "permissions" ruleset. It
+// still parses OpenCode 1's shape, but that compatibility layer drops a local
+// server's "environment", which is where the lead's AGENTBOX_SOCKET lives, so
+// each version's own shape is written rather than leaning on it.
+//
+// An agent that stops to ask gets no permission key at all, so the tool asks
+// and the chat shows the request.
+func openCodeConfig(version opencode.Release, servers []mcpServer, autonomous bool) ([]byte, error) {
+	config := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	if version == opencode.V2 {
+		// D84's depth ceiling has no OpenCode 2 equivalent: the key is still in
+		// its schema, marked deprecated, and its config drops it without a
+		// word. Nothing here can hold a subagent to it.
+		byName := map[string]any{}
+		for _, s := range servers {
+			byName[s.name] = openCodeServer(s.command, s.args, nil)
+		}
+		config["mcp"] = map[string]any{"servers": byName}
+		if autonomous {
+			config["permissions"] = []map[string]string{{"action": "*", "resource": "*", "effect": "allow"}}
+		}
+		return json.Marshal(config)
+	}
 	mcp := map[string]any{}
 	for _, s := range servers {
-		mcp[s.name] = map[string]any{
-			"type":    "local",
-			"command": append([]string{s.command}, s.args...),
-			"enabled": true,
-		}
+		mcp[s.name] = openCodeServer(s.command, s.args, nil)
 	}
 	// subagent_depth prevents a subagent from launching one of its own, the
 	// same ceiling Claude Code's CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH holds it
@@ -1321,15 +1528,38 @@ func openCodeConfig(servers []mcpServer, autonomous bool) ([]byte, error) {
 	// like Claude Code's autoCompactWindow or Codex's
 	// model_auto_compact_token_limit, so there is nothing here for
 	// state.ClaudeCompactWindow to drive (D83).
-	config := map[string]any{
-		"$schema":        "https://opencode.ai/config.json",
-		"mcp":            mcp,
-		"subagent_depth": opencodeSubagentDepth,
-	}
+	config["mcp"] = mcp
+	config["subagent_depth"] = opencodeSubagentDepth
 	if autonomous {
 		config["permission"] = "allow"
 	}
 	return json.Marshal(config)
+}
+
+// openCodeServer is one local MCP server as both OpenCode versions read it.
+// environment is only ever set for the lead, whose AgentBox MCP server needs
+// the daemon's socket.
+func openCodeServer(command string, args []string, environment map[string]string) map[string]any {
+	server := map[string]any{
+		"type":    "local",
+		"command": append([]string{command}, args...),
+		"enabled": true,
+	}
+	if len(environment) > 0 {
+		server["environment"] = environment
+	}
+	return server
+}
+
+// openCodeVersion is which OpenCode this installation runs. Every agent and
+// chat reads it from the installation's setting, so a change reaches them the
+// next time their tool starts.
+func (m *Manager) openCodeVersion(ctx context.Context) (opencode.Release, error) {
+	raw, err := m.Store.Setting(ctx, state.SettingOpenCodeVersion)
+	if err != nil {
+		return opencode.V1, err
+	}
+	return opencode.ReleaseOf(raw), nil
 }
 
 // codexSubagentLimit and opencodeSubagentDepth are Codex's and OpenCode's own
@@ -1383,8 +1613,9 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 		// call that takes longer than playwrightCallTimeout and restarts the
 		// server: browser_evaluate is page.evaluate, which no flag of the
 		// server's bounds, and one that never returned held an agent's turn
-		// until the agent was stopped.
-		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--timeout", playwrightCallTimeout.String(), "--",
+		// until the agent was stopped. --browser opens the machine's
+		// browser before a call when it closed for being idle (browser.sh).
+		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--browser", "--timeout", playwrightCallTimeout.String(), "--",
 			home + "/.local/share/mise/shims/playwright-mcp"},
 			"--cdp-endpoint", BrowserDevTools, "--output-dir", home+"/.cache/playwright-mcp", "--image-responses", "omit"), false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
@@ -1494,9 +1725,11 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		IP:             ip,
 		EnvFiles:       envFiles,
 		NodeModules:    m.nodeModulesDirs(a),
+		CargoTargets:   m.buildOutputDirs(a),
 		Secrets:        secretNames,
 		Android:        android.IsProject(a.Worktree),
 		IOS:            hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
+		IOSPorts:       p.IOSForwardPorts,
 		GitHub:         m.Creds.HasGitHubLogin(),
 		VM:             hostos.InVM(),
 		Host:           hostos.Name(),
@@ -1545,7 +1778,7 @@ func (m *Manager) blockFullSuite(ctx context.Context) bool {
 // tool, and the one Claude Code and Codex each read before their first token.
 func (m *Manager) briefPaths() []string {
 	home := "/home/" + m.User.Name
-	return []string{home + "/AGENTBOX.md", home + "/.claude/CLAUDE.md", home + "/.codex/AGENTS.md"}
+	return []string{home + "/AGENTBOX.md", home + "/.claude/CLAUDE.md", home + "/.codex/AGENTS.md", home + "/" + geminiBriefFile, home + "/" + copilotBriefFile}
 }
 
 // EnvPath is the shell file every agent sources, with its Compose project name
@@ -1558,6 +1791,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
 	env += m.packageCacheEnv()
 	env += workersScript
+	env += shimPathLine
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -1694,7 +1928,7 @@ func (m *Manager) RewriteBriefs(ctx context.Context, project string) error {
 		}
 		if a.IsLead() {
 			// The lead has no machine: its brief is a file in its private HOME.
-			if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project)); err != nil {
+			if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a)); err != nil {
 				failed = append(failed, a.Ref())
 			}
 			continue
@@ -1876,7 +2110,15 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
-	window, err := m.toolWindowScript(a)
+	// Only a session about to be made opens the tool's window.
+	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
+	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
+		m.prepareToolWindow(ctx, a)
+	}
+	if err := m.writeHeavyShims(ctx, a); err != nil {
+		m.logf("%s: %v; its builds and tests won't wait for memory", a.Ref(), err)
+	}
+	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return err
 	}
@@ -1942,6 +2184,20 @@ func (m *Manager) Exec(ctx context.Context, a state.Agent, command string, stdin
 }
 
 // Start boots a stopped agent (or resumes a paused one) and restores its tmux session.
+// startedMeanwhile tells whether a start that failed found the machine
+// started by something else between Start's look at it and its own start —
+// Incus's boot.autostart after a restart, a wake, another resume — which
+// Incus refuses with "The instance is already running". That machine is as
+// started as this one would have been: Start carries on with it.
+func (m *Manager) startedMeanwhile(ctx context.Context, a state.Agent) bool {
+	now, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil || now.Status != "Running" {
+		return false
+	}
+	m.logf("%s's machine was already running when it was started: carrying on with it", a.Ref())
+	return true
+}
+
 func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, error) {
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	if err != nil {
@@ -1969,8 +2225,13 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.admit(ctx, a); err != nil {
 			return inst, err
 		}
+		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		m.buildOutputSources(ctx, a)
+		ClearStaleCgroups(a.Instance)
+		err := m.Incus.Start(ctx, a.Instance)
+		release()
+		if err != nil && !m.startedMeanwhile(ctx, a) {
 			return inst, err
 		}
 		booted = true
@@ -2031,6 +2292,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		return inst, err
 	}
 	m.EnsureImageCache(ctx, a)
+	m.EnsureDockerOnDemand(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	return inst, nil
 }
@@ -2045,6 +2307,9 @@ func (m *Manager) admit(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
+	defer m.holdNodeModules(a)()
+	// Read while it runs, for its Node.js ABI.
+	installs := m.nodeModulesInstalls(ctx, a, true)
 	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
 		if err := m.Incus.ForceStop(ctx, a.Instance); err != nil {
 			return err
@@ -2054,6 +2319,7 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	if err := m.Store.SetStoppedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
 		m.logf("recording when %s was stopped: %v", a.Ref(), err)
 	}
+	m.releaseNodeModules(a, installs)
 	return nil
 }
 
@@ -2224,8 +2490,12 @@ func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() 
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
-	m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
 	m.logf("Removing worktree %s", a.Worktree)
+	if m.WorktreeTrashed != nil && m.trashWorktree(repo, a) {
+		m.WorktreeTrashed()
+	} else {
+		m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
+	}
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
 		m.logf("Removing worktree %s: %v", a.Worktree, err)
 	}
@@ -2321,6 +2591,21 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	return m.statuses(ctx, agents, instances)
+}
+
+// ListFrom is List(ctx, "") from a listing of Incus's instances already
+// taken (a UsageSample's), rather than asking Incus for another.
+func (m *Manager) ListFrom(ctx context.Context, instances []incus.Instance) ([]Status, error) {
+	agents, err := m.Store.Agents(ctx, "")
+	if err != nil || len(agents) == 0 {
+		return nil, err
+	}
+	return m.statuses(ctx, agents, instances)
+}
+
+func (m *Manager) statuses(ctx context.Context, agents []state.Agent, instances []incus.Instance) ([]Status, error) {
+	var err error
 	byName := make(map[string]incus.Instance, len(instances))
 	for _, inst := range instances {
 		byName[inst.Name] = inst
@@ -2388,11 +2673,11 @@ func displayState(status string) string {
 	return strings.ToLower(status)
 }
 
-// Diff shows everything the agent changed against its base branch: commits,
-// uncommitted edits and untracked files. Whatever main gained since the agent
-// took it in is not counted (gitrepo.DiffBase).
-func (m *Manager) Diff(a state.Agent, stat bool, paths ...string) (string, error) {
-	return gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), stat, paths...)
+// Diff shows everything the agent changed from its base, onto the branches
+// in onto when given, its pull request's base (gitrepo.DiffBase): commits,
+// uncommitted edits and untracked files.
+func (m *Manager) Diff(a state.Agent, onto []string, stat bool, paths ...string) (string, error) {
+	return gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit, onto...), stat, paths...)
 }
 
 func (m *Manager) logf(format string, args ...any) {

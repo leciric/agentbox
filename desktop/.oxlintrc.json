@@ -11,7 +11,8 @@
     "react/set-state-in-effect": "off",
     "react/static-components": "off",
     "react/no-children-prop": "off",
-    "react/purity": "off"
+    "react/purity": "off",
+    "react/incompatible-library": "off"
   },
   "ignorePatterns": ["out/**", "dist/**", "node_modules/**"],
   "env": {

@@ -228,12 +228,13 @@ func TestCheckConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, change := range map[string]func(c *chv.Config){
-		"no CPUs":              func(c *chv.Config) { c.CPUs = 0 },
-		"more CPUs than cores": func(c *chv.Config) { c.CPUs = 9 },
-		"a cap below the min":  func(c *chv.Config) { c.MemoryCap = 2 * chv.GiB },
-		"a cap over the host":  func(c *chv.Config) { c.MemoryCap = 40 * chv.GiB },
-		"a tiny min":           func(c *chv.Config) { c.MemoryMin = 512 << 20 },
-		"a tiny disk":          func(c *chv.Config) { c.Disk = 10 * chv.GiB },
+		"no CPUs":                func(c *chv.Config) { c.CPUs = 0 },
+		"more CPUs than cores":   func(c *chv.Config) { c.CPUs = 9 },
+		"a cap below the min":    func(c *chv.Config) { c.MemoryCap = 2 * chv.GiB },
+		"a cap over the host":    func(c *chv.Config) { c.MemoryCap = 40 * chv.GiB },
+		"a cap into its reserve": func(c *chv.Config) { c.MemoryCap = 26 * chv.GiB },
+		"a tiny min":             func(c *chv.Config) { c.MemoryMin = 512 << 20 },
+		"a tiny disk":            func(c *chv.Config) { c.Disk = 10 * chv.GiB },
 	} {
 		c := good
 		change(&c)
@@ -723,8 +724,8 @@ func TestPowerFrom(t *testing.T) {
 func TestPowerFromDisk(t *testing.T) {
 	gib := func(f float64) int64 { return int64(f * (1 << 30)) }
 	st := api.VMStatus{State: api.VMRunning, Disk: api.VMDisk{
-		Pool: api.VMDiskImage{Size: gib(100), Allocated: gib(18.4)},
-		Root: api.VMDiskImage{Size: gib(20), Allocated: gib(5.8)},
+		Pool:     api.VMDiskImage{Size: gib(100), Allocated: gib(18.4)},
+		Root:     api.VMDiskImage{Size: gib(20), Allocated: gib(5.8)},
 		HostFree: gib(310),
 	}}
 	st.Disk.Add(st.Disk.Pool)

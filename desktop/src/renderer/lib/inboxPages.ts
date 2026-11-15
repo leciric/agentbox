@@ -1,4 +1,4 @@
-// The inbox's lists (components/Inbox.tsx) are read a page at a time from the
+// The lists of what needs the user are read a page at a time from the
 // daemon, as the Media views are (lib/mediaPages.ts): the questions waiting
 // for an answer, the agents ready to review, and the reviewed ones when that
 // section is open. Each page says how many the whole list holds, so a badge
@@ -29,21 +29,6 @@ const query = (size: number, cursor = '') => {
   return q;
 };
 
-// useQuestions is the questions not seen yet, newest first.
-export function useQuestions() {
-  return useInfiniteQuery({
-    queryKey: questionsKey,
-    queryFn: ({ pageParam }) => {
-      const q = query(inboxPageSize, pageParam);
-      q.set('unseen', '1');
-      return api.notificationPage(q);
-    },
-    initialPageParam: '',
-    getNextPageParam: (last) => last.next || undefined,
-    staleTime: Infinity,
-  });
-}
-
 // useReviewPages is what's ready to review, or with reviewed the agents
 // already reviewed; the Reviewed section reads only once it's open.
 export function useReviewPages(reviewed: boolean, enabled: boolean) {
@@ -73,8 +58,6 @@ export function pageItems<P extends { items: unknown[] }>(data: InfiniteData<P, 
   return (data?.pages.flatMap((p) => p.items) ?? []) as P['items'];
 }
 
-// pageTotal is how many a list holds in all, as its newest page says.
-export const pageTotal = (data: InfiniteData<{ total: number }, unknown> | undefined): number => data?.pages[0]?.total ?? 0;
 
 const isPages = <P>(data: unknown): data is InfiniteData<P, unknown> => !!data && typeof data === 'object' && 'pages' in data;
 

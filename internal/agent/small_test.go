@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,4 +161,53 @@ func contains(haystack, needle string) bool {
 		}
 	}
 	return false
+}
+
+// TestUsageSinceListsIncusOnceATick checks what the daemon's watch loop runs
+// every two seconds while the app is open: one listing of Incus's instances
+// a call once it has the last one to measure from, the agents' states read
+// from that same listing (ListFrom), and CPU measured between the two.
+func TestUsageSinceListsIncusOnceATick(t *testing.T) {
+	lists := filepath.Join(t.TempDir(), "lists")
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo x >> `+lists+`; n=$(wc -l < `+lists+`)
+        echo "[{\"name\":\"ab-hello-stack-agent-01\",\"status\":\"Running\",\"state\":{\"cpu\":{\"usage\":$((n * 1000000000))},\"memory\":{\"usage\":1048576},\"processes\":3}}]" ;;
+  query) echo '{"space":{"used":500,"total":1000}}' ;;
+esac`))
+	ctx := context.Background()
+	if err := f.st.AddAgent(ctx, state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	listed := func() int {
+		b, _ := os.ReadFile(lists)
+		return strings.Count(string(b), "\n")
+	}
+
+	_, _, first, err := f.m.UsageSince(ctx, nil)
+	if err != nil {
+		t.Fatalf("UsageSince(nil) = %v", err)
+	}
+	if n := listed(); n != 2 {
+		t.Fatalf("UsageSince(nil) listed Incus %d times; want 2, a second apart", n)
+	}
+	_, usage, next, err := f.m.UsageSince(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := listed(); n != 3 {
+		t.Fatalf("UsageSince(last) listed Incus %d times in all; want one more", n)
+	}
+	if len(usage) != 1 || usage[0].CPU <= 0 {
+		t.Errorf("UsageSince(last) = %+v; want agent-01's CPU measured since the last call", usage)
+	}
+	statuses, err := f.m.ListFrom(ctx, next.Instances)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State != "running" {
+		t.Errorf("ListFrom() = %+v; want agent-01 running", statuses)
+	}
+	if n := listed(); n != 3 {
+		t.Errorf("ListFrom listed Incus again (%d in all)", n)
+	}
 }

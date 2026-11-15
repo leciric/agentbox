@@ -100,8 +100,9 @@ var (
 // packages are what the VM installs on its first boot. incus-base is Incus
 // without its virtual machines: the incus package would bring QEMU. dnsmasq
 // and apparmor are incus-base's recommends, which Incus's bridge and its
-// containers' profiles need.
-const packages = "git ca-certificates nftables btrfs-progs acl incus-base dnsmasq-base apparmor"
+// containers' profiles need. gh is what the daemon signs in to GitHub with
+// (github.GHLogin).
+const packages = "git ca-certificates nftables btrfs-progs acl incus-base dnsmasq-base apparmor gh"
 
 func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 	if !userNameRE.MatchString(c.User) {

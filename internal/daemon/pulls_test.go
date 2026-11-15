@@ -85,10 +85,9 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 				{"number":9,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/hello-stack/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}},
 				{"number":3,"title":"Old work","state":"closed","merged_at":"2026-09-01T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/3","base":{"ref":"main"},"head":{"ref":%q,"sha":"aaa"}}
 			]`, head, a.Branch), r))
-		case r.URL.Path == "/repos/acme/hello-stack/pulls/9":
-			_, _ = w.Write([]byte(`{"additions":5,"deletions":1,"comments":2}`))
-		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			_, _ = w.Write([]byte(`{"total_count":0}`))
+		case r.URL.Path == "/graphql":
+			// What the list leaves out, for every open pull request in one query.
+			_, _ = w.Write([]byte(`{"data":{"repository":{"pr9":{"additions":5,"deletions":1,"comments":{"totalCount":2},"commits":{"nodes":[]}}}}}`))
 		case r.URL.Path == "/repos/acme/hello-stack":
 			_, _ = w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
 		default:

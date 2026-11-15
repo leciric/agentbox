@@ -102,7 +102,7 @@ type stoppedFacts struct {
 	// Unpushed is a branch with commits that are neither merged, nor on a
 	// remote, nor in its pull request's head.
 	Unpushed bool
-	// Changed is a diff against the commit the agent started from.
+	// Changed is a diff against its base (gitrepo.DiffBase).
 	Changed   bool
 	PR        *api.PullRequest
 	CreatedAt time.Time
@@ -138,7 +138,9 @@ func stoppedVerdict(f stoppedFacts, now time.Time, days int) (remove, keep strin
 		return "", fmt.Sprintf("its pull request #%d is open", pr.Number)
 	}
 	if f.Changed {
-		return "", "it has changes and no pull request"
+		// Pushed with no pull request of its own: often to another agent's
+		// branch, or to one opened by hand.
+		return "its commits are all on a remote", ""
 	}
 	return "it changed nothing", ""
 }
@@ -180,6 +182,10 @@ type stoppedJudge struct {
 	prErr   error
 	repo    gitrepo.Repo
 	repoErr error
+	// fresh reads each worktree again, for the check right before removing
+	// (freshStopped); otherwise a stopped worktree's kept measurement is
+	// taken (changesFor).
+	fresh bool
 }
 
 // newStoppedJudge reads p's pull requests for agents, its agents with a
@@ -214,7 +220,11 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 	if _, err := os.Stat(st.Worktree); err != nil {
 		return stoppedFacts{}, fmt.Errorf("its worktree can't be read: %w", err)
 	}
-	changes, err := measureChanges(st.Agent)
+	measure := changesFor
+	if j.fresh {
+		measure = freshChanges
+	}
+	changes, err := measure(st)
 	if err != nil {
 		return stoppedFacts{}, fmt.Errorf("its changes can't be read: %w", err)
 	}
@@ -222,6 +232,14 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 	out, err := unpushed(j.repo, st.Agent, pr)
 	if err != nil {
 		return stoppedFacts{}, fmt.Errorf("its branch can't be read: %w", err)
+	}
+	if !out {
+		// Commits on a detached HEAD are on none of its branches.
+		head, err := gitrepo.Head(st.Worktree)
+		if err != nil {
+			return stoppedFacts{}, fmt.Errorf("its HEAD can't be read: %w", err)
+		}
+		out = !j.repo.OnABranch(head)
 	}
 	return stoppedFacts{
 		Ready:        st.Status == state.AgentReady,
@@ -239,6 +257,14 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 // verdict is stoppedVerdict for st from fresh facts, an unreadable fact
 // keeping it.
 func (j *stoppedJudge) verdict(ctx context.Context, st agent.Status, now time.Time, days int) (f stoppedFacts, remove, keep string) {
+	// What needs no git first: reading a worktree in a folder shared with the
+	// host takes seconds, wasted on an agent kept anyway.
+	if since, err := j.s.stoppedSince(ctx, st); err == nil {
+		quick := stoppedFacts{Ready: st.Status == state.AgentReady, State: st.State, Busy: j.s.chatBusy(st.Ref()), StoppedSince: since}
+		if _, keep := stoppedVerdict(quick, now, days); keep != "" {
+			return quick, "", keep
+		}
+	}
 	f, err := j.facts(ctx, st)
 	if err != nil {
 		return f, "", err.Error()
@@ -383,7 +409,9 @@ func (s *Server) freshStopped(ctx context.Context, m *agent.Manager, ref string)
 	if found == nil {
 		return agent.Status{}, nil, errors.New("it is gone")
 	}
-	return *found, s.newStoppedJudge(p, branched), nil
+	j := s.newStoppedJudge(p, branched)
+	j.fresh = true
+	return *found, j, nil
 }
 
 // getStoppedMachines serves GET /v1/stopped-machines: ?project= narrows it to

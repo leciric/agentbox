@@ -36,6 +36,10 @@ type Guard struct {
 	Timeout time.Duration // how long one tool call may take
 	Name    string        // the server's, for the message: "Playwright"
 	Stderr  io.Writer     // where the server's stderr and the guard's own notes go
+	// Before, when set, runs before each tool call is passed on, and before
+	// its deadline starts: Playwright's opens the machine's browser when it
+	// has closed (desktop.EnsureBrowser).
+	Before func()
 
 	mu      sync.Mutex
 	out     io.Writer
@@ -128,6 +132,9 @@ type relayed struct {
 func (g *Guard) fromClient(line []byte) {
 	var m relayed
 	_ = json.Unmarshal(line, &m)
+	if m.Method == "tools/call" && g.Before != nil {
+		g.Before()
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	switch m.Method {

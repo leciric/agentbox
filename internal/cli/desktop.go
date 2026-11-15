@@ -47,7 +47,7 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 				return errors.New("agentbox desktop mcp runs inside an agent, on that agent's own display; " +
 					"from here, watch an agent's display in AgentBox's Desktop tab")
 			}
-			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.Tools(cmd.Context())}
+			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.MarkingUse(desktop.Tools(cmd.Context()))}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
@@ -59,6 +59,7 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 func newDesktopGuardCmd() *cobra.Command {
 	var timeout time.Duration
 	var name string
+	var browser bool
 	cmd := &cobra.Command{
 		Use:    "guard -- <command> [args...]",
 		Short:  "Run an MCP server with a deadline on each tool call, restarting it when one is missed",
@@ -66,11 +67,15 @@ func newDesktopGuardCmd() *cobra.Command {
 		Args:   cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g := &mcp.Guard{Command: args, Timeout: timeout, Name: name, Stderr: cmd.ErrOrStderr()}
+			if browser {
+				g.Before = func() { desktop.EnsureBrowser(cmd.Context(), g.Stderr) }
+			}
 			return g.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "how long one tool call may take")
 	cmd.Flags().StringVar(&name, "name", "MCP", "the server's name, for the message a missed deadline gets")
+	cmd.Flags().BoolVar(&browser, "browser", false, "open the machine's browser before each tool call when it has closed")
 	return cmd
 }
 

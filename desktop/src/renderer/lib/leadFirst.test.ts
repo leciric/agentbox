@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { activeProjects, agentSt, changesPending, countSt, filterCount, leadBusy, live, liveOrder, leadLine, matches, narrowing, noFilters, projectRows, sortRows, toggle, type AgentSt, type Filters, type Row } from './leadFirst.ts';
+import { activeProjects, agentSt, changesPending, countSt, filterCount, foldLeads, leadBusy, live, liveOrder, leadLine, matches, narrowing, noFilters, projectRows, sortRows, toggle, type AgentSt, type Filters, type Row } from './leadFirst.ts';
 
 const agent = (name: string, over: Partial<T.Agent> = {}) =>
   ({ name, ref: `${over.project ?? 'p'}/${name}`, project: 'p', title: '', branch: `agentbox/${name}`, state: 'running', chat: 'ready', createdAt: '2026-10-15T10:00:00Z', ...over }) as T.Agent;
@@ -103,6 +103,14 @@ test('projectRows lists every project, live or not; a state filter narrows to ma
   assert.deepEqual(names(noFilters), ['p', 'q', 'r', 's']);
   assert.deepEqual(names({ ...noFilters, st: ['review'] }), ['p', 's']);
   assert.deepEqual(names({ ...noFilters, q: 'quill' }), ['q']);
+});
+
+test('foldLeads lets a waiting session win, then a running or starting one, then the chat', () => {
+  const leads = new Map<string, string | undefined>([['a', 'ready'], ['b', 'running'], ['c', 'ready'], ['d', 'ready']]);
+  const folded = foldLeads(leads, ['a', 'b', 'c', 'd', 'e'], [[{ chat: 'running' }, { chat: 'waiting' }], [{ chat: 'ready' }], [{ chat: 'starting' }], undefined, [{ chat: 'running' }]]);
+  assert.deepEqual([...folded].sort(), [['a', 'waiting'], ['b', 'running'], ['c', 'running'], ['d', 'ready'], ['e', 'running']]);
+  assert.equal(leads.get('a'), 'ready');
+  assert.deepEqual([...activeProjects([], folded, [])].sort(), ['a', 'b', 'c', 'e']);
 });
 
 test('activeProjects is a busy or asking lead, a live agent or a question; the rest are idle', () => {

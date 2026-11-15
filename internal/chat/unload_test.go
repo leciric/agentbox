@@ -3,10 +3,13 @@ package chat
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"agentbox/internal/acp"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -113,5 +116,90 @@ func TestUnloadKeepsAConversationWithWorkUnderWay(t *testing.T) {
 	c.mu.Unlock()
 	if n := m.Unload(UnloadAfter); n != 1 {
 		t.Fatalf("Unload = %d once nothing waits; want 1", n)
+	}
+}
+
+// A running agent's adapter stays up between turns for as long as its machine
+// runs, and its transcript used to stay with it: Unload lets it go as well,
+// and what the adapter says next brings it back whole, in order.
+func TestUnloadLetsGoOfAnIdleChatWhoseAdapterRuns(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	var session string
+	f := newFakeTool(func(f *fakeTool, sessionID, text string) acp.PromptResponse {
+		session = sessionID
+		return answerHello(f, sessionID, text)
+	})
+	m, _ := newManager(t, store, f)
+	var mu sync.Mutex
+	now := time.Now()
+	m.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	later := func() { mu.Lock(); now = now.Add(UnloadAfter + time.Minute); mu.Unlock() }
+
+	if _, err := m.Send(testAgent, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
+	c := m.existing(testAgent.Ref())
+	loaded := func() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.loaded }
+
+	later()
+	if n := m.Unload(UnloadAfter); n != 1 {
+		t.Fatalf("Unload = %d with the adapter idle between turns; want 1", n)
+	}
+	if loaded() || m.State(testAgent.Ref()) != api.ChatReady {
+		t.Fatalf("after Unload: loaded %v, state %s; want unloaded and the session still ready", loaded(), m.State(testAgent.Ref()))
+	}
+
+	// The adapter speaks between turns: a subagent started in the background.
+	f.update(session, `{"sessionUpdate":"subagent_spawned","subagentSessionId":"sub-1","name":"Explore","task":"look"}`)
+	th := waitThread(t, m, testAgent, "the subagent's card", func(th api.ChatThread) bool { return slices.Contains(kinds(th), "subagent") })
+	if got, want := kinds(th), []string{"user", "assistant", "subagent"}; !slices.Equal(got, want) {
+		t.Fatalf("items after the transcript came back %v, want %v", got, want)
+	}
+	// A subagent still going holds items of the transcript.
+	later()
+	if n := m.Unload(UnloadAfter); n != 0 {
+		t.Fatalf("Unload let go of a chat whose subagent is still running")
+	}
+	f.update(session, `{"sessionUpdate":"subagent_state_update","subagentSessionId":"sub-1","state":"completed"}`)
+	waitThread(t, m, testAgent, "the subagent to end", func(th api.ChatThread) bool {
+		it := find(th, "subagent", 0)
+		return it.Subagent != nil && it.Subagent.State == "completed"
+	})
+	waitSaved(t, c)
+	later()
+	if n := m.Unload(UnloadAfter); n != 1 {
+		t.Fatalf("Unload = %d once the subagent ended; want 1", n)
+	}
+
+	// The next turn reads it from the store and goes on from there.
+	if _, err := m.Send(testAgent, "again"); err != nil {
+		t.Fatal(err)
+	}
+	th = waitThread(t, m, testAgent, "the second turn", turnsEnded(2))
+	if got, want := kinds(th), []string{"user", "assistant", "subagent", "user", "assistant"}; !slices.Equal(got, want) {
+		t.Fatalf("items %v, want %v", got, want)
+	}
+}
+
+// waitSaved waits for whatever the conversation hasn't stored yet.
+func waitSaved(t *testing.T, c *conversation) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.mu.Lock()
+		if c.timer != nil {
+			c.flush(true)
+		}
+		done := len(c.unsaved) == 0 && len(c.dirty) == 0 && c.timer == nil && !c.sessionDirty
+		c.mu.Unlock()
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the conversation never stored what it had")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

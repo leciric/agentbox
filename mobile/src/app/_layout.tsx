@@ -14,7 +14,8 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { CircleAlert, RotateCw, Unplug } from 'lucide-react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '../connection/api.ts';
 import { bootState, recordCrash, startBoot } from '../connection/boot.ts';
@@ -75,7 +76,12 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <StatusBar style="light" />
         <ErrorBoundary label="app" resetKey={origin} onError={recordCrash} fallback={(error, retry) => <Crashed error={`${error.name}: ${error.message}`} onRetry={retry} />}>
-          <View style={[styles.root, Platform.OS === 'web' && styles.webColumn]}>
+          {/* Every screen gives way to the keyboard here, at the top of the
+              window: a screen's own would measure itself from below the
+              connection bar, and stop short of the keyboard by its height.
+              Padding on Android too: edge to edge (Android 15 on), the window
+              no longer shrinks for the keyboard (adjustResize). */}
+          <KeyboardAvoidingView behavior="padding" style={[styles.root, Platform.OS === 'web' && styles.webColumn]}>
             {session && <Paired key={session.origin} queryClient={queryClient} />}
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right' }}>
               <Stack.Protected guard={!!session}>
@@ -88,7 +94,7 @@ export default function RootLayout() {
                 <Stack.Screen name="pair" />
               </Stack.Protected>
             </Stack>
-          </View>
+          </KeyboardAvoidingView>
         </ErrorBoundary>
       </QueryClientProvider>
     </SafeAreaProvider>
@@ -102,6 +108,7 @@ function Crashed({ crashes, error, onRetry }: { crashes?: number; error?: string
   const t = useT();
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.crashed}>
+      <CircleAlert size={28} color={colors.rose} />
       <Text style={styles.crashedTitle}>{t('mobile.crash.title')}</Text>
       <Text style={styles.crashedBody}>{crashes ? t('mobile.crash.onStart', { count: crashes }) : t('mobile.crash.body')}</Text>
       {error ? (
@@ -109,8 +116,8 @@ function Crashed({ crashes, error, onRetry }: { crashes?: number; error?: string
           <Text style={mono}>{error}</Text>
         </Note>
       ) : null}
-      <Button label={t('mobile.crash.retry')} onPress={onRetry} />
-      <Button label={t('web.phone.unpair')} kind="danger" onPress={() => void unpair().then(onRetry)} />
+      <Button label={t('mobile.crash.retry')} icon={RotateCw} onPress={onRetry} />
+      <Button label={t('web.phone.unpair')} icon={Unplug} kind="danger" onPress={() => void unpair().then(onRetry)} />
     </ScrollView>
   );
 }

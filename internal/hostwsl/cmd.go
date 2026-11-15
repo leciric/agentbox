@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"agentbox/internal/homehost"
 )
 
 // Main is the agentbox command on Windows: the `wsl` commands and the relay
@@ -19,6 +21,10 @@ func Main(args []string, version string) int {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
 		fmt.Printf("agentbox version %s\n", version)
 		return 0
+	}
+	// The Home chat's tool runs here on Windows, for the daemon in the distro.
+	if len(args) > 0 && args[0] == "home-host" {
+		return homehost.Main(args[1:], version)
 	}
 	if len(args) == 0 || (args[0] != "wsl" && args[0] != "relay" && !vmCommand(args)) {
 		d, err := New()
@@ -267,5 +273,7 @@ func RunRelay(ctx context.Context, d *Distro, in io.Reader, out io.Writer) error
 		return err
 	}
 	r := &Relay{Distro: d}
+	go r.runLAN(ctx)
+	go r.reportHostLoad(ctx, d.progress)
 	return r.Serve(ctx, ln)
 }

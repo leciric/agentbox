@@ -1,5 +1,5 @@
 // The lead's picture-in-picture desktops (components/pip) in the dev preview,
-// with &pip=1 on ?app=project&v2=1: four agents at work, whose desktops are
+// with &pip=1 on ?app=project: four agents at work, whose desktops are
 // drawn (pipDesktops.tsx) where the app would stream them, three waiting for
 // review, today's screenshots and recordings, and a lead that reports on
 // them. "Finish agent-26" has one finish while you watch.
@@ -50,6 +50,8 @@ const agent = (name: string, title: string, ai: string, chat: string, createdMin
     codexAccount: '',
     openCodeAccounts: {},
     cursorAccount: '',
+    geminiAccount: '',
+    copilotAccount: '',
     interface: ai,
     state: 'running',
     ip: '',
@@ -304,7 +306,7 @@ export function PipFinish() {
     using.add('agent-28');
     void queryClient.invalidateQueries({ queryKey: ['desktops'] });
   };
-  const button = 'rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title';
+  const button = 'rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-pop hover:text-title';
   return (
     <div className="fixed bottom-3 left-[300px] z-40 flex gap-2">
       <button type="button" onClick={open} data-pip-use className={button}>

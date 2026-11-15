@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
 	"agentbox/internal/state"
 )
@@ -49,27 +51,61 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	if req.CloneFolder != nil {
+		dir := ""
+		if strings.TrimSpace(*req.CloneFolder) != "" {
+			var err error
+			if dir, err = fullPath(*req.CloneFolder); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingCloneFolder, dir); err != nil {
+			return err
+		}
+	}
 	if req.EnforceAgentDefaults != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingEnforceAgentDefaults, *req.EnforceAgentDefaults); err != nil {
 			return err
 		}
 	}
-	if req.DefaultClaudeEffort != nil {
-		// Checked, unlike the model: the adapter resolves no aliases for this
-		// option and refuses anything outside the list it advertised, so a
+	for _, choice := range []struct {
+		what, key, menu string
+		value           *string
+	}{
+		{"effort", state.SettingDefaultClaudeEffort, state.SettingClaudeEffortChoices, req.DefaultClaudeEffort},
+		{"effort", state.SettingDefaultLeadEffort, state.SettingClaudeEffortChoices, req.DefaultLeadEffort},
+		{"permission mode", state.SettingDefaultLeadMode, state.SettingClaudeModeChoices, req.DefaultLeadMode},
+	} {
+		if choice.value == nil {
+			continue
+		}
+		// Checked, unlike the model: the adapter resolves no aliases for these
+		// options and refuses anything outside the list it advertised, so a
 		// value that has never been on this account's menu can only end in a
 		// setting silently doing nothing. Nothing is rejected before a menu
 		// has ever arrived, since there is then nothing true to check against.
-		want := strings.TrimSpace(*req.DefaultClaudeEffort)
-		menu, err := s.store.Setting(r.Context(), state.SettingClaudeEffortChoices)
+		want := strings.TrimSpace(*choice.value)
+		menu, err := s.store.Setting(r.Context(), choice.menu)
 		if err != nil {
 			return err
 		}
 		offered := state.ChoiceValues(menu)
 		if want != "" && len(offered) > 0 && !slices.Contains(offered, want) {
-			return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+			return fmt.Errorf("this agent's Claude Code doesn't offer the %s %q: it offers %s", choice.what, want, strings.Join(offered, ", "))
 		}
-		if err := s.store.SetSetting(r.Context(), state.SettingDefaultClaudeEffort, want); err != nil {
+		if err := s.store.SetSetting(r.Context(), choice.key, want); err != nil {
+			return err
+		}
+	}
+	// Gemini CLI's is stored as chosen too, for the same reason, and so is
+	// Copilot's.
+	if req.DefaultGeminiModel != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultGeminiModel, strings.TrimSpace(*req.DefaultGeminiModel)); err != nil {
+			return err
+		}
+	}
+	if req.DefaultCopilotModel != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCopilotModel, strings.TrimSpace(*req.DefaultCopilotModel)); err != nil {
 			return err
 		}
 	}
@@ -90,6 +126,70 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	if req.DefaultCursorEffort != nil {
 		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorEffort, strings.TrimSpace(*req.DefaultCursorEffort)); err != nil {
 			return err
+		}
+	}
+	if req.LastAgentPick != nil {
+		pick := *req.LastAgentPick
+		if pick.AI != "" && pick.AI != "none" && !slices.Contains(state.AgentTools, pick.AI) {
+			return fmt.Errorf("%q isn't an AI tool", pick.AI)
+		}
+		raw, err := json.Marshal(pick)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLastAgentPick, string(raw)); err != nil {
+			return err
+		}
+	}
+	if req.FirstRunDone != nil && *req.FirstRunDone {
+		if err := s.store.DeleteSetting(r.Context(), state.SettingFirstRun); err != nil {
+			return err
+		}
+	}
+	// OpenCode's version is one choice for the installation: the agents and
+	// their chat all read it, so a change reaches them the next time their
+	// tool starts. A menu belongs to a version's providers, so a switch
+	// forgets it and the next read asks the version now in effect.
+	if req.OpenCodeVersion != nil {
+		want := strings.TrimSpace(*req.OpenCodeVersion)
+		switch want {
+		case opencode.V1.String(), opencode.V2.String():
+		default:
+			return fmt.Errorf("unknown OpenCode version %q: use 1 or 2", want)
+		}
+		was, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+		if err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The menu belongs to the version that named it. Dropped first,
+			// so a failed write below can't leave the version moved with the
+			// old menu still answering for it.
+			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingOpenCodeVersion, want); err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The hourly limit was for one version's answers; the other one's
+			// menu has never been asked for.
+			s.mu.Lock()
+			s.openCodeModels.last = time.Time{}
+			s.mu.Unlock()
+			// A project's chat reads opencode.json from its HOME, and the two
+			// versions read different shapes: rewrite it now rather than at
+			// some later change to the project.
+			s.reconfigureLeads(r.Context())
+			// A chat already running is on the old release: it starts its
+			// adapter again before its next message, on the one in effect now.
+			s.chat.ToolsChanged("", "")
+			if projects, err := s.store.Projects(r.Context()); err == nil {
+				for _, p := range projects {
+					s.chat.ToolsChanged(p.Name, "")
+				}
+			}
 		}
 	}
 	if req.ResumeAfterLimit != nil {
@@ -124,6 +224,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.DismissBuiltWithBadgeOffer != nil && *req.DismissBuiltWithBadgeOffer {
 		if err := s.store.SetSetting(r.Context(), state.SettingBuiltWithBadgeOffer, state.BadgeOfferDone); err != nil {
+			return err
+		}
+	}
+	if req.SeeFeature != nil {
+		if err := s.store.SeeFeature(r.Context(), *req.SeeFeature); err != nil {
 			return err
 		}
 	}
@@ -168,6 +273,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if err := s.store.SetSetting(r.Context(), state.SettingTimezone, want); err != nil {
+			return err
+		}
+	}
+	if req.AgentMemoryShare != nil {
+		if err := s.setAgentMemoryShare(r.Context(), *req.AgentMemoryShare); err != nil {
 			return err
 		}
 	}
@@ -347,6 +457,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.MergeWhenGreen != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingMergeWhenGreen, *req.MergeWhenGreen); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCodeAutoUpdate != nil {
 		if err := s.setToolAutoUpdate(r.Context(), claudeAutoUpdate, *req.ClaudeCodeAutoUpdate); err != nil {
 			return err
@@ -441,11 +556,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	var agentWindow, leadModel, leadWindow string
+	var agentWindow, leadModel, leadWindow, leadEffort, leadMode string
 	for key, into := range map[string]*string{
 		state.SettingDefaultAgentContextWindow: &agentWindow,
 		state.SettingDefaultLeadModel:          &leadModel,
 		state.SettingDefaultLeadContextWindow:  &leadWindow,
+		state.SettingDefaultLeadEffort:         &leadEffort,
+		state.SettingDefaultLeadMode:           &leadMode,
 	} {
 		if *into, err = s.store.Setting(r.Context(), key); err != nil {
 			return api.Settings{}, err
@@ -464,11 +581,19 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	modes, err := s.rememberedMenu(r, state.SettingClaudeModeChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	openCodeModels, err := s.rememberedMenu(r, state.SettingOpenCodeModelChoices)
 	if err != nil {
 		return api.Settings{}, err
 	}
 	openCodeReady, err := s.manager(nil).OpenCodeReady(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
+	openCodeVersion, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -497,6 +622,44 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	// Gemini CLI's menu comes from its chats' sessions (rememberChoices) and,
+	// until one has run, from asking Gemini CLI on this machine.
+	geminiModels, err := s.rememberedMenu(r, state.SettingGeminiModelChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	geminiReady := s.manager(nil).GeminiReady()
+	if geminiReady && len(geminiModels) == 0 {
+		s.refreshGeminiModels(false)
+	}
+	geminiModel, err := s.store.Setting(r.Context(), state.SettingDefaultGeminiModel)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	// Copilot's the same way, asked of Copilot on this machine.
+	copilotModels, err := s.rememberedMenu(r, state.SettingCopilotModelChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	copilotReady := s.manager(nil).CopilotReady()
+	if copilotReady && len(copilotModels) == 0 {
+		s.refreshCopilotModels(false)
+	}
+	copilotModel, err := s.store.Setting(r.Context(), state.SettingDefaultCopilotModel)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	var lastPick api.AgentPick
+	if raw, err := s.store.Setting(r.Context(), state.SettingLastAgentPick); err != nil {
+		return api.Settings{}, err
+	} else if raw != "" {
+		// A pick that no longer reads is only a start value lost.
+		_ = json.Unmarshal([]byte(raw), &lastPick)
+	}
+	firstRun, err := s.store.Flag(r.Context(), state.SettingFirstRun)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -514,6 +677,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	badgeOffer, err := s.store.Setting(r.Context(), state.SettingBuiltWithBadgeOffer)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	seenFeatures, err := s.store.SeenFeatures(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -539,6 +706,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	mergeWhenGreen, err := s.store.Flag(r.Context(), state.SettingMergeWhenGreen)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -577,6 +748,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	memoryShare := s.agentMemoryShare(r.Context())
+	vmMemory := s.vmMemory()
 	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -619,31 +792,49 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	cloneFolder, err := s.cloneFolder(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
+		CloneFolder:               cloneFolder,
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
 		EnforceAgentDefaults:      enforce,
 		DefaultLeadModel:          leadModel,
 		DefaultLeadContextWindow:  leadWindow,
+		DefaultLeadEffort:         leadEffort,
+		DefaultLeadMode:           leadMode,
 		ClaudeModelChoices:        models,
 		ClaudeContextWindows:      contextWindows,
 		ClaudeMenuKnown:           menuKnown,
 		DefaultClaudeEffort:       effort,
 		ClaudeEffortChoices:       efforts,
+		ClaudeModeChoices:         modes,
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
+		OpenCodeVersion:      opencode.ReleaseOf(openCodeVersion).String(),
 
 		CursorModelChoices:  cursorModels,
 		CursorReady:         cursorReady,
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
+		GeminiModelChoices:  geminiModels,
+		GeminiReady:         geminiReady,
+		DefaultGeminiModel:  geminiModel,
+		CopilotModelChoices: copilotModels,
+		CopilotReady:        copilotReady,
+		DefaultCopilotModel: copilotModel,
+		LastAgentPick:       lastPick,
+		FirstRun:            firstRun,
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
 		CreditAITool:         creditAITool,
 		BuiltWithBadge:       builtWithBadge,
 		BuiltWithBadgeOffer:  badgeOffer == state.BadgeOfferReady,
+		SeenFeatures:         seenFeatures,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
@@ -651,6 +842,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
+		MergeWhenGreen:       mergeWhenGreen,
 		AgentFreeze:          agentFreeze,
 		MediaRetention:       mediaRetention,
 		Language:             language,
@@ -661,6 +853,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
+
+		AgentMemoryShare:        memoryShare,
+		DefaultAgentMemoryShare: agent.DefaultAgentMemoryShare,
+		MinAgentMemoryShare:     agent.MinAgentMemoryShare,
+		MaxAgentMemoryShare:     agent.MaxAgentMemoryShare,
+		AgentMemoryLimit:        agent.MemoryLimit(vmMemory, memoryShare),
+		VMMemory:                vmMemory,
 
 		AutoStopIdle:      autoStopIdle,
 		RemoveStopped:     removeStopped,

@@ -34,7 +34,7 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(gone, view), wide || !P.needsMachine(view), `past ${view}`);
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
-  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android']);
+  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android', 'resources']);
   assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
   // Every view is on the switch but Pull requests, Issues and Settings, the lead's tabs and header's.
   assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
@@ -49,8 +49,8 @@ test('an agent’s switch has every view it has, in one order, Android only when
   const asleep: Whose = { kind: 'agent', agent: agent('agent-3', 'stopped') };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
-  assert.deepEqual(P.viewsOf(live, false), ['desktop', 'terminal', 'browser', 'files', 'evidence', 'timeline', 'schedules']);
-  assert.deepEqual(P.viewsOf(live, true), ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, false), ['desktop', 'terminal', 'browser', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, true), ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
   // Asleep, its machine's views stay, to wake it from.
   assert.deepEqual(P.viewsOf(asleep, true), P.viewsOf(live, true));
   // No machine, no machine views, Android included.
@@ -78,8 +78,8 @@ test('iOS is on an agent’s switch when the app runs on a Mac, after Android', 
   const live: Whose = { kind: 'agent', agent: agent('agent-2', 'running') };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
-  assert.deepEqual(P.viewsOf(live, true, true), ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
-  assert.deepEqual(P.viewsOf(live, false, true), ['desktop', 'terminal', 'browser', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, true, true), ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, false, true), ['desktop', 'terminal', 'browser', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
   assert.deepEqual(P.viewsOf(gone, true, true), ['files', 'evidence', 'timeline', 'schedules']);
   assert.deepEqual(P.viewsOf(lead, true, true), ['files', 'evidence', 'schedules']);
 });
@@ -345,6 +345,42 @@ test('the lead’s panel switches between Agents, Pull requests and Files, remem
   // An agent shown in the lead's panel is neither tab: back goes to Agents.
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+});
+
+test('the project’s settings button opens Settings, and closes them back to where the user was', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  assert.equal(P.toggleSettings(lead, true), true);
+  assert.equal(P.settingsOpen(P.panelState(), lead), true);
+  assert.equal(P.toggleSettings(lead, true), false);
+  assert.equal(P.settingsOpen(P.panelState(), lead), false);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  // Settings left open on a project the user has since left open again, not close.
+  P.toggleSettings(lead, false);
+  assert.equal(P.toggleSettings(lead, false), true);
+  assert.equal(P.settingsOpen(P.panelState(), lead), true);
+});
+
+test('opening an agent’s chat shows its Desktop only when it is using it, else the view last picked or Timeline', () => {
+  const ref = 'pawly/agent-2';
+  P.setFitsBeside(true);
+  P.setPanel({ chats: {}, views: { [ref]: 'desktop' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'timeline');
+  assert.equal(P.chatPanel(P.panelState(), ref).open, true);
+  P.setPanel({ chats: {}, views: { [ref]: 'terminal' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'terminal');
+  P.openAgentChat(ref, true);
+  assert.equal(P.panelState().views[ref], 'desktop');
+});
+
+test('an agent’s file tree is as narrow as the list until the panel is dragged; its desktop keeps half the room', () => {
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/agent-2', 1600, 'files'), P.listDefault);
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/agent-2', 1600, 'desktop'), 800);
+  assert.equal(P.panelWant({ width: 560, agentWidth: 700 }, 'pawly/agent-2', 1600, 'files'), 700);
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/lead', 1600, 'files'), 560);
 });
 
 test('a rich block opened beside the chat goes over what the panel showed until ✕ or back, and isn’t remembered', () => {

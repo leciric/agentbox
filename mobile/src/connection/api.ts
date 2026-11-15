@@ -28,8 +28,8 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch (err) {
-    throw new ApiError(unreachable(s.origin, err).message, 0);
+  } catch {
+    throw new ApiError(unreachable(s.origin).message, 0);
   }
   const text = await res.text();
   if (res.status === 401) void forget();
@@ -48,14 +48,33 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
 
-// isLead says a chat ref is a project's chat: "web" or "web/lead".
+// isLead says a chat ref is a project's chat: "web", "web/lead", or one of
+// its sessions, "web/lead.prod".
 export const isLead = (ref: string) => {
   const [, name] = ref.split('/');
-  return !name || name === T.LeadName;
+  return !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
 };
 
-// A project's chat is its lead's, under the project; an agent's is its own.
-const chatBase = (ref: string) => (isLead(ref) ? `${project(ref.split('/')[0])}/chat` : `${agent(ref)}/chat`);
+// sessionOf is the session of a project's chat a ref names: "main" for
+// "web/lead", the session every chat had before sessions, as the daemon's refs
+// say it; undefined for "web", the session most recently active.
+export const sessionOf = (ref: string): string | undefined => {
+  const [, name] = ref.split('/');
+  if (name === T.LeadName) return 'main';
+  return name?.startsWith(`${T.LeadName}.`) ? name.slice(T.LeadName.length + 1) : undefined;
+};
+
+// sessionRef is the ref a session's chat is known by.
+export const sessionRef = (name: string, session: string) => `${name}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
+
+// A project's chat is its leads', under the project, one session's under
+// /sessions/<id>; an agent's is its own.
+const leadBase = (ref: string) => {
+  const name = ref.split('/')[0];
+  const session = sessionOf(ref);
+  return session ? `${project(name)}/sessions/${encodeURIComponent(session)}` : project(name);
+};
+const chatBase = (ref: string) => (isLead(ref) ? `${leadBase(ref)}/chat` : `${agent(ref)}/chat`);
 
 export interface ChatPage {
   limit?: number;
@@ -67,7 +86,14 @@ export const api = {
   settings: () => call<unknown>('GET', '/v1/settings').then(P.settings),
   projects: () => call<unknown>('GET', '/v1/projects').then(P.projects),
   agents: () => call<unknown>('GET', '/v1/agents').then(P.agents),
-  projectChat: (name: string) => call<unknown>('GET', `${project(name)}/lead`).then(P.projectChat),
+  projectChat: (name: string, session?: string) =>
+    call<unknown>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`).then(P.projectChat),
+  leadSessions: (name: string) => call<unknown>('GET', `${project(name)}/sessions`).then(P.leadSessions),
+  sessionOutput: (name: string, session: string) => call<unknown>('GET', `${project(name)}/sessions/${encodeURIComponent(session)}/output`).then(P.sessionOutput),
+  // The session is on screen: every window and the phone show it read.
+  seeLeadSession: (name: string, session: string) =>
+    call<unknown>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/seen`, {} satisfies T.SeeLeadSessionRequest),
+  newLeadSession: (name: string, req: T.NewLeadSessionRequest = {}) => call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest),
   chat: (ref: string, page: ChatPage = {}) => {
     const q = new URLSearchParams();
     if (page.limit) q.set('limit', String(page.limit));
@@ -77,7 +103,9 @@ export const api = {
     return call<unknown>('GET', `${chatBase(ref)}${qs ? `?${qs}` : ''}`).then(P.chatThread);
   },
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
-  sendMessage: (ref: string, text: string) => call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text } satisfies T.ChatMessageRequest),
+  // to sends a message written in a project's chat to one of its agents
+  // (desktop/src/shared/messageTarget.ts).
+  sendMessage: (ref: string, text: string, to?: { to: string }) => call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, ...to } satisfies T.ChatMessageRequest),
   cancelChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/cancel`),
   answerPermission: (ref: string, item: string, optionId: string) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/permissions/${encodeURIComponent(item)}`, { optionId } satisfies T.ChatAnswerRequest),
@@ -91,6 +119,7 @@ export const api = {
   markReviewed: (ref: string, fingerprint: string) => call<void>('POST', `${agent(ref)}/review`, { verdict: 'reviewed', fingerprint } satisfies T.ReviewRequest),
   requestChanges: (ref: string, text: string, fingerprint: string) => call<unknown>('POST', `${agent(ref)}/request-changes`, { text, fingerprint } satisfies T.RequestChangesRequest),
   agentMedia: (ref: string) => call<unknown>('GET', `${agent(ref)}/media`).then(P.media),
+  projectIcon: (name: string) => call<T.ProjectIcon>('GET', `${project(name)}/icon`),
   pulls: (name: string, refresh = false) => call<unknown>('GET', `${project(name)}/pulls${refresh ? '?refresh=1' : ''}`).then(P.pulls),
   // confirmed says the user confirmed the merge on the phone, which the
   // daemon asks of a phone's merge (lanAPI in internal/daemon/lan.go).

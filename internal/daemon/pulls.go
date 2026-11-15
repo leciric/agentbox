@@ -276,6 +276,9 @@ type pullsEntry struct {
 	listErr pullsErr
 	infoErr pullsErr
 	at      time.Time // when GitHub answered; zero means it never has
+	// listedAt is when prs were read, when that was before at: GitHub's
+	// rate limit refused the read at at, and the list read before is kept.
+	listedAt time.Time
 	// stale is set when a merge made through AgentBox overtook the answer:
 	// it's still served, so no list empties while GitHub is re-read, but
 	// the next request re-reads it whatever its age.
@@ -339,15 +342,24 @@ func (c *pullsCache) known() map[string][]api.PullRequest {
 // or one that pushed again, shouldn't wait out the TTL to learn it has a pull
 // request.
 func (c *pullsCache) claim(key string, heads []agentHead) (int, bool) {
+	return c.claimSlowed(key, heads, 1)
+}
+
+// claimSlowed is claim with both TTLs stretched by slowdown: the account's
+// budget is running low (github.Client.Slowdown), and the list is re-read
+// less often until it fills up again.
+func (c *pullsCache) claimSlowed(key string, heads []agentHead, slowdown float64) (int, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fetching[key] {
 		return 0, false
 	}
 	e, ok := c.byRepo[key]
+	ttl := time.Duration(float64(c.ttl) * max(slowdown, 1))
+	branchTTL := time.Duration(float64(c.branchTTL) * max(slowdown, 1))
 	// An entry whose list failed is only retried on the TTL: an unknown
 	// branch must never turn a broken GitHub into a call per request.
-	if ok && !e.stale && c.now().Sub(e.at) < c.ttl && (e.listErr.failed() || e.knows(heads, c.now(), c.branchTTL)) {
+	if ok && !e.stale && c.now().Sub(e.at) < ttl && (e.listErr.failed() || e.knows(heads, c.now(), branchTTL)) {
 		return 0, false
 	}
 	c.fetching[key] = true
@@ -564,6 +576,14 @@ func laterPR(pr, than *api.PullRequest) bool {
 
 // same reports whether two answers say the same thing, ignoring when they
 // were read: an event is only worth sending when something moved.
+// readAt is when the pull requests e holds were read from GitHub.
+func (e pullsEntry) readAt() time.Time {
+	if !e.listedAt.IsZero() {
+		return e.listedAt
+	}
+	return e.at
+}
+
 func (e pullsEntry) same(o pullsEntry) bool {
 	if e.listErr != o.listErr || e.infoErr != o.infoErr {
 		return false
@@ -626,7 +646,7 @@ func (s *Server) projectPullsFresh(p state.Project, agents []state.Agent, fresh 
 	if fresh {
 		s.pulls.invalidate(key)
 	}
-	if gen, ok := s.pulls.claim(key, heads); ok {
+	if gen, ok := s.pulls.claimSlowed(key, heads, client.Slowdown()); ok {
 		go s.refreshPulls(p.Name, client, repo, gen, heads)
 	}
 	entry, refreshing := s.pulls.state(key)
@@ -639,7 +659,7 @@ func (s *Server) projectPullsFresh(p state.Project, agents []state.Agent, fresh 
 func (s *Server) refreshPulls(project string, client github.Client, repo github.Repo, gen int, heads []agentHead) {
 	key := repo.String()
 	before, _ := s.pulls.state(key)
-	ctx, cancel := context.WithTimeout(s.background(), pullsFetchTimeout)
+	ctx, cancel := context.WithTimeout(github.InBackground(s.background(), "pulls"), pullsFetchTimeout)
 	defer cancel()
 	entry, stored, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, heads, before))
 	if !stored {
@@ -710,6 +730,12 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 	var entry pullsEntry
 	if listErr != nil {
 		entry.listErr = newPullsErr(listErr)
+		if errors.Is(listErr, github.ErrRateLimited) {
+			// What was read last is still the best there is, and the app shows
+			// it under the sentence saying when GitHub is read again, as read
+			// when it was.
+			entry.prs, entry.listedAt = before.prs, before.readAt()
+		}
 	} else {
 		entry.prs = toAPIPullRequests(prs)
 	}
@@ -850,8 +876,7 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	}
 	out.GitHub = repo.String()
 	out.Refreshing = refreshing
-	if !entry.at.IsZero() {
-		at := entry.at
+	if at := entry.readAt(); !at.IsZero() {
 		out.FetchedAt = &at
 	}
 	// entry.prs is shared with the cache, and with whoever else is reading it,
@@ -931,7 +956,7 @@ func toAPILabels(labels []github.Label) []api.Label {
 // always re-reads the pull request first, so a stale UI can't merge a draft,
 // or one that has since been closed or already merged.
 func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+	ctx := github.WithCaller(r.Context(), "merge")
 	project := r.PathValue("project")
 	p, err := s.store.Project(ctx, project)
 	if err != nil {
@@ -957,34 +982,49 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return noGitHubToken(err)
 	}
-
-	pr, err := client.PullRequestByNumber(ctx, repo, number)
+	out, err := s.mergePR(ctx, p, client, repo, number, method)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// mergePR merges a pull request, for the app's Merge and for a merge when
+// green (mergewhengreen.go) alike. It re-reads the pull request first, so a
+// stale view can't merge a draft, or one that has since been closed or
+// already merged.
+func (s *Server) mergePR(ctx context.Context, p state.Project, client github.Client, repo github.Repo, number int, method github.MergeMethod) (api.PullRequest, error) {
+	pr, err := client.PullRequestByNumber(ctx, repo, number)
+	if err != nil {
+		return api.PullRequest{}, err
+	}
 	switch {
 	case pr.Draft:
-		return fmt.Errorf("pull request #%d is a draft: mark it ready for review before merging", number)
+		return api.PullRequest{}, fmt.Errorf("pull request #%d is a draft: mark it ready for review before merging", number)
 	case pr.State != "open":
-		return fmt.Errorf("pull request #%d is %s: nothing to merge", number, pr.State)
+		return api.PullRequest{}, fmt.Errorf("pull request #%d is %s: nothing to merge", number, pr.State)
 	}
 
 	if err := client.Merge(ctx, repo, number, method); err != nil {
 		s.recordErr(errPRMergeFailed, "", err, repo.Owner, repo.Name)
-		return err
+		return api.PullRequest{}, err
 	}
 	pr.State = "merged"
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
 	s.pullDetails.drop(pullFilesKey(repo, number))
 	s.countFeature(api.FeaturePullMerge)
+	// Merged by hand, it no longer waits to be merged when green.
+	if err := s.store.ForgetMergeWhenGreen(ctx, p.Name, number); err != nil {
+		s.logf("%s: forgetting #%d's merge when green: %v", p.Name, number, err)
+	}
 	// The merge is GitHub's and done: the user is told at once. What follows
 	// — the event, and freeing the agent behind it, which reads git, stops
 	// its chat and deletes its machine and worktree, seconds on a shared home
 	// with a big node_modules — runs after the answer, under the daemon's
 	// context rather than the request's, which ends with it.
 	s.mergeFrees.Go(func() { s.afterMerge(s.background(), p, repo, *pr, string(method), out) })
-	return writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // afterMerge records a merge made through the app and frees the agent whose
@@ -1025,7 +1065,7 @@ func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Re
 // project's GitHub account, for the label picker. It reads GitHub every time:
 // it is asked when the picker opens, and the app keeps the answer.
 func (s *Server) projectLabels(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+	ctx := github.WithCaller(r.Context(), "labels")
 	p, err := s.store.Project(ctx, r.PathValue("project"))
 	if err != nil {
 		return err
@@ -1052,7 +1092,7 @@ func (s *Server) projectLabels(w http.ResponseWriter, r *http.Request) error {
 // changed meanwhile isn't lost, and the cache is told at once, so the list
 // shows the edit without a re-read of GitHub.
 func (s *Server) editPullRequestLabels(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+	ctx := github.WithCaller(r.Context(), "labels")
 	project := r.PathValue("project")
 	p, err := s.store.Project(ctx, project)
 	if err != nil {

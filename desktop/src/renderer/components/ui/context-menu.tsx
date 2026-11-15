@@ -16,7 +16,7 @@ export function ContextMenuContent({ className, ...props }: ComponentProps<typeo
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         className={cn(
-          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur',
+          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur',
           className,
         )}
         {...props}
@@ -35,14 +35,14 @@ export function ContextMenuItem({
   return (
     <ContextMenuPrimitive.Item
       className={cn(
-        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
+        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-ui text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
         destructive && 'text-rose-300 data-[highlighted]:bg-rose-500/10',
       )}
       {...props}
     >
       {Icon && <Icon className={cn('size-4 text-subtle', destructive && 'text-rose-400')} />}
       <span className="flex-1">{children}</span>
-      {hint && <span className="text-[11px] text-subtle">{hint}</span>}
+      {hint && <span className="text-caption text-subtle">{hint}</span>}
     </ContextMenuPrimitive.Item>
   );
 }
@@ -56,7 +56,7 @@ export function ContextMenuSeparator() {
 export function ContextMenuMore({ label, icon: Icon = Ellipsis, children }: { label: ReactNode; icon?: ComponentType<{ className?: string }>; children: ReactNode }) {
   return (
     <ContextMenuPrimitive.Sub>
-      <ContextMenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" data-menu-more>
+      <ContextMenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-ui text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" data-menu-more>
         <Icon className="size-4 text-subtle" />
         <span className="flex-1">{label}</span>
         <ChevronRight className="size-3.5 text-subtle" />
@@ -64,7 +64,7 @@ export function ContextMenuMore({ label, icon: Icon = Ellipsis, children }: { la
       <ContextMenuPrimitive.Portal>
         <ContextMenuPrimitive.SubContent
           sideOffset={4}
-          className="z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur"
+          className="z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur"
         >
           {children}
         </ContextMenuPrimitive.SubContent>

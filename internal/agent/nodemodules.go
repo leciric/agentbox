@@ -26,6 +26,8 @@ import (
 //
 // What an agent installed is kept when it's destroyed, keyed by its lockfile
 // (keepNodeModules), and the next agent with that lockfile starts with it.
+// A stopped agent's are released to those snapshots (releaseNodeModules) and
+// copied back when it starts (nodeModulesSources).
 
 // nodeModulesDevice is the prefix of the disk devices that mount them.
 const nodeModulesDevice = "node-modules-"
@@ -130,10 +132,14 @@ func (m *Manager) nodeModulesDirs(a state.Agent) []string {
 	return dirs
 }
 
-// nodeModulesSources makes again the directories a's node_modules devices
-// mount, before its machine starts: Incus won't start one whose disk's
-// source is missing, and an empty node_modules is only an install away.
+// nodeModulesSources gives a back the node_modules it released when it
+// stopped, and makes again the directories its node_modules devices mount,
+// before its machine starts: Incus won't start one whose disk's source is
+// missing, and an empty node_modules is only an install away.
 func (m *Manager) nodeModulesSources(ctx context.Context, a state.Agent) {
+	if meta, ok := m.nodeModulesMeta(a); ok {
+		m.NodeModules.Restore(a.Instance, a.Project, nodeModulesInstalls(a.Worktree, meta))
+	}
 	devices, err := m.Incus.Devices(ctx, a.Instance)
 	if err != nil {
 		return
@@ -181,13 +187,14 @@ func (m *Manager) nodeModulesMeta(a state.Agent) (nodeModulesMeta, bool) {
 }
 
 // nodeModulesMounts are where a's node_modules of the VM's are mounted in
-// its machine.
+// its machine, and its target/ directories (buildoutputs.go), which are in
+// the same store and are handed back to the user the same way.
 func (m *Manager) nodeModulesMounts(a state.Agent) []string {
 	var out []string
 	for _, dir := range m.nodeModulesDirs(a) {
 		out = append(out, filepath.Join(a.Worktree, dir, "node_modules"))
 	}
-	return out
+	return append(out, m.buildOutputMounts(a)...)
 }
 
 func nodeModulesInstalls(worktree string, meta nodeModulesMeta) []nodemods.Install {
@@ -219,6 +226,7 @@ func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
 		return
 	}
 	m.logf("Starting %s to hand its node_modules back to you", a.Ref())
+	ClearStaleCgroups(a.Instance)
 	if err := m.Incus.Start(ctx, a.Instance); err != nil {
 		m.logf("Starting %s: %v; what root made in its node_modules stays", a.Ref(), err)
 		return
@@ -227,6 +235,24 @@ func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
 	if _, err := m.Incus.Exec(ctx, a.Instance, args...); err != nil {
 		m.logf("Handing %s's node_modules back: %v", a.Ref(), err)
 	}
+}
+
+// holdNodeModules keeps a's node_modules to its caller until the returned func
+// is called: a stop releasing them, or a start giving them back and booting.
+func (m *Manager) holdNodeModules(a state.Agent) func() {
+	if m.NodeModules == nil {
+		return func() {}
+	}
+	return m.NodeModules.Hold(a.Instance)
+}
+
+// releaseNodeModules frees a's node_modules once its machine is stopped,
+// keeping them as its project's snapshots.
+func (m *Manager) releaseNodeModules(a state.Agent, installs []nodemods.Install) {
+	if m.NodeModules == nil || len(installs) == 0 {
+		return
+	}
+	m.NodeModules.Release(a.Instance, a.Project, installs)
 }
 
 // keepNodeModules keeps what a installed as its project's snapshots, once its
@@ -254,8 +280,14 @@ func (m *Manager) nodeABI(ctx context.Context, a state.Agent) string {
 // trackedFiles are the package.json files, lockfiles and pnpm workspaces git
 // tracks in worktree, from its index: no walk through the share.
 func trackedFiles(worktree string) []string {
+	return trackedFilesNamed(worktree, append([]string{"package.json", "pnpm-workspace.yaml"}, nodemods.Lockfiles...)...)
+}
+
+// trackedFilesNamed are the files git tracks in worktree with one of names,
+// anywhere in it.
+func trackedFilesNamed(worktree string, names ...string) []string {
 	var patterns []string
-	for _, name := range append([]string{"package.json", "pnpm-workspace.yaml"}, nodemods.Lockfiles...) {
+	for _, name := range names {
 		patterns = append(patterns, name, ":(glob)**/"+name)
 	}
 	out, err := exec.Command("git", append([]string{"-C", worktree, "ls-files", "-z", "--"}, patterns...)...).Output()

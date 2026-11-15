@@ -17,9 +17,11 @@ import (
 // the task when it falls due, or creates an agent with it.
 func scheduleTool(ctx context.Context, c *api.Client) mcp.Tool {
 	zone := "the user's timezone"
-	if settings, err := c.ProjectSettings(ctx); err == nil && settings.Timezone != "" {
+	settingsCtx, cancel := context.WithTimeout(ctx, startupRead)
+	if settings, err := c.ProjectSettings(settingsCtx); err == nil && settings.Timezone != "" {
 		zone = "the user's timezone, " + settings.Timezone
 	}
+	cancel()
 	type request struct {
 		Title, Task, At, In, Every, Cron, On, Label, Timezone, Target, Session, Model, Effort, Precheck *string
 		GraceMinutes                                                                                    *int `json:"grace_minutes"`

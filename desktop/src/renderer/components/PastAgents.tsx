@@ -49,10 +49,10 @@ export function PastAgentView({ agentRef, onBack, onSelect }: { agentRef: string
           {a && (
             <div className="grid min-w-0 flex-1 gap-0.5">
               <div className="flex min-w-0 items-baseline gap-2">
-                <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{a.title || a.name}</h1>
-                {a.title && <span className="shrink-0 font-mono text-[11.5px] text-subtle">{a.name}</span>}
+                <h1 className="truncate text-heading font-semibold tracking-tight text-title">{a.title || a.name}</h1>
+                {a.title && <span className="shrink-0 font-mono text-caption text-subtle">{a.name}</span>}
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-subtle">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-caption text-subtle">
                 <span className="max-w-48 truncate">{projectLabel(a.project, projects.data)}</span>
                 {a.branch && (
                   <span className="flex min-w-0 items-center gap-1 font-mono">

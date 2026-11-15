@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strconv"
 	"testing"
@@ -111,6 +112,41 @@ func TestATurnIsBookedInTheLedger(t *testing.T) {
 	}
 }
 
+// TestATurnIsTimedOnItsMainLoop: what the model streamed is timed, the tool
+// it ran isn't, and the timing goes on the main loop's model alone, with its
+// own output rather than its subagent's.
+func TestATurnIsTimedOnItsMainLoop(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	quota := quotaTurn(0.50)
+	f := newFakeTool(func(f *fakeTool, sessionID, text string) acp.PromptResponse {
+		f.update(sessionID, `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Thinking"}}`)
+		time.Sleep(100 * time.Millisecond)
+		f.update(sessionID, `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Bash","kind":"execute","status":"pending"}`)
+		f.update(sessionID, `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress"}`)
+		time.Sleep(time.Second) // the tool runs
+		f.update(sessionID, `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}`)
+		return quota(f, sessionID, text)
+	})
+	m, _ := newManager(t, store, f)
+
+	if _, err := m.Send(testAgent, "build it"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
+	byModel := map[string]state.TokenRow{}
+	for _, r := range ledger(t, store, 2) {
+		byModel[r.Model] = r
+	}
+	sonnet, haiku := byModel["claude-sonnet-5"], byModel["claude-haiku-4-5"]
+	if sonnet.TimedOutput != 500 || sonnet.TimedMS < 100 || sonnet.TimedMS >= 1_000 {
+		t.Errorf("the main loop was timed %d over %dms, want its 500 over the ~100ms it streamed for, not the second its tool ran", sonnet.TimedOutput, sonnet.TimedMS)
+	}
+	if haiku.TimedOutput != 0 || haiku.TimedMS != 0 {
+		t.Errorf("the subagent's model was timed: %+v", haiku)
+	}
+}
+
 // TestWorkBetweenTurnsIsBooked: a session that wakes by itself — a background
 // task finished — reports a cost with no turn running, and that goes in the
 // ledger at once, under its own kind.
@@ -142,13 +178,158 @@ func TestTokenRows(t *testing.T) {
 	base := state.TokenRow{Project: "p", Agent: "a", Kind: state.TokensTurn}
 	// A cost with no tokens is one row under the session's model, carrying
 	// the generation time too.
-	rows := tokenRows(base, nil, "opus", 0.2, 4_000)
+	rows := tokenRows(base, nil, "opus", 0.2, 4_000, timing{})
 	if len(rows) != 1 || rows[0].Model != "opus" || !near(rows[0].CostUSD, 0.2) || rows[0].GenerationMS != 4_000 {
 		t.Errorf("tokenRows(no tokens) = %+v", rows)
 	}
 	// Nothing at all is no row.
-	if rows := tokenRows(base, nil, "opus", 0, 0); rows != nil {
+	if rows := tokenRows(base, nil, "opus", 0, 0, timing{}); rows != nil {
 		t.Errorf("tokenRows(nothing) = %+v", rows)
+	}
+}
+
+// TestTokenRowsTimeTheMainLoopsModel: the main loop's timing goes on the row
+// of the model the session ran on, not on the busiest one, which can be a
+// subagent's; and with no model to match by name, on the busiest that output
+// as much as the main loop did.
+func TestTokenRowsTimeTheMainLoopsModel(t *testing.T) {
+	t.Parallel()
+	base := state.TokenRow{Project: "p", Agent: "a", Kind: state.TokensTurn}
+	spent := map[string]acp.Spent{
+		"claude-haiku-4-5": {Output: 4_000, CacheRead: 900_000}, // subagents, the busiest
+		"claude-opus-5-5":  {Output: 1_200, CacheRead: 100_000},
+	}
+	timed := timing{output: 1_000, ms: 20_000}
+	timedRow := func(rows []state.TokenRow) string {
+		got := ""
+		for _, r := range rows {
+			if r.TimedOutput != 0 || r.TimedMS != 0 {
+				if got != "" {
+					t.Errorf("more than one row is timed: %+v", rows)
+				}
+				got = r.Model
+				if r.TimedOutput != 1_000 || r.TimedMS != 20_000 {
+					t.Errorf("%s is timed %d over %dms, want 1000 over 20000", r.Model, r.TimedOutput, r.TimedMS)
+				}
+			}
+		}
+		return got
+	}
+	rows := tokenRows(base, spent, "opus", 0.4, 60_000, timed)
+	if got := timedRow(rows); got != "claude-opus-5-5" {
+		t.Errorf("session on opus: timed row = %q, want claude-opus-5-5", got)
+	}
+	if rows[0].Model != "claude-haiku-4-5" || !near(rows[0].CostUSD, 0.4) {
+		t.Errorf("the cost moved off the busiest row: %+v", rows)
+	}
+	spent["claude-haiku-4-5"] = acp.Spent{Output: 500, CacheRead: 900_000}
+	if got := timedRow(tokenRows(base, spent, "default", 0.4, 60_000, timed)); got != "claude-opus-5-5" {
+		t.Errorf("session on default: timed row = %q, want claude-opus-5-5, the busiest that output 1000", got)
+	}
+	if got := timedRow(tokenRows(base, spent, "opus", 0.4, 60_000, timing{output: 1_000})); got != "" {
+		t.Errorf("an untimed turn timed %q", got)
+	}
+}
+
+// TestTurnGenerated: a turn counts only the time its model was generating —
+// from when it was asked, or last streamed, to what it streams next — and
+// not the time its tools ran or its permissions waited, whatever it streamed
+// around them.
+func TestTurnGenerated(t *testing.T) {
+	t.Parallel()
+	start := time.Now()
+	at := func(s float64) time.Time { return start.Add(time.Duration(s * float64(time.Second))) }
+	title := func(s string) *string { return &s }
+	call := func(id string) acp.SessionUpdate {
+		return acp.SessionUpdate{SessionUpdate: "tool_call", ToolCallID: id, Title: title("Bash"), Kind: "execute", Status: "pending"}
+	}
+	input := func(id string) acp.SessionUpdate {
+		return acp.SessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: id, RawInput: json.RawMessage(`{"command":"go test"}`)}
+	}
+	status := func(id, s string) acp.SessionUpdate {
+		return acp.SessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: id, Status: s}
+	}
+	// A progress beat after the first carries neither status nor input.
+	beat := acp.SessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: "a", Content: json.RawMessage(`[{"type":"content","content":{"type":"text","text":"ok"}}]`)}
+
+	cases := []struct {
+		name string
+		run  func(tr *turn)
+		want time.Duration
+	}{{
+		// Ten seconds thinking, two writing a call, a 27-second tool, and a
+		// short reply in two chunks: the old first-to-last-text measure saw
+		// 50ms of it.
+		name: "a short reply after a long call",
+		run: func(tr *turn) {
+			tr.asked(at(0))
+			tr.streamed(at(3)) // the first thought
+			tr.streamed(at(10))
+			tr.toolUpdate(call("a"), at(10.5))
+			tr.toolUpdate(input("a"), at(12))
+			tr.toolUpdate(status("a", "in_progress"), at(13))
+			tr.toolUpdate(beat, at(25))
+			tr.toolUpdate(status("a", "completed"), at(40))
+			tr.streamed(at(42))
+			tr.streamed(at(42.05))
+		},
+		want: 14050 * time.Millisecond,
+	}, {
+		// Text early and late, a minute of permission and tool between.
+		name: "a permission and a tool between two replies",
+		run: func(tr *turn) {
+			tr.asked(at(0))
+			tr.streamed(at(2))
+			tr.toolUpdate(call("a"), at(4))
+			tr.waits() // the permission request
+			tr.toolUpdate(status("a", "in_progress"), at(50))
+			tr.toolUpdate(status("a", "completed"), at(65))
+			tr.streamed(at(66))
+			tr.streamed(at(70))
+		},
+		want: 9 * time.Second,
+	}, {
+		// The last result asks the model again; earlier ones are overtaken.
+		name: "calls in parallel",
+		run: func(tr *turn) {
+			tr.asked(at(0))
+			tr.toolUpdate(call("a"), at(3))
+			tr.toolUpdate(call("b"), at(4))
+			tr.toolUpdate(status("a", "completed"), at(10))
+			tr.toolUpdate(status("b", "completed"), at(30))
+			tr.streamed(at(31))
+		},
+		want: 5 * time.Second,
+	}, {
+		// codex-acp opens a call already running.
+		name: "a call that opens running",
+		run: func(tr *turn) {
+			tr.asked(at(0))
+			tr.streamed(at(4))
+			running := call("a")
+			running.Status = "in_progress"
+			tr.toolUpdate(running, at(5))
+			tr.toolUpdate(input("a"), at(6)) // the tool's, not the model's: it runs
+			tr.toolUpdate(status("a", "failed"), at(20))
+			tr.streamed(at(22))
+		},
+		want: 7 * time.Second,
+	}, {
+		// A session that woke by itself was never asked: it starts counting
+		// at what it first streams.
+		name: "a woken turn",
+		run: func(tr *turn) {
+			tr.streamed(at(5))
+			tr.streamed(at(8))
+		},
+		want: 3 * time.Second,
+	}}
+	for _, tc := range cases {
+		tr := &turn{}
+		tc.run(tr)
+		if tr.generated != tc.want {
+			t.Errorf("%s: generated %v, want %v", tc.name, tr.generated, tc.want)
+		}
 	}
 }
 

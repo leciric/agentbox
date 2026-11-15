@@ -57,6 +57,9 @@ func (m *Manager) packageCacheEnv() string {
 		// Playwright would delete the browsers they use: the daemon evicts
 		// browsers instead.
 		{"PLAYWRIGHT_SKIP_BROWSER_GC", "1"},
+		// Cargo's own clean-up goes by what this agent used, and would
+		// delete crates other agents use (internal/pkgcache).
+		{"CARGO_CACHE_AUTO_CLEAN_FREQUENCY", "never"},
 	}
 	var b strings.Builder
 	b.WriteString("# Package managers' caches every agent shares, while there's one to write in.\n")
@@ -87,7 +90,32 @@ func (m *Manager) packageCacheSetup() string {
 		"install -d -o " + owner + " -g " + group + " " + shellQuote(PackageCachePath) + "\n" +
 		line(".config/pnpm/rc", "store-dir=", dir(pkgcache.PnpmStore)) +
 		line(".config/pnpm/rc", "cache-dir=", dir(pkgcache.PnpmCache)) +
-		line(".yarnrc.yml", "globalFolder:", " "+dir(pkgcache.Yarn))
+		line(".yarnrc.yml", "globalFolder:", " "+dir(pkgcache.Yarn)) +
+		m.cargoCacheSetup(owner, group, home)
+}
+
+// cargoCacheSetup links the agent's ~/.cargo/registry and ~/.cargo/git to the
+// shared caches, with Cargo's lock files, so that every agent's Cargo takes
+// the same lock over them (internal/pkgcache). Cargo has no variable for its
+// registry alone, and CARGO_HOME also holds what's the agent's own. What the
+// agent had there before is dropped: it's a cache. An agent whose CARGO_HOME
+// is elsewhere is left alone.
+func (m *Manager) cargoCacheSetup(owner, group, home string) string {
+	cargo := shellQuote(home + "/.cargo")
+	shared := path.Join(PackageCachePath, pkgcache.Cargo)
+	var b strings.Builder
+	b.WriteString("install -d -o " + owner + " -g " + group + " " + cargo + " " + shellQuote(shared) +
+		" " + shellQuote(shared+"/registry") + " " + shellQuote(shared+"/git") + "\n")
+	for _, name := range []string{"registry", "git"} {
+		link, target := cargo+"/"+name, shellQuote(shared+"/"+name)
+		b.WriteString("if [ ! -L " + link + " ]; then rm -rf " + link + "; ln -s " + target + " " + link + "; chown -h " + owner + ":" + group + " " + link + "; fi\n")
+	}
+	for _, lock := range []string{".package-cache", ".package-cache-mutate"} {
+		target := shellQuote(shared + "/" + lock)
+		b.WriteString("[ -e " + target + " ] || install -m 664 -o " + owner + " -g " + group + " /dev/null " + target + "\n")
+		b.WriteString("ln -sfn " + target + " " + cargo + "/" + lock + "; chown -h " + owner + ":" + group + " " + cargo + "/" + lock + "\n")
+	}
+	return b.String()
 }
 
 // EnsurePackageCache mounts the shared package caches in the agent when

@@ -33,6 +33,7 @@ Publishing the npm package: [`npm/PUBLISHING.md`](npm/PUBLISHING.md).
 | `internal/hub/server.go` | The HTTP server: sessions, environments, the tunnel endpoint, and the reverse proxy to a connected environment. |
 | `internal/hub/pairing.go` | The setup link, pairing (a device or an environment asks, a signed-in device approves its code), and devices. |
 | `internal/hub/pages.go`, `pages.html` | The hub's own pages: setup, approval, connecting a browser, and the list of environments and devices. |
+| `internal/hub/mcp.go`, `mcppage.go`, `mcp.html`, `mcpstore.go` | Remote MCP for other apps (Claude, ChatGPT, Poke): the `/mcp` endpoint that relays to an environment, its pairings, and the OAuth an app signs in with (metadata, registration, the page that asks for a pairing's code, tokens). |
 | `internal/hub/store.go`, `sqlstore.go` | Accounts, devices (sessions), setup links and environments, in Postgres or SQLite, with the migrations. |
 | `internal/hub/auth.go` | Minting and hashing tokens, and argon2id passwords for the accounts from before pairing. |
 | `npm/`, `scripts/npm-build.sh` | `npx agentbox-hub`: a launcher, and a package per platform with the binary. |

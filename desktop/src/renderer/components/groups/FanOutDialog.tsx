@@ -107,13 +107,13 @@ export function FanOutDialog({ onSelect }: { onSelect: (view: View) => void }) {
             <Textarea id="fan-out-task" rows={3} value={task} placeholder={t('group.fanOut.taskPlaceholder')} onChange={(e) => setTask(e.target.value)} data-fan-out-task />
           </Field>
           <div className="grid gap-1.5">
-            <span className="text-[13px] font-medium text-secondary">{t('group.fanOut.agents', { count: picks.length })}</span>
+            <span className="text-ui font-medium text-secondary">{t('group.fanOut.agents', { count: picks.length })}</span>
             <div className="grid gap-1.5" data-fan-out-variants>
               {picks.map((value, i) => {
                 const ai = value.split('|')[0];
                 return (
                   <div key={i} className="flex min-w-0 items-center gap-2" data-fan-out-variant={letters[i]}>
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-strong font-mono text-[12px] font-semibold text-title">{letters[i]}</span>
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-strong font-mono text-caption font-semibold text-title">{letters[i]}</span>
                     <AIIcon ai={ai} className="size-4 shrink-0 text-subtle" />
                     <Select className="min-w-0 flex-1" value={value} onChange={(v) => setPick(i, v)} aria-label={t('group.fanOut.agentAria', { letter: letters[i] })} data-fan-out-pick={letters[i]}>
                       {options.map((o) => (
@@ -145,11 +145,11 @@ export function FanOutDialog({ onSelect }: { onSelect: (view: View) => void }) {
           <label className="flex items-start gap-3 rounded-xl border border-line bg-surface-faint px-3 py-2.5">
             <Switch checked={judge} onCheckedChange={setJudge} className="mt-0.5" data-fan-out-judge />
             <span className="grid gap-0.5">
-              <span className="text-[13px] font-medium text-primary">{t('group.fanOut.judge')}</span>
-              <span className="text-[12px] text-subtle">{t('group.fanOut.judgeHint')}</span>
+              <span className="text-ui font-medium text-primary">{t('group.fanOut.judge')}</span>
+              <span className="text-caption text-subtle">{t('group.fanOut.judgeHint')}</span>
             </span>
           </label>
-          <p className="text-[12px] leading-relaxed text-subtle">{t('group.fanOut.how')}</p>
+          <p className="text-caption leading-relaxed text-subtle">{t('group.fanOut.how')}</p>
           {start.error && <Notice>{errorMessage(start.error)}</Notice>}
           <DialogFooter>
             <Button variant="ghost" onClick={closeFanOut}>

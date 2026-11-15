@@ -190,6 +190,34 @@ func TestSearchChatsAcrossChats(t *testing.T) {
 	}
 }
 
+// Leads finds what was said in every session of the chats, open or closed,
+// and no agent's; short queries too.
+func TestSearchChatsLeads(t *testing.T) {
+	t.Parallel()
+	s := openSearchStore(t)
+	ctx := context.Background()
+	for _, c := range []struct{ project, agent string }{{"pawly", "lead"}, {"pawly", "lead.login"}, {"pawly", "agent-01"}, {"pawly", "leader"}, {"other", "lead.x"}} {
+		if err := s.SaveChatItems(ctx, c.project, c.agent, chatRows(t,
+			map[string]any{"id": c.agent, "kind": "user", "text": "the release notes"},
+		)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{"release", "re"} {
+		got := searchIDs(t, s, ChatSearch{Query: q, Project: "pawly", Leads: true})
+		slices.Sort(got)
+		if !slices.Equal(got, []string{"lead", "lead.login"}) {
+			t.Errorf("%q in pawly's sessions = %v", q, got)
+		}
+	}
+	if got := searchIDs(t, s, ChatSearch{Query: "release", Leads: true}); len(got) != 3 {
+		t.Errorf("every chat's sessions = %v", got)
+	}
+	if _, _, err := s.SearchChats(ctx, ChatSearch{Query: "release", Project: "pawly", Agent: "lead", Leads: true}); err == nil {
+		t.Error("one chat and every session's at once wasn't refused")
+	}
+}
+
 // Upgrading indexes the conversations already stored.
 func TestChatSearchMigrationIndexesStoredChats(t *testing.T) {
 	ctx := context.Background()

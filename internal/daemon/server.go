@@ -5,6 +5,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"agentbox/internal/acp"
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
@@ -26,7 +29,9 @@ import (
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
+	"agentbox/internal/homehost"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/imagecache"
@@ -90,6 +95,16 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// lostResumed is when each agent's lost turn was last resumed by itself
+	// (stallwatch.go, resumeLost).
+	lostMu      sync.Mutex
+	lostResumed map[string]time.Time
+	// probe is how the doctor asks whether a URL answers (doctor.go); nil is
+	// probeURL, a test's stub otherwise.
+	probe func(ctx context.Context, url string) error
+	// doctorFixes is the job fixing each check the doctor was asked to,
+	// under mu.
+	doctorFixes map[string]string
 	// crashSend is held while crash records are sent, crashesSent how many
 	// this daemon sent (crashes.go).
 	crashSend   sync.Mutex
@@ -122,6 +137,8 @@ type Server struct {
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
 	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	presence     *viewLeases   // what the clients are looking at (presence.go)
+	agentSamples *agentSampler // watched agents' live resources (agentresources.go)
 	issues       issuesCache   // projects' open GitHub issues (issues.go)
 	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
@@ -129,7 +146,7 @@ type Server struct {
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, session, notice string, act bool)
 	// restacked are the merged pull requests ("owner/repo#n") whose stack
 	// was moved onto where they merged, so the merge and the watch don't
 	// both move it (stack.go).
@@ -165,9 +182,9 @@ type Server struct {
 	// card's world (cachecard.go): whether the lead has a cache worth saving,
 	// sending it a keepalive, and whether the project's agents are working.
 	// Nil is the real thing; a test puts its own in.
-	cacheGate      func(project string) (lead state.Agent, used int64, ok bool)
+	cacheGate      func(ref string) (lead state.Agent, used int64, ok bool)
 	leadKeepalive  func(ctx context.Context, a state.Agent) error
-	projectWorking func(project string) bool
+	projectWorking func(ref string) bool
 	// dockerPruneTimeout bounds freeing an agent's Docker space as it stops
 	// (dockerprune.go): agent.DockerPruneTimeout, or a test's shorter one.
 	dockerPruneTimeout time.Duration
@@ -178,6 +195,11 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// trim gives the host back the VM's freed disk space (fstrim.go).
+	trim *trimmer
+	// worktreeTrash says a destroyed agent's worktree is in the trash
+	// (emptyWorktreeTrash).
+	worktreeTrash chan struct{}
 	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
 	// and sharedWorktrees whether worktrees are in a shared folder, found once.
 	nodeModules         *nodemods.Store
@@ -210,6 +232,11 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// briefRewrites tracks the rewrites of chat briefs sessionsChanged starts
+	// in the background, for the same reason; briefsAgain, under mu, is the
+	// projects one runs for, true when another change came in meanwhile.
+	briefRewrites sync.WaitGroup
+	briefsAgain   map[string]bool
 	// mergeFrees tracks the agents a merge through the app frees after it
 	// has answered (mergePullRequest), for the same reason: one may still be
 	// deleting a machine and a worktree.
@@ -223,23 +250,37 @@ type Server struct {
 	removingStopped sync.Mutex
 
 	mu           sync.Mutex
-	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
-	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
-	groupsDone   map[string]bool         // groups whose lead was told every agent finished (groupMaybeDone)
-	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
-	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
-	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
-	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
-	leadAPIs     map[string]*http.Server // per-project lead API servers
+	agentAPIs    map[string]*http.Server  // in-agent API servers, by instance
+	retired      map[string]bool          // agents a stop-retire stopped, by ref (markRetired)
+	stopping     map[string]bool          // agents being stopped on purpose, by ref (expectStop)
+	stopWaits    map[string]chan struct{} // agents whose machine is stopping, by ref, closed when it has (stopAgent)
+	groupsDone   map[string]bool          // groups whose lead was told every agent finished (groupMaybeDone)
+	freeWhenIdle map[string]bool          // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
+	machineKept  map[string]bool          // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
+	reviewHeld   map[string]bool          // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview   // each finished agent's review item as last read in full, by ref (review.go)
+	leadAPIs     map[string]*http.Server  // per-project lead API servers
+	// homeHost is the desktop app's helper on the user's computer, which the
+	// Home chat runs through when it is there, and homePlace where its adapter
+	// last started, by session (homehost.go). homePlace is under mu.
+	homeHost     homehost.Hub
+	homePlace    map[string]string // by session ref
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
+	githubLogins map[string]*githubLogin  // GitHub sign-ins through gh, by job
+	githubGH     github.GHLogin           // the gh they sign in with (githublogin.go)
+	installGH    bool                     // whether a sign-in installs a missing gh: in AgentBox's own VM
+	geminiLogins map[string]*claudeLogin  // Gemini CLI's Google sign-ins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
+	// runs at a time, and another follows when one was asked for meanwhile.
+	refreshing, refreshAgain atomic.Bool
 	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
 	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
@@ -247,10 +288,14 @@ type Server struct {
 	archivedPRChecked map[string]time.Time
 	// pastChanges is what past agents' kept branches changed, by where they
 	// were measured (work.go).
-	pastChanges  map[pastChangesKey]*api.AgentChanges
+	pastChanges map[pastChangesKey]*api.AgentChanges
+	// branchTips is each repository's branches as last read, for the Work
+	// page (work.go's tipsOf).
+	branchTips   map[string]tipsRead
 	nudged       map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
 	outcomes     map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
 	outcomesRead map[string]bool         // projects whose outcomes have been read from their events since the daemon started
+	naming       map[string]bool         // untitled chat sessions being named now, by their lead's ref (sessionname.go)
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
@@ -258,15 +303,23 @@ type Server struct {
 	// approve asks the user to approve what a project's lead asked for, and
 	// waits for the answer: approveInChat, or the test's (leadskills.go).
 	approve func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	// sessionPRs, when set, stands in for the pull request cache in what a
+	// session made (sessionOutput), for tests.
+	sessionPRs func(p state.Project, agents []state.Agent) (map[string]*api.PullRequest, bool)
+
 	// leadPermissions carries agents' permission requests to their leads'
 	// chats (leadpermissions.go).
 	leadPermissions leadPermissions
-	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
-	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
-	agentsOnImage   map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
-	remote          *remote.Connector // the connection to a hub, when this machine is an environment
-	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+
+	// sessionStatus pushes where each chat session stands (sessionstatus.go).
+	sessionStatus sessionStatusWatch
+
+	baseSyncErrs  map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image         imageWork         // what the daemon is doing to the base image (imagetools.go)
+	imageWaiters  int               // jobs waiting for the base image to be built (imagebuild.go)
+	agentsOnImage map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
+	remote        *remote.Connector // the connection to a hub, when this machine is an environment
+	lan           *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// firstImage is how fetchFirstImage checks the user mapping and starts
 	// the build: image.CheckHost and startImageBuild, unless a test says.
 	firstImage struct {
@@ -281,6 +334,14 @@ type Server struct {
 	// servers (connectors.go).
 	connectorsGiven map[string]bool
 	remoteStop      context.CancelFunc
+	// peerState is the account's other machines, for leads directing
+	// agents on them (peers.go).
+	peerState peerState
+	// A test replaces agent.Manager.Clone with cloneHook, and ~/src, where
+	// projects added from a link are cloned by default, with cloneRoot
+	// (clone.go).
+	cloneHook func(ctx context.Context, repo, dest string) error
+	cloneRoot string
 	// remotePairing is a connection to a hub waiting for approval, and
 	// remotePairStop stops waiting (remote.go).
 	remotePairing  *api.RemotePairing
@@ -297,6 +358,23 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
+	// geminiModels is the same for Gemini CLI's menu, and geminiModelsFor
+	// stands in for Manager.GeminiModels in tests, which must not install
+	// anything.
+	geminiModels struct {
+		running bool
+		last    time.Time
+	}
+	geminiModelsFor func(context.Context) ([]acp.ConfigChoice, error)
+	// copilotModels and copilotModelsFor are the same for GitHub Copilot
+	// CLI's menu, and copilotUserFor stands in for asking GitHub whose a
+	// token is (copilotTokenUser).
+	copilotModels struct {
+		running bool
+		last    time.Time
+	}
+	copilotModelsFor  func(context.Context) ([]acp.ConfigChoice, error)
+	copilotUserFor    func(context.Context, string) (string, error)
 	cursorLogin       api.CursorLogin
 	cursorLoginCancel context.CancelFunc
 	// cursorHelperFor, when set, stands in for Manager.CursorHelper in tests,
@@ -332,11 +410,22 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// hostLoad is the user's computer's last load report (hostload.go).
+	hostLoad hostLoad
+	// memoryShort (memoryjobs.go) is whether the machines are told memory
+	// is short, so their builds and tests run fewer jobs.
+	memoryShort *memoryShort
 	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
 	// with Settings → Experimental's switch, and machineCgroups what
 	// freezes them.
-	frozen         *fleetState
+	frozen *fleetState
+	// admit (admission.go) is when agents' machines boot, and those On hold.
+	admit *admitState
+	// view (viewing.go) is the agent the app shows.
+	view           viewingState
 	machineCgroups machineCgroups
+	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
+	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -344,14 +433,23 @@ type Server struct {
 	idleCgroups    idleCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
+	setIOWeight    func(instance string, weight int) error
+	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
+	setCaps        func(instance string, caps agent.Caps) error
+	thrash         func(instance string) (agent.ThrashSample, bool)
+	killLargest    func(instance string) (agent.OOMVictim, error)
+	thrashing      map[string]thrashState // by instance: watchMemory's
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
-	// wakeMu makes one start of a stopped machine for a message at a time
-	// (wake.go).
-	wakeMu sync.Mutex
+	// shared is the agents' and lead chats' shared memory ceilings
+	// (sharedmemory.go).
+	shared *sharedCgroups
+	// wakes makes one start of each stopped machine for a message at a time
+	// (wake.go, wakeLock).
+	wakes keyedMutex
 	// waking, under mu, are the agents whose machines start aside for a
 	// message, waiting for memory to boot (wakeAside).
 	waking map[string]bool
@@ -368,10 +466,14 @@ type Server struct {
 	// is told of a stall — tellLead acting, or a test's recorder.
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
-	stallTell func(ctx context.Context, project, note string)
+	stallTell func(ctx context.Context, a state.Agent, note string)
 	// credentialTell tells a lead of an agent's credential request, waking
 	// it for a lead-managed secret: tellLead, or a test's recorder.
-	credentialTell func(ctx context.Context, project, notice string, act bool)
+	credentialTell func(ctx context.Context, a state.Agent, notice string, act bool)
+	// lostResumeDelay is how long a lost turn waits before it is resumed
+	// (resumeLost): what cut it off, a host out of memory most often, has a
+	// moment to pass.
+	lostResumeDelay time.Duration
 }
 
 func New(cfg Config) (*Server, error) {
@@ -396,6 +498,9 @@ func New(cfg Config) (*Server, error) {
 		lastStates:       map[string]api.AgentChange{},
 		previewIPs:       map[string]previewTarget{},
 		claudeLogins:     map[string]*claudeLogin{},
+		githubLogins:     map[string]*githubLogin{},
+		installGH:        hostos.InVM(),
+		geminiLogins:     map[string]*claudeLogin{},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
@@ -406,6 +511,8 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		presence:         newViewLeases(),
+		agentSamples:     newAgentSampler(),
 		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
@@ -414,7 +521,9 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
+		admit:            newAdmitState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
@@ -424,11 +533,18 @@ func New(cfg Config) (*Server, error) {
 		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
+		setIOWeight:      agent.SetIOWeight,
+		vmSwap:           agent.VMSwap,
+		setCaps:          agent.SetCaps,
+		thrash:           agent.Thrash,
+		killLargest:      agent.KillLargest,
+		thrashing:        map[string]thrashState{},
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},
 		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
+		shared:           newSharedCgroups(),
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},
@@ -437,16 +553,20 @@ func New(cfg Config) (*Server, error) {
 		cpuTime:          agent.CPUTime,
 		connectorsGiven:  map[string]bool{},
 	}
+	store.SetLog(s.logf)
 	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
-	s.stallTell = s.recheckTell
-	s.credentialTell = s.tellLead
+	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
+	s.credentialTell = s.tellOwner
+	s.lostResumeDelay = 10 * time.Second
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
-	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.approve = s.approveInChat
+	s.homeHost.OnChange = s.homeHostChanged
+	s.events.observe = s.observeSessionStatus
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -469,10 +589,16 @@ func New(cfg Config) (*Server, error) {
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
+		LeadWaiting:       s.leadWaiting,
 		IdleStop:          s.leadSleepAfter,
 		StayUp:            s.leadDueSoon,
+		GoalOf:            s.chatGoalOf,
+		GoalChanged:       s.goalFromTool,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
+		ReadOutput: func(ctx context.Context, a state.Agent, path string, before, limit int64) ([]byte, int64, int64, error) {
+			return s.manager(io.Discard).FileTail(ctx, a, path, before, limit)
+		},
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -481,6 +607,8 @@ func New(cfg Config) (*Server, error) {
 	s.packageCache = s.newPackageCache()
 	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
+	s.trim = s.newTrimmer()
+	s.worktreeTrash = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
 }
@@ -566,18 +694,24 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.briefRewrites.Wait()
 		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
+	s.killReclaimWriters()
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
+	loops.Go(func() { s.sampleAgentResources(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
+	loops.Go(func() { s.emptyWorktreeTrash(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepStoppedMachines(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.sweepSessions(ctx) })
 	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
+	loops.Go(func() { s.runTrim(ctx) })
 	loops.Go(func() {
 		s.giveZram()
 		s.runPressure(ctx)
@@ -585,6 +719,11 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
+	if os.Getenv("AGENTBOX_GITHUB_DEBUG") != "" {
+		// Every request to GitHub, with who asked and what is left: the
+		// totals are in agentbox github usage either way.
+		github.DebugLog = s.logf
+	}
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	// Scheduled tasks, starting with any that fell due while it was down.
 	loops.Go(func() { s.runSchedules(ctx) })
@@ -752,7 +891,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
 		IOSScreenshot:    s.iosScreenshot,
-		LeadSocketPath:   s.leadSocketPath,
+		LeadSocketPath:   s.sessionSocketPath,
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
@@ -761,6 +900,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		NodeModulesOn:    s.nodeModulesOn,
 		ShareRoom:        s.shareRoom,
 		ShareBusy:        s.shareBusy,
+		WorktreeTrashed:  s.worktreeTrashed,
 	}
 }
 
@@ -816,6 +956,10 @@ func (s *Server) routes() http.Handler {
 		})
 	}
 	h("GET /v1/version", s.version)
+	// The Home chat on the user's computer: the app's helper there, and the
+	// stdio of the MCP server it starts (homehost.go).
+	h("GET "+homehost.Path, s.attachHomeHost)
+	h("GET "+homehost.MCPPath, s.homeHostMCP)
 	h("POST /v1/shutdown", s.shutdown)
 
 	h("GET /v1/theme", s.themeStatus)
@@ -831,12 +975,15 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
+	h("GET /v1/github/usage", s.githubUsage)
+	h("GET /v1/github/repos", s.githubRepos)
 
 	// The app's search palette: everything, in every project, in one call.
 	h("GET /v1/search", s.search)
 
 	h("GET /v1/projects", s.listProjects)
 	h("POST /v1/projects", s.addProject)
+	h("POST /v1/projects/clone", s.cloneProject)
 	// When each project last did anything, for the sidebar's order: polled.
 	h("GET /v1/project-activity", s.projectActivity)
 	// How the sidebar is organised (D79): the sections, and one layout that
@@ -854,6 +1001,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}", s.removeProject)
 	// Each project's icon: the one chosen, or the one its repository has.
 	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
+	h("GET /v1/projects/{project}/icon/candidates", s.projectIconCandidates)
 	h("GET /v1/projects/{project}/terminals", s.terminalTails)
 	h("PUT /v1/projects/{project}/icon", s.setProjectIcon)
 	h("DELETE /v1/projects/{project}/icon", s.deleteProjectIcon)
@@ -862,34 +1010,53 @@ func (s *Server) routes() http.Handler {
 	s.scheduleRoutes("/v1/projects/{project}", "user", h)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
-	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
-	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
-	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.ensureLeadFromPath))
-	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	// The chat's sessions (leadsessions.go). Every route of the project's
+	// chat is also under /sessions/{session}/, for one session; without one,
+	// or ?session=, it is the session most recently active.
+	sessionRoute := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		h(pattern, fn)
+		method, path, _ := strings.Cut(pattern, " ")
+		h(method+" "+strings.Replace(path, "/{project}/", "/{project}/sessions/{session}/", 1), fn)
+	}
+	h("GET /v1/projects/{project}/sessions", s.listSessions)
+	h("POST /v1/projects/{project}/sessions", s.newSession)
+	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
+	h("PUT /v1/projects/{project}/sessions/order", s.orderSessions)
+	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
+	h("POST /v1/projects/{project}/sessions/{session}/close", s.closeSession)
+	h("POST /v1/projects/{project}/sessions/{session}/reopen", s.reopenSession)
+	h("POST /v1/projects/{project}/sessions/{session}/seen", s.seeSession)
+	h("POST /v1/projects/{project}/sessions/{session}/snooze", s.snoozeSession)
+	h("GET /v1/projects/{project}/sessions/{session}/output", s.sessionOutputRoute)
+	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
+	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
+	sessionRoute("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/background/{task}", s.chatBackgroundTask(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
 	// The pages the project's chats published on Hatch (artifacts.go).
 	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
 	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
 	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
-	h("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
-	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
-	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
-	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/runners", s.chatRunners)
-	h("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
-	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
-	h("GET /v1/projects/{project}/lead", s.projectChat)
-	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
+	sessionRoute("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/cache", s.chatCache)
+	sessionRoute("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
+	sessionRoute("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
+	sessionRoute("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/runners", s.chatRunners)
+	sessionRoute("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
+	sessionRoute("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/lead", s.projectChat)
+	sessionRoute("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
 	h("GET /v1/projects/{project}/desktops", s.projectDesktops)
 	h("GET /v1/projects/{project}/credentials", s.projectCredentials)
@@ -913,6 +1080,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("POST /v1/projects/{project}/pulls/{number}/merge-when-green", s.mergeWhenGreen)
+	h("DELETE /v1/projects/{project}/pulls/{number}/merge-when-green", s.cancelMergeWhenGreen)
 	h("POST /v1/projects/{project}/pulls/{number}/labels", s.editPullRequestLabels)
 	h("GET /v1/projects/{project}/labels", s.projectLabels)
 	h("GET /v1/projects/{project}/issues", s.projectIssues)
@@ -936,6 +1105,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
 	h("GET /v1/projects/{project}/browser-cookies/profiles", s.browserCookieProfiles)
 	h("POST /v1/projects/{project}/browser-cookies/from-browser", s.importFromBrowser)
+	h("POST /v1/projects/{project}/browser-cookies/from-browser-decrypted", s.importDecryptedFromBrowser)
 	h("POST /v1/projects/{project}/browser-cookies/preview", s.previewBrowserCookies)
 	h("PUT /v1/projects/{project}/browser-cookies", s.importBrowserCookies)
 	h("DELETE /v1/projects/{project}/browser-cookies", s.removeBrowserCookies)
@@ -951,9 +1121,13 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/presence", s.getPresence)
+	h("PUT /v1/presence", s.renewPresence)
+	h("DELETE /v1/presence/{client}", s.endPresence)
 	h("GET /v1/diagnostics/package-cache", s.diagnosticsPackageCache)
 	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
@@ -981,12 +1155,14 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)
+	h("PUT /v1/agents/{project}/{agent}/session", s.handOver)
 	h("DELETE /v1/agents/{project}/{agent}", s.destroyAgent)
 	for _, action := range []string{"start", "stop", "pause", "resume", "session"} {
 		h("POST /v1/agents/{project}/{agent}/"+action, s.agentAction(action))
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/agents/{project}/{agent}/resources", s.agentResources)
 	h("GET /v1/stopped-machines", s.getStoppedMachines)
 	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
@@ -1015,9 +1191,13 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/share", s.agentShare)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/viewing", s.viewAgent)
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.agentFromPath, false))
+	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/files/{file}", s.chatFile(s.agentOrArchivedFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/background/{task}", s.chatBackgroundTask(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
@@ -1060,6 +1240,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
@@ -1074,6 +1255,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/auth", s.authStatus)
 	h("POST /v1/auth/claude", s.saveClaudeToken)
 	h("POST /v1/auth/claude/login", s.startClaudeLogin)
+	h("POST /v1/auth/gemini/login", s.startGeminiLogin)
+	h("GET /v1/auth/gemini/login/{job}", s.geminiLoginStatus)
+	h("POST /v1/auth/gemini/login/{job}/code", s.geminiLoginCode)
 	h("GET /v1/auth/claude/login/{job}", s.claudeLoginStatus)
 	h("POST /v1/auth/claude/login/{job}/code", s.claudeLoginCode)
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)
@@ -1088,14 +1272,25 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/cursor/login", s.startCursorLogin)
 	h("GET /v1/auth/cursor/login", s.cursorLoginStatus)
 	h("POST /v1/auth/github", s.saveGitHubToken)
+	h("POST /v1/auth/github/login", s.startGitHubLogin)
+	h("GET /v1/auth/github/login/{job}", s.githubLoginStatus)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)
 	h("POST /v1/auth/github/{account}/rename", s.renameGitHubAccount)
 	h("GET /v1/setup", s.setup)
+	h("GET /v1/doctor", s.doctor)
+	h("POST /v1/doctor/fix", s.doctorFix)
+	h("POST /v1/doctor/home", s.doctorHome)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
 	h("POST /v1/remote/pair", s.pairRemote)
+	// Other apps paired over remote MCP (remotemcp.go). Like the rest of
+	// /v1/remote, these answer on this machine only (remoteHandler).
+	h("GET /v1/remote/mcp", s.getRemoteMCP)
+	h("POST /v1/remote/mcp/pairings", s.pairRemoteMCP)
+	h("POST /v1/remote/mcp/pairings/{id}/code", s.renewRemoteMCPCode)
+	h("DELETE /v1/remote/mcp/pairings/{id}", s.revokeRemoteMCP)
 	// Chatting from a phone on the local network (lan.go).
 	h("GET /v1/lan", s.getLAN)
 	h("PATCH /v1/lan", s.updateLAN)
@@ -1114,6 +1309,11 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/snaps/{id}/image", s.snapImage)
 	h("POST /v1/snaps/{id}/send", s.sendSnap)
 	h("DELETE /v1/snaps/{id}", s.dropSnap)
+	h("GET /v1/transfer/export", s.previewExport)
+	h("POST /v1/transfer/export", s.exportInstance)
+	h("POST /v1/transfer/import/inspect", s.inspectImport)
+	h("POST /v1/transfer/import", s.importInstance)
+
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)
 	h("GET /v1/jobs/{id}/log", s.jobLog)
@@ -1133,7 +1333,7 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, state.ErrExists):
+	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.Is(err, errSessionClosed):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable
@@ -1141,9 +1341,15 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusInsufficientStorage
 	}
 	body := api.Error{Error: err.Error()}
-	if errors.Is(err, gitrepo.ErrNotEmpty) {
+	switch {
+	case errors.Is(err, gitrepo.ErrNotEmpty):
 		body.Code = api.ErrorFolderNotEmpty
+	case errors.Is(err, agent.ErrCloneDestExists):
+		body.Code = api.ErrorFolderExists
+	case errors.As(err, new(badRepoURL)):
+		body.Code = api.ErrorBadRepoURL
 	}
+	body.Code = cmp.Or(transferCode(err), body.Code)
 	_ = writeJSON(w, status, body)
 }
 

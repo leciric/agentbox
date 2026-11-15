@@ -28,6 +28,10 @@ type ChatSearch struct {
 	Kinds []string
 	// Since, when set, keeps only items created at or after it.
 	Since time.Time
+	// Leads keeps only the chats of the projects' and the Home chat's
+	// sessions (LeadSessionName), every one of them, open or closed: what a
+	// chat's session search reads. It can't be had with Agent.
+	Leads bool
 	// Archived includes the chats of archived agents, which are left out
 	// otherwise. Asking for one archived agent's chat by Agent finds it
 	// either way.
@@ -140,6 +144,12 @@ func (q ChatSearch) sql() (from, where, order string, args []any, err error) {
 	if q.Project != "" {
 		where += ` AND i.project = ?`
 		args = append(args, q.Project)
+	}
+	if q.Leads {
+		if q.Agent != "" {
+			return "", "", "", nil, fmt.Errorf("a chat search is of one chat or of every session's, not both")
+		}
+		where += ` AND (i.agent = '` + LeadName + `' OR i.agent LIKE '` + LeadName + `.%')`
 	}
 	if q.Agent != "" {
 		where += ` AND i.agent = ?`

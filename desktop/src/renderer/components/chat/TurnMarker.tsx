@@ -23,7 +23,7 @@ export function TurnMarker({ agent, checkpoint, latest, onOpenAgent }: { agent: 
       <div className="h-px flex-1 bg-line opacity-0 transition-opacity group-hover/turn:opacity-100 has-[[data-state=open]]:opacity-100" />
       <Menu>
         <MenuTrigger
-          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11.5px] tabular-nums text-faint transition hover:bg-surface-raised hover:text-tertiary data-[state=open]:bg-surface-raised data-[state=open]:text-tertiary"
+          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-caption tabular-nums text-faint transition hover:bg-surface-raised hover:text-tertiary data-[state=open]:bg-surface-raised data-[state=open]:text-tertiary"
           aria-label={t('chat.turn.menu', { n })}
           data-chat-turn-menu
         >

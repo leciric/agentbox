@@ -96,6 +96,17 @@ func (p Paths) LeadHome(project string) string {
 	return filepath.Join(p.Data, "projects", project, "lead-home")
 }
 
+// LeadSessionHome is the private HOME of one of a project's chat sessions,
+// so its AI tool's session state and the lead socket its MCP server is given
+// are its own. The session migrated from the chat before sessions ("main")
+// keeps LeadHome.
+func (p Paths) LeadSessionHome(project, session string) string {
+	if session == "" || session == "main" {
+		return p.LeadHome(project)
+	}
+	return filepath.Join(p.Data, "projects", project, "lead-sessions", session)
+}
+
 // HomeChat is the Home chat's working directory: ~/.agentbox, made the first
 // time the chat is opened. Paths made without Home (a test's) keep it under
 // Data instead.
@@ -141,6 +152,12 @@ func (p Paths) Media() string {
 		return d
 	}
 	return filepath.Join(p.Data, "media")
+}
+
+// WorktreeTrash is where destroyed agents' worktrees wait to be deleted:
+// beside Worktrees, so moving one there is a rename on the same disk.
+func (p Paths) WorktreeTrash() string {
+	return filepath.Join(filepath.Dir(filepath.Clean(p.Worktrees())), "worktrees-trash")
 }
 
 func (p Paths) Worktree(project, agent string) string {

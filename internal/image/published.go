@@ -101,21 +101,39 @@ func ImagesURLs() []string {
 // unpublished are the tools tools.txt pins for every image that the published
 // image leaves out, because AgentBox may not redistribute them: Claude Code
 // is Anthropic's proprietary software, its ACP adapter bundles Anthropic's
-// Agent SDK, and Cursor's SDK is Cursor's. Each machine installs them itself,
-// from their own registries, as it always has. Every other tool is in
-// toolLicenses, which says why it may be published.
-var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp", "npm:@cursor/sdk"}
+// Agent SDK, and Cursor's SDK is Cursor's. GitHub Copilot CLI is GitHub's,
+// under the GitHub Copilot CLI License: it allows redistributing it only
+// unmodified, inside an application that does more, with the license
+// alongside, which a whole published image of tools may not be read as.
+// Each machine installs them itself, from their own registries, as it always
+// has. Every other tool is in toolLicenses, which says why it may be
+// published.
+var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp", "npm:@cursor/sdk", "npm:@github/copilot"}
 
 // toolLicenses are the licenses of the tools the published image has, and
 // where their source is: SOURCES-<arch>.md lists them. A tool tools.txt starts
 // pinning for every image goes here, once its license allows publishing it,
 // or into unpublished (TestEveryToolIsPublishedOrNot).
+//
+// Gemini CLI was checked as published on npm at 0.64.0, the version
+// tools.txt pins: the package is Apache-2.0 and has no dependencies, only an
+// esbuild bundle. The bundle's own license comments are Apache-2.0, MIT,
+// ISC and BSD-3-Clause (React's included), and its one notices file
+// (bundle/bundled/third_party/THIRD_PARTY_NOTICES, for the bundled Chrome
+// DevTools MCP server, itself Apache-2.0) lists MIT, ISC, Apache-2.0,
+// BSD-2/3-Clause and 0BSD, all permissive. The GPL and other copyleft names
+// the bundle contains are SPDX license-id tables (spdx-license-ids and
+// spdx-correct's data), not the licenses of code in it. npm adds its optional
+// native modules, @github/keytar (MIT, with node-addon-api, MIT) and
+// node-pty/@lydell/node-pty (MIT, with nan, MIT). Check again when the pin
+// moves to another minor version.
 var toolLicenses = map[string]struct{ License, Source string }{
-	"go":                  {"BSD-3-Clause", "https://go.googlesource.com/go"},
-	"node":                {"MIT, with its bundled dependencies' permissive licenses", "https://github.com/nodejs/node"},
-	"pnpm":                {"MIT", "https://github.com/pnpm/pnpm"},
-	"gh":                  {"MIT", "https://github.com/cli/cli"},
-	"npm:@playwright/mcp": {"Apache-2.0", "https://github.com/microsoft/playwright-mcp"},
+	"go":                     {"BSD-3-Clause", "https://go.googlesource.com/go"},
+	"node":                   {"MIT, with its bundled dependencies' permissive licenses", "https://github.com/nodejs/node"},
+	"pnpm":                   {"MIT", "https://github.com/pnpm/pnpm"},
+	"gh":                     {"MIT", "https://github.com/cli/cli"},
+	"npm:@playwright/mcp":    {"Apache-2.0", "https://github.com/microsoft/playwright-mcp"},
+	"npm:@google/gemini-cli": {"Apache-2.0, with its bundled dependencies' permissive licenses", "https://github.com/google-gemini/gemini-cli"},
 }
 
 // PublishedTools are the tools the published image has: every image's tools

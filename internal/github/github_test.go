@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -304,9 +305,10 @@ func TestRefusedTokenSaysWhatToDo(t *testing.T) {
 }
 
 // PullRequests lists a repository's pull requests in one call, and enriches
-// only the open ones with what the list endpoint doesn't carry: checks, diff
-// size and comment count. A closed one is left as the list has it, since
-// nobody is about to act on its history.
+// only the open ones with what the list endpoint doesn't carry — checks, diff
+// size and comment count — in one GraphQL query rather than two REST calls
+// each. A closed one is left as the list has it, since nobody is about to act
+// on its history.
 func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 	ctx := context.Background()
 	repo := github.Repo{Owner: "acme", Name: "pawly"}
@@ -325,16 +327,11 @@ func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 			} else {
 				_, _ = w.Write([]byte(closedList))
 			}
-		case "/repos/acme/pawly/pulls/9":
-			sawDetail = true
-			_, _ = w.Write([]byte(`{"additions":12,"deletions":3,"comments":4}`))
-		case "/repos/acme/pawly/pulls/7":
-			t.Errorf("fetched detail for a closed pull request")
-		case "/repos/acme/pawly/commits/def/check-runs":
-			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"status":"completed","conclusion":"success"}]}`))
-		case "/repos/acme/pawly/commits/abc/check-runs":
-			sawChecksForClosed = true
-			_, _ = w.Write([]byte(`{"total_count":0}`))
+		case "/graphql":
+			body, _ := io.ReadAll(r.Body)
+			sawDetail = strings.Contains(string(body), "pr9: pullRequest(number: 9)")
+			sawChecksForClosed = strings.Contains(string(body), "number: 7")
+			_, _ = w.Write([]byte(`{"data":{"repository":{"pr9":{"additions":12,"deletions":3,"comments":{"totalCount":4},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}}}}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -605,10 +602,8 @@ func TestPullRequestsPagesThroughEveryOpenOne(t *testing.T) {
 			}
 			n, _ := strconv.Atoi(q.Get("per_page"))
 			_, _ = w.Write([]byte("[" + strings.Join(items[:min(n, closed)], ",") + "]"))
-		case strings.Contains(r.URL.Path, "/check-runs"):
-			_, _ = w.Write([]byte(`{"total_count":0}`))
-		case strings.HasPrefix(r.URL.Path, "/repos/acme/pawly/pulls/"):
-			_, _ = w.Write([]byte(`{"additions":1}`))
+		case r.URL.Path == "/graphql":
+			_, _ = w.Write([]byte(`{"data":{"repository":{}}}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}

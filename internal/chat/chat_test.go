@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -952,6 +953,42 @@ func TestAutonomousAgentGetsFullAccessWithoutModeKinds(t *testing.T) {
 	}
 }
 
+// TestProjectModeKindIsApplied: a permission mode the agent's project chose
+// by kind becomes the tool's own value, in place of full access for an
+// autonomous agent and of the tool's default for one that asks, and with or
+// without a plan mode beside it.
+func TestProjectModeKindIsApplied(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		kind       string
+		autonomous bool
+		plan       bool
+		want       string
+	}{
+		{kind: "standard", autonomous: true, want: "default"},
+		{kind: "standard", autonomous: true, plan: true, want: "default"},
+		{kind: "full_access", want: "bypassPermissions"},
+		{kind: "full_access", plan: true, want: "bypassPermissions"},
+	} {
+		store := openStore(t)
+		a := testAgent
+		a.Autonomous = c.autonomous
+		if err := store.SaveChat(context.Background(), a.Project, a.Name, state.Chat{Options: map[string]string{state.ChatOptionModeKind: c.kind}}); err != nil {
+			t.Fatal(err)
+		}
+		tool := newFakeTool(answerHello)
+		tool.plan = c.plan
+		m, _ := newManager(t, store, tool)
+		if _, err := m.Start(a); err != nil {
+			t.Fatal(err)
+		}
+		th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+		if mode := optionValue(th.Session, "mode"); mode != c.want {
+			t.Errorf("%+v: the mode is %q", c, mode)
+		}
+	}
+}
+
 func TestSettingsAreAppliedToEverySession(t *testing.T) {
 	t.Parallel()
 	store := openStore(t)
@@ -973,17 +1010,17 @@ func TestSettingsAreAppliedToEverySession(t *testing.T) {
 	// the next session, because the tool resolves a model at launch against a
 	// wider catalogue than it validates against mid-session (D45). What has to
 	// hold is that it says when it takes effect rather than implying it's on.
-	named, err := m.SetOption(ctx, a, "model", "claude-fable-5-1")
+	named, err := m.SetOption(ctx, a, "model", "claude-fable-5-2")
 	if err != nil {
 		t.Errorf("naming a model outside the menu = %v", err)
 	}
-	if got := optionValue(named, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(named, "model"); got != "claude-fable-5-2" {
 		t.Errorf("after naming a model, the session reports %q", got)
 	}
 	th = waitThread(t, m, a, "the notice", func(th api.ChatThread) bool {
 		return strings.Contains(find(th, "notice", 0).Text, "starts on it next time")
 	})
-	if !strings.Contains(find(th, "notice", 0).Text, "claude-fable-5-1") {
+	if !strings.Contains(find(th, "notice", 0).Text, "claude-fable-5-2") {
 		t.Errorf("the notice doesn't name the model: %q", find(th, "notice", 0).Text)
 	}
 	// It still refuses a value for a setting that isn't the model.
@@ -1154,15 +1191,15 @@ func TestPinnedClaudeModelsAreOfferedButNeverRemembered(t *testing.T) {
 	if !ok {
 		t.Fatal("no model option on a ready session")
 	}
-	if !slices.ContainsFunc(model.Choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-1" }) {
+	if !slices.ContainsFunc(model.Choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-2" }) {
 		t.Errorf("Fable isn't on the live model menu: %+v", model.Choices)
 	}
 
-	session, err := m.SetOption(ctx, a, "model", "claude-fable-5-1")
+	session, err := m.SetOption(ctx, a, "model", "claude-fable-5-2")
 	if err != nil {
-		t.Fatalf("SetOption(\"claude-fable-5-1\") on a running session = %v", err)
+		t.Fatalf("SetOption(\"claude-fable-5-2\") on a running session = %v", err)
 	}
-	if got := optionValue(session, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(session, "model"); got != "claude-fable-5-2" {
 		t.Errorf("after picking a pinned model, the session reports %q", got)
 	}
 	th = waitThread(t, m, a, "the notice", func(th api.ChatThread) bool {
@@ -1184,7 +1221,7 @@ func TestPinnedClaudeModelsAreOfferedButNeverRemembered(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &choices); err != nil {
 		t.Fatalf("remembered model menu = %q: %v", raw, err)
 	}
-	if slices.ContainsFunc(choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-1" }) {
+	if slices.ContainsFunc(choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-2" }) {
 		t.Errorf("a pinned model was remembered as though the adapter sent it: %+v", choices)
 	}
 }
@@ -1302,15 +1339,15 @@ func TestModelChoiceBeforeFirstMessageAcceptsANamedModel(t *testing.T) {
 	ctx := context.Background()
 	remember(t, store, "sonnet", "opus", "haiku")
 	m := &Manager{Store: store}
-	session, err := m.SetOption(ctx, testAgent, "model", "claude-fable-5-1")
+	session, err := m.SetOption(ctx, testAgent, "model", "claude-fable-5-2")
 	if err != nil {
-		t.Fatalf("SetOption(\"claude-fable-5-1\") before Start = %v", err)
+		t.Fatalf("SetOption(\"claude-fable-5-2\") before Start = %v", err)
 	}
-	if got := optionValue(session, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(session, "model"); got != "claude-fable-5-2" {
 		t.Errorf("the named model reports %q", got)
 	}
 	stored, err := store.Chat(ctx, testAgent.Project, testAgent.Name)
-	if err != nil || stored.Options["model"] != "claude-fable-5-1" {
+	if err != nil || stored.Options["model"] != "claude-fable-5-2" {
 		t.Errorf("stored model = %q, %v", stored.Options["model"], err)
 	}
 	// Only the model has the escape hatch. Every other setting is still
@@ -2145,6 +2182,7 @@ func TestAuthFailure(t *testing.T) {
 		"OAuth token has expired. Please obtain a new token or refresh your existing token.",
 		"Invalid API key · Please run /login",
 		"the agent exited: 401 Unauthorized",
+		`Internal error: Failed to authenticate: OAuth session expired and could not be refreshed: {"errorKind":"authentication_failed"}`,
 	}
 	fine := []string{
 		"Claude Code didn't start: exec: \"claude-agent-acp\": executable file not found in $PATH",
@@ -2307,8 +2345,8 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 	if stored, _ := store.Chat(ctx, testAgent.Project, testAgent.Name); stored.Options[state.ChatOptionContextWindow] != "1000000" {
 		t.Errorf("stored %v", stored.Options)
 	}
-	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "300k"); err == nil {
-		t.Error("a window Sonnet doesn't offer here was accepted")
+	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "2m"); err == nil {
+		t.Error("a window above Sonnet's whole one was accepted")
 	}
 
 	if _, err := m.Send(testAgent, "and again"); err != nil {
@@ -2496,6 +2534,69 @@ func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
 	}
 	if stored.Options[state.ChatOptionContextWindow] != "500000" {
 		t.Errorf("the lead's own choice was stored as %+v", stored.Options)
+	}
+}
+
+// TestTheLeadTakesItsEffortAndModeDefaults: the effort and permission mode in
+// Settings → Models reach a lead's chat whose composer chose neither, sent as
+// its session is set up, and the composer's own choice wins. An agent's chat
+// never reads them. The mode menu is remembered for Settings to offer.
+func TestTheLeadTakesItsEffortAndModeDefaults(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		state.SettingDefaultLeadEffort: "high",
+		state.SettingDefaultLeadMode:   "bypassPermissions",
+	} {
+		if err := store.SetSetting(ctx, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	chose := state.Agent{Project: "chosen", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/chosen"}
+	if err := store.SaveChat(ctx, chose.Project, chose.Name, state.Chat{Options: map[string]string{"effort": "xhigh", "mode": "default"}}); err != nil {
+		t.Fatal(err)
+	}
+	// A default of plan, from before plan was a toggle, is no default at all.
+	planned := state.Agent{Project: "planned", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/planned"}
+	for _, c := range []struct {
+		a            state.Agent
+		effort, mode string
+	}{
+		{lead, "high", "bypassPermissions"},
+		{chose, "xhigh", "default"},
+		{testAgent, "default", "default"},
+		{planned, "high", "default"},
+	} {
+		if c.a.Project == planned.Project {
+			if err := store.SetSetting(ctx, state.SettingDefaultLeadMode, "plan"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f := newFakeTool(answerHello)
+		f.effort, f.plan = true, true
+		f.values["effort"], f.values["mode"] = "default", "default"
+		m, _ := newManager(t, store, f)
+		if _, err := m.Start(c.a); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, c.a, c.a.Ref()+"'s effort and mode", func(th api.ChatThread) bool {
+			return th.Session.State == api.ChatReady && optionValue(th.Session, "effort") == c.effort && optionValue(th.Session, "mode") == c.mode
+		})
+		f.mu.Lock()
+		running := f.values["mode"]
+		f.mu.Unlock()
+		if running != c.mode {
+			t.Errorf("%s's tool runs mode %q, want %q", c.a.Ref(), running, c.mode)
+		}
+	}
+	menu, err := store.Setting(ctx, state.SettingClaudeModeChoices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.ChoiceValues(menu); !slices.Equal(got, []string{"default", "bypassPermissions"}) {
+		t.Errorf("the remembered mode menu = %v", got)
 	}
 }
 
@@ -2766,5 +2867,51 @@ func TestQueuedAgentStartsOnItsSavedModel(t *testing.T) {
 	defer f.mu.Unlock()
 	if got := f.values["model"]; got != "opus" {
 		t.Errorf("session model = %q, want opus", got)
+	}
+}
+
+// A tool killed for memory (Process.Killed, a lead chat's cgroup) fails its
+// turn saying so, not with a closed pipe, and the next message starts it
+// again.
+func TestAToolKilledForMemoryFailsTheTurnSayingSo(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
+		f.crash()
+		return acp.PromptResponse{StopReason: "end_turn"}
+	})
+	m, _ := newManager(t, openStore(t), f)
+	var killed atomic.Bool
+	killed.Store(true)
+	launch := m.Launch
+	m.Launch = func(ctx context.Context, a state.Agent, status func(string)) (*Process, error) {
+		p, err := launch(ctx, a, status)
+		if p != nil && killed.Load() {
+			p.Killed = func() string {
+				return "killed: out of memory (the project chats together reached their limit of 4.0 GiB)"
+			}
+		}
+		return p, err
+	}
+	if _, err := m.Send(testAgent, "go"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, testAgent, "the turn to end", func(th api.ChatThread) bool {
+		return turnsEnded(1)(th) && th.Session.State == api.ChatError
+	})
+	want := "Claude Code was killed: out of memory (the project chats together reached their limit of 4.0 GiB)"
+	if e := find(th, "error", 0); e.Text != want {
+		t.Errorf("error = %q, want %q", e.Text, want)
+	}
+	if th.Session.Error != want {
+		t.Errorf("the session's error is %q", th.Session.Error)
+	}
+	killed.Store(false)
+	f.setTurn(answerHello)
+	if _, err := m.Send(testAgent, "try again"); err != nil {
+		t.Fatal(err)
+	}
+	th = waitThread(t, m, testAgent, "the second turn", turnsEnded(2))
+	if th.Session.State != api.ChatReady || th.Session.Error != "" {
+		t.Errorf("session %s %q", th.Session.State, th.Session.Error)
 	}
 }

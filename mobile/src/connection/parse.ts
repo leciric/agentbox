@@ -40,6 +40,7 @@ export function agent(o: Obj): T.Agent | undefined {
     title: str(o.title),
     state: str(o.state),
     chat: optStr(o.chat),
+    leadSession: optStr(o.leadSession),
     stalledSince: optStr(o.stalledSince),
     background: strs(o.background),
     outcome: optStr(o.outcome),
@@ -55,6 +56,54 @@ export function project(o: Obj): T.Project | undefined {
 export function projectChat(v: unknown): T.ProjectChat {
   const o = isObj(v) ? v : {};
   return { ...(o as unknown as T.ProjectChat), project: str(o.project), ref: str(o.ref), started: o.started === true && keyed(o, 'ref'), chat: str(o.chat) };
+}
+
+// leadSessions is a project's chat sessions, each with its id and ref, and
+// where it stands (daemon/sessionstatus.go).
+export function leadSessions(v: unknown): T.LeadSession[] {
+  return list(v, (o) =>
+    keyed(o, 'id') && keyed(o, 'ref')
+      ? {
+          ...(o as unknown as T.LeadSession),
+          topic: str(o.topic),
+          chat: str(o.chat),
+          agents: num(o.agents),
+          activeAt: str(o.activeAt),
+          createdAt: str(o.createdAt),
+          status: str(o.status),
+          needsYou: num(o.needsYou),
+          agentsWorking: num(o.agentsWorking),
+          unread: o.unread === true,
+        }
+      : undefined,
+  );
+}
+
+// sessionOutput is what a session made: its agents, each with its pull
+// request when it has one.
+export function sessionOutput(v: unknown): T.SessionAgent[] {
+  const o = isObj(v) ? v : {};
+  return list(o.agents, (a) =>
+    keyed(a, 'ref')
+      ? {
+          ...(a as unknown as T.SessionAgent),
+          name: str(a.name),
+          title: str(a.title),
+          branch: str(a.branch),
+          working: a.working === true,
+          archived: a.archived === true,
+          pr: opt(a.pr, (pr) => (typeof pr.number === 'number' ? { ...(pr as unknown as T.PullRequest), state: str(pr.state), checks: str(pr.checks), url: str(pr.url) } : undefined)),
+        }
+      : undefined,
+  );
+}
+
+// leadSessionStatus is an EventLeadSessionStatus: a project's open sessions as
+// they stand now; undefined for one that names no project.
+export function leadSessionStatus(v: unknown): { project: string; sessions: T.LeadSession[] } | undefined {
+  const o = isObj(v) ? v : {};
+  const project = str(o.project);
+  return project ? { project, sessions: leadSessions(o.sessions) } : undefined;
 }
 
 export function question(o: Obj): T.Question | undefined {
@@ -93,6 +142,7 @@ export function chatItem(o: Obj): T.ChatItem | undefined {
     turn: str(o.turn),
     kind: str(o.kind),
     text: optStr(o.text),
+    to: optStr(o.to),
     parent: optStr(o.parent),
     images: Array.isArray(o.images) ? list(o.images, (i) => (keyed(i, 'id') ? (i as unknown as T.ChatImage) : undefined)) : undefined,
     tool: opt(o.tool, tool),

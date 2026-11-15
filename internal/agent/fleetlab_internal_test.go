@@ -26,6 +26,7 @@ package agent
 // is killed by the kernel before any pressure shows, governor or not.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -109,7 +110,7 @@ func TestFleetLab(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "memory.max"), strconv.FormatInt(vm, 10))
 	mustWrite(t, filepath.Join(root, "memory.swap.max"), strconv.FormatInt(swap, 10))
 	mustWrite(t, filepath.Join(root, "cgroup.subtree_control"), "+memory")
-	limit := MemoryLimit(vm)
+	limit := MemoryLimit(vm, 0)
 	t.Logf("mode %s: VM %s with %s swap, %d agents each growing to %d MiB at %d MiB/s then %d passes over it, memory.max %s",
 		mode, HumanBytes(vm), HumanBytes(swap), agents, grow, rate, passes, HumanBytes(limit))
 
@@ -200,7 +201,7 @@ func TestFleetLab(t *testing.T) {
 					ms = append(ms, pressure.Machine{Agent: a.ref, Since: a.made, Working: true, Frozen: f.Frozen(a.ref)})
 				}
 			}
-			f.Sync(ms)
+			f.Sync(now, ms)
 			acts = f.Step(now, sample)
 			for _, ref := range acts.Start {
 				boot(byRef[ref])
@@ -212,7 +213,7 @@ func TestFleetLab(t *testing.T) {
 					t.Fatal(err)
 				}
 				a.frozenAt = now
-				go func() { _ = reclaimDir(agentCgroup(root, a.instance), writeCgroup) }()
+				go func() { _, _, _ = reclaimCgroup(context.Background(), agentCgroup(root, a.instance), writeReclaim) }()
 			}
 			for _, ref := range acts.Thaw {
 				a := byRef[ref]

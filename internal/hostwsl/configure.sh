@@ -29,4 +29,11 @@ default=$user
 appendWindowsPath=false
 CONF
 
+# gh, which the daemon signs in to GitHub with (github.GHLogin), from
+# Ubuntu's universe.
+if ! command -v gh >/dev/null; then
+	apt-get update -q
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends gh
+fi
+
 echo "configured $user"

@@ -20,6 +20,85 @@ You reach the lead through the app's chat tab (backed by the daemon's
 (`internal/cli/ask.go`) — the same command an agent uses to ask the lead a question mid-task
 (see [Chat over ACP](chat.md)).
 
+## Sessions
+
+A project's chat has sessions: each is a lead conversation of its own on one topic ("Prod: login
+500s"), with its own context, compaction and prompt cache. A project has as many as you open, and
+can have none open. The chat you had before sessions is the first one, "Chat", and can be closed
+like any other.
+
+- **Shared by every session:** notes, memory, skills, schedules, the repository and the agent list.
+- **Each session's own:** its conversation, what it is working on in `project_state`, and the
+  agents it made. Their finish, stall and failure notices, their questions and their pull request
+  watch go to that session only.
+- **Notices about nobody's agent** (one you made, or one whose session was closed or deleted),
+  schedules, other projects' leads and CI go to the open session most recently active. A project
+  with no open session opens one for an event that needs a turn, titled after it.
+- **Another session's agent:** a lead may read it freely. Telling it something or retiring it asks
+  you first, on a card in that lead's chat. To move an agent for good, use "Move to session" in its
+  menu, or `agentbox chat session hand`.
+- **Closing a session** moves it to the chat's history with its conversation and its agents. From
+  History, next to the tabs, you can read it, reopen it as it was, or start a new session from it,
+  which begins with where the old one left off. A new session never takes a closed or deleted
+  one's place: it always starts empty.
+- **Deleting a session**, from History, removes its conversation for good and leaves its agents to
+  no session. Nothing is summarised: the lead writes what matters to memory as it goes.
+- **Keeping the cache warm:** a session gets keepalives only while its own agents are working.
+  When its cache is about to expire, the card that offers to compact it also offers to start a
+  new session, which takes the message you were writing as its first.
+
+In the app, the sessions are tabs above the chat and a list under the project in the sidebar. Each
+shows a spinner while its lead works and a dot when it has news you haven't seen. The keys are
+<kbd>Ctrl</kbd>+<kbd>T</kbd> for a new session and <kbd>Ctrl</kbd>+<kbd>W</kbd> to close the one
+shown into the history. <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> move between sessions. The phone shows them as
+chips above the chat.
+
+```bash
+agentbox chat session list pawly
+agentbox chat session new pawly "Prod: login 500s"
+agentbox chat pawly --session prod-login-500s "Is the fix deployed?"
+agentbox chat session close pawly prod-login-500s
+agentbox chat session list pawly --closed
+agentbox chat session reopen pawly prod-login-500s
+agentbox chat session hand pawly/agent-07 prod-login-500s
+```
+
+`agentbox chat pawly`, without `--session`, uses the session most recently active.
+
+The Home chat, the one across every project, has sessions the same way: tabs above it, the same
+keys, and chips on the phone. Its sessions share what Home remembers; anything addressed to the
+Home chat goes to the session it came from, else to the one most recently active. On the command
+line, `--home` takes the project's place:
+
+```bash
+agentbox chat session new --home "Weekly planning"
+agentbox chat --home --session weekly-planning "What is every project doing?"
+```
+
+## Writing to an agent from the chat
+
+The **To:** chip at the left of the chat's composer says who a message goes to: the lead, which
+is the default, or any agent of the project. It lists the session's own agents first, then the
+project's others, each with a dot for its state.
+
+- A message to an agent goes straight to that agent's chat, the same as typing in it. It shows
+  in the lead's chat as your message tagged "→ agent-31". The lead isn't woken: it reads
+  "User told agent-31: …" at the start of its next turn, so it stays in sync and spends nothing.
+- A message to **another session's** agent asks first, in place of the send: "agent-12 belongs
+  to “Prod incident”. Send anyway?"
+- <kbd>Ctrl</kbd>+<kbd>.</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> move the
+  target to the next and the previous agent (<kbd>⌘</kbd> on a Mac), and <kbd>Esc</kbd> in an
+  empty composer goes back to the lead. Starting a message with `@agent-31 ` sends just that
+  message to agent-31.
+- Each session remembers its target. If that agent is retired, the target goes back to the lead.
+
+The phone has the same chip and `@agent-31 `. From the command line:
+
+```bash
+agentbox chat pawly --to agent-31 "Use the new reminders table"
+```
+
 ## Its MCP tools
 
 The lead's AI tool is given an MCP server, `agentbox`, registered from

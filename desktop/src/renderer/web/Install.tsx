@@ -12,12 +12,12 @@ export function InstallNote({ className = '' }: { className?: string }) {
   const install = useInstall();
   const standalone = useStandalone();
   if (standalone) return null;
-  const note = (text: string) => <p className={`text-[12px] leading-relaxed text-subtle ${className}`} data-phone-install-note>{text}</p>;
+  const note = (text: string) => <p className={`text-caption leading-relaxed text-subtle ${className}`} data-phone-install-note>{text}</p>;
   if (!installable()) return note(t('web.install.needsHttps'));
   if (install) {
     return (
       <div className={`grid justify-items-start gap-2 ${className}`}>
-        <p className="text-[12px] leading-relaxed text-subtle">{t('web.install.offer')}</p>
+        <p className="text-caption leading-relaxed text-subtle">{t('web.install.offer')}</p>
         <Button size="sm" variant="secondary" data-phone-install onClick={() => void install()}>
           <Download className="size-3.5" /> {t('web.install.button')}
         </Button>

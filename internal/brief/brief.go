@@ -22,8 +22,8 @@ var homeSource string
 
 var (
 	tmpl     = template.Must(template.New("brief").Parse(source))
-	leadTmpl = template.Must(template.New("lead").Parse(leadSource))
-	homeTmpl = template.Must(template.New("home").Parse(homeSource))
+	leadTmpl = template.Must(template.New("lead").Funcs(template.FuncMap{"join": strings.Join}).Parse(leadSource))
+	homeTmpl = template.Must(template.New("home").Funcs(template.FuncMap{"join": strings.Join}).Parse(homeSource))
 )
 
 type Data struct {
@@ -43,6 +43,9 @@ type Data struct {
 	// NodeModules are the directories of the worktree whose node_modules are
 	// on the machine's own disk (agent/nodemodules.go), "." for its top.
 	NodeModules []string
+	// CargoTargets are the directories of the worktree whose Cargo target/
+	// is on the machine's own disk (agent/buildoutputs.go), "." for its top.
+	CargoTargets []string
 	// Secrets are the names of the secrets this agent has as environment
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string
@@ -50,7 +53,10 @@ type Data struct {
 	// IOS is whether the project builds an iOS app and the user's computer
 	// is a Mac, whose iOS Simulator agents drive with agentbox ios.
 	IOS bool
-	GitHub  bool // AgentBox shares a GitHub token with agents
+	// IOSPorts are the ports the project lets its agents forward to the
+	// Mac's localhost (agentbox ios forward).
+	IOSPorts []int
+	GitHub   bool // AgentBox shares a GitHub token with agents
 	// Nesting is whether the project turned nesting on: the agent runs a real
 	// Incus daemon of its own, inside its own container.
 	Nesting bool
@@ -137,6 +143,11 @@ func fenced(s string) string {
 // agents from the host, without a machine or a shell of its own.
 type LeadData struct {
 	Project string // the project's slug, as refs and URLs write it
+	// Session is the topic of the chat session this lead runs, and
+	// OtherSessions the project's other sessions' topics; both empty when it
+	// is the only one.
+	Session       string
+	OtherSessions []string
 	// ProjectName is what the user calls the project; empty is Project.
 	ProjectName string
 	Root        string // the project's main checkout
@@ -159,6 +170,9 @@ type LeadData struct {
 	// follow the model new agents start on, a model name they all get, or
 	// state.AgentModelAuto, which asks the lead to choose one per task.
 	AgentModel string
+	// AgentTool is the tool the project's agents run when the lead names
+	// none, as the brief names it ("OpenCode"); "" for the lead's own tool.
+	AgentTool string
 	// AgentDefaultModel and AgentDefaultWindow are what a Claude Code agent
 	// the lead creates starts on when it passes neither — Settings → Models,
 	// or the model the project names — with the window written the way
@@ -183,6 +197,12 @@ type LeadData struct {
 	// create Cursor agents. Its models aren't listed here: create_agent's own
 	// description names them, with each one's effort levels.
 	CursorReady bool
+	// GeminiReady is whether agents have a Gemini CLI login, so the lead may
+	// create Gemini CLI agents. Its models are create_agent's to list too.
+	GeminiReady bool
+	// CopilotReady is whether agents have a GitHub Copilot CLI login, so the
+	// lead may create Copilot agents. Its models are create_agent's to list.
+	CopilotReady bool
 	// ClaudeAccounts are the names of the Claude Code accounts this project may
 	// use: the machine's, less any its allow-list leaves out. The brief says
 	// nothing about spreading agents across them unless there is more than one
@@ -194,6 +214,9 @@ type LeadData struct {
 	// the Mac's home through Lima's mount (D92).
 	VM   bool
 	Host string
+	// IOS is Data's: the project builds an iOS app and the user's computer is
+	// a Mac, whose iOS Simulator its agents drive, though the lead can't.
+	IOS bool
 	// Notes are the project's notes, the same ones its agents are given.
 	Notes string
 	// PRWatch is whether AgentBox watches this project's agents' pull
@@ -232,9 +255,18 @@ func RenderLead(d LeadData) (string, error) {
 type HomeData struct {
 	Dir      string // its working directory, ~/.agentbox
 	Projects []HomeProject
+	// Session is the topic of the Home chat's session this runs, and
+	// OtherSessions its other sessions' topics; both empty when it has one.
+	Session       string
+	OtherSessions []string
 	// VM and Host are LeadData's: where the chat's shell is.
 	VM   bool
 	Host string
+	// OnHost is a chat whose AI tool runs on the user's own computer, not
+	// beside the daemon (package homehost): Host is then that computer, and
+	// HostHome its user's home folder.
+	OnHost   bool
+	HostHome string
 }
 
 // HomeProject is one project the Home chat is told about.

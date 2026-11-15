@@ -101,7 +101,8 @@ func (s *Server) packageCacheDir(ctx context.Context) string {
 	return s.packageCache.Dir
 }
 
-// watchPackageCache trims the caches every packageCacheEvery, and whenever
+// watchPackageCache trims the caches every packageCacheEvery (less often while
+// they're well under their cap, Cache.Wait), and whenever
 // kickPackageCache asks, until ctx ends.
 func (s *Server) watchPackageCache(ctx context.Context) {
 	for {
@@ -110,7 +111,7 @@ func (s *Server) watchPackageCache(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(packageCacheEvery):
+		case <-time.After(s.packageCache.Wait(packageCacheEvery)):
 		case <-s.packageCacheKick:
 		}
 	}

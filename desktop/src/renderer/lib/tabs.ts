@@ -22,8 +22,8 @@ export type AgentPlaceName = AgentTab | AgentSection | 'overview';
 export const projectSections: readonly ProjectSection[] = ['repository', 'general', 'brief', 'memory', 'tokens', 'secrets', 'connectors', 'skills'];
 export const agentSections: readonly AgentSection[] = ['machine', 'code', 'ai', 'secrets', 'connectors'];
 
-const projectTabs: readonly string[] = ['chat', 'pulls', 'issues', 'media', 'past', 'settings'];
-const agentTabs: readonly string[] = ['chat', 'terminal', 'browser', 'android', 'media', 'settings', 'snapshots'];
+export const projectTabs: readonly string[] = ['chat', 'pulls', 'issues', 'media', 'past', 'settings'];
+export const agentTabs: readonly string[] = ['chat', 'terminal', 'browser', 'android', 'media', 'settings', 'snapshots'];
 
 export type Place<Tab, Section> = { tab: Tab; section: Section };
 

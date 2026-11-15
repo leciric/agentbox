@@ -132,7 +132,7 @@ function followEvents() {
       // not an event we understand
     }
   };
-  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventLAN, T.EventChat, T.EventChatCache, T.EventQuestion, T.EventAgentEvent];
+  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventLAN, T.EventChat, T.EventChatCache, T.EventLeadSessions, T.EventQuestion, T.EventAgentEvent];
   for (const type of types) es.addEventListener(type, deliver as EventListener);
 }
 
@@ -155,6 +155,8 @@ const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(me
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
+  hostPower: async () => ({ onBattery: false }),
+  onHostPower: () => () => {},
   keepAwake: async () => {},
   // A browser has no tray.
   tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },
@@ -170,6 +172,10 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   connection: () => Promise.resolve(connection),
   onConnection: (fn) => listen(connectionListeners, fn),
   onEvent: (fn) => listen(eventListeners, fn),
+  // The web app is served by the daemon itself, so they're the same version.
+  staleDaemon: () => Promise.resolve(null),
+  onStaleDaemon: () => () => {},
+  restartStaleDaemon: () => Promise.resolve(),
   info: () => Promise.resolve({ socket: location.origin, version: 'web', electron: '', packaged: false, platform: 'web' }),
   stream,
   cli: {
@@ -260,6 +266,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     sections: () => Promise.resolve([]),
     windowError: () => {},
     onAppError: () => () => {},
+    onMainLag: () => () => {},
     openLogs: unavailable('web.bridge.openLogs'),
     send: async (req) => {
       if (errorReportsSent >= maxErrorReportsPerRun) return 'capped';
@@ -270,6 +277,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     },
   },
   pickDirectory: () => Promise.resolve(null),
+  pickFile: () => Promise.resolve(null),
+  pickSaveFile: () => Promise.resolve(null),
   setLanguage: () => {},
   openPath: unavailable('web.bridge.openPath'),
   // A browser saves a file sent in a chat, for the phone to open as it opens downloads.
@@ -309,6 +318,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     return true;
   },
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
+  // A browser tab has no dock icon to count on.
+  badge: () => {},
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
   copyImage: (png) => void navigator.clipboard?.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]).catch(() => {}),
@@ -325,6 +336,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   // The phone web app can't reach a host keyring, so browser-cookie import
   // from an installed browser isn't offered there; this is never called.
   browserKeyringSecret: () => Promise.resolve(''),
+  // Nor can it launch a browser on the host to read an app-bound profile.
+  extractBrowserCookies: () => Promise.resolve({ error: 'failed' as const }),
 };
 
 // installWebBridge makes the bridge the app uses, and follows the chosen

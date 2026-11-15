@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -195,9 +196,29 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 		}
 		tips[h.agent] += h.tip
 	}
+	// What each finished one has changed is measured now, not read from its
+	// finish: a count taken then predates whatever it took in from main or
+	// pushed since, and one an older daemon took was measured from a base far
+	// behind main (gitrepo.DiffBase).
+	var done []state.Agent
+	for _, a := range kept {
+		if _, ok := finishes[a.Name]; ok && a.Worktree != "" {
+			if _, err := os.Stat(a.Worktree); err == nil {
+				done = append(done, a)
+			}
+		}
+	}
+	changes := map[string]api.AgentChanges{}
+	for i, c := range agentChanges(done, prs, polledChanges) {
+		changes[done[i].Name] = c
+	}
+	marks := s.mergeMarks(ctx, p.Name)
 	out := make([]liveEntry, 0, len(kept))
 	for _, a := range kept {
 		ev, finished := finishes[a.Name]
+		if c, ok := changes[a.Name]; ok {
+			ev.Changes = &c
+		}
 		e := liveEntry{agent: a, finished: finished}
 		if finished && unknown[a.Name] {
 			known, ok := s.knownReviewOf(a.Ref(), ev.ID)
@@ -219,6 +240,8 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 			e.ended = prEnded(pr, a)
 			e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), BaseRef: a.BaseRef, AI: a.AI, PR: pr}
 			if !finished {
+				// At work, fixing what its merge when green waits on, say.
+				markItem(&e.item, marks)
 				out = append(out, e)
 				continue
 			}
@@ -231,6 +254,7 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 				s.rememberReview(a.Ref(), ev.ID, e.item, e.ended)
 			}
 		}
+		markItem(&e.item, marks)
 		r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name)
 		if err != nil {
 			continue // its verdict unread, it may well be one the user gave
@@ -242,6 +266,14 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 				e.item.Verdict, e.item.ReviewedAt = r.Verdict, &at
 				e.item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
+		}
+		if m := e.item.MergeWhenGreen; m != nil && m.Error == "" && e.item.Verdict == "" {
+			// Resolved to merge when green, it is out of the review for good
+			// while the mark is armed, however its work moves as the agent
+			// fixes checks and conflicts: it comes back only if the mark is
+			// given up or cancelled (mergewhengreen.go).
+			at := m.At
+			e.item.Verdict, e.item.ReviewedAt = api.ReviewReviewed, &at
 		}
 		out = append(out, e)
 	}
@@ -538,7 +570,7 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 	if err := s.markNotesSent(ctx, a, notes); err != nil {
 		return err
 	}
-	s.refreshAgents(ctx)
+	s.refreshAgentsBehind()
 	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke})
 }
 

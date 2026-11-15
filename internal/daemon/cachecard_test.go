@@ -136,14 +136,14 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 	// A stale timer firing leaves the current one in place.
 	timers[0].fire()
 	d.srv.mu.Lock()
-	pending := d.srv.leadCaches["p"].timer
+	pending := d.srv.leadCaches["p/lead"].timer
 	d.srv.mu.Unlock()
 	if pending != last() {
 		t.Error("a replaced timer firing took the current one with it")
 	}
 	// The current one fires into a project that doesn't exist: no card.
 	last().fire()
-	if d.srv.leadCacheState("p").Due {
+	if d.srv.leadCacheState("p/lead").Due {
 		t.Error("a project that doesn't exist got a card")
 	}
 
@@ -183,17 +183,17 @@ func TestCacheCardComesAndGoes(t *testing.T) {
 	}
 	up := func() {
 		d.srv.mu.Lock()
-		d.srv.leadCaches["p"].due = true
+		d.srv.leadCaches["p/lead"].due = true
 		d.srv.mu.Unlock()
 	}
 	lead := state.Agent{Project: "p", Name: state.LeadName, AI: "claude", Role: state.RoleLead}
 
-	if got := d.srv.leadCacheState("p"); got.IdleSince != nil || got.Due {
+	if got := d.srv.leadCacheState("p/lead"); got.IdleSince != nil || got.Due {
 		t.Errorf("before any turn, the cache is %+v", got)
 	}
 	start := time.Now()
 	d.srv.leadCacheIdle(lead)
-	got := d.srv.leadCacheState("p")
+	got := d.srv.leadCacheState("p/lead")
 	if got.IdleSince == nil || got.IdleSince.Before(start) || got.TTLSeconds != 300 || got.TTLSource != "no subscription" || got.Due {
 		t.Fatalf("after a turn, the cache is %+v", got)
 	}
@@ -216,17 +216,17 @@ func TestCacheCardComesAndGoes(t *testing.T) {
 
 	// Sending as it is takes it down and keeps the cache.
 	up()
-	d.srv.settleLeadCache("p", false)
+	d.srv.settleLeadCache("p/lead", false)
 	if c := cards(); len(c) != 1 || c[0].Due || c[0].IdleSince == nil {
 		t.Errorf("sending as it is published %+v", c)
 	}
 	// Compacting forgets the cache: the next session starts one.
 	up()
-	d.srv.settleLeadCache("p", true)
+	d.srv.settleLeadCache("p/lead", true)
 	if c := cards(); len(c) != 1 || c[0].Due || c[0].IdleSince != nil {
 		t.Errorf("compacting published %+v", c)
 	}
-	d.srv.settleLeadCache("p", true)
+	d.srv.settleLeadCache("p/lead", true)
 	if c := cards(); len(c) != 0 {
 		t.Errorf("settling a cache nobody tracks published %+v", c)
 	}
@@ -281,12 +281,12 @@ func newKeepaliveWorld(t *testing.T, hour bool) *keepaliveWorld {
 // fire fires the timer set last, as the clock reaching it would.
 func (w *keepaliveWorld) fire() { w.timers[len(w.timers)-1].fire() }
 
-func (w *keepaliveWorld) card() bool { return w.d.srv.leadCacheState("p").Due }
+func (w *keepaliveWorld) card() bool { return w.d.srv.leadCacheState("p/lead").Due }
 
 func (w *keepaliveWorld) count() int {
 	w.d.srv.mu.Lock()
 	defer w.d.srv.mu.Unlock()
-	return w.d.srv.leadCaches["p"].keepalives
+	return w.d.srv.leadCaches["p/lead"].keepalives
 }
 
 // While an agent works, an hour's cache that comes due gets a keepalive
@@ -305,7 +305,7 @@ func TestAWorkingAgentKeepsTheLeadsCacheWarm(t *testing.T) {
 	if w.count() != 1 {
 		t.Errorf("the count is %d after one keepalive", w.count())
 	}
-	if got := w.d.srv.leadCacheState("p"); got.TTLSeconds != 3600 {
+	if got := w.d.srv.leadCacheState("p/lead"); got.TTLSeconds != 3600 {
 		t.Errorf("after a keepalive the cache is %+v", got)
 	}
 }

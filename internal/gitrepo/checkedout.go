@@ -3,6 +3,7 @@ package gitrepo
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -173,4 +174,34 @@ func isHex(s string) bool {
 		}
 	}
 	return true
+}
+
+// WorktreeStamp changes whenever a linked worktree's HEAD, index or checked-out
+// branch's tip file is touched: a cheap few stats that tell whether a diff
+// measured earlier can still stand, with no git process. "" when it can't be
+// read (no worktree, the main checkout), which never matches a stamp.
+func WorktreeStamp(worktree string) string {
+	gitDir, err := worktreeGitDir(worktree)
+	if err != nil || gitDir == "" {
+		return ""
+	}
+	var b strings.Builder
+	stamp := func(path string) {
+		if info, err := os.Stat(path); err == nil {
+			fmt.Fprintf(&b, "%s:%d:%d;", filepath.Base(path), info.ModTime().UnixNano(), info.Size())
+		} else {
+			b.WriteString("-;")
+		}
+	}
+	stamp(filepath.Join(gitDir, "HEAD"))
+	stamp(filepath.Join(gitDir, "index"))
+	if head, err := readFile(filepath.Join(gitDir, "HEAD")); err == nil {
+		if ref, ok := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: "); ok {
+			if common, err := commonDir(gitDir); err == nil {
+				stamp(filepath.Join(common, filepath.FromSlash(ref)))
+				stamp(filepath.Join(common, "packed-refs"))
+			}
+		}
+	}
+	return b.String()
 }

@@ -27,6 +27,14 @@ const HomeProject = "_home"
 // on, so the chat leaving it out never fails.
 const AgentModelAuto = "auto"
 
+// AgentPick is a tool and what it was picked to run on: "" for a model or an
+// effort left to the defaults.
+type AgentPick struct {
+	AI     string `json:"ai"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
 // Which model distils a project's events into memories (D78).
 // ConsolidationModelCheap is the cheap model of whichever AI tool the project
 // runs, resolved by the daemon rather than named here, and
@@ -60,13 +68,15 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string `json:"githubAccount"`
-	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
-	// project's new agents and its chat use; empty means the machine's
+	// CodexAccount, CursorAccount and GeminiAccount are the Codex, Cursor and
+	// Gemini CLI accounts this project's new agents and its chat use; empty means the machine's
 	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
 	// account); a provider it leaves out gets that provider's default.
 	CodexAccount     string            `json:"codexAccount"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts"`
 	CursorAccount    string            `json:"cursorAccount"`
+	GeminiAccount    string            `json:"geminiAccount"`
+	CopilotAccount   string            `json:"copilotAccount"`
 	// Autonomy is how much this project's chat does on its own: "ask" (propose
 	// and wait for you) or "on" (act, within a budget of turns).
 	Autonomy string `json:"autonomy"`
@@ -75,6 +85,18 @@ type Project struct {
 	// every agent of this project gets unless one is named for it, and "auto"
 	// asks the project's chat to choose per task.
 	AgentModel string `json:"agentModel"`
+	// AgentTool is the AI tool this project's new agents run when they name
+	// none: "" for Claude Code in the app and on the command line and the
+	// chat's own tool for the agents it creates, as before there was a
+	// choice. AgentModel is a model of this tool's.
+	AgentTool string `json:"agentTool"`
+	// AgentEffort, AgentContextWindow and AgentMode are what an agent on
+	// AgentTool (Claude Code when it is "") starts on unless it is given its
+	// own; "" follows the installation. AgentMode is a permission mode's
+	// kind: standard, auto_review, full_access or plan.
+	AgentEffort        string `json:"agentEffort"`
+	AgentContextWindow string `json:"agentContextWindow"`
+	AgentMode          string `json:"agentMode"`
 	// BranchPrefix comes before the slug in the branch an agent is created
 	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
@@ -118,6 +140,11 @@ type Project struct {
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
 	Nesting bool `json:"nesting"`
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost for the iOS Simulator (agentbox ios forward): none
+	// until the user names them, since such a port is their browser's
+	// localhost too.
+	IOSForwardPorts []int `json:"iosForwardPorts"`
 	// AgentPRs is whether this project's agents push their own branch and
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
@@ -131,6 +158,10 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
+	// SettleHours is how long one of the project's chat sessions waits idle,
+	// once its agents' pull requests are all merged or closed and none of
+	// them works, before it settles into the history by itself; 0 for never.
+	SettleHours int `json:"settleHours"`
 	// FullTestSuite is whether this project's agents may run a whole test
 	// suite while Settings.BlockFullSuite refuses them; it means nothing
 	// while that is off. Off by default.
@@ -138,6 +169,10 @@ type Project struct {
 	// PickUpIssues is whether the project hands its open GitHub issues
 	// labelled IssueLabel to new agents by itself. Off by default.
 	PickUpIssues bool `json:"pickUpIssues"`
+	// PullRequests is whether the app shows this project's Pull requests
+	// tab, and reads the project's pull requests to keep its counts. On by
+	// default; off, the tab and its polling are gone.
+	PullRequests bool `json:"pullRequests"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -167,17 +202,31 @@ type ProjectIcon struct {
 	Emoji  string `json:"emoji,omitempty"`
 	// Image is a data: URL (data:image/png;base64,...).
 	Image string `json:"image,omitempty"`
-	// DetectedFrom is the file or URL a detected icon came from, e.g.
-	// "public/favicon.svg" or "github.com/leciric".
+	// DetectedFrom is the repository file a detected icon came from, e.g.
+	// "public/favicon.svg".
 	DetectedFrom string `json:"detectedFrom,omitempty"`
 	// HasDetected is whether there is a detected icon to go back to.
 	HasDetected bool `json:"hasDetected,omitempty"`
 }
 
-// SetProjectIconRequest chooses a project's icon: exactly one of Emoji and
-// Image.
+// ProjectIconCandidate is one of the icons found in a project's repository
+// (GET /v1/projects/{project}/icon/candidates), to choose from.
+type ProjectIconCandidate struct {
+	// From is its repository-relative path, e.g. "desktop/build/icon.svg":
+	// what SetProjectIconRequest.Candidate names.
+	From string `json:"from"`
+	// Image is a data: URL.
+	Image string `json:"image"`
+	// Chosen is whether it is the icon the user chose.
+	Chosen bool `json:"chosen,omitempty"`
+}
+
+// SetProjectIconRequest chooses a project's icon: exactly one of Emoji,
+// Image and Candidate.
 type SetProjectIconRequest struct {
 	Emoji string `json:"emoji,omitempty"`
+	// Candidate is the From of one of the project's ProjectIconCandidates.
+	Candidate string `json:"candidate,omitempty"`
 	// Image is a data: URL; png, jpeg, gif, webp, svg+xml or x-icon
 	// (vnd.microsoft.icon), at most 512 KiB decoded.
 	Image string `json:"image,omitempty"`
@@ -193,8 +242,15 @@ type Section struct {
 	Position int `json:"position"`
 	// Collapsed is whether the user folded it away. The daemon remembers it,
 	// so the sidebar looks the same from another machine.
-	Collapsed bool      `json:"collapsed"`
-	CreatedAt time.Time `json:"createdAt"`
+	Collapsed bool `json:"collapsed"`
+	// Color is the section's colour, by name: rose, sky, mint, lilac or
+	// peach, the palette of a chat session's colours. "" is none, which is
+	// what a section has until the user picks one.
+	Color string `json:"color"`
+	// Description is a line about the section, "" for none: the sidebar's
+	// tooltip for it, at most 200 characters.
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // AddSectionRequest makes an empty section at the end of the list.
@@ -202,11 +258,14 @@ type AddSectionRequest struct {
 	Name string `json:"name"`
 }
 
-// UpdateSectionRequest renames a section or folds it away; a nil field stays
-// as it is.
+// UpdateSectionRequest renames a section, folds it away, colours it or
+// describes it; a nil field stays as it is, and an empty Color or Description
+// takes it off.
 type UpdateSectionRequest struct {
-	Name      *string `json:"name,omitempty"`
-	Collapsed *bool   `json:"collapsed,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Collapsed   *bool   `json:"collapsed,omitempty"`
+	Color       *string `json:"color,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // ProjectLayout is the whole of how the projects are organised: the sections
@@ -293,13 +352,15 @@ type UpdateProjectRequest struct {
 	// account, as it is after ClaudeAccount is applied.
 	ClaudeAccounts *[]string `json:"claudeAccounts,omitempty"`
 	GitHubAccount  *string   `json:"githubAccount,omitempty"` // "" goes back to the machine's default
-	// CodexAccount and CursorAccount pick the project's Codex and Cursor
-	// accounts, "" for the machine's default; OpenCodeAccounts replaces its
+	// CodexAccount, CursorAccount and GeminiAccount pick the project's
+	// Codex, Cursor and Gemini CLI accounts, "" for the machine's default; OpenCodeAccounts replaces its
 	// OpenCode account per provider. Agents already created keep theirs; the
 	// project's chat moves to them as its tool next starts.
 	CodexAccount     *string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts *map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    *string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    *string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   *string            `json:"copilotAccount,omitempty"`
 	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
 	// agents still on the account it replaces to the new one; ignored without
 	// ClaudeAccount, and when there's nothing on the old account to move.
@@ -311,6 +372,13 @@ type UpdateProjectRequest struct {
 	// AgentModel is the model the project's new agents are created on: "" to
 	// follow the model new agents start on, a model name, or "auto".
 	AgentModel *string `json:"agentModel,omitempty"`
+	// AgentTool, AgentEffort, AgentContextWindow and AgentMode set the
+	// Project's. The others belong to the tool, so changing the tool clears
+	// whichever of them, the model included, the same request doesn't set.
+	AgentTool          *string `json:"agentTool,omitempty"`
+	AgentEffort        *string `json:"agentEffort,omitempty"`
+	AgentContextWindow *string `json:"agentContextWindow,omitempty"`
+	AgentMode          *string `json:"agentMode,omitempty"`
 	// BranchPrefix is what the project's new agents' branches are named with,
 	// before the agent's name: "" for none. It must make a valid branch name.
 	BranchPrefix *string `json:"branchPrefix,omitempty"`
@@ -333,6 +401,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// IOSForwardPorts replaces the ports this project's agents may forward
+	// to the Mac's localhost; an empty list allows none.
+	IOSForwardPorts *[]int `json:"iosForwardPorts,omitempty"`
 	// AgentPRs turns on or off whether this project's agents push their own
 	// branch and open their own pull request, in place of the lead.
 	AgentPRs *bool `json:"agentPRs,omitempty"`
@@ -342,12 +413,17 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// SettleHours sets how long the project's sessions wait idle before
+	// settling into the history, in hours; 0 turns settling off.
+	SettleHours *int `json:"settleHours,omitempty"`
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
 	// PickUpIssues turns on or off handing the project's issues labelled
 	// IssueLabel to new agents by itself.
 	PickUpIssues *bool `json:"pickUpIssues,omitempty"`
+	// PullRequests turns on or off the project's Pull requests tab in the app.
+	PullRequests *bool `json:"pullRequests,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -362,11 +438,13 @@ type AddProjectRequest struct {
 	// UpdateProjectRequest.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
 	GitHubAccount string `json:"githubAccount,omitempty"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// are its accounts for the other tools, the same way.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// CopyToLinux, in WSL, makes a Path on a Windows drive a clone of it in
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
@@ -379,6 +457,24 @@ type AddProjectRequest struct {
 	// another repository is refused.
 	Create      bool `json:"create,omitempty"`
 	CommitFiles bool `json:"commitFiles,omitempty"`
+}
+
+// CloneProjectRequest is POST /v1/projects/clone: a repository cloned from a
+// link and added as a project, in one job of kind "clone" whose result is the
+// Project. It is cloned with the project's GitHub account (GitHubAccount, or
+// the machine's default) when it is on github.com, and with this machine's own
+// git credentials otherwise or when that fails. A URL that isn't a
+// repository's link is refused with ErrorBadRepoURL, and a Path that is
+// already there with ErrorFolderExists, before anything is cloned.
+type CloneProjectRequest struct {
+	// URL is the repository: https://, ssh:// or git@host:owner/repo, on
+	// GitHub or any other host.
+	URL string `json:"url"`
+	// AddProjectRequest is the project, its Path the folder to clone into,
+	// which must not exist yet: empty is Settings.CloneFolder/<name>. Name
+	// defaults to the repository's. Create, CommitFiles and CopyToLinux mean
+	// nothing here.
+	AddProjectRequest
 }
 
 // HomeAddProjectRequest is the Home chat adding a project: a folder on this
@@ -414,6 +510,17 @@ type Settings struct {
 	// DefaultLeadContextWindow is DefaultAgentContextWindow for the lead's
 	// chat, applied the way DefaultLeadModel is.
 	DefaultLeadContextWindow string `json:"defaultLeadContextWindow"`
+	// CloneFolder is where a project added from a link is cloned when its
+	// request names no folder (CloneProjectRequest): ~/src until it is set.
+	CloneFolder string `json:"cloneFolder"`
+	// DefaultLeadEffort is how hard the lead's chat thinks, one of
+	// ClaudeEffortChoices, applied the way DefaultLeadModel is. Empty means
+	// Claude Code's own default.
+	DefaultLeadEffort string `json:"defaultLeadEffort"`
+	// DefaultLeadMode is the permission mode the lead's chat starts in, one of
+	// ClaudeModeChoices, applied the way DefaultLeadModel is. Empty means
+	// Claude Code's own default, which asks before edits.
+	DefaultLeadMode string `json:"defaultLeadMode"`
 	// ClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised for this account, plus AgentBox's own small pinned list
 	// (D69, marked in each choice's Description). The adapter's part is
@@ -439,6 +546,10 @@ type Settings struct {
 	// have none at all, so this is the levels Claude Code has been seen to
 	// name rather than a promise about any one model.
 	ClaudeEffortChoices []ChatOptionChoice `json:"claudeEffortChoices"`
+	// ClaudeModeChoices is the permission-mode menu the Claude Code adapter
+	// last advertised, remembered the same way, and empty until a Claude Code
+	// chat has started.
+	ClaudeModeChoices []ChatOptionChoice `json:"claudeModeChoices"`
 	// OpenCodeModelChoices is the model menu OpenCode last named, as
 	// "provider/model" ids. Like the Claude Code menus it is remembered rather
 	// than composed: it comes from an OpenCode chat's ACP session, or from
@@ -449,6 +560,10 @@ type Settings struct {
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
 	OpenCodeReady bool `json:"openCodeReady"`
+	// OpenCodeVersion is which OpenCode the installation runs, "1" or "2".
+	// "1" is the one the base image pins and what every installation ran
+	// before this setting existed.
+	OpenCodeVersion string `json:"openCodeVersion"`
 	// CursorModelChoices is the model menu Cursor named for AgentBox's
 	// sign-in, each with the effort levels it takes: asked of Cursor on this
 	// machine (internal/cursor) in the background, and empty until that has
@@ -461,6 +576,30 @@ type Settings struct {
 	// start on; "" is Cursor's Auto and the model's own default level.
 	DefaultCursorModel  string `json:"defaultCursorModel"`
 	DefaultCursorEffort string `json:"defaultCursorEffort"`
+	// GeminiModelChoices is the model menu Gemini CLI names, from a Gemini
+	// CLI chat's session or asked of Gemini CLI on this machine in the
+	// background; empty until one of those has answered.
+	GeminiModelChoices []ChatOptionChoice `json:"geminiModelChoices"`
+	// GeminiReady is true when agents have a Gemini CLI login, which is all a
+	// Gemini CLI agent needs: every base image has it.
+	GeminiReady bool `json:"geminiReady"`
+	// DefaultGeminiModel is what new Gemini CLI agents start on; "" is its
+	// Auto.
+	DefaultGeminiModel string `json:"defaultGeminiModel"`
+	// CopilotModelChoices, CopilotReady and DefaultCopilotModel are the same
+	// for GitHub Copilot CLI, which each machine installs itself; "" is
+	// Copilot's own default model.
+	CopilotModelChoices []ChatOptionChoice `json:"copilotModelChoices"`
+	CopilotReady        bool               `json:"copilotReady"`
+	DefaultCopilotModel string             `json:"defaultCopilotModel"`
+	// LastAgentPick is the tool, model and effort last picked in the app's
+	// New agent dialog, which it opens on next time in a project that names
+	// no tool of its own; empty before the first pick.
+	LastAgentPick AgentPick `json:"lastAgentPick"`
+	// FirstRun is true while the app's first-run screen is still to be gone
+	// through: on an installation made after it existed, until it is finished
+	// or skipped (FirstRunDone). One that existed before never shows it.
+	FirstRun bool `json:"firstRun"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
@@ -484,6 +623,10 @@ type Settings struct {
 	// an agent's pull request has been merged, and the user hasn't answered
 	// yet. It is made once.
 	BuiltWithBadgeOffer bool `json:"builtWithBadgeOffer"`
+	// SeenFeatures is the new features whose dot the app has cleared, by
+	// their id in its registry (desktop/src/renderer/lib/featureDots.ts):
+	// each was used once, wherever the app runs.
+	SeenFeatures []string `json:"seenFeatures"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -520,6 +663,10 @@ type Settings struct {
 	// its base, its checks fail or a reviewer asks for changes. On unless it
 	// was turned off; a project can override it (Project.PRWatch).
 	PRWatch bool `json:"prWatch"`
+	// MergeWhenGreen offers "Resolved — merge when CI is green" in the
+	// review: the daemon merges a pull request the user resolved once its
+	// checks pass. Off unless turned on.
+	MergeWhenGreen bool `json:"mergeWhenGreen"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -547,6 +694,21 @@ type Settings struct {
 	// and DiskFloorPercent of the disk (DiskGuard).
 	DiskFloorMin     int64   `json:"diskFloorMin"`
 	DiskFloorPercent float64 `json:"diskFloorPercent"`
+	// AgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have: a process that takes it past that is killed
+	// inside its machine, and the agent told, so one runaway build can't take
+	// the VM's daemon, Incus and other agents down with it. It follows the
+	// VM's memory cap. DefaultAgentMemoryShare (50) until the user chose,
+	// from MinAgentMemoryShare to MaxAgentMemoryShare.
+	AgentMemoryShare        int `json:"agentMemoryShare"`
+	DefaultAgentMemoryShare int `json:"defaultAgentMemoryShare"`
+	MinAgentMemoryShare     int `json:"minAgentMemoryShare"`
+	MaxAgentMemoryShare     int `json:"maxAgentMemoryShare"`
+	// AgentMemoryLimit is what AgentMemoryShare comes to now, in bytes, and
+	// VMMemory what it is a share of: the most the VM may grow to. 0 when
+	// the VM's size isn't known.
+	AgentMemoryLimit int64 `json:"agentMemoryLimit"`
+	VMMemory         int64 `json:"vmMemory"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -666,13 +828,34 @@ type UpdateSettingsRequest struct {
 	// DefaultLeadModel is "" to go back to Claude Code's own default.
 	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
+	// CloneFolder is a full path, or "" to go back to ~/src.
+	CloneFolder *string `json:"cloneFolder,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
+	// DefaultLeadEffort and DefaultLeadMode are "" to go back to Claude
+	// Code's own default. Each is refused when the remembered menu doesn't
+	// have it.
+	DefaultLeadEffort *string `json:"defaultLeadEffort,omitempty"`
+	DefaultLeadMode   *string `json:"defaultLeadMode,omitempty"`
 	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
 	// start on, in Cursor's own names; "" goes back to Cursor's Auto and the
 	// model's own default level.
 	DefaultCursorModel  *string `json:"defaultCursorModel,omitempty"`
 	DefaultCursorEffort *string `json:"defaultCursorEffort,omitempty"`
+	// DefaultGeminiModel is what new Gemini CLI agents start on, in Gemini
+	// CLI's own ids; "" goes back to its Auto.
+	DefaultGeminiModel *string `json:"defaultGeminiModel,omitempty"`
+	// DefaultCopilotModel is the same for GitHub Copilot CLI; "" goes back to
+	// Copilot's own default.
+	DefaultCopilotModel *string `json:"defaultCopilotModel,omitempty"`
+	// LastAgentPick remembers what the New agent dialog just created an agent
+	// with (Settings.LastAgentPick).
+	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
+	// FirstRunDone, true, ends the first run for good (Settings.FirstRun).
+	FirstRunDone *bool `json:"firstRunDone,omitempty"`
+	// OpenCodeVersion switches the installation between OpenCode 1 ("1", the
+	// default) and OpenCode 2 ("2"), when the base image carries both.
+	OpenCodeVersion *string `json:"openCodeVersion,omitempty"`
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
@@ -687,6 +870,8 @@ type UpdateSettingsRequest struct {
 	// DismissBuiltWithBadgeOffer closes the offer without turning the
 	// footer on.
 	DismissBuiltWithBadgeOffer *bool `json:"dismissBuiltWithBadgeOffer,omitempty"`
+	// SeeFeature adds a feature's id to SeenFeatures, clearing its dot.
+	SeeFeature *string `json:"seeFeature,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
@@ -706,6 +891,8 @@ type UpdateSettingsRequest struct {
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
+	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
+	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -747,6 +934,9 @@ type UpdateSettingsRequest struct {
 	// one going back to the default.
 	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
 	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
+	// AgentMemoryShare sets Settings.AgentMemoryShare, in percent, 0 going
+	// back to the default. Running agents take it at once.
+	AgentMemoryShare *int `json:"agentMemoryShare,omitempty"`
 	// ImageCache turns the shared image cache on or off, for running agents
 	// at once and for the others as they start.
 	ImageCache *bool `json:"imageCache,omitempty"`
@@ -801,12 +991,14 @@ type Agent struct {
 	Source     string `json:"source"`
 	// ClaudeAccount is the Claude Code account whose token the agent holds.
 	ClaudeAccount string `json:"claudeAccount"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// are the accounts whose login it was given for its tool, when it runs
 	// that tool.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// GitHubAccount is the GitHub account whose token the agent holds; empty
 	// means it has none.
 	GitHubAccount string `json:"githubAccount"`
@@ -814,6 +1006,11 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
+	// LeadSession is the session of its project's chat that made it, and
+	// that its notices go to (LeadSession.ID): absent for nobody's, as an
+	// agent the user made is, whose notices go to the session most recently
+	// active.
+	LeadSession string `json:"leadSession,omitempty"`
 	// StalledSince is set while its chat's running turn has stalled
 	// (ChatSession.StalledSince): its chat still says running, but nothing
 	// has come of it since then.
@@ -854,9 +1051,18 @@ type Agent struct {
 	// "frozen" when what it left running is frozen and pushed out to swap,
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
-	Reclaimed string    `json:"reclaimed,omitempty"`
-	IP        string    `json:"ip"`
-	CreatedAt time.Time `json:"createdAt"`
+	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold says the agent is On hold, its machine stopped or not yet booted:
+	// HoldMemory while it waits its turn for the VM's memory (Memory says
+	// its place in line and why), and boots by itself; HoldIdle after it sat
+	// idle, until a message, opening it or its lead starts it again. Absent
+	// otherwise. Being on hold never removes an agent.
+	Hold string `json:"hold,omitempty"`
+	// Goal is what it works towards (AgentGoal): absent for an agent with
+	// none.
+	Goal      *AgentGoal `json:"goal,omitempty"`
+	IP        string     `json:"ip"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // ArchivedAgent is a past agent: one whose machine was removed, by the user or
@@ -969,11 +1175,13 @@ type CreateAgentRequest struct {
 	StartAt string `json:"startAt,omitempty"`
 	// ClaudeAccount overrides the project's Claude Code account for this agent.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// override the project's for an agent on that tool.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// GitHubAccount overrides the project's GitHub account for this agent.
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
@@ -991,6 +1199,9 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
+	// Goal is what the agent works towards, with checks the daemon verifies
+	// after each of its turns (AgentGoal).
+	Goal *GoalSpec `json:"goal,omitempty"`
 	// Queue and Size are accepted for the callers that still send them,
 	// and do nothing: every agent starts at once, and the VM's memory
 	// pressure, not a size, decides when its heavy commands run.
@@ -1003,6 +1214,17 @@ type CreateAgentRequest struct {
 	// ToolNotice is the daemon's own, never sent: why an agent that named no
 	// AI tool runs Claude Code rather than its lead's (Job.Notice).
 	ToolNotice string `json:"-"`
+	// OriginID, OriginName and OriginProject are, for an agent another
+	// machine's lead asked for through the hub, that machine's environment
+	// and the project there, whose lead its notices go to. Only the daemon
+	// sets them, from what the hub says (internal/daemon/peers.go).
+	OriginID      string `json:"-"`
+	OriginName    string `json:"-"`
+	OriginProject string `json:"-"`
+	// LeadSession is the session of the project's chat that asked for it,
+	// whose notices it goes to: set by the daemon from the lead socket the
+	// request came in on, never sent. "" is Main.
+	LeadSession string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent's heavy commands (test
@@ -1051,6 +1273,44 @@ type PressureStatus struct {
 	// Runs are the heavy commands running, oldest first, then those
 	// waiting, in the order they start.
 	Runs []HeavyRun `json:"runs"`
+	// Host is the last report of the user's computer's own load
+	// (internal/hostload), when one came within HostLoadTTL.
+	Host *HostLoad `json:"host,omitempty"`
+}
+
+// HostLoadTTL is how long the daemon goes by a HostLoad: a front end reports
+// every couple of seconds, and one that stops (the app closed, on a Mac or
+// Windows) holds nothing back.
+const HostLoadTTL = 15 * time.Second
+
+// HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
+// end reads it, PUT /v1/host/load. While Busy, heavy commands wait to start
+// and paused ones stay paused (Why "host"), so the user's own programs come
+// first.
+type HostLoad struct {
+	OS string `json:"os"` // "linux", "darwin" or "windows"
+	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
+	// -1 where there's none.
+	Memory float64 `json:"memory"`
+	CPU    float64 `json:"cpu"`
+	IO     float64 `json:"io"`
+	// CPUShare is the share of all cores busy, in percent (Windows); -1
+	// elsewhere.
+	CPUShare float64 `json:"cpuShare"`
+	// Level is a Mac's memory pressure level: normal, warn or critical.
+	Level       string `json:"level,omitempty"`
+	MemoryTotal int64  `json:"memoryTotal,omitempty"`
+	Available   int64  `json:"available,omitempty"`
+	// Busy says the host is loaded enough that the VM should hold back.
+	Busy bool `json:"busy"`
+	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
+	// while a busy host is calming down.
+	Why string `json:"why,omitempty"`
+	// Reclaim asks the daemon to drop the VM's caches so their memory goes
+	// back to the host: set by front ends that don't size the VM's memory
+	// themselves (Lima, WSL), while the host is short of memory.
+	Reclaim bool      `json:"reclaim,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // HeavyRun is one heavy command of an agent's.
@@ -1117,8 +1377,8 @@ type UpdateAgentRequest struct {
 }
 
 // AgentAccountRequest moves a running agent to another account of its AI
-// tool (the lead's switch_agent_account): Account for Claude Code, Codex or
-// Cursor, "" for the project's; OpenCodeAccounts, provider → account, laid
+// tool (the lead's switch_agent_account): Account for Claude Code, Codex,
+// Cursor or Gemini CLI, "" for the project's; OpenCodeAccounts, provider → account, laid
 // over the ones an OpenCode agent has.
 type AgentAccountRequest struct {
 	Account          string            `json:"account,omitempty"`
@@ -1274,7 +1534,7 @@ type StopAgentFailure struct {
 
 type Job struct {
 	ID         string          `json:"id"`
-	Kind       string          `json:"kind"`   // create, fork, restore, base-save, image-build
+	Kind       string          `json:"kind"`   // create, fork, restore, base-save, image-build, clone
 	Target     string          `json:"target"` // project or agent ref
 	Status     string          `json:"status"`
 	Error      string          `json:"error,omitempty"`
@@ -1362,12 +1622,17 @@ type Usage struct {
 type DiskUsageItem struct {
 	Label string `json:"label"`
 	Bytes int64  `json:"bytes"`
+	// Kind is what the item is, for an app that names it in its own
+	// language (DiskItemBaseImage and so on); "" for an agent or a project,
+	// whose Label is its name. Name is the project or tool it belongs to.
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
-	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia or DiskState
+	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia, DiskCaches or DiskState
 	Label string          `json:"label"`
 	Bytes int64           `json:"bytes"`
 	Items []DiskUsageItem `json:"items,omitempty"`
@@ -1382,7 +1647,30 @@ const (
 	DiskWorktrees = "worktrees"
 	DiskMedia     = "media"
 	DiskState     = "state"
+	// DiskCaches is what agents share to save downloading and writing again:
+	// the package managers' caches and the Docker image cache.
+	DiskCaches = "caches"
 )
+
+// Kinds of DiskUsageItem.
+const (
+	DiskItemBaseImage    = "base-image"
+	DiskItemProjectBase  = "project-base"  // Name is the project
+	DiskItemPreviousBase = "previous-base" // Name is the project
+	DiskItemPackageCache = "package-cache" // Name is the tool's directory, "other" for the rest
+	DiskItemDockerImages = "docker-images"
+	DiskItemStateDB      = "state-db"
+	DiskItemDaemonLog    = "daemon-log"
+)
+
+// DiskTrim is the VM's last trim, which gives the host's disk back the space
+// the VM freed: when, how many bytes the VM's file systems reported trimmed,
+// and what failed. POST /v1/usage/disk/trim trims now and answers with it.
+type DiskTrim struct {
+	At    time.Time `json:"at"`
+	Bytes int64     `json:"bytes"`
+	Error string    `json:"error,omitempty"`
+}
 
 // DiskUsage is what AgentBox uses on disk, broken down by kind, largest
 // first, with a total. The "Storage pool" indicator in the top bar opens it,
@@ -1392,6 +1680,8 @@ const (
 type DiskUsage struct {
 	Total      int64               `json:"total"`
 	Categories []DiskUsageCategory `json:"categories"`
+	// Trim is the VM's last trim; nil outside a VM, and before the first.
+	Trim *DiskTrim `json:"trim,omitempty"`
 }
 
 // AgentDisk is what one agent takes up on disk, for its info card: its
@@ -1526,15 +1816,27 @@ type AuthStatus struct {
 	// Cursor is true when agents are signed in to Cursor, with an API key or
 	// Cursor's browser sign-in; CursorEmail is whose account it is, when
 	// Cursor said.
-	Cursor         bool            `json:"cursor"`
-	CursorEmail    string          `json:"cursorEmail,omitempty"`
+	Cursor      bool   `json:"cursor"`
+	CursorEmail string `json:"cursorEmail,omitempty"`
+	// Gemini is true when agents have a Gemini CLI login, a Google sign-in or
+	// a Gemini API key; GeminiEmail is whose Google account, for a sign-in.
+	Gemini      bool   `json:"gemini"`
+	GeminiEmail string `json:"geminiEmail,omitempty"`
+	// Copilot is true when agents have a GitHub Copilot CLI login, a GitHub
+	// token with Copilot access; CopilotUser is whose GitHub account, when
+	// known.
+	Copilot        bool            `json:"copilot"`
+	CopilotUser    string          `json:"copilotUser,omitempty"`
 	ClaudeAccounts []ClaudeAccount `json:"claudeAccounts"`
-	// CodexAccounts, OpenCodeAccounts and CursorAccounts are the stored logins
-	// for the other tools; Codex, OpenCode and Cursor say there is a default
-	// one agents can use.
+	// CodexAccounts, OpenCodeAccounts, CursorAccounts, GeminiAccounts and
+	// CopilotAccounts are the stored logins for the other tools; Codex,
+	// OpenCode, Cursor, Gemini and Copilot say there is a default one agents
+	// can use.
 	CodexAccounts    []ToolAccount `json:"codexAccounts"`
 	OpenCodeAccounts []ToolAccount `json:"openCodeAccounts"`
 	CursorAccounts   []ToolAccount `json:"cursorAccounts"`
+	GeminiAccounts   []ToolAccount `json:"geminiAccounts"`
+	CopilotAccounts  []ToolAccount `json:"copilotAccounts"`
 	// GitHub is true when at least one GitHub account is stored.
 	GitHub         bool            `json:"github"`
 	GitHubAccounts []GitHubAccount `json:"githubAccounts"`
@@ -1583,10 +1885,10 @@ type GitHubTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
-// ToolAccount is one stored Codex, OpenCode or Cursor login agents can be
-// given.
+// ToolAccount is one stored Codex, OpenCode, Cursor, Gemini CLI or Copilot login
+// agents can be given.
 type ToolAccount struct {
-	Tool string `json:"tool"` // codex, opencode or cursor
+	Tool string `json:"tool"` // codex, opencode, cursor, gemini or copilot
 	// Provider is the OpenCode provider it signs in to ("anthropic"); empty
 	// for Codex and Cursor.
 	Provider string `json:"provider,omitempty"`
@@ -1595,8 +1897,9 @@ type ToolAccount struct {
 	// neither the agent nor its project names one.
 	Default bool      `json:"default"`
 	SavedAt time.Time `json:"savedAt"`
-	// Kind is how it signs in: apikey, chatgpt (Codex), oauth or wellknown
-	// (OpenCode's), empty when its file doesn't say.
+	// Kind is how it signs in: apikey, chatgpt (Codex), google (Gemini CLI),
+	// token (Copilot's GitHub token), oauth or wellknown (OpenCode's), empty
+	// when its file doesn't say. Email is a GitHub login for Copilot.
 	Kind string `json:"kind,omitempty"`
 	// Email is whose account it is, when its file says.
 	Email string `json:"email,omitempty"`
@@ -1672,6 +1975,39 @@ type CursorLogin struct {
 	URL     string `json:"url,omitempty"`
 	Email   string `json:"email,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// GitHubLoginRequest starts a GitHub sign-in through gh's login code for an
+// account; empty means the account called "default".
+type GitHubLoginRequest struct {
+	Account string `json:"account,omitempty"`
+}
+
+// How a GitHub sign-in that ended without a token ended (GitHubLogin.Outcome).
+const (
+	GitHubLoginExpired = "expired" // the code timed out before it was entered
+	GitHubLoginDenied  = "denied"  // the user cancelled on GitHub's page
+)
+
+// GitHubLogin is how far a sign-in through `gh auth login --web` has got
+// (POST /v1/auth/github/login starts it as a job, GET
+// /v1/auth/github/login/{job} is polled while it runs). gh's code appears a
+// moment after it starts: the user types it in at VerificationURI, in any
+// browser, and the token is stored under Account like a pasted one.
+type GitHubLogin struct {
+	Job     string `json:"job"`
+	Account string `json:"account"`
+	// Status is the job's: running, succeeded, failed or cancelled.
+	Status          string     `json:"status"`
+	Error           string     `json:"error,omitempty"`
+	UserCode        string     `json:"userCode,omitempty"`
+	VerificationURI string     `json:"verificationUri,omitempty"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+	// Outcome is expired or denied for a failed sign-in that ended so, and
+	// empty for any other ending.
+	Outcome string `json:"outcome,omitempty"`
+	// User is the GitHub login the token belongs to, once it is stored.
+	User string `json:"user,omitempty"`
 }
 
 // RenameGitHubAccountRequest gives a stored GitHub account another name.
@@ -1757,12 +2093,14 @@ type EditLabelsRequest struct {
 // Why a project's pull requests couldn't be read. The app says a different
 // sentence for each, because the fix is different: no account is stored at
 // all, the account used can't see the repository, GitHub refused its token,
-// or something else GitHub said.
+// the account's hourly budget is spent (waiting fixes it), or something else
+// GitHub said.
 const (
-	GitHubNoAccount = "noAccount"
-	GitHubNoAccess  = "noAccess"
-	GitHubBadToken  = "badToken"
-	GitHubOtherErr  = "other"
+	GitHubNoAccount   = "noAccount"
+	GitHubNoAccess    = "noAccess"
+	GitHubBadToken    = "badToken"
+	GitHubRateLimited = "rateLimited"
+	GitHubOtherErr    = "other"
 )
 
 // GitHubError is a failure to read GitHub, named well enough for the app to
@@ -1770,9 +2108,11 @@ const (
 // much as what went wrong: a repository one account can't see is another
 // account's everyday repository.
 type GitHubError struct {
-	// Kind is one of GitHubNoAccount, GitHubNoAccess, GitHubBadToken or
-	// GitHubOtherErr.
+	// Kind is one of GitHubNoAccount, GitHubNoAccess, GitHubBadToken,
+	// GitHubRateLimited or GitHubOtherErr.
 	Kind string `json:"kind"`
+	// ResetAt is, for GitHubRateLimited, when AgentBox reads GitHub again.
+	ResetAt *time.Time `json:"resetAt,omitempty"`
 	// Message is what went wrong in AgentBox's or GitHub's own words, for the
 	// kinds the app has nothing better to say about.
 	Message string `json:"message,omitempty"`
@@ -1897,6 +2237,47 @@ type MergePullRequestRequest struct {
 	Confirmed bool `json:"confirmed,omitempty"`
 }
 
+// MergeWhenGreenRequest is POST /v1/projects/{project}/pulls/{number}/merge-when-green:
+// the user resolved an agent's work in the review (Agent, the work they saw
+// by its Fingerprint), and the daemon is to merge its pull request with
+// Method once its checks pass, at once when they already do. DELETE on the
+// same path cancels it, or dismisses one that was given up.
+type MergeWhenGreenRequest struct {
+	Method      string `json:"method"`
+	Agent       string `json:"agent"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// MergeWhenGreen is a pull request waiting to be merged on its first green,
+// mergeable head, while its agent fixes what is red or conflicting, or, with
+// Error, one the daemon gave up on: closed, refused by GitHub for a reason no
+// fix changes, its agent gone, or unmergeable past the limits.
+type MergeWhenGreen struct {
+	Number   int        `json:"number"`
+	Method   string     `json:"method"`
+	At       time.Time  `json:"at"`
+	Error    string     `json:"error,omitempty"`
+	FailedAt *time.Time `json:"failedAt,omitempty"`
+	// Waiting is what a pending one waits on now: MergeWaitChecks,
+	// MergeWaitFailing, MergeWaitConflict, MergeWaitDraft or MergeWaitRetry;
+	// empty before the watch first looked. Detail says more: the failing
+	// checks, or GitHub's message.
+	Waiting string `json:"waiting,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	// FixRounds is how many fixes were pushed and came out red or
+	// conflicting again.
+	FixRounds int `json:"fixRounds,omitempty"`
+}
+
+// What a pending merge when green waits on (MergeWhenGreen.Waiting).
+const (
+	MergeWaitChecks   = "checks"   // its checks are running
+	MergeWaitFailing  = "failing"  // its checks failed: its agent is fixing them
+	MergeWaitConflict = "conflict" // it conflicts with its base: its agent is rebasing
+	MergeWaitDraft    = "draft"    // it was turned back into a draft
+	MergeWaitRetry    = "retry"    // GitHub refused the merge for now
+)
+
 // PullRequestDetail is one pull request as the app's pull request view shows
 // it: the list's fields, read fresh, and its description and check
 // runs. Body is GitHub markdown; its pictures are read through the
@@ -1951,9 +2332,12 @@ type PullFileDiff struct {
 // has shown, and where its branch stands on GitHub.
 type FleetAgent struct {
 	Agent
-	Changes AgentChanges `json:"changes"`
-	Media   int          `json:"media"` // items it has kept
-	PR      *PullRequest `json:"pr,omitempty"`
+	// SessionTopic is the topic of the chat session it is (LeadSession),
+	// while that session exists.
+	SessionTopic string       `json:"sessionTopic,omitempty"`
+	Changes      AgentChanges `json:"changes"`
+	Media        int          `json:"media"` // items it has kept
+	PR           *PullRequest `json:"pr,omitempty"`
 	// Busy is true while its AI tool is working or waiting for an answer.
 	Busy bool `json:"busy,omitempty"`
 	// Idle is true when it has finished what it was doing and is holding a
@@ -1962,6 +2346,38 @@ type FleetAgent struct {
 	LastActive *time.Time `json:"lastActive,omitempty"`
 	// Retire says whether it can be retired now, and what keeps its work.
 	Retire RetireAdvice `json:"retire"`
+}
+
+// RemoteAgent is an agent a project's lead made on another machine of its hub
+// account: it runs there, and its notices come back here.
+type RemoteAgent struct {
+	Machine   string `json:"machine"`   // the machine's name on the hub
+	MachineID string `json:"machineId"` // its environment's ID
+	Name      string `json:"name"`      // the agent's name there, like agent-03
+	Title     string `json:"title,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	// Status is creating, working, asking, done, failed or retired, as its
+	// last notice said.
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary,omitempty"`
+	PRURL     string    `json:"prUrl,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// Machine is another machine connected to the same hub account, which a
+// project's lead can create and direct agents on (list_resources machines).
+type Machine struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Online   bool   `json:"online"`
+	Hostname string `json:"hostname,omitempty"`
+	// HasProject is whether it has this project, found by its repository's
+	// URL, and Project what the project is called there. A machine without
+	// it clones it when the lead first creates an agent on it.
+	HasProject bool   `json:"hasProject"`
+	Project    string `json:"project,omitempty"`
+	// Error is why the machine couldn't be asked, when it couldn't.
+	Error string `json:"error,omitempty"`
 }
 
 // RetireAdvice is whether an agent can be retired, and what would keep its
@@ -2005,6 +2421,9 @@ type Question struct {
 	// project's connector's, or the one the agent gave for a new one.
 	Connector    string `json:"connector,omitempty"`
 	ConnectorURL string `json:"url,omitempty"`
+	// Ports are the ports a CredentialIOSPorts request asks the user to let
+	// the project's agents forward to the Mac.
+	Ports []int `json:"ports,omitempty"`
 	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
@@ -2032,6 +2451,10 @@ type AnswerQuestionRequest struct {
 const (
 	CredentialGitHub = "github"
 	CredentialSecret = "secret"
+	// CredentialIOSPorts is agentbox ios forward asking the user to let the
+	// project's agents forward Ports to the Mac's localhost, answered with
+	// Allow or a refusal.
+	CredentialIOSPorts = "ios_ports"
 )
 
 // CredentialRequest is an agent asking the user for a credential it lacks.
@@ -2062,6 +2485,8 @@ type AnswerCredentialRequest struct {
 	Connector     string `json:"connector,omitempty"`
 	Refuse        bool   `json:"refuse,omitempty"`
 	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
+	// Allow answers an iOS ports request: the ports join the project's.
+	Allow bool `json:"allow,omitempty"`
 }
 
 // EscalateQuestionRequest passes a question to the user.
@@ -2102,7 +2527,9 @@ type RetiredAgent struct {
 	Reason string `json:"reason,omitempty"` // why it was skipped, or what failed
 }
 
-// AgentChanges is the size of an agent's diff against the commit it started from.
+// AgentChanges is the size of an agent's diff against its base: where it left
+// its pull request's base branch, or without one the branch it was made from
+// and the project's base branch, as they are now (gitrepo.DiffBase).
 type AgentChanges struct {
 	Files      int  `json:"files"`
 	Insertions int  `json:"insertions"`
@@ -2244,6 +2671,9 @@ type ReviewItem struct {
 	// MachineKept is set on a reviewed agent whose machine the daemon did
 	// not free, because it holds uncommitted or unpushed work.
 	MachineKept bool `json:"machineKept,omitempty"`
+	// MergeWhenGreen is set while its pull request waits to be merged when
+	// its checks pass, or when that was given up, with why.
+	MergeWhenGreen *MergeWhenGreen `json:"mergeWhenGreen,omitempty"`
 }
 
 // ReviewPage is GET /v1/review with ?limit= (and the same under a project),
@@ -2308,6 +2738,8 @@ const (
 // WorkPage is a page of GET /v1/work, newest first, after ?cursor=. Total is
 // how many the filter and the search keep; Counts is how many each filter
 // keeps under the search, by filter, "" being all.
+// With ?brief=1 an item is what a list's row shows: no Task, and of its
+// Report only the Status, whoever opens one reading the rest.
 type WorkPage struct {
 	Items  []WorkItem     `json:"items"`
 	Next   string         `json:"next,omitempty"`
@@ -2419,8 +2851,16 @@ type Fleet struct {
 	// pull requests, and PullsRefreshing whether a re-read is running. The
 	// rest of the fleet is read fresh; only the pull requests are served
 	// from cache.
-	PullsFetchedAt  *time.Time `json:"pullsFetchedAt,omitempty"`
-	PullsRefreshing bool       `json:"pullsRefreshing,omitempty"`
+	PullsFetchedAt *time.Time `json:"pullsFetchedAt,omitempty"`
+	// Remote are the agents this project's lead runs on other machines of
+	// its hub account, as their notices last described them.
+	Remote          []RemoteAgent `json:"remote,omitempty"`
+	PullsRefreshing bool          `json:"pullsRefreshing,omitempty"`
+}
+
+// RemoteAgentsChange is EventRemoteAgents' data.
+type RemoteAgentsChange struct {
+	Project string `json:"project"`
 }
 
 // Event is one message on the /v1/events stream.
@@ -2440,6 +2880,9 @@ const (
 	// something moved, so a client can refresh instead of waiting for its
 	// next poll.
 	EventPulls = "pulls"
+	// EventRemoteAgents carries a RemoteAgentsChange: one of a project's
+	// agents on another machine moved (Fleet.Remote).
+	EventRemoteAgents = "remote-agents"
 	// EventTheme says the look AgentBox should wear has changed: the host's
 	// Omarchy theme, or the setting that decides whether to follow it.
 	EventTheme = "theme"
@@ -2519,7 +2962,19 @@ const (
 	// way round or the other, whatever the desktop around it is doing.
 	AppearanceDark  = "dark"
 	AppearanceLight = "light"
+	// AppearanceDracula wears Dracula (VS Code's Dracula Official palette)
+	// whatever the desktop is running: a theme AgentBox carries itself, which
+	// the daemon reports in Theme as it would a followed one, so the app and
+	// the agents' desktops wear it the same way.
+	AppearanceDracula = "dracula"
 )
+
+// DraculaTheme is the palette reported when AppearanceDracula is chosen.
+var DraculaTheme = Theme{
+	Appearance: AppearanceDracula, Available: true, Name: "Dracula", Mode: "dark",
+	Background: "#282a36", Surface: "#44475a", Foreground: "#f8f8f2",
+	Muted: "#6272a4", Accent: "#bd93f9",
+}
 
 // Theme is the look AgentBox wears: the desktop theme this machine is running,
 // and the appearance setting, which says whether to follow it and — when it
@@ -2531,11 +2986,12 @@ const (
 // agent's tint2 dock and openbox window decorations. They are always plain
 // "#rrggbb", or all empty when there is no theme to report.
 type Theme struct {
-	// Appearance is the setting: AppearanceFollow, AppearanceLight or
-	// AppearanceDark.
+	// Appearance is the setting: AppearanceFollow, AppearanceLight,
+	// AppearanceDark or AppearanceDracula.
 	Appearance string `json:"appearance"`
 	// Available says a theme was found on this machine. False on every
-	// machine without Omarchy, which is most of them.
+	// machine without Omarchy, which is most of them. Under AppearanceDracula
+	// the palette below is Dracula's, not the machine's, and this is true.
 	Available bool `json:"available"`
 	// Name is the theme's, as Omarchy records it ("tokyo-night"), and "" when
 	// there is none.
@@ -2553,9 +3009,12 @@ type Theme struct {
 }
 
 // Applied says whether a client should actually wear this theme: there is one,
-// and the setting says to follow it. A pinned light or dark is AgentBox's own
-// colours, so it is not "applied" even though it changes how the app looks.
-func (t Theme) Applied() bool { return t.Appearance == AppearanceFollow && t.Available }
+// and the setting says to follow it, or the setting is Dracula. A pinned light
+// or dark is AgentBox's own colours, so it is not "applied" even though it
+// changes how the app looks.
+func (t Theme) Applied() bool {
+	return t.Appearance == AppearanceDracula || t.Appearance == AppearanceFollow && t.Available
+}
 
 // Describe names the theme for a log line.
 func (t Theme) Describe() string {
@@ -2568,8 +3027,8 @@ func (t Theme) Describe() string {
 	return t.Name
 }
 
-// UpdateThemeRequest sets the appearance: AppearanceFollow, AppearanceLight or
-// AppearanceDark.
+// UpdateThemeRequest sets the appearance: AppearanceFollow, AppearanceLight,
+// AppearanceDark or AppearanceDracula.
 type UpdateThemeRequest struct {
 	Appearance *string `json:"appearance"`
 }
@@ -2612,7 +3071,24 @@ type AgentChange struct {
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.
 	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold is Agent.Hold.
+	Hold string `json:"hold,omitempty"`
 }
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	HoldMemory = "memory"
+	HoldIdle   = "idle"
+)
+
+// Why machines waiting to boot wait (MemoryHold.Why, with Machine
+// "waiting" and pausing whole agents off): the VM hasn't the memory for
+// another boot, or agents' builds wait or are paused for it, which come
+// first.
+const (
+	HoldWhyMemory = "memory"
+	HoldWhyBuilds = "builds"
+)
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
 const (
@@ -2680,6 +3156,14 @@ type Error struct {
 // ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
 // folder that has files in it: the same request with CommitFiles gets past it.
 const ErrorFolderNotEmpty = "folder-not-empty"
+
+// ErrorFolderExists is the Code of CloneProjectRequest refusing a folder that
+// is already there: AddProjectRequest with the same Path adds it as it is.
+const ErrorFolderExists = "folder-exists"
+
+// ErrorBadRepoURL is the Code of CloneProjectRequest refusing a URL that isn't
+// a repository's link, such as a path or a host with no repository.
+const ErrorBadRepoURL = "bad-repo-url"
 
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {
@@ -2899,6 +3383,11 @@ type MediaMeta struct {
 	// placed in the video by taking out what was cut before it.
 	Recorded float64    `json:"recorded,omitempty"`
 	Cuts     []MediaCut `json:"cuts,omitempty"`
+	// Pair and Side make the item one half of a before/after pair: Pair
+	// names what both halves show, Side is "before" or "after". The review
+	// shows a pair together, to compare.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 	// Raw is an edited recording's original, unedited: the name of its file,
 	// served with ?raw=1. Both have the same timeline.
 	Raw string `json:"raw,omitempty"`
@@ -2919,6 +3408,11 @@ type ScreenshotRequest struct {
 	Target   string `json:"target,omitempty"` // browser (default), display or android
 	FullPage bool   `json:"fullPage,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// Pair and Side make it one half of a before/after pair (MediaMeta).
+	// A side alone takes its pair from Name; a pair without Name is named
+	// <pair>-<side>.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type RecordRequest struct {
@@ -2932,6 +3426,10 @@ type RecordRequest struct {
 	// WholeDisplay films the desktop as it is, where a display recording
 	// otherwise makes the browser in front fullscreen first.
 	WholeDisplay bool `json:"wholeDisplay,omitempty"`
+	// Pair and Side make it one half of a before/after pair, as
+	// ScreenshotRequest's do.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 	// NoEdit keeps the recording as it was recorded, where it is otherwise
 	// edited as it stops: zoomed in on the clicks, with its notes as
 	// captions. An edited recording keeps its original beside it (MediaMeta.Raw).
@@ -2952,6 +3450,10 @@ type AddMediaRequest struct {
 	Path string `json:"path"`
 	Kind string `json:"kind,omitempty"`
 	Name string `json:"name,omitempty"`
+	// Pair and Side make it one half of a before/after pair, as
+	// ScreenshotRequest's do.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type NoteRequest struct {
@@ -3142,7 +3644,7 @@ type SetupStatus struct {
 	Image ImageBuild `json:"image"`
 }
 
-// ImageComponents are the optional parts of the base image. Both are off by
+// ImageComponents are the optional parts of the base image. Each is off by
 // default: each is a download most agents never need.
 type ImageComponents struct {
 	// Android adds scrcpy, which mirrors an agent's Android emulator.
@@ -3403,6 +3905,69 @@ type IOSOpenURLRequest struct {
 	URL    string `json:"url"`
 }
 
+// IOSForwardRequest makes ports of an agent's machine reach the Mac's
+// 127.0.0.1 at the same numbers, so an app in the iOS Simulator reaches
+// the agent's servers at http://localhost:<port>: a plain http:// host that
+// App Transport Security lets through, where the preview proxy's
+// *.localhost names aren't. No ports lists them; Stop gives them back (all
+// of the agent's, with no ports).
+type IOSForwardRequest struct {
+	Ports []int `json:"ports,omitempty"`
+	Stop  bool  `json:"stop,omitempty"`
+}
+
+// IOSForward is a port of the Mac's 127.0.0.1 that goes to an agent's.
+type IOSForward struct {
+	Port  int    `json:"port"`
+	Agent string `json:"agent"` // project/agent
+}
+
+// PreviewHeader routes a request through the preview proxy to
+// <port>.<agent>.<project> when its Host can't say so: the iOS Simulator's
+// forwards (internal/iossim) keep Host as localhost:<port>, which the
+// agent's servers then build their URLs from.
+const PreviewHeader = "X-AgentBox-Preview"
+
+// IOSUIRequest reads a simulator's screen through its accessibility tree,
+// or acts on an element of it. Action is empty to read it, "tap", "type"
+// (Text, into the text field Target names, if any), "scroll-to" (scroll
+// Target into view) or "wait" (until Target, an id:<id> or a label's text,
+// is on the screen, or with Gone isn't). Target is id:<identifier> or a
+// label; Near picks, among elements with the same label, the one nearest
+// an element whose label has that text.
+type IOSUIRequest struct {
+	Device    string `json:"device,omitempty"`
+	Action    string `json:"action,omitempty"`
+	Target    string `json:"target,omitempty"`
+	Near      string `json:"near,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Gone      bool   `json:"gone,omitempty"`
+	TimeoutMS int    `json:"timeoutMs,omitempty"`
+	// Force taps an element the hit-test couldn't confirm a tap lands on.
+	Force bool `json:"force,omitempty"`
+	// All lists every element, off the screen too.
+	All bool `json:"all,omitempty"`
+}
+
+// IOSUIResult is the screen, or what an action did to it, as text to print.
+type IOSUIResult struct {
+	Screen string `json:"screen"`
+	Text   string `json:"text"`
+	// Unchanged: an action changed nothing in the accessibility tree, so
+	// Look is a screenshot (PNG) for the agent to see whether it did.
+	Unchanged bool   `json:"unchanged,omitempty"`
+	Look      []byte `json:"look,omitempty"`
+}
+
+// IOSApp is an app installed on a simulator. A development build (Expo's
+// dev client) opens the agent's Metro with OpenURL.
+type IOSApp struct {
+	BundleID  string `json:"bundleId"`
+	Name      string `json:"name"`
+	DevClient bool   `json:"devClient,omitempty"`
+	OpenURL   string `json:"openUrl,omitempty"` // with <port> for Metro's
+}
+
 // IOSResult is what a simulator command printed, when it printed anything.
 type IOSResult struct {
 	Output string `json:"output,omitempty"`
@@ -3427,6 +3992,8 @@ type (
 	HubLoginRequest             = hubapi.HubLoginRequest
 	HubSetupRequest             = hubapi.HubSetupRequest
 	HubSession                  = hubapi.HubSession
+	HubMCPPairing               = hubapi.HubMCPPairing
+	HubMCPPairingRequest        = hubapi.HubMCPPairingRequest
 	HubPairRequest              = hubapi.HubPairRequest
 	HubPairing                  = hubapi.HubPairing
 	HubPairTokenRequest         = hubapi.HubPairTokenRequest
@@ -3449,6 +4016,77 @@ type RemoteStatus struct {
 	// /v1/remote/pair), until it's approved and the machine connects, or it
 	// fails.
 	Pairing *RemotePairing `json:"pairing,omitempty"`
+}
+
+// What an app paired over remote MCP may do. Each level includes the ones
+// before it. They are hubapi's MCPAccess* values.
+const (
+	MCPAccessRead = "read" // see projects, agents, pull requests and the lead's chat
+	MCPAccessChat = "chat" // and send messages to a project's lead
+	MCPAccessFull = "full" // and call the lead's own tools
+)
+
+// The apps the wizard knows how to set up; anything else is MCPClientOther.
+const (
+	MCPClientClaude  = "claude"
+	MCPClientChatGPT = "chatgpt"
+	MCPClientPoke    = "poke"
+	MCPClientOther   = "other"
+)
+
+// MCPPairing lets another app — Claude, ChatGPT, Poke — use this machine's
+// AgentBox over remote MCP, through the hub. The machine keeps and enforces
+// Access and Projects; revoking it is deleting it.
+type MCPPairing struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Client string `json:"client"` // an MCPClient* value: which instructions to show
+	Access string `json:"access"` // an MCPAccess* value
+	// Projects are the projects it covers, by name; none is all of them,
+	// including those added later.
+	Projects   []string  `json:"projects"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastUsedAt time.Time `json:"lastUsedAt,omitzero,omitempty"`
+	// Apps are the OAuth clients signed in with it, by the name each gave
+	// the hub, when the hub could be asked.
+	Apps []string `json:"apps,omitempty"`
+}
+
+// MCPPairings is GET /v1/remote/mcp: whether other apps can be paired, and
+// those that are.
+type MCPPairings struct {
+	// Available is false when this machine has no hub to be reached
+	// through, or its hub is too old; Reason is "no-hub", "offline" (the
+	// hub can't be reached now) or "old-hub", and Error what the hub said.
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Hub       string `json:"hub,omitempty"`
+	// URL is the MCP endpoint apps are given: the hub's.
+	URL      string       `json:"url,omitempty"`
+	Pairings []MCPPairing `json:"pairings"`
+}
+
+// MCPPairRequest is POST /v1/remote/mcp/pairings.
+type MCPPairRequest struct {
+	Label    string   `json:"label"`
+	Client   string   `json:"client,omitempty"`
+	Access   string   `json:"access"`
+	Projects []string `json:"projects,omitempty"`
+	// Token asks for a bearer token as well as a code, for an app that
+	// takes an API key instead of signing in with OAuth.
+	Token bool `json:"token,omitempty"`
+}
+
+// MCPPairingSecret is a pairing with what its app is given, shown once: the
+// URL, the code to type when the app signs in (which works once, until
+// CodeExpiresAt), and the bearer token when one was asked for.
+type MCPPairingSecret struct {
+	Pairing       MCPPairing `json:"pairing"`
+	URL           string     `json:"url"`
+	Code          string     `json:"code"`
+	CodeExpiresAt time.Time  `json:"codeExpiresAt"`
+	Token         string     `json:"token,omitempty"`
 }
 
 // RemoteConnectRequest connects to a hub with an environment's token.
@@ -3496,6 +4134,8 @@ const (
 	FeatureAgentCreateCodex    = "agent.create.codex"
 	FeatureAgentCreateOpenCode = "agent.create.opencode"
 	FeatureAgentCreateCursor   = "agent.create.cursor"
+	FeatureAgentCreateGemini   = "agent.create.gemini"
+	FeatureAgentCreateCopilot  = "agent.create.copilot"
 	FeatureAgentCreateByLead   = "agent.create.by_lead"
 	FeatureAgentDestroy        = "agent.destroy"
 	FeatureAgentRetire         = "agent.retire"
@@ -3511,6 +4151,8 @@ const (
 	FeatureLeadTurnCodex       = "lead.turn.codex"
 	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
 	FeatureLeadTurnCursor      = "lead.turn.cursor"
+	FeatureLeadTurnGemini      = "lead.turn.gemini"
+	FeatureLeadTurnCopilot     = "lead.turn.copilot"
 	FeatureAgentCreateModel    = "agent.create.model"
 	FeatureAgentCreateEffort   = "agent.create.effort"
 	FeatureAgentCreateContext  = "agent.create.context"
@@ -3758,4 +4400,50 @@ type GPUReport struct {
 type VulkanDevice struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+// GitHubRepo is one of the repositories the default GitHub account can push
+// to, as the first run lists them to clone one as the first project.
+type GitHubRepo struct {
+	// FullName is owner/name.
+	FullName    string `json:"fullName"`
+	Description string `json:"description,omitempty"`
+	Private     bool   `json:"private"`
+	// PushedAt is when it was last pushed to, RFC 3339; the list is newest
+	// first.
+	PushedAt string `json:"pushedAt,omitempty"`
+	// CloneURL is its https:// URL, what CloneProjectRequest.URL takes.
+	CloneURL string `json:"cloneUrl"`
+}
+
+// DebugStats is what `agentbox debug stats` prints: the daemon's process and
+// Go runtime figures, and the size of what it keeps in memory, to tell what
+// grows over a long uptime. Served on the socket only, at /debug/stats.
+type DebugStats struct {
+	UptimeSeconds float64 `json:"uptimeSeconds"`
+	CPUSeconds    float64 `json:"cpuSeconds"` // user and system, since it started
+	Goroutines    int     `json:"goroutines"`
+	Threads       int     `json:"threads"`
+	FDs           int     `json:"fds"`
+	RSS           int64   `json:"rss"`    // bytes resident
+	Locked        int64   `json:"locked"` // bytes mlocked (VmLck)
+	HeapAlloc     uint64  `json:"heapAlloc"`
+	HeapInuse     uint64  `json:"heapInuse"`
+	HeapIdle      uint64  `json:"heapIdle"`
+	HeapReleased  uint64  `json:"heapReleased"`
+	StackInuse    uint64  `json:"stackInuse"`
+	Sys           uint64  `json:"sys"` // all the Go runtime has from the OS
+	MemoryLimit   int64   `json:"memoryLimit"`
+	NumGC         uint32  `json:"numGC"`
+	GCCPUFraction float64 `json:"gcCPUFraction"`
+	// DBOpen and DBInUse are state.db's pooled connections.
+	DBOpen  int `json:"dbOpen"`
+	DBInUse int `json:"dbInUse"`
+	// Chats are the conversations in memory, ChatsLoaded those with their
+	// transcript loaded, and ChatItems the items those hold.
+	Chats            int `json:"chats"`
+	ChatsLoaded      int `json:"chatsLoaded"`
+	ChatItems        int `json:"chatItems"`
+	Jobs             int `json:"jobs"` // jobs kept in memory
+	EventSubscribers int `json:"eventSubscribers"`
 }

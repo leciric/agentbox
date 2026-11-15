@@ -100,6 +100,12 @@ An environment's phones pair with it directly, not through the hub: see [Chattin
 hub with a Cloudflare zone gives each environment a stable address for them, on the internet. A hub
 on Tailscale puts each environment in your tailnet instead, where only your own devices reach it.
 
+## Other apps
+
+An assistant such as Claude, ChatGPT or Poke can use an environment over remote MCP, at the hub's
+`/mcp`: see [Using AgentBox from another app](other-apps.md). The environment's owner pairs each app
+on the machine itself, and the hub only relays.
+
 ## Tailscale instead of Cloudflare
 
 ```bash

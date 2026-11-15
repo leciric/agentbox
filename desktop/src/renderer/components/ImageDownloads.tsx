@@ -38,7 +38,7 @@ export function ImageDownloads({ image }: { image?: T.ImageBuild }) {
       </Button>
       {open && (
         <div className="overflow-hidden rounded-xl border border-line">
-          <table className="w-full text-[12.5px]">
+          <table className="w-full text-ui">
             <tbody>
               {image.downloads.map((d) => (
                 <tr key={d.name} className={cn('border-t border-line-faint first:border-t-0', !on(d.option) && 'text-faint')}>
@@ -57,7 +57,7 @@ export function ImageDownloads({ image }: { image?: T.ImageBuild }) {
                   </td>
                 </tr>
               ))}
-              <tr className="border-t border-line bg-surface-faint">
+              <tr className="border-t border-line-faint bg-surface-faint">
                 <td className="py-1.5 pl-3 pr-2 text-tertiary">{t('shell.imageDownloads.total')}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums text-tertiary">{size(total)}</td>
                 <td className="py-1.5 pr-3 text-subtle">{image.hint}.</td>

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+
+	"agentbox/internal/opencode"
 )
 
 // The MCP servers an agent's AI tool drives its display with are the same two
@@ -17,7 +19,7 @@ func TestOpenCodeConfig(t *testing.T) {
 	}
 	parse := func(t *testing.T, autonomous bool) map[string]any {
 		t.Helper()
-		raw, err := openCodeConfig(servers, autonomous)
+		raw, err := openCodeConfig(opencode.V1, servers, autonomous)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -80,5 +82,56 @@ func TestOpenCodeIsItsOwnAdapter(t *testing.T) {
 	}
 	if _, ok := Tools["opencode"]; !ok {
 		t.Error("no command line for OpenCode agents")
+	}
+}
+
+// OpenCode 2 reads its servers under mcp.servers and its permissions as an
+// ordered ruleset. Its compatibility layer would still read OpenCode 1's flat
+// map, but drops each server's environment there, which is why both shapes are
+// written rather than one left to the other.
+func TestOpenCodeConfigVersionTwo(t *testing.T) {
+	t.Parallel()
+	servers := []mcpServer{{"agentbox", "/bin/agentbox", []string{"mcp"}, false}}
+	parse := func(t *testing.T, autonomous bool) map[string]any {
+		t.Helper()
+		raw, err := openCodeConfig(opencode.V2, servers, autonomous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config map[string]any
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatalf("opencode.json isn't JSON: %v: %s", err, raw)
+		}
+		return config
+	}
+
+	config := parse(t, true)
+	mcp, ok := config["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcp isn't an object: %v", config["mcp"])
+	}
+	byName, ok := mcp["servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcp has no servers: %v", mcp)
+	}
+	if _, ok := byName["agentbox"]; !ok {
+		t.Fatalf("the agentbox server is missing: %v", byName)
+	}
+	permissions, ok := config["permissions"].([]any)
+	if !ok || len(permissions) != 1 {
+		t.Fatalf("autonomous agents get no wildcard permission: %v", config["permissions"])
+	}
+	rule, _ := permissions[0].(map[string]any)
+	if rule["action"] != "*" || rule["effect"] != "allow" {
+		t.Fatalf("permissions = %v", permissions)
+	}
+	if _, ok := config["subagent_depth"]; ok {
+		t.Error("OpenCode 2's config still carries subagent_depth, which it ignores")
+	}
+	if _, ok := config["permission"]; ok {
+		t.Error("OpenCode 2's config still carries OpenCode 1's permission shorthand")
+	}
+	if _, ok := parse(t, false)["permissions"]; ok {
+		t.Error("an agent that asks got a permission ruleset")
 	}
 }

@@ -30,6 +30,17 @@ once, open chat included.
 The phone connects to port 7780 (`agentbox phone on --port <port>` moves it). If a firewall runs on
 the computer, it has to let that port in from the local network.
 
+AgentBox runs in a VM, whose network a phone can't reach: AgentBox opens the port on the computer
+itself, on Linux, on a Mac and on Windows alike, and passes what the phone sends on to the VM.
+
+- **On Windows**, the app opens it, so a phone reaches AgentBox while the app is open. The first time,
+  Windows Firewall asks whether to allow `agentbox.exe`: allow it on private networks. If it was
+  turned down, or the computer is on a network Windows calls public, **Settings → Phone** says so and
+  what to allow (Windows Security → Firewall & network protection → Allow an app through firewall).
+- **On a Mac**, if the firewall is on (System Settings → Network → Firewall), macOS may ask whether
+  `agentbox` may accept incoming network connections: allow it. **Settings → Phone** says when the
+  firewall blocks it.
+
 ## From anywhere
 
 On the local network only, the phone stops working once you leave the house. **Reach from anywhere**

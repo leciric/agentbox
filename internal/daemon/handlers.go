@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -41,17 +44,8 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 // Projects
 
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
-	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root), IOS: iossim.IsProject(p.Root),
-		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
-		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount,
-		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
-		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
-		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, CreatedAt: p.CreatedAt}
-	// One primary-key lookup: listProjects runs this for every project.
-	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
-		info.IconVersion = v
-	}
+	info := s.projectSettings(ctx, p)
+	info.Android, info.IOS = android.IsProject(p.Root), iossim.IsProject(p.Root)
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -59,6 +53,30 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		}
 	}
 	return info
+}
+
+// projectSettings is projectInfo without what it reads from the repository,
+// which can take seconds on a large one shared from a Mac.
+func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Project {
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{},
+		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
+		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount, GeminiAccount: p.GeminiAccount, CopilotAccount: p.CopilotAccount,
+		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
+		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
+		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, IOSForwardPorts: nonNilPorts(p.IOSForwardPorts), AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+	// One primary-key lookup: listProjects runs this for every project.
+	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
+		info.IconVersion = v
+	}
+	return info
+}
+
+func nonNilPorts(ports []int) []int {
+	if ports == nil {
+		return []int{}
+	}
+	return ports
 }
 
 // nonNil keeps an empty list a list in JSON, which the app's types promise.
@@ -95,16 +113,28 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if req.Create {
 		return s.createProject(w, r, req)
 	}
-	repo, err := gitrepo.Open(req.Path)
+	p, err := s.addProjectRepo(r.Context(), req)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// addProjectRepo adds an existing repository as a project: addProjectFrom's
+// work, for a caller with no request to answer, such as another machine's
+// lead (peers.go).
+func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) (state.Project, error) {
+	fail := func(err error) (state.Project, error) { return state.Project{}, err }
+	repo, err := gitrepo.Open(req.Path)
+	if err != nil {
+		return fail(err)
+	}
 	diskErr := checkProjectDisk(repo.Root, hostos.WSL())
 	if diskErr != nil && !req.CopyToLinux {
-		return diskErr
+		return fail(diskErr)
 	}
 	if !repo.HasCommits() {
-		return fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root)
+		return fail(fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root))
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -112,40 +142,36 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	}
 	if diskErr != nil {
 		// Checked before copying, so a name that's taken doesn't leave a copy behind.
-		if err := s.projectNameFree(r.Context(), name); err != nil {
-			return err
+		if err := s.projectNameFree(ctx, name); err != nil {
+			return fail(err)
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return err
+			return fail(err)
 		}
-		slug, err := s.store.ProjectSlug(r.Context(), name)
+		slug, err := s.store.ProjectSlug(ctx, name)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 		copied, err := gitrepo.Clone(repo, filepath.Join(home, "src", slug))
 		if err != nil {
-			return fmt.Errorf("copying %s into WSL: %w", repo.Root, err)
+			return fail(fmt.Errorf("copying %s into WSL: %w", repo.Root, err))
 		}
 		repo = copied
 	}
 	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
 	if err := s.checkClaudeAccount(claudeAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	tools, err := s.newProjectToolAccounts(req)
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
-		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
-	if err != nil {
-		return err
-	}
-	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount, GeminiAccount: tools.GeminiAccount, CopilotAccount: tools.CopilotAccount})
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -191,7 +217,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		return err
 	}
 	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
-		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount, GeminiAccount: tools.GeminiAccount, CopilotAccount: tools.CopilotAccount})
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(repo.Root)
@@ -234,7 +260,13 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	p = stored
-	// Its chat's socket, so the project can be talked to straight away.
+	// A new project's chat has a session to start in (the id the chats from
+	// before sessions have, so it is known by the same paths), and its
+	// socket, so the project can be talked to straight away. It costs a row
+	// until it is written to, and can be deleted like any session.
+	if err := s.store.AddLeadSessionID(ctx, p.Name, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+		s.logf("the first session of %s's chat: %v", p.Name, err)
+	}
 	if err := s.serveLeadAPI(p.Name); err != nil {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}
@@ -289,7 +321,31 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.Autonomy = autonomy
 		rewriteBrief()
 	}
-	if req.AgentModel != nil {
+	if req.AgentTool != nil || req.AgentEffort != nil || req.AgentContextWindow != nil || req.AgentMode != nil {
+		// The tool and its defaults are set together, the model with them:
+		// they belong to the tool, and the store clears what a new tool
+		// leaves unsaid.
+		trim := func(v *string) *string {
+			if v == nil {
+				return nil
+			}
+			t := strings.TrimSpace(*v)
+			return &t
+		}
+		if err := s.store.SetProjectAgentDefaults(r.Context(), p.Name, state.ProjectAgentDefaults{
+			Tool: trim(req.AgentTool), Model: trim(req.AgentModel), Effort: trim(req.AgentEffort),
+			ContextWindow: trim(req.AgentContextWindow), Mode: trim(req.AgentMode),
+		}); err != nil {
+			return err
+		}
+		updated, err := s.store.Project(r.Context(), p.Name)
+		if err != nil {
+			return err
+		}
+		p.AgentModel, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode = updated.AgentModel, updated.AgentTool, updated.AgentEffort, updated.AgentContextWindow, updated.AgentMode
+		rewriteBrief()
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	} else if req.AgentModel != nil {
 		model := strings.TrimSpace(*req.AgentModel)
 		if err := s.store.SetProjectAgentModel(r.Context(), p.Name, model); err != nil {
 			return err
@@ -449,6 +505,20 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		p.Nesting = *req.Nesting
 	}
+	if req.IOSForwardPorts != nil {
+		ports := slices.Clone(*req.IOSForwardPorts)
+		slices.Sort(ports)
+		ports = slices.Compact(ports)
+		for _, port := range ports {
+			if port < 1024 || port > 65535 {
+				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+			}
+		}
+		if err := s.setIOSPorts(r.Context(), p.Name, func([]int) []int { return ports }); err != nil {
+			return err
+		}
+		p.IOSForwardPorts = ports
+	}
 	if req.AgentPRs != nil {
 		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {
 			return err
@@ -499,6 +569,21 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		if *req.SyncBase {
 			go s.syncBase(s.background(), p)
 		}
+	}
+	if req.SettleHours != nil {
+		if err := s.store.SetProjectSettleHours(r.Context(), p.Name, *req.SettleHours); err != nil {
+			return err
+		}
+		p.SettleHours = max(*req.SettleHours, -1)
+		if p.SettleHours == 0 {
+			p.SettleHours = -1
+		}
+	}
+	if req.PullRequests != nil {
+		if err := s.store.SetProjectPulls(r.Context(), p.Name, *req.PullRequests); err != nil {
+			return err
+		}
+		p.PullsOff = !*req.PullRequests
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
@@ -552,8 +637,12 @@ func (s *Server) checkGitHubAccount(account string) error {
 func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 	// The project's chat goes with it; only its agents block removal.
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project was removed")
-	s.chat.Forget(agent.LeadRef(project))
+	if leads, err := s.manager(nil).SessionLeads(r.Context(), project); err == nil {
+		for _, lead := range leads {
+			s.chat.Stop(lead.Ref(), "the project was removed")
+			s.chat.Forget(lead.Ref())
+		}
+	}
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}
@@ -880,6 +969,7 @@ func (s *Server) removeBase(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
+	s.trim.Kick()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -921,12 +1011,16 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Worktree:   a.Worktree,
 		Source:     a.Source,
 
+		LeadSession:      a.Session(),
 		ClaudeAccount:    a.ClaudeAccount,
 		CodexAccount:     a.CodexAccount,
 		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
 		CursorAccount:    a.CursorAccount,
+		GeminiAccount:    a.GeminiAccount,
+		CopilotAccount:   a.CopilotAccount,
 		GitHubAccount:    a.GitHubAccount,
 		Interface:        a.Interface,
+		Hold:             a.Hold,
 
 		State:     st.State,
 		IP:        st.IP,
@@ -1138,13 +1232,20 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	// agent is on its way and has nothing left to correct (see the byLead
 	// notice below, for what Create can still fail at once the job is
 	// running).
-	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount}); err != nil {
+	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount, Gemini: req.GeminiAccount, Copilot: req.CopilotAccount}); err != nil {
 		return fail(err)
 	}
 	if req.Connectors != nil {
 		if err := s.manager(nil).CheckConnectorLimit(ctx, p.Name, *req.Connectors); err != nil {
 			return fail(err)
 		}
+	}
+	if req.Goal, err = checkGoal(req.Goal); err != nil {
+		return fail(err)
+	}
+	if req.Goal != nil && strings.TrimSpace(req.Task) == "" && req.Issue == 0 {
+		// The goal is what it is to do.
+		req.Task = req.Goal.Objective
 	}
 	// Every agent starts at once: Queue and Size are accepted and do
 	// nothing (CreateAgentRequest). The VM's memory pressure holds back
@@ -1155,10 +1256,22 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	return req, nil
 }
 
+// createFailedNote is what a project's chat is told of a create_agent that
+// failed: whether anything was made, since a chat that tries again after a
+// create that did leave an agent behind makes a second one.
+func createFailedNote(err error) string {
+	var left *agent.LeftBehindError
+	if errors.As(err, &left) {
+		return fmt.Sprintf("create_agent failed: %v. %s still exists: retire it rather than create the agent again.", err, left.Agent)
+	}
+	return fmt.Sprintf("create_agent failed: %v. Nothing was created, so trying again is safe.", err)
+}
+
 // defaultTool fills in the AI tool of a request that names none: the one the
 // account it names belongs to, else Claude Code for a model only Claude Code
-// calls by that name, else the project's lead's tool on the lead's account for
-// it (agent.LeadToolDefault). The app's dialog and the command line always
+// calls by that name, else the tool the project names for its agents
+// (Project.AgentTool), else the project's lead's tool on the lead's account
+// for it (agent.LeadToolDefault). The app's dialog and the command line always
 // name a tool; a request that doesn't comes from the lead, a schedule, an
 // issue or a group's variant, which follow the lead. Why the agent falls back
 // to Claude Code, when it does, is kept in ToolNotice for the reply.
@@ -1170,14 +1283,22 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		req.AI = "codex"
 	case req.CursorAccount != "":
 		req.AI = "cursor"
+	case req.GeminiAccount != "":
+		req.AI = "gemini"
+	case req.CopilotAccount != "":
+		req.AI = "copilot"
 	case len(req.OpenCodeAccounts) > 0:
 		req.AI = "opencode"
 	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
 		req.AI = "claude"
+	case p.AgentTool != "":
+		// The project's own word comes before its chat's: it was said for
+		// every agent of the project, the chat's tool only for the chat.
+		req.AI = p.AgentTool
 	default:
 		d := s.manager(nil).LeadToolDefault(ctx, p)
 		req.AI, req.ToolNotice = d.AI, d.Fallback
-		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		req.ClaudeAccount, req.CodexAccount, req.CursorAccount, req.GeminiAccount, req.CopilotAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor, d.Logins.Gemini, d.Logins.Copilot
 		if d.Fallback != "" {
 			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
 		}
@@ -1226,12 +1347,15 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			CodexAccount:     req.CodexAccount,
 			OpenCodeAccounts: req.OpenCodeAccounts,
 			CursorAccount:    req.CursorAccount,
+			GeminiAccount:    req.GeminiAccount,
+			CopilotAccount:   req.CopilotAccount,
 			GitHubAccount:    req.GitHubAccount,
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
 
 			FinishNotice: req.FinishNotice,
+			LeadSession:  req.LeadSession,
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
@@ -1248,7 +1372,15 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
+				failed := createFailedNote(err)
+				if req.OriginID != "" {
+					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
+						Status: state.RemoteFailed, Summary: failed, Notice: failed, Act: true,
+					})
+				} else {
+					s.tellSession(ctx, req.Project, req.LeadSession, failed, true)
+				}
 			}
 			// One the job's cancel stopped didn't fail.
 			if ctx.Err() == nil {
@@ -1258,7 +1390,19 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			s.setupStepFailed(context.WithoutCancel(ctx), setupReport{step: setupFirstAgent, took: time.Since(began)}, err)
 			return nil, err
 		}
-		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
+		if req.OriginID != "" {
+			// Before its task is sent, so that its first notice already
+			// goes back to the lead that asked for it.
+			if err := s.store.AddPeerAgent(ctx, state.PeerAgent{
+				Project: a.Project, Agent: a.Name, OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject, CreatedAt: time.Now(),
+			}); err != nil {
+				s.logf("peers: remembering that %s's lead made %s: %v", req.OriginName, a.Ref(), err)
+			}
+			s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking,
+			})
+		}
+		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor, api.FeatureAgentCreateGemini, api.FeatureAgentCreateCopilot))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
 		s.setupReached(ctx, setupReport{step: setupFirstAgent, took: time.Since(began)})
@@ -1268,7 +1412,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		task := strings.TrimSpace(req.Task)
 		// Before the task, which is why the agent was made from the base: a
 		// catch-up changes the machine the task then checks and saves.
-		send := task
+		send := s.startGoal(ctx, a, req.Goal, task)
 		if req.CatchUp {
 			what, err := s.manager(log).CatchUp(ctx, a)
 			if err != nil {
@@ -1293,6 +1437,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			if _, err := s.chat.Send(a, send); err != nil {
 				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
+		}
+		// What you wrote while it was being made (tellAgentMessage), after
+		// its task: as a turn now, or once the task's turn ends.
+		if err := s.chat.Release(a); err != nil {
+			_, _ = fmt.Fprintf(log, "the agent was made, but what was written to it meanwhile couldn't be sent: %v\n", err)
 		}
 		// The thread in the project chat's rail opens on this, so an agent the
 		// chat made is there from the start rather than at its first finish.
@@ -1319,7 +1468,7 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	if a.Status != state.AgentQueued {
 		s.recordAgentFinished(r.Context(), a, "destroyed")
 	}
-	s.refreshAgents(r.Context())
+	s.refreshAgentsBehind()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -1338,23 +1487,32 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
+			if s.bootWaits() {
+				// Its boot waits its turn for memory, On hold, for as long
+				// as that takes: not in the request, which the app gives up
+				// on after minutes, and which left it On hold for good when
+				// it did, with nothing to start it.
+				s.wakeAside(ctx, m, a, "a start request")
+				break
+			}
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
 				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
-			s.chat.Stop(a.Ref(), "the agent was stopped")
-			err = s.stopAgent(ctx, m, a)
+			err = s.stopOnPurpose(a.Ref(), func() error { return s.stopAgent(ctx, m, a, "the agent was stopped") })
 		case "pause":
-			err = m.Pause(ctx, a)
+			err = s.stopOnPurpose(a.Ref(), func() error { return m.Pause(ctx, a) })
 		case "resume":
-			err = m.Resume(ctx, a)
+			if err = m.Resume(ctx, a); err == nil {
+				s.agentBack(a.Ref())
+			}
 		case "session":
 			err = m.PrepareShell(ctx, a)
 		}
 		if err != nil {
 			return err
 		}
-		s.refreshAgents(ctx)
+		s.refreshAgentsBehind()
 		info, err := s.describe(ctx, a)
 		if err != nil {
 			return err
@@ -1369,7 +1527,7 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	stat, _ := strconv.ParseBool(r.URL.Query().Get("stat"))
-	text, err := s.manager(nil).Diff(a, stat)
+	text, err := s.manager(nil).Diff(a, prBase(s.cachedPR(r.Context(), a)), stat)
 	if err != nil {
 		return err
 	}
@@ -1446,6 +1604,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 		}
 		s.countFeature(api.FeatureAgentRestore)
 		m.EnsureImageCache(ctx, a)
+		m.EnsureDockerOnDemand(ctx, a)
 		m.EnsurePackageCache(ctx, a)
 		m.EnsureBrowser(ctx, a)
 		s.refreshAgents(ctx)
@@ -1536,7 +1695,7 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 	for _, c := range u.Categories {
 		cat := api.DiskUsageCategory{Kind: c.Kind, Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
 		for _, it := range c.Items {
-			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes})
+			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes, Kind: it.Kind, Name: it.Name})
 		}
 		out.Categories = append(out.Categories, cat)
 	}
@@ -1544,11 +1703,49 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 }
 
 func (s *Server) diskUsage(w http.ResponseWriter, r *http.Request) error {
-	usage, err := s.manager(nil).DiskUsage(r.Context())
+	usage, err := s.manager(nil).DiskUsage(r.Context(), s.cachesDiskUsage())
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, toAPIDiskUsage(usage))
+	out := toAPIDiskUsage(usage)
+	if t := s.trim.Last(); !t.At.IsZero() && hostos.InVM() {
+		out.Trim = &api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// cachesDiskUsage is what the caches agents share hold, from the sizes their
+// own trims keep: the package managers' by tool, and the Docker image cache.
+func (s *Server) cachesDiskUsage() agent.DiskUsageCategory {
+	caches := agent.DiskUsageCategory{Kind: api.DiskCaches, Label: "Shared caches"}
+	if s.packageCache != nil {
+		for _, p := range s.packageCache.Breakdown() {
+			name := p.Dir
+			if name == "" {
+				name = "other"
+			}
+			if p.Bytes > 0 {
+				caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Package cache: " + name, Bytes: p.Bytes, Kind: api.DiskItemPackageCache, Name: name})
+			}
+		}
+	}
+	if s.imageCache != nil {
+		if n := s.imageCache.Size(); n > 0 {
+			caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Docker images", Bytes: n, Kind: api.DiskItemDockerImages})
+		}
+	}
+	return caches
+}
+
+// trimDisk is POST /v1/usage/disk/trim: trims the VM's file systems now, and
+// has the package caches trimmed to their cap, for "Give space back now".
+func (s *Server) trimDisk(w http.ResponseWriter, r *http.Request) error {
+	if !hostos.InVM() {
+		return errors.New("only AgentBox's VM trims its disks: a host install's are its owner's")
+	}
+	s.kickPackageCache()
+	t := s.trim.trimOnce(context.WithoutCancel(r.Context()))
+	return writeJSON(w, http.StatusOK, api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err})
 }
 
 func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
@@ -1654,23 +1851,34 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := s.gitHub(token).Login(r.Context())
+	login, err := s.storeGitHubToken(r.Context(), req.Account, token)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusOK, map[string]string{"user": login})
+}
+
+// storeGitHubToken asks GitHub whose token it is and stores it under the
+// account, the first account becoming the default. It is how a pasted token
+// and a sign-in through gh (githublogin.go) both end.
+func (s *Server) storeGitHubToken(ctx context.Context, account, token string) (string, error) {
+	login, err := s.gitHub(token).Login(github.WithCaller(ctx, "accounts"))
+	if err != nil {
+		return "", err
+	}
 	creds := s.manager(nil).Creds
-	if err := creds.SaveGitHubToken(req.Account, token); err != nil {
-		return err
+	if err := creds.SaveGitHubToken(account, token); err != nil {
+		return "", err
 	}
 	// Remember who the token belongs to: the app says which GitHub user a
 	// project reads pull requests as, and asking GitHub on every poll to find
 	// out would cost a call per account.
-	if err := creds.SaveGitHubLogin(req.Account, login); err != nil {
-		return err
+	if err := creds.SaveGitHubLogin(account, login); err != nil {
+		return "", err
 	}
 	s.pulls.reset()
-	s.reconfigureLeads(r.Context())
-	return writeJSON(w, http.StatusOK, map[string]string{"user": login})
+	s.reconfigureLeads(ctx)
+	return login, nil
 }
 
 // reconfigureLeads writes every project's chat again, for a change to the
@@ -1783,13 +1991,19 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		GitHub:         len(gh) > 0,
 		GitHubAccounts: gh,
 	}
-	for tool, list := range map[string]*[]api.ToolAccount{credentials.ToolCodex: &status.CodexAccounts, credentials.ToolOpenCode: &status.OpenCodeAccounts, credentials.ToolCursor: &status.CursorAccounts} {
+	for tool, list := range map[string]*[]api.ToolAccount{credentials.ToolCodex: &status.CodexAccounts, credentials.ToolOpenCode: &status.OpenCodeAccounts, credentials.ToolCursor: &status.CursorAccounts, credentials.ToolGemini: &status.GeminiAccounts, credentials.ToolCopilot: &status.CopilotAccounts} {
 		if *list, err = toolAccounts(creds, tool); err != nil {
 			return err
 		}
 	}
 	if login, ok := creds.CursorLogin(""); ok {
 		status.Cursor, status.CursorEmail = true, login.Email
+	}
+	if login, ok := creds.GeminiLogin(""); ok {
+		status.Gemini, status.GeminiEmail = true, login.Email
+	}
+	if login, ok := creds.CopilotLogin(""); ok {
+		status.Copilot, status.CopilotUser = true, login.User
 	}
 	s.refreshClaudeTokens(creds)
 	if status.GitHub {
@@ -1799,7 +2013,7 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		if token, err := creds.GitHubToken(""); err == nil && token != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if login, err := s.gitHub(token).Login(ctx); err != nil {
+			if login, err := s.gitHub(token).Login(github.WithCaller(ctx, "accounts")); err != nil {
 				status.GitHubError = err.Error()
 			} else {
 				status.GitHubUser = login

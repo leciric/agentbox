@@ -78,9 +78,13 @@ flowchart LR
   chat as a bug report, with its accessibility tree.
 - [A hub](hub.md) — `npx agentbox-hub`, its setup link, connecting the app and your environments
   to it, and approving and revoking devices.
+- [Using AgentBox from another app](other-apps.md) — Claude, ChatGPT, Poke and other remote-MCP
+  clients seeing your projects and talking to their leads, through your hub
 - [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
+- [Project folders](project-folders.md) — grouping projects in the sidebar: making, colouring and
+  describing a folder, dragging projects in and out, folding it, and deleting it.
 - [Project notes and the brief](notes-and-brief.md) — the per-project notes file, and the brief
   each AI tool is given about its machine.
 - [The base image](base-image.md) — what's provisioned into the image every agent's container

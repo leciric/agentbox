@@ -41,7 +41,7 @@ export function PanelBrowser({ agent }: { agent: T.Agent }) {
             <RotateCw className="size-3.5" />
           </button>
         </Tip>
-        <label className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md border border-line bg-well px-2 text-[12px]">
+        <label className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md border border-line bg-well px-2 text-caption">
           <span className="shrink-0 text-faint">{t('panel.browser.port')}</span>
           <input
             value={port || current}
@@ -51,7 +51,7 @@ export function PanelBrowser({ agent }: { agent: T.Agent }) {
             className="w-14 shrink-0 bg-transparent font-mono text-primary outline-none placeholder:text-faint"
             data-panel-browser-port
           />
-          <span className="min-w-0 truncate font-mono text-[11px] text-faint" title={url}>
+          <span className="min-w-0 truncate font-mono text-caption text-faint" title={url}>
             {url}
           </span>
         </label>
@@ -72,7 +72,7 @@ export function PanelBrowser({ agent }: { agent: T.Agent }) {
                 setShown(p.port);
               }}
               title={p.title || p.url}
-              className={cn('flex max-w-48 shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px]', p.port === current ? 'bg-surface-raised text-primary' : 'text-subtle hover:bg-surface hover:text-primary')}
+              className={cn('flex max-w-48 shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-caption', p.port === current ? 'bg-surface-raised text-primary' : 'text-subtle hover:bg-surface hover:text-primary')}
             >
               <Globe className="size-3 shrink-0" />
               <span className="truncate">{p.title || `:${p.port}`}</span>
@@ -93,7 +93,7 @@ export function PanelBrowser({ agent }: { agent: T.Agent }) {
             data-panel-browser-frame={url}
           />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-sunken px-6 text-center text-[12.5px] text-subtle">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-sunken px-6 text-center text-ui text-subtle">
             <Globe className="size-7 text-faint" />
             {!addr && !preview.isPending ? t('panel.browser.proxyOff') : t('panel.browser.none')}
           </div>

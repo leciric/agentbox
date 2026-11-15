@@ -5,18 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/iossim"
+	"agentbox/internal/state"
 )
 
 // fakeMacSimulators is the Mac's simulator helper with xcrun faked: two
@@ -174,5 +179,144 @@ func TestIOSOnAMac(t *testing.T) {
 
 	if _, err := d.client.CloseIOS(ctx, ref, api.IOSDeviceRequest{}); err != nil || !sims.ranLike("xcrun simctl shutdown 0A1B2C3D-0000-4000-8000-00000000000A") {
 		t.Errorf("close: %v", err)
+	}
+}
+
+// A port of the Mac is one agent's while it runs: another agent is refused
+// it, and takes it once that agent has stopped.
+func TestIOSForwardKeepsARunningAgentsPort(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	running := addTestAgent(t, d) // its instance runs
+	repo := d.fixtureRepo(t, "hello-stack")
+	stopped := addAgent(t, d, repo, "hello-stack", "agent-02", "")
+	withMacSimulators(t, d, d.paths.Worktrees())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Cleanup(func() {
+		_, _ = d.client.ForwardIOS(ctx, running.Ref(), api.IOSForwardRequest{Stop: true})
+		_, _ = d.client.ForwardIOS(ctx, stopped.Ref(), api.IOSForwardRequest{Stop: true})
+	})
+
+	forward := func(a state.Agent) ([]api.IOSForward, error) {
+		return d.client.ForwardIOS(ctx, a.Ref(), api.IOSForwardRequest{Ports: []int{port}})
+	}
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", []int{port, 80}); err == nil {
+		t.Error("the project allowed port 80")
+	}
+	p, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", []int{port, port})
+	if err != nil || len(p.IOSForwardPorts) != 1 || p.IOSForwardPorts[0] != port {
+		t.Fatalf("the project's ports = %v, %v", p.IOSForwardPorts, err)
+	}
+	if _, err := forward(stopped); err != nil {
+		t.Fatal(err)
+	}
+	list, err := forward(running)
+	if err != nil || len(list) != 1 || list[0].Agent != running.Ref() {
+		t.Fatalf("the running agent didn't take the stopped one's port: %+v, %v", list, err)
+	}
+	if _, err := forward(stopped); err == nil || !strings.Contains(err.Error(), running.Ref()+"'s, which is running") {
+		t.Errorf("a running agent's port was taken: %v", err)
+	}
+	// Taken off the list, the port is given back at once.
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := d.client.ForwardIOS(ctx, running.Ref(), api.IOSForwardRequest{}); err != nil || len(list) != 0 {
+		t.Errorf("after the project took the port back, the forwards = %+v, %v", list, err)
+	}
+}
+
+// A port the project doesn't allow yet is the user's to allow: the forward
+// waits on a request in the app, and goes ahead once allowed, the port the
+// project's from then on; refused, it fails.
+func TestIOSForwardAsksTheUser(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	withMacSimulators(t, d, d.paths.Worktrees())
+	ports := []int{}
+	for range 2 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
+		_ = ln.Close()
+	}
+	t.Cleanup(func() { _, _ = d.client.ForwardIOS(ctx, a.Ref(), api.IOSForwardRequest{Stop: true}) })
+
+	answer := func(port int, req api.AnswerCredentialRequest) error {
+		done := make(chan error, 1)
+		go func() {
+			_, err := d.client.ForwardIOS(ctx, a.Ref(), api.IOSForwardRequest{Ports: []int{port}})
+			done <- err
+		}()
+		var q api.Question
+		waitFor(t, "the request for the port", func() bool {
+			qs, _ := d.client.Questions(ctx, "hello-stack", false)
+			for _, x := range qs {
+				if x.Kind == api.CredentialIOSPorts && x.Status == "escalated" && len(x.Ports) == 1 && x.Ports[0] == port {
+					q = x
+					return true
+				}
+			}
+			return false
+		})
+		if !strings.Contains(q.Question, strconv.Itoa(port)) {
+			t.Errorf("the request says %q", q.Question)
+		}
+		if _, err := d.client.AnswerCredential(ctx, "hello-stack", q.ID, req); err != nil {
+			t.Fatal(err)
+		}
+		return <-done
+	}
+	if err := answer(ports[0], api.AnswerCredentialRequest{Allow: true}); err != nil {
+		t.Fatalf("the allowed forward failed: %v", err)
+	}
+	projects, err := d.client.Projects(ctx)
+	if err != nil || len(projects) != 1 || !slices.Equal(projects[0].IOSForwardPorts, ports[:1]) {
+		t.Fatalf("after allowing, the project's ports = %+v, %v", projects, err)
+	}
+	if err := answer(ports[1], api.AnswerCredentialRequest{Refuse: true}); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Errorf("the refused forward = %v", err)
+	}
+}
+
+// A helper that doesn't answer may still be forwarding the ports taken off
+// the list, so saving it fails; with no helper at all there is nothing to stop.
+func TestIOSPortsFailWhenTheHelperDoesntAnswer(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+
+	d.srv.iosSim.client = iossim.NewClient(filepath.Join(t.TempDir(), "ios-helper.json"))
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err != nil {
+		t.Errorf("with no helper, saving the ports = %v", err)
+	}
+
+	block := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(block) })
+	u, _ := url.Parse(ts.URL)
+	file := filepath.Join(t.TempDir(), "ios-helper.json")
+	data := fmt.Sprintf(`{"port":%s,"token":"token","pid":1,"version":"test","host":%q}`, u.Port(), u.Hostname())
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.iosSim.client = &iossim.Client{File: file, HTTP: &http.Client{Timeout: 100 * time.Millisecond}}
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err == nil {
+		t.Error("saving the ports succeeded though the helper didn't answer")
 	}
 }

@@ -148,7 +148,7 @@ test('place describes where a project landed, in its section or in none', () => 
   const lists = buildLists([project('a', 's1'), project('b', 's1')], [section('s1', 'Work')]);
   assert.equal(place(lists, 'b'), 'b is now 2 of 2 in Work');
   const loose = buildLists([project('c')], []);
-  assert.equal(place(loose, 'c'), 'c is now 1 of 1 in no section');
+  assert.equal(place(loose, 'c'), 'c is now 1 of 1 in no folder');
 });
 
 test('place is empty for a project that is not in any list', () => {
@@ -321,4 +321,13 @@ test('stepTarget steps over the projects shown, and drop lands it among them all
   // The projects in no section have no order of their own in v2: down goes nowhere.
   assert.equal(stepTarget(shown, 'y', 1), null);
   assert.equal(stepTarget([{ section: null, projects: [project('x')] }], 'x', -1), null);
+});
+
+test('stepTarget with a manual order steps among the projects in no section', () => {
+  const mk = (n: string) => ({ name: n }) as T.Project;
+  const shown: SidebarList[] = [{ section: null, projects: [mk('a'), mk('b'), mk('c')] }];
+  assert.deepEqual(stepTarget(shown, 'b', 1, true), { kind: 'project', name: 'c', edge: 'after' });
+  assert.deepEqual(stepTarget(shown, 'b', -1, true), { kind: 'project', name: 'a', edge: 'before' });
+  assert.equal(stepTarget(shown, 'c', 1, true), null);
+  assert.equal(stepTarget(shown, 'b', 1), null);
 });

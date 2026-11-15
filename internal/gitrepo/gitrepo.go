@@ -358,6 +358,18 @@ func (r Repo) Pushed(commit string) bool {
 	return err == nil && out != ""
 }
 
+// OnABranch reports whether commit is in some branch, here or on a remote:
+// what a removed worktree's detached HEAD would otherwise take with it.
+func (r Repo) OnABranch(commit string) bool {
+	out, err := run(r.Root, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes")
+	return err == nil && out != ""
+}
+
+// Head is the commit worktree's HEAD is at.
+func Head(worktree string) (string, error) {
+	return run(worktree, "rev-parse", "HEAD")
+}
+
 // EnvFiles lists gitignored env files in the main checkout, like .env or
 // apps/api/.env.local. New worktrees don't have them, so agents need copies.
 func (r Repo) EnvFiles() ([]string, error) {
@@ -415,20 +427,72 @@ func Dirty(worktree string) (bool, error) {
 	return out != "", err
 }
 
-// DiffBase is the commit an agent's changes are measured from: where its
-// worktree's HEAD left baseRef, the project's base branch as it is now, so
-// that main's own changes, taken in by a merge or a rebase, are not the
-// agent's. It falls back to fallback (the commit the agent started from) when
-// baseRef is "HEAD" or empty, is gone, or shares no history with the worktree.
-func DiffBase(worktree, baseRef, fallback string) string {
-	if baseRef == "" || baseRef == "HEAD" {
+// DiffBase is the commit an agent's changes are measured from, as GitHub
+// measures a pull request's: where its worktree's HEAD left the branch its
+// work goes into, as that branch is now, so that what it took in from there
+// by a merge or a rebase is not the agent's.
+//
+// With onto, the base branch of the agent's pull request, that is the only
+// branch. Without, it is baseRef, the branch the agent was made from, and the
+// project's base branch (origin's default, else main or master): an agent
+// made from "HEAD" was made from whatever the main checkout had out, often
+// far behind main, and measured from there it owned every pull request merged
+// since. Each branch counts as every copy of it, local and on every remote, so
+// a local main behind origin's doesn't hand the agent what origin already
+// has; the base is the newest commit of theirs HEAD has. Without onto,
+// fallback (the commit the agent started from) is the base instead when it is
+// newer than that and HEAD still has it: an agent made from a branch nobody
+// pushed hasn't changed what it started from. fallback is also the base when
+// no branch shares history with HEAD.
+func DiffBase(worktree, baseRef, fallback string, onto ...string) string {
+	branches := onto
+	if len(onto) == 0 {
+		if baseRef != "" && baseRef != "HEAD" {
+			branches = append(branches, baseRef)
+		}
+		if def, err := run(worktree, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+			branches = append(branches, strings.TrimPrefix(def, "refs/remotes/origin/"))
+		} else {
+			branches = append(branches, "main", "master")
+		}
+	}
+	var patterns []string
+	for _, b := range branches {
+		if b != "" && !strings.HasPrefix(b, "-") {
+			patterns = append(patterns, "refs/heads/"+b, "refs/remotes/*/"+b)
+		}
+	}
+	var base string
+	if len(patterns) > 0 {
+		out, _ := run(worktree, append([]string{"for-each-ref", "--format=%(objectname)"}, patterns...)...)
+		if refs := strings.Fields(out); len(refs) > 0 {
+			// merge-base of HEAD and several commits is HEAD's best common
+			// ancestor with a merge of them all: the newest of theirs it has.
+			base, _ = run(worktree, append([]string{"merge-base", "HEAD"}, refs...)...)
+		}
+	}
+	if base == "" {
 		return fallback
 	}
-	base, err := run(worktree, "merge-base", "HEAD", "refs/heads/"+baseRef)
-	if err != nil || base == "" {
+	if wt := (Repo{Root: worktree}); len(onto) == 0 && fallback != "" && fallback != base && wt.IsAncestor(base, fallback) && wt.IsAncestor(fallback, "HEAD") {
 		return fallback
 	}
 	return base
+}
+
+// MeasureWorktree is DiffWorktree's --stat against base and Dirty, for a
+// measurement in the background (a stopped agent's changes): every git it
+// runs is at the lowest CPU and I/O priority.
+func MeasureWorktree(worktree, base string) (stat string, dirty bool, err error) {
+	tree, err := worktreeTreeWith(worktree, lowOutput)
+	if err != nil {
+		return "", false, err
+	}
+	if stat, err = lowOutput(worktree, nil, "diff", "--stat", base, tree); err != nil {
+		return "", false, err
+	}
+	status, err := lowOutput(worktree, nil, "status", "--porcelain")
+	return stat, strings.TrimSpace(status) != "", err
 }
 
 // DiffWorktree diffs base against the worktree's current files, including
@@ -501,12 +565,27 @@ func run(dir string, args ...string) (string, error) {
 }
 
 func output(dir string, env []string, args ...string) (out string, err error) {
+	return outputAt(false, dir, env, args...)
+}
+
+// lowOutput is output for git run in the background: at the lowest CPU and
+// I/O priority, so a sweep over many worktrees waits for the disk behind
+// what anyone is waiting on.
+func lowOutput(dir string, env []string, args ...string) (string, error) {
+	return outputAt(true, dir, env, args...)
+}
+
+func outputAt(low bool, dir string, env []string, args ...string) (out string, err error) {
 	span := trace.Begin(gitSpan(args), "dir", dir)
 	defer func() { span.End(err) }()
 	if ferr := faultAt(dir); ferr != nil {
 		return "", &gitError{args: args, err: ferr}
 	}
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	name, argv := "git", append([]string{"-C", dir}, args...)
+	if low {
+		name, argv = lowPriority(name, argv)
+	}
+	cmd := exec.Command(name, argv...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}

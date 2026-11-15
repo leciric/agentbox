@@ -299,8 +299,9 @@ async function shots_() {
     const labelled = await page.locator('[data-media-agent]').count();
     check('media is labelled with the agent it came from', labelled >= 3, `${labelled} labelled`);
 
-    // The filter chip, not the agent in the sidebar, which would navigate away.
-    await page.locator('[data-media-filters]').getByRole('button', { name: /agent-01/ }).first().click({ timeout: 8000 });
+    // The Media view's agent filter, not the agent in the sidebar, which would navigate away.
+    await page.locator('[data-media-agents]').click({ timeout: 8000 });
+    await page.getByRole('menuitem', { name: /agent-01/ }).first().click({ timeout: 8000 });
     await sleep(1800);
     await shot('03-media-filtered');
     const visible = await page.locator('[data-media-agent="agent-01"]').count();

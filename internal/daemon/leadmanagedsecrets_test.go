@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 // leadNotices records what a project's lead is told of credential requests,
@@ -25,7 +26,7 @@ type toldLead struct {
 
 func recordLeadNotices(d testDaemon) *leadNotices {
 	n := &leadNotices{}
-	d.srv.credentialTell = func(_ context.Context, _, notice string, act bool) {
+	d.srv.credentialTell = func(_ context.Context, _ state.Agent, notice string, act bool) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		n.told = append(n.told, toldLead{notice, act})

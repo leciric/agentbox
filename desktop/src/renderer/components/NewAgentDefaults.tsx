@@ -9,11 +9,13 @@ import { useT } from '../lib/i18n';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes, parseBytes, timeAgo } from '../lib/utils';
 import { JobProgress } from './JobProgress';
+import { aiLabel } from './state';
 import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Field, Input } from './ui/input';
 import { Select, SelectOption, selectTrigger } from './ui/select';
+import { openSettingsSection } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
@@ -144,7 +146,7 @@ export function DefaultModel({ role }: { role: Role }) {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
                   placeholder={t('common.search')}
-                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                  className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
@@ -152,7 +154,7 @@ export function DefaultModel({ role }: { role: Role }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{empty.name}</span>
-                  <span className="text-[11px] text-subtle">{empty.description}</span>
+                  <span className="text-caption text-subtle">{empty.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -165,9 +167,9 @@ export function DefaultModel({ role }: { role: Role }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
+                    <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -186,17 +188,17 @@ export function DefaultModel({ role }: { role: Role }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
-                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                      {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                     </span>
                   </MenuItem>
                 ))}
               </div>
             ))}
             {settings.data && !settings.data.claudeMenuKnown && (
-              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
+              <div className="px-2.5 py-3 text-caption leading-relaxed text-subtle">
                 {t('defaults.newAgent.onlyOwnPicks')}
               </div>
             )}
@@ -255,55 +257,92 @@ export function DefaultContextWindow({ role }: { role: Role }) {
   );
 }
 
-// NewAgentEffort chooses how hard new Claude Code agents think, beside the
-// model above and for the same reason: it says what you want an agent to cost
-// and be capable of, which doesn't change from one repository to the next.
-// Either can be overridden for one agent as it is created.
+// The remembered-menu settings: how hard a role's Claude Code chats think, and
+// the permission mode the lead's chat starts in. Effort says what you want a
+// chat to cost and be capable of, which doesn't change from one repository to
+// the next; the mode is what you'd otherwise pick in every new lead session.
+// The agents' effort can be overridden for one agent as it is created; the
+// lead's two give way to a choice in the project chat's own menu, and reach
+// chats that already exist the next time they start.
 //
-// A plain select, not the model's menu: the effort levels are a short
-// ungrouped list with nothing to describe or search. They are still only the
-// ones an adapter advertised (rememberChoices) — the levels differ per model,
-// and some models offer none at all, so an invented one would set nothing.
-export function NewAgentEffort() {
+// A plain select, not the model's menu: these are short ungrouped lists with
+// nothing to describe or search. They are still only the ones an adapter
+// advertised (rememberChoices) — the levels differ per model, and some models
+// offer none at all, so an invented one would set nothing.
+const choiceSettings = {
+  agentEffort: {
+    label: 'defaults.newAgent.effortLabel',
+    description: 'defaults.newAgent.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.effortDetails',
+    empty: 'defaults.newAgent.effortDefault',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultClaudeEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultClaudeEffort: v }),
+  },
+  leadEffort: {
+    label: 'defaults.newAgent.lead.effortLabel',
+    description: 'defaults.newAgent.lead.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.lead.effortDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultLeadEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadEffort: v }),
+  },
+  leadMode: {
+    label: 'defaults.newAgent.lead.modeLabel',
+    description: 'defaults.newAgent.lead.modeDescription',
+    later: 'defaults.newAgent.lead.modesLater',
+    details: 'defaults.newAgent.lead.modeDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeModeChoices,
+    value: (s: T.Settings) => s.defaultLeadMode,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadMode: v }),
+  },
+} as const;
+
+export function DefaultChoice({ setting }: { setting: keyof typeof choiceSettings }) {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
+  const s = choiceSettings[setting];
   const save = useMutation({
-    mutationFn: (defaultClaudeEffort: string) => api.updateSettings({ defaultClaudeEffort }),
+    mutationFn: (value: string) => api.updateSettings(s.save(value)),
     onSuccess: (next) => queryClient.setQueryData(['settings'], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const choices = settings.data?.claudeEffortChoices ?? [];
-  const value = settings.data?.defaultClaudeEffort ?? '';
+  const choices = (settings.data && s.choices(settings.data)) ?? [];
+  const value = (settings.data && s.value(settings.data)) ?? '';
 
   return (
     <SettingRow
-      label={t('defaults.newAgent.effortLabel')}
+      label={t(s.label)}
       description={
         <>
-          {t('defaults.newAgent.effortDescription')}
-          {settings.data && !settings.data.claudeMenuKnown && ` ${t('defaults.newAgent.effortLevelsLater')}`}
+          {t(s.description)}
+          {settings.data && choices.length === 0 && ` ${t(s.later)}`}
         </>
       }
-      details={t('defaults.newAgent.effortDetails')}
+      details={t(s.details)}
 
       control={
         <Select
-          data-default-effort
-          aria-label={t('defaults.newAgent.effortLabel')}
+          data-default-choice={setting}
+          aria-label={t(s.label)}
           disabled={save.isPending || settings.data === undefined}
           value={value}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="">{t('defaults.newAgent.effortDefault')}</SelectOption>
+          <SelectOption value="">{t(s.empty)}</SelectOption>
           {choices.map((choice) => (
             <SelectOption key={choice.value} value={choice.value}>
               {choiceName(choice) || choice.value}
             </SelectOption>
           ))}
-          {/* A level this account has stopped offering keeps its place, so the
-              control never shows something else as though you had picked it. */}
+          {/* A choice this account has stopped offering keeps its place, so
+              the control never shows something else as though you had picked it. */}
           {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{t('defaults.newAgent.unavailable', { value })}</SelectOption>}
         </Select>
       }
@@ -373,7 +412,97 @@ export function CursorDefaults({ part }: { part: 'model' | 'effort' }) {
         )
       }
     >
-      {part === 'model' && note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+      {part === 'model' && note && (
+        <SettingNote tone={ready ? 'muted' : 'warning'}>
+          {note}
+          {!ready && <AccountsLink />}
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+// GeminiDefaults is the model new Gemini CLI agents start on: one of Gemini
+// CLI's own, as the daemon remembered them; "" is Gemini CLI's Auto. Gemini CLI
+// has no effort setting.
+export function GeminiDefaults() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.geminiModelChoices ?? [];
+  const model = settings.data?.defaultGeminiModel ?? '';
+  const ready = settings.data?.geminiReady ?? false;
+  const disabled = save.isPending || settings.data === undefined || !ready;
+  const note = settings.data === undefined ? null : !ready ? t('defaults.gemini.signIn') : choices.length === 0 ? t('defaults.gemini.listLater') : null;
+
+  return (
+    <SettingRow
+      label={t('defaults.gemini.modelLabel')}
+      description={t('defaults.gemini.modelDescription')}
+      control={
+        <Select data-default-gemini-model aria-label={t('defaults.gemini.modelLabel')} disabled={disabled} value={model} onChange={(next) => save.mutate({ defaultGeminiModel: next })}>
+          <SelectOption value="">{t('defaults.gemini.modelAuto')}</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {model !== '' && !choices.some((c) => c.value === model) && <SelectOption value={model}>{t('defaults.newAgent.unavailable', { value: model })}</SelectOption>}
+        </Select>
+      }
+    >
+      {note && (
+        <SettingNote tone={ready ? 'muted' : 'warning'}>
+          {note}
+          {!ready && <AccountsLink />}
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+// CopilotDefaults is the model new GitHub Copilot CLI agents start on: one of
+// Copilot's own, as the daemon remembered them; "" is Copilot's own default.
+// Its effort is each agent's chat's.
+export function CopilotDefaults() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.copilotModelChoices ?? [];
+  const model = settings.data?.defaultCopilotModel ?? '';
+  const ready = settings.data?.copilotReady ?? false;
+  const disabled = save.isPending || settings.data === undefined || !ready;
+  const note = settings.data === undefined ? null : !ready ? t('defaults.copilot.signIn') : choices.length === 0 ? t('defaults.copilot.listLater') : null;
+
+  return (
+    <SettingRow
+      label={t('defaults.copilot.modelLabel')}
+      description={t('defaults.copilot.modelDescription')}
+      control={
+        <Select data-default-copilot-model aria-label={t('defaults.copilot.modelLabel')} disabled={disabled} value={model} onChange={(next) => save.mutate({ defaultCopilotModel: next })}>
+          <SelectOption value="">{t('defaults.copilot.modelAuto')}</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {model !== '' && !choices.some((c) => c.value === model) && <SelectOption value={model}>{t('defaults.newAgent.unavailable', { value: model })}</SelectOption>}
+        </Select>
+      }
+    >
+      {note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
     </SettingRow>
   );
 }
@@ -473,8 +602,8 @@ export function ResumeAfterLimit() {
         <Switch
           data-resume-after-limit
           aria-label={t('defaults.newAgent.resumeLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.resumeAfterLimit ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.resumeAfterLimit ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -505,8 +634,8 @@ export function ContinueAfterRestart() {
         <Switch
           data-continue-after-restart
           aria-label={t('defaults.newAgent.continueLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.continueAfterRestart ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.continueAfterRestart ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -559,7 +688,7 @@ export function LeadSleep() {
             max={1440}
             aria-label={t('defaults.newAgent.sleepMinutes')}
             data-lead-sleep-minutes
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             disabled={save.isPending || settings.data === undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -569,7 +698,7 @@ export function LeadSleep() {
               if (n !== minutes) save.mutate({ leadSleepMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+          <span className="text-ui text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>
@@ -641,6 +770,59 @@ export function DiskFloor() {
   );
 }
 
+// AgentMemoryShare is how much of AgentBox's VM one agent's machine may use
+// (agent.MemoryLimit): a share of the VM's memory cap, half by default. A
+// process that takes the machine past it is killed there and the agent told,
+// so one runaway build can't take the daemon, Incus and the other agents
+// with it. Running agents take a new share at once.
+export function AgentMemoryShare() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const s = settings.data;
+  const share = s?.agentMemoryShare ?? 50;
+  const least = s?.minAgentMemoryShare ?? 10;
+  const most = s?.maxAgentMemoryShare ?? 90;
+  const fallback = s?.defaultAgentMemoryShare ?? 50;
+  const disabled = save.isPending || s === undefined;
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.agentMemoryLabel')}
+      description={t('defaults.newAgent.agentMemoryDescription')}
+      details={t('defaults.newAgent.agentMemoryDetails')}
+    >
+      <div className="grid max-w-md grid-cols-2 gap-3" data-agent-memory-share>
+        <ResourceField
+          id="agent-memory-share"
+          label={t('defaults.newAgent.agentMemoryShare')}
+          placeholder={`${fallback}%`}
+          hint={
+            s?.vmMemory
+              ? t('defaults.newAgent.agentMemoryHint', { size: humanBytes(s.agentMemoryLimit), vm: humanBytes(s.vmMemory), fallback })
+              : t('defaults.newAgent.agentMemoryHintUnknown', { fallback })
+          }
+          value={`${share}%`}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ agentMemoryShare: 0 });
+            const n = Number(value.replace('%', '').trim());
+            if (!Number.isInteger(n) || n < least || n > most) {
+              toast.error(t('defaults.newAgent.agentMemoryLike', { min: least, max: most }));
+              return;
+            }
+            save.mutate({ agentMemoryShare: n });
+          }}
+        />
+      </div>
+    </SettingRow>
+  );
+}
+
 // CacheHolds is what a shared cache holds and the button that empties it,
 // laid out like the "Hold at most" field beside it: the size where its label
 // is, the button level with its box.
@@ -658,7 +840,7 @@ function CacheHolds({
   const t = useT();
   return (
     <div className="grid content-start gap-1.5">
-      <span className="text-[13px] font-medium text-tertiary" {...data}>
+      <span className="text-ui font-medium text-tertiary" {...data}>
         {t('defaults.newAgent.holds', { size: humanBytes(held) })}
       </span>
       <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
@@ -954,12 +1136,12 @@ export function RemoveStopped() {
         </div>
         <div className="grid min-w-0 gap-2 rounded-lg border border-line bg-surface px-3 py-2.5" data-remove-stopped-preview aria-busy={machines.isFetching || undefined}>
           {machines.isPending ? (
-            <p className="text-[12px] text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
+            <p className="text-caption text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
           ) : machines.isError ? (
-            <p className="text-[12px] text-rose-300">{errorMessage(machines.error)}</p>
+            <p className="text-caption text-rose-300">{errorMessage(machines.error)}</p>
           ) : (
             <>
-              <p className="text-[12px] text-secondary" data-remove-stopped-summary>
+              <p className="text-caption text-secondary" data-remove-stopped-summary>
                 {removable.length > 0
                   ? t('defaults.newAgent.removeStoppedWould', { count: removable.length, size: humanBytes(bytes) })
                   : t('defaults.newAgent.removeStoppedNone')}
@@ -967,18 +1149,18 @@ export function RemoveStopped() {
               {removable.length > 0 && (
                 <ul className="grid min-w-0 gap-1">
                   {removable.map((m) => (
-                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-[12px]" data-remove-stopped-agent={m.ref}>
+                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-caption" data-remove-stopped-agent={m.ref}>
                       <span className="min-w-0 flex-1 truncate text-primary" title={m.branch}>
                         {m.title || m.name}
                         <span className="text-faint"> · {m.project}</span>
                       </span>
                       <span className="shrink-0 tabular-nums text-subtle">{t('defaults.newAgent.removeStoppedSince', { ago: timeAgo(m.stoppedSince) })}</span>
-                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
+                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-caption tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
                     </li>
                   ))}
                 </ul>
               )}
-              {kept > 0 && <p className="text-[11.5px] text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
+              {kept > 0 && <p className="text-caption text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
               {removable.length > 0 && (
                 <div>
                   <Button size="sm" variant="secondary" data-remove-stopped-now disabled={remove.isPending} onClick={() => remove.mutate(removable.map((m) => m.ref))}>
@@ -1018,8 +1200,8 @@ export function DockerPruneOnStop() {
         <Switch
           data-docker-prune-on-stop
           aria-label={t('defaults.newAgent.pruneLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.dockerPruneOnStop ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.dockerPruneOnStop ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1071,7 +1253,7 @@ export function LeadRecheck() {
             max={1440}
             aria-label={t('defaults.newAgent.recheckMinutes')}
             data-lead-recheck-minutes
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             disabled={save.isPending || settings.data === undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -1081,7 +1263,7 @@ export function LeadRecheck() {
               if (n !== minutes) save.mutate({ leadRecheckMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+          <span className="text-ui text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>
@@ -1156,6 +1338,48 @@ const mediaRetentions = [
 // outlive it. It belongs to the installation rather than to a project: it is
 // about this machine's disk, and every project's removed agents fill it the
 // same way — more so now that finished agents are removed on their own.
+// DefaultTool is the installation's AI tool: what the Home chat and each
+// project's chat start on before they choose, and the New agent dialog opens
+// on in a project that names none. The first run chose it; it is the same
+// setting as the dialog's last pick (Settings.lastAgentPick), so picking a
+// tool there moves it too. A chat that has started keeps its tool.
+export function DefaultTool() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (ai: string) => api.updateSettings({ lastAgentPick: { ai, model: '', effort: '' } }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = settings.data?.lastAgentPick.ai;
+
+  return (
+    <SettingRow
+      label={t('defaults.tool.label')}
+      description={t('defaults.tool.description')}
+      details={t('defaults.tool.details')}
+      control={
+        <Select
+          data-default-tool
+          aria-label={t('defaults.tool.label')}
+          disabled={save.isPending || settings.data === undefined}
+          value={current && defaultTools.includes(current) ? current : 'claude'}
+          onChange={(next) => save.mutate(next)}
+        >
+          {defaultTools.map((ai) => (
+            <SelectOption key={ai} value={ai}>
+              {aiLabel(ai)}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot'];
+
 export function MediaRetention() {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
@@ -1232,5 +1456,19 @@ export function OpenCodeInImage() {
       )}
       {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
     </SettingRow>
+  );
+}
+
+// AccountsLink takes a tool's "sign in under Accounts first" note to Accounts,
+// rather than leaving the reader to find the section.
+function AccountsLink() {
+  const t = useT();
+  return (
+    <>
+      {' '}
+      <button type="button" className="font-medium text-brand-300 underline-offset-2 hover:underline" onClick={() => openSettingsSection('accounts')} data-defaults-accounts-link>
+        {t('defaults.openAccounts')}
+      </button>
+    </>
   );
 }

@@ -15,6 +15,7 @@ import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
+import { SESSION_COLORS, sessionsSettled } from '../lib/sessions';
 
 export const PROJECT = 'agentbox';
 
@@ -114,6 +115,8 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
     codexAccount: '',
     openCodeAccounts: {},
     cursorAccount: '',
+    geminiAccount: '',
+    copilotAccount: '',
     interface: 'claude',
     state: 'running',
     ip: '',
@@ -319,16 +322,16 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running' }),
-    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
+    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', interface: 'chat', goal: agent99Goal() }),
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
     agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'], interface: 'chat' }),
@@ -336,8 +339,16 @@ export function buildFixtures(): FixtureData {
     // question in its own words, one died mid-turn on a dropped websocket, one
     // finished with a pull request, one is carried on after a restart.
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
-    agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
-    agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', leadSession: 'onboarding-copy', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
+    agent({
+      ref: `${PROJECT}/agent-39`,
+      title: 'Paginate the reminders page',
+      chat: 'ready',
+      outcome: 'done',
+      leadSession: 'main',
+      // Claude Code's own /goal (agent goals), met.
+      goal: { objective: 'The reminders page paginates at 50 and its tests pass', source: 'tool', status: 'met', checked: 2, updatedAt: new Date().toISOString() },
+    }),
     // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
     // and browser frozen in swap, one's machine stopped after it finished.
     agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
@@ -374,6 +385,16 @@ export function buildFixtures(): FixtureData {
       state: 'initializing',
       memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
+    // On hold (daemon/admission.go): one waiting its turn for memory behind
+    // other agents' builds, machine stopped, and one stopped after it sat idle.
+    agent({
+      ref: `${PROJECT}/agent-83`,
+      title: 'Migrate the billing tables',
+      state: 'stopped',
+      hold: 'memory',
+      memory: { machine: 'waiting', ahead: 1, since: new Date(Date.now() - 90_000).toISOString(), why: 'builds', available: 1.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    agent({ ref: `${PROJECT}/agent-82`, title: 'Tidy the onboarding copy', state: 'stopped', outcome: 'done', hold: 'idle' }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({
@@ -574,8 +595,14 @@ export function buildFixtures(): FixtureData {
       codexAccount: '',
       openCodeAccounts: {},
       cursorAccount: '',
+      geminiAccount: '',
+      copilotAccount: '',
       autonomy: 'ask',
       agentModel: '',
+      agentTool: '',
+      agentEffort: '',
+      agentContextWindow: '',
+      agentMode: '',
       branchPrefix: 'agentbox/',
       finishNotices: 'lead',
       rolloverThreshold: 0,
@@ -585,12 +612,15 @@ export function buildFixtures(): FixtureData {
       section: 's1',
       position: 0,
       nesting: false,
+      iosForwardPorts: [],
       agentPRs: false,
       syncBase: true,
+      settleHours: 24,
       fullTestSuite: false,
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
     {
@@ -608,8 +638,14 @@ export function buildFixtures(): FixtureData {
       codexAccount: '',
       openCodeAccounts: {},
       cursorAccount: '',
+      geminiAccount: '',
+      copilotAccount: '',
       autonomy: 'ask',
       agentModel: '',
+      agentTool: '',
+      agentEffort: '',
+      agentContextWindow: '',
+      agentMode: '',
       branchPrefix: 'agentbox/',
       finishNotices: 'lead',
       rolloverThreshold: 0,
@@ -619,18 +655,29 @@ export function buildFixtures(): FixtureData {
       section: '',
       position: 1,
       nesting: false,
+      iosForwardPorts: [],
       agentPRs: false,
       syncBase: true,
+      settleHours: 24,
       fullTestSuite: false,
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
   ];
 
   const sections: T.Section[] = [
-    { id: 's1', name: 'A section name that is also much too long for this narrow column of pixels', position: 0, collapsed: false, createdAt: new Date().toISOString() },
+    {
+      id: 's1',
+      name: 'A section name that is also much too long for this narrow column of pixels',
+      position: 0,
+      collapsed: false,
+      color: 'lilac',
+      description: 'A description written as one long unbroken line, https://example.com/a/very/long/path/that/never/breaks/anywhere/at/all, to test the tooltip and the menu',
+      createdAt: new Date().toISOString(),
+    },
   ];
 
   return { agents, events, questions, fleet, projects, sections };
@@ -819,12 +866,24 @@ function stacked(number: number, title: string, headBranch: string, baseBranch: 
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
+  // ?pulls=limited: the account's hourly limit ran out after this was read,
+  // twelve minutes ago.
+  const limited = typeof location !== 'undefined' && new URLSearchParams(location.search).get('pulls') === 'limited';
+  const error: T.GitHubError = {
+    kind: 'rateLimited',
+    account: 'default',
+    login: 'someone',
+    repo: 'leciric/agentbox',
+    resetAt: new Date(Date.now() + 38 * 60_000).toISOString(),
+    message: "GitHub's rate limit for this account: API rate limit exceeded for user ID 1.",
+  };
   return {
+    ...(limited && { githubError: error }),
     project: PROJECT,
     github: 'leciric/agentbox',
     githubAccount: 'default',
     githubLogin: 'someone',
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: new Date(Date.now() - (limited ? 12 * 60_000 : 0)).toISOString(),
     canMerge: true,
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
@@ -959,22 +1018,86 @@ export function asleepChat(ref: string): T.ChatThread {
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
 // awaitingChat is agent-41's conversation: a turn that ended on a promise,
-// with the watch it started still running (ChatSession.background).
+// with the watch it started still running (ChatSession.background), and the
+// rest of what it left in the background, item by item
+// (ChatSession.backgroundTasks): a monitor, a subagent, a build that failed.
+const awaitingSince = Date.now();
+export function awaitingTasks(): T.ChatBackgroundTask[] {
+  const at = (ago: number) => new Date(awaitingSince - ago).toISOString();
+  return [
+    {
+      id: 'b0',
+      kind: 'command',
+      title: 'Build the release bundle',
+      command: 'npm --prefix desktop run dist -- --linux',
+      status: 'failed',
+      exitCode: 2,
+      startedAt: at(85_000),
+      endedAt: at(64_000),
+      summary: 'Background command "Build the release bundle" failed with exit code 2',
+      item: 'w1b',
+      hasOutput: true,
+    },
+    { id: 'b1', kind: 'command', title: 'Watch CI run 42', command: 'gh run watch 42 --exit-status --interval 30', status: 'running', startedAt: at(62_000), item: 'w1c', hasOutput: true },
+    { id: 'm1', kind: 'monitor', title: 'Errors in the deploy log', status: 'running', startedAt: at(61_500), summary: '2 events so far' },
+    { id: 'subagent-w1s', kind: 'subagent', title: 'general-purpose', command: 'Run the desktop test suite and report what fails', status: 'running', startedAt: at(70_000), item: 'w1s' },
+  ];
+}
+
+// awaitingOutput is what GET …/chat/background/{task} answers in the preview:
+// the watch's output grows a line every couple of seconds, as a live one does.
+export function awaitingOutput(id: string, before: number): T.ChatBackgroundDetail | undefined {
+  const task = awaitingTasks().find((t) => t.id === id);
+  if (!task) return undefined;
+  let text = '';
+  if (id === 'b0') {
+    text = Array.from({ length: 1400 }, (_, i) => `  • packaging  file=${String(i + 1).padStart(4, '0')}.asar.unpacked platform=linux arch=x64`).join('\n');
+    text += '\n  ⨯ cannot execute  cause=exit status 2\n    errorOut=fpm: no such file or directory: build/icons/512x512.png\n';
+  } else if (id === 'b1') {
+    const jobs = ['title', 'changes', 'go test', 'go vet', 'golangci-lint', 'desktop lint', 'desktop typecheck', 'desktop test', 'desktop build', 'native build', 'native test'];
+    const n = Math.floor((Date.now() - awaitingSince) / 2000) + 3;
+    text = 'Refreshing run status every 30 seconds. Press Ctrl+C to quit.\n\n* agentbox/release CI · 42\nTriggered via push about 1 minute ago\n\nJOBS\n';
+    text += Array.from({ length: n }, (_, i) => `${i < n - 1 ? '✓' : '*'} ${jobs[i % jobs.length]}${i >= jobs.length ? ` (${Math.floor(i / jobs.length) + 1})` : ''} ${i < n - 1 ? `in ${20 + ((i * 7) % 40)}s` : '(running)'}`).join('\n');
+    text += '\n';
+  }
+  const bytes = new TextEncoder().encode(text);
+  const end = before > 0 && before < bytes.length ? before : bytes.length;
+  const start = Math.max(0, end - 64 * 1024);
+  return { task, output: new TextDecoder().decode(bytes.subarray(start, end)), outputStart: start, outputSize: bytes.length };
+}
+
 export function awaitingChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   return {
     agent: `${PROJECT}/agent-41`,
     seq: 1,
-    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Watch CI run 42'] },
+    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Errors in the deploy log', 'Watch CI run 42'], backgroundTasks: awaitingTasks() },
     items: [
       {
         id: 'w1',
         turn: 'w1',
         kind: 'user',
         text: 'Push the release branch and tell me when CI is green.',
-        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Watch CI run 42'] },
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Errors in the deploy log', 'Watch CI run 42'] },
         createdAt: at(90_000),
         updatedAt: at(60_000),
+      },
+      {
+        id: 'w1s',
+        turn: 'w1',
+        kind: 'subagent',
+        subagent: { name: 'general-purpose', task: 'Run the desktop test suite and report what fails', state: 'running' },
+        createdAt: at(70_000),
+        updatedAt: at(70_000),
+      },
+      {
+        id: 'w1st',
+        turn: 'w1',
+        kind: 'tool',
+        parent: 'w1s',
+        tool: { callId: 'sub-1', name: 'Bash', title: 'npm --prefix desktop test', kind: 'execute', status: 'in_progress', command: 'npm --prefix desktop test' },
+        createdAt: at(69_000),
+        updatedAt: at(69_000),
       },
       { id: 'w2', turn: 'w1', kind: 'assistant', text: "Pushed. CI is running; I'll report when it finishes.", createdAt: at(61_000), updatedAt: at(61_000) },
     ],
@@ -1045,9 +1168,54 @@ export function leadChat(): T.ChatThread {
   };
 }
 
+// homeAskChats is the Home chat asking this project's lead something with
+// tell_lead, and the lead's answer, as each chat shows them: the question and
+// its answer are cards on both sides (a thread from T.HomeProject).
+export function homeAskChats(): { lead: T.ChatItem[]; home: T.ChatItem[] } {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const question = 'Is the fix for the login 500s deployed yet? The user wants to tell the support team.';
+  const answer = 'Not yet: agent-12’s PR #81 is green and waiting for review. Once merged it deploys in about 10 minutes.';
+  const card = (id: string, project: string, direction: string, kind: string, hop: number, text: string, ago: number): T.ChatItem => ({
+    id,
+    turn: id,
+    kind: 'notice',
+    text,
+    projectMessage: { project, direction, thread: 'th-home-1', kind, expectsReply: hop === 0, hop },
+    createdAt: at(ago),
+    updatedAt: at(ago),
+  });
+  return {
+    lead: [card('hq1', '_home', 'in', 'sent', 0, question, 60_000), card('hq2', '_home', 'out', 'reply', 1, answer, 30_000)],
+    home: [card('hh1', PROJECT, 'out', 'sent', 0, question, 60_000), card('hh2', PROJECT, 'in', 'reply', 1, answer, 30_000)],
+  };
+}
+
 // agent99Chat is agent-99's session as its info card reads it (model, effort,
 // context): nothing it says, since only session.options is read there.
+// agent99Goal is a goal AgentBox drives (agent goals), sent back twice so far:
+// its pull request is open, its CI isn't green yet.
+export function agent99Goal(status: string = 'active'): T.AgentGoal {
+  return {
+    objective: 'PR #78 is open and its CI is green',
+    source: 'agentbox',
+    status,
+    checks: [
+      { kind: 'pr_open', met: true, detail: '#78 is open' },
+      { kind: 'ci_green', met: false, detail: "#78's checks failed (`gh pr checks 78`)" },
+      { kind: 'command', command: 'npm --prefix desktop run typecheck', met: true, detail: 'exited 0' },
+    ],
+    checked: 2,
+    lastUnmet: "every CI check on your pull request passed (ci_green): #78's checks failed (`gh pr checks 78`)",
+    budget: 10,
+    continuations: 2,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function agent99Chat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago * 60_000).toISOString();
+  const goal = agent99Goal();
+  const fresh: T.AgentGoal = { ...goal, checks: goal.checks!.map((c) => ({ kind: c.kind, command: c.command })), checked: 0, continuations: 0, lastUnmet: undefined };
   return {
     agent: `${PROJECT}/agent-99`,
     seq: 1,
@@ -1062,7 +1230,14 @@ export function agent99Chat(): T.ChatThread {
       contextUsed: 84_000,
       contextSize: 200_000,
     },
-    items: [],
+    items: [
+      { id: 'g1', turn: '', kind: 'goal', text: `Goal set: ${goal.objective}`, goal: fresh, createdAt: at(30), updatedAt: at(30) },
+      { id: 'u1', turn: 'u1', kind: 'user', text: 'Open a PR that fixes the flaky settings test, and get its CI green.', result: { state: 'completed', endedAt: at(21) }, createdAt: at(30), updatedAt: at(21) },
+      { id: 'a1', turn: 'u1', kind: 'assistant', text: 'Opened #78 with the fix. CI is running.', createdAt: at(21), updatedAt: at(21) },
+      { id: 'g2', turn: 'u1', kind: 'goal', text: `Goal not met yet: ${goal.lastUnmet}`, goal, createdAt: at(20), updatedAt: at(4) },
+      { id: 'u2', turn: 'u2', kind: 'user', hidden: true, text: "[AgentBox: your goal isn't met yet…]", createdAt: at(4), updatedAt: at(4) },
+      { id: 'a2', turn: 'u2', kind: 'assistant', text: 'The e2e job fails on a timezone assumption; fixing it now.', streaming: true, createdAt: at(3), updatedAt: at(1) },
+    ],
   };
 }
 
@@ -1206,12 +1381,14 @@ const devState: {
   migration?: VMMigration;
   update?: T.UpdateStatus;
   appVersion?: string;
+  staleDaemon?: { daemon: string; app: string; jobs: number };
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
 export function seedQueryClient(queryClient: QueryClient, data: FixtureData): void {
+  seeded = queryClient;
   devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
   devState.agents = data.agents;
@@ -1220,6 +1397,24 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  // What the session's own agents said last, for their cards above the
+  // composer (components/chat/SessionAgents.tsx).
+  for (const [name, said, state] of [
+    ['agent-39', 'Paginated the reminders page: 25 a page, with the cursor in the URL. PR #402 is green.', 'ready'],
+    ['agent-96', 'The rail wraps long branch names now; checking the 480px preview next.', 'running'],
+    ['agent-99', 'Opened #405. Waiting on CI before asking for review.', 'running'],
+  ] as const) {
+    const at = new Date(Date.now() - 90_000).toISOString();
+    queryClient.setQueryData<T.ChatThread>(['chat', `${PROJECT}/${name}`], {
+      agent: `${PROJECT}/${name}`,
+      seq: 1,
+      session: { state, tool: 'claude', options: [], commands: [] } as unknown as T.ChatSession,
+      items: [
+        { id: `${name}-u`, turn: `${name}-u`, kind: 'user', text: 'Carry on with the task.', createdAt: at, updatedAt: at, ...(state === 'ready' && { result: { state: 'completed', stopReason: 'end_turn', endedAt: at } }) },
+        { id: `${name}-a`, turn: `${name}-u`, kind: 'assistant', text: said, createdAt: at, updatedAt: at },
+      ],
+    });
+  }
   // The composer's slash menu reads them; the dev bridge's {} isn't a list.
   queryClient.setQueryData(['skills', PROJECT], []);
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
@@ -1253,6 +1448,23 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());
   queryClient.setQueryData(['tokenTurns', PROJECT, 'agent-99', '', 15], agent99Turns());
   queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  // Its chat's sessions (lib/sessions.ts): the one it always had, and one
+  // opened on an incident, which has said something since it was last seen.
+  queryClient.setQueryData(['leadSessions', PROJECT], devSessions(PROJECT));
+  queryClient.setQueryData(['projectChat', PROJECT, 'main'], { project: PROJECT, session: 'main', ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  queryClient.setQueryData(['projectChat', PROJECT, 'prod-login-500s'], { project: PROJECT, session: 'prod-login-500s', ref: `${PROJECT}/lead.prod-login-500s`, started: true, chat: 'ready' } satisfies T.ProjectChat);
+  // The closed session's conversation, read in History.
+  {
+    const ref = `${PROJECT}/lead.release-notes`;
+    const at = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    const said = (id: string, kind: T.ChatItem['kind'], text: string): T.ChatItem => ({ id, turn: 't1', kind, text, createdAt: at, updatedAt: at });
+    queryClient.setQueryData(['chat', ref], {
+      ...leadChat(),
+      agent: ref,
+      session: { ...leadChat().session, state: 'off' },
+      items: [said('rn-1', 'user', 'Draft the release notes for v0.17.'), said('rn-2', 'assistant', 'The changelog leads with the session cookie fix.')],
+    } satisfies T.ChatThread);
+  }
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);
@@ -1264,10 +1476,14 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
     codex: false,
     opencode: false,
     cursor: false,
+    gemini: false,
+    copilot: false,
     claudeAccounts: [],
     codexAccounts: [],
     openCodeAccounts: [],
     cursorAccounts: [],
+    geminiAccounts: [],
+    copilotAccounts: [],
     github: true,
     githubAccounts: [
       { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'leciric-work' },
@@ -1604,6 +1820,9 @@ let defaultsSettings = {
   enforceAgentDefaults: false,
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
+  cloneFolder: '/home/you/src',
+  defaultLeadEffort: '',
+  defaultLeadMode: '',
   language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
   timezone: 'Europe/Lisbon',
   mediaRetention: '1d',
@@ -1616,17 +1835,32 @@ let defaultsSettings = {
   claudeMenuKnown: true,
   defaultClaudeEffort: '',
   claudeEffortChoices: [],
+  claudeModeChoices: [
+    { value: 'default', name: 'Ask before edits' },
+    { value: 'acceptEdits', name: 'Accept edits' },
+    { value: 'bypassPermissions', name: 'Bypass permissions' },
+  ],
   openCodeModelChoices: [],
   openCodeReady: false,
+  openCodeVersion: "1",
   cursorModelChoices: [],
   cursorReady: false,
   defaultCursorModel: '',
   defaultCursorEffort: '',
+  geminiModelChoices: [],
+  geminiReady: false,
+  defaultGeminiModel: '',
+  copilotModelChoices: [],
+  copilotReady: false,
+  defaultCopilotModel: '',
+  lastAgentPick: { ai: '', model: '', effort: '' },
+  firstRun: false,
   resumeAfterLimit: true,
   continueAfterRestart: true,
   creditAITool: false,
   builtWithBadge: false,
   builtWithBadgeOffer: typeof location !== 'undefined' && new URLSearchParams(location.search).get('badge') === 'offer',
+  seenFeatures: [],
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
@@ -1641,15 +1875,23 @@ let defaultsSettings = {
   errorReports: true,
   agentFreeze: false,
   prWatch: true,
+  // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
+  mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
+  agentMemoryShare: 50,
+  defaultAgentMemoryShare: 50,
+  minAgentMemoryShare: 10,
+  maxAgentMemoryShare: 90,
+  agentMemoryLimit: 12 * 1024 ** 3,
+  vmMemory: 24 * 1024 ** 3,
   autoStopIdle: false,
   removeStopped: false,
   removeStoppedDays: 7,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
-  idleReclaim: false,
+  idleReclaim: true,
   idleFreezeSeconds: 5 * 60,
   idleStopSeconds: 10 * 60,
   leadRecheck: false,
@@ -1697,14 +1939,24 @@ function removeFixtureStopped(refs: string[]): T.RemoveStoppedResult {
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
   const next = { ...defaultsSettings };
   const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
+  if (req.openCodeVersion !== undefined) next.openCodeVersion = req.openCodeVersion;
+  if (req.lastAgentPick !== undefined) next.lastAgentPick = req.lastAgentPick;
+  if (req.mergeWhenGreen !== undefined) next.mergeWhenGreen = req.mergeWhenGreen;
+  if (req.firstRunDone) next.firstRun = false;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
+  if (req.defaultLeadEffort !== undefined) next.defaultLeadEffort = req.defaultLeadEffort;
+  if (req.defaultLeadMode !== undefined) next.defaultLeadMode = req.defaultLeadMode;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
   if (req.language !== undefined) next.language = req.language || 'en-US';
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
+  if (req.agentMemoryShare !== undefined) {
+    next.agentMemoryShare = req.agentMemoryShare || 50;
+    next.agentMemoryLimit = Math.floor((next.vmMemory / 100) * next.agentMemoryShare);
+  }
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.removeStopped !== undefined) next.removeStopped = req.removeStopped;
   if (req.removeStoppedDays !== undefined) next.removeStoppedDays = req.removeStoppedDays;
@@ -1727,6 +1979,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   }
   // Either answer, or dismissing, closes the one-time offer of the badge.
   if (req.builtWithBadge !== undefined || req.dismissBuiltWithBadgeOffer) next.builtWithBadgeOffer = false;
+  if (req.seeFeature && !next.seenFeatures.includes(req.seeFeature)) next.seenFeatures = [...next.seenFeatures, req.seeFeature];
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.
@@ -1816,6 +2069,91 @@ export function seedImageUpdate(queryClient: QueryClient): void {
   queryClient.setQueryData(['job', imageToolsJob], devState.job);
 }
 
+// seedFirstRun is a new installation's first run (?firstrun=<step>), with the
+// daemon up and as far along as the step: tool (nothing chosen yet), image
+// (the base image downloading), login (Claude Code not signed in), github, project
+// (a GitHub account and its repositories to clone) and check (the doctor,
+// with a failure only the Home chat can look into). Before the daemon, the
+// VM steps are ?linux=setup, ?vm=create and ?wsl=create.
+export function seedFirstRun(queryClient: QueryClient, step: string): void {
+  const at = ['tool', 'image', 'login', 'github', 'project', 'check'].indexOf(step);
+  const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string, job?: string): T.SetupCheck => ({ id, title, status, detail, required, fix, job });
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+  const imageJob = 'job-first-image';
+  const setup = {
+    ready: at > 1,
+    checks: [
+      check('incus', 'Incus', 'ok', 'installed, and you can use it'),
+      check('host', 'User mapping', 'ok', "your files in agents' worktrees are yours"),
+      at === 1
+        ? check('image', 'Base image', 'building', 'Downloading the published image (2026.10.28.1)…', true, 'agentbox image build', imageJob)
+        : check('image', 'Base image', at < 1 ? 'missing' : 'ok', at < 1 ? 'not built yet' : 'agentbox-base 2026.10.28.1', true, 'agentbox image build'),
+      check('storage', 'Storage', 'ok', 'btrfs: agents are created with an instant snapshot', false),
+      at > 2 ? check('claude', 'Claude Code', 'ok', 'signed in as default', false) : check('claude', 'Claude Code login', 'missing', "agents can't run Claude Code yet", false, 'agentbox auth claude'),
+      check('codex', 'Codex login', 'optional', "optional: agents can't run Codex yet", false, 'agentbox auth codex'),
+      check('opencode', 'OpenCode login', 'optional', "optional: agents can't run OpenCode yet", false, 'agentbox auth opencode'),
+      check('cursor', 'Cursor sign-in', 'optional', "optional: agents can't run Cursor yet", false, 'agentbox auth cursor'),
+      check('gemini', 'Gemini CLI sign-in', 'optional', "optional: agents can't run Gemini CLI yet", false, 'agentbox auth gemini'),
+      check('copilot', 'GitHub Copilot CLI sign-in', 'optional', "optional: agents can't run GitHub Copilot CLI yet", false, 'agentbox auth copilot'),
+    ],
+    image: { version: '2026.10.28.1', components: none, installed: none, downloads: [], hint: '' },
+  } as T.SetupStatus;
+  devState.setup = setup;
+  devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+  const github = at > 3;
+  devState.auth = {
+    ...devState.auth!,
+    claude: at > 2,
+    claudeAccounts: at > 2 ? [{ name: 'default', default: true, savedAt: '2026-10-30T10:00:00Z', valid: 'valid' }] : [],
+    github,
+    githubUser: github ? 'leciric' : undefined,
+    githubAccounts: github ? [{ name: 'default', default: true, savedAt: '2026-10-30T10:02:00Z', login: 'leciric' }] : [],
+  };
+  devState.projects = at > 4 ? devState.projects.slice(0, 1) : [];
+  if (at === 1) {
+    devState.job = { id: imageJob, kind: 'image-build', target: 'agentbox-base', status: 'running', createdAt: new Date(Date.now() - 95_000).toISOString() };
+    devState.jobLog = [
+      'Downloading the published base image 2026.10.28.1 (1.4 GB, 11 parts)',
+      'part 1 of 11: done',
+      'part 2 of 11: done',
+      'part 3 of 11: done',
+      'part 4 of 11: 61 of 128 MiB',
+      'part 5 of 11: 48 of 128 MiB',
+    ].join('\n');
+    queryClient.setQueryData(['job', imageJob], devState.job);
+  }
+  defaultsSettings = { ...defaultsSettings, firstRun: true, lastAgentPick: { ai: at > 0 ? 'claude' : '', model: '', effort: '' } };
+  queryClient.setQueryData(['settings'], defaultsSettings);
+  queryClient.setQueryData(['setup'], setup);
+  queryClient.setQueryData(['cli'], devState.cli);
+  queryClient.setQueryData(['auth'], devState.auth);
+  queryClient.setQueryData(['projects'], devState.projects);
+  queryClient.setQueryData(['jobs'], at === 1 ? [devState.job] : []);
+  firstRunRepos = [
+    { fullName: 'leciric/pawly', description: 'Reminders for pet care: vet visits, walks and meds', private: true, pushedAt: new Date(Date.now() - 2 * 3600_000).toISOString(), cloneUrl: 'https://github.com/leciric/pawly.git' },
+    { fullName: 'leciric/agentbox', description: 'Run several AI coding agents against one project at once', private: false, pushedAt: new Date(Date.now() - 5 * 3600_000).toISOString(), cloneUrl: 'https://github.com/leciric/agentbox.git' },
+    { fullName: 'linting/site', description: 'linting.dev', private: false, pushedAt: new Date(Date.now() - 3 * 86400_000).toISOString(), cloneUrl: 'https://github.com/linting/site.git' },
+    { fullName: 'linting/hatch', description: 'Publish HTML pages and get a link', private: true, pushedAt: new Date(Date.now() - 9 * 86400_000).toISOString(), cloneUrl: 'https://github.com/linting/hatch.git' },
+    { fullName: 'leciric/dotfiles', private: false, pushedAt: new Date(Date.now() - 40 * 86400_000).toISOString(), cloneUrl: 'https://github.com/leciric/dotfiles.git' },
+  ];
+  queryClient.setQueryData(['githubRepos'], firstRunRepos);
+  firstRunDoctor = {
+    version: 'preview',
+    checks: [
+      { id: 'daemon', title: 'Daemon', status: 'ok', message: 'running AgentBox preview' },
+      { id: 'image', title: 'Base image', status: 'ok', message: 'agentbox-base 2026.10.28.1' },
+      { id: 'disk', title: 'Disk space', status: 'ok', message: '212 GB free' },
+      { id: 'network-github', title: 'GitHub', status: 'fail', message: "can't reach api.github.com: the connection was reset", fix: "check this machine's connection to GitHub" },
+      { id: 'gh', title: 'GitHub CLI', status: 'warn', message: "not installed yet: a chat's first message installs it", fix: 'agentbox doctor --fix', autoFix: true },
+    ],
+  };
+  queryClient.setQueryData(['doctor'], firstRunDoctor);
+}
+
+// What the dev bridge answers the first run with (seedFirstRun).
+let firstRunRepos: T.GitHubRepo[] | undefined;
+let firstRunDoctor: T.DoctorReport | undefined;
+
 // seedSignedOut is Claude Code with no login: the composer's banner, and Send
 // saying why it won't. The dev bridge answers the same, so the refetch keeps it.
 export function seedSignedOut(queryClient: QueryClient): void {
@@ -1841,6 +2179,8 @@ export function seedSettings(queryClient: QueryClient): void {
       check('claude', 'Claude Code', 'ok', 'signed in as default', false),
       check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
       check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
+      check('gemini', 'Gemini CLI sign-in', 'optional', 'not signed in', false, 'agentbox auth gemini'),
+      check('copilot', 'GitHub Copilot CLI sign-in', 'optional', 'not signed in', false, 'agentbox auth copilot'),
       check('opencode', 'OpenCode', 'optional', 'not in the base image', false, 'agentbox image build --opencode'),
       check('android', 'Android', 'optional', 'no Android SDK found', false),
       check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),
@@ -1862,11 +2202,28 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['auth'], devState.auth);
   queryClient.setQueryData(['settings'], defaultsSettings);
   queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
-  // Tokyo Night in the mode the page asks for: a light page given the dark
-  // palette's background would paint the window's ink mid-grey.
-  const light = new URLSearchParams(location.search).get('theme') === 'light';
+  const asked = new URLSearchParams(location.search).get('theme');
+  if (asked === 'dracula') {
+    queryClient.setQueryData(['theme'], {
+      appearance: 'dracula',
+      available: true,
+      name: 'Dracula',
+      mode: 'dark',
+      background: '#282a36',
+      surface: '#44475a',
+      foreground: '#f8f8f2',
+      muted: '#6272a4',
+      accent: '#bd93f9',
+    } satisfies T.Theme);
+    queryClient.setQueryData(['host-setup'], {});
+    return;
+  }
+  // AgentBox's own palette, pinned to the mode asked for. ?palette=tokyo
+  // follows Tokyo Night instead, in the mode the page asks for: a light page
+  // given the dark palette's background would paint the window's ink mid-grey.
+  const light = asked === 'light';
   queryClient.setQueryData(['theme'], {
-    appearance: 'follow',
+    appearance: new URLSearchParams(location.search).get('palette') === 'tokyo' ? 'follow' : light ? 'light' : 'dark',
     available: true,
     name: light ? 'Tokyo Night Day' : 'Tokyo Night',
     mode: light ? 'light' : 'dark',
@@ -1924,11 +2281,13 @@ export function seedMacVZ(queryClient: QueryClient, kind: string): void {
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
 // Resources section, whose VM size card sizes the Cloud Hypervisor VM:
 // running with room to grow (live), started by an older AgentBox with none
-// (old), or off.
+// (old), or off. A 32 GiB machine keeps 8 GiB for itself, so the cap goes to
+// 24 GiB, but the older AgentBox says neither.
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
+  const old = kind === 'old';
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 24) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -1936,7 +2295,16 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     state: kind === 'off' ? 'off' : 'running',
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
-    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0, hostCache: 0 },
+    memory: {
+      min: 4 * GiB,
+      cap: 24 * GiB,
+      granted: kind === 'off' ? 0 : 9 * GiB,
+      hostReserve: old ? undefined : 8 * GiB,
+      hostTotal: old ? undefined : 32 * GiB,
+      used: 6.2 * GiB,
+      resident: 0,
+      hostCache: 0,
+    },
     disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,
@@ -1994,7 +2362,8 @@ export function seedMeterUsage(queryClient: QueryClient): void {
   // The pool's machines and bases add up to the 15.5 GiB in use inside the
   // user's VM, measured on 2026-10-01.
   const diskUsage: T.DiskUsage = {
-    total: 21.2 * GiB,
+    total: 25.4 * GiB,
+    trim: { at: new Date(Date.now() - 2 * 3600_000).toISOString(), bytes: 6.3 * GiB },
     categories: [
       {
         kind: 'machines',
@@ -2006,10 +2375,20 @@ export function seedMeterUsage(queryClient: QueryClient): void {
           { label: `${PROJECT}/agent-90`, bytes: 1.3 * GiB },
         ],
       },
-      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB }, { label: `${PROJECT} base`, bytes: 1.8 * GiB }] },
+      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB, kind: 'base-image' }, { label: `${PROJECT} base`, bytes: 1.8 * GiB, kind: 'project-base', name: PROJECT }] },
       { kind: 'worktrees', label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
+      {
+        kind: 'caches',
+        label: 'Shared caches',
+        bytes: 4.2 * GiB,
+        items: [
+          { label: 'Package cache: pnpm', bytes: 1.9 * GiB, kind: 'package-cache', name: 'pnpm' },
+          { label: 'Package cache: go', bytes: 1.1 * GiB, kind: 'package-cache', name: 'go' },
+          { label: 'Docker images', bytes: 1.2 * GiB, kind: 'docker-images' },
+        ],
+      },
       { kind: 'media', label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
-      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
+      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB, kind: 'state-db' }] },
     ],
   };
   devState.memoryUsage = memoryUsage;
@@ -2070,7 +2449,7 @@ function filesRequest(method: string, path: string) {
 const devMerged = new Set<number>();
 async function pullsRequest(method: string, path: string) {
   const query = new URLSearchParams(location.search);
-  if (query.get('pulls') !== '1' && query.get('app') !== 'pulls') return undefined;
+  if (query.get('pulls') !== '1' && query.get('pulls') !== 'limited' && query.get('app') !== 'pulls') return undefined;
   const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
   const list = pullRequests();
   list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));
@@ -2221,13 +2600,28 @@ const usageStatsPending: T.UsageStatsPending = {
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
+      // ?busy=host: this computer busy, as its front end reports it;
+      // ?busy=daemon: the daemon answers nothing for a minute, as one stuck
+      // behind a loaded VM (components/BusyMarks.tsx).
+      const busy = new URLSearchParams(location.search).get('busy') ?? '';
+      if (busy.includes('daemon') && path === '/v1/pressure') await new Promise((r) => setTimeout(r, 60_000));
+      if (method === 'GET' && path === '/v1/pressure') {
+        const host: T.HostLoad | undefined = busy.includes('host')
+          ? { os: 'linux', memory: 2, cpu: 12, io: 63, cpuShare: -1, busy: true, why: 'io', at: new Date().toISOString() }
+          : undefined;
+        return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [], host }), contentType: 'application/json' };
+      }
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/github/repos' && firstRunRepos) return { status: 200, body: JSON.stringify(firstRunRepos), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/doctor' && firstRunDoctor) return { status: 200, body: JSON.stringify(firstRunDoctor), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
+      const sessions = sessionsRequest(method, path, body);
+      if (sessions) return sessions;
       // No project has a saved base: Settings' Repository says so.
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/base$/.test(path)) return { status: 404, body: JSON.stringify({ error: 'no base' }), contentType: 'application/json' };
       // Files first: a past agent's are under /v1/archived-agents too.
@@ -2261,12 +2655,50 @@ export function installDevBridge(): void {
       // The disk guard with room everywhere, so DiskGuardPill shows nothing
       // rather than reading the catch-all's answer as a guard.
       // A chat's AI tools for its composer's picker: Claude Code, ready.
+      // One of agent-41's background tasks, with its output (?chat=awaiting).
+      const bg = method === 'GET' ? /\/chat\/background\/([^/?]+)(?:\?before=(\d+))?$/.exec(path) : null;
+      if (bg) {
+        const detail = awaitingOutput(decodeURIComponent(bg[1]), Number(bg[2] ?? 0));
+        return detail ? { status: 200, body: JSON.stringify(detail), contentType: 'application/json' } : { status: 404, body: '{"error":"no such task"}', contentType: 'application/json' };
+      }
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/chat\/runners$/.test(path)) {
         const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
       }
+      // The app's lists nothing here fills, empty: the catch-all's answer is
+      // an object, and a view that maps over one takes the whole preview down.
+      if (method === 'GET' && ['/v1/project-activity', '/v1/groups', '/v1/sections', '/v1/jobs', '/v1/limits'].includes(path)) {
+        return { status: 200, body: '[]', contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
+      // The search palette's answer, from the fixtures' projects and agents,
+      // so its content rows can be seen beside the actions and settings.
+      if (method === 'GET' && path.startsWith('/v1/search?')) {
+        const q = (new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('q') ?? '').toLowerCase();
+        const has = (...texts: (string | undefined)[]) => q !== '' && texts.some((x) => x?.toLowerCase().includes(q));
+        const projects = devState.projects.filter((p) => has(p.name, p.displayName)).map((p): T.SearchHit => ({ id: p.name, title: p.displayName || p.name, project: p.name }));
+        const agents = (devState.agents ?? [])
+          .filter((a) => has(a.title, a.name))
+          .slice(0, 5)
+          .map((a): T.SearchHit => ({ id: a.ref, title: a.title || a.name, project: a.project, agent: a.name }));
+        const scope = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('project');
+        const sessions = devSessionHits(q, scope);
+        const results: T.SearchResults = {
+          query: q,
+          groups: [
+            { kind: 'projects', hits: scope ? [] : projects, total: scope ? 0 : projects.length },
+            { kind: 'sessions', hits: sessions, total: sessions.length },
+            { kind: 'agents', hits: agents, total: agents.length },
+          ],
+        };
+        return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/usage/disk/trim') {
+        const trim = { at: new Date().toISOString(), bytes: 2.4 * 1024 ** 3 };
+        if (devState.diskUsage) devState.diskUsage = { ...devState.diskUsage, trim };
+        return { status: 200, body: JSON.stringify(trim), contentType: 'application/json' };
+      }
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
@@ -2297,6 +2729,21 @@ export function installDevBridge(): void {
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
       }
+      // An agent's goal set or cleared (internal/daemon/goals.go): kept on
+      // the agent, as the daemon's next agents list would have it.
+      const goalOf = method === 'PUT' || method === 'DELETE' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/goal$/.exec(path) : null;
+      if (goalOf && devState.agents) {
+        const ref = `${decodeURIComponent(goalOf[1])}/${decodeURIComponent(goalOf[2])}`;
+        const had = devState.agents.find((a) => a.ref === ref)?.goal;
+        const spec = (typeof body === 'string' ? JSON.parse(body) : body) as T.GoalSpec | undefined;
+        const goal: T.AgentGoal =
+          method === 'PUT' && spec
+            ? { objective: spec.objective.trim(), source: 'agentbox', status: 'active', checks: spec.checks, checked: 0, budget: spec.budget ?? 10, continuations: 0, updatedAt: new Date().toISOString() }
+            : { ...had!, status: 'cleared', updatedAt: new Date().toISOString() };
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, goal } : a));
+        const res: T.GoalResult = { goal, told: method === 'PUT' ? 'turn' : undefined };
+        return { status: 200, body: JSON.stringify(res), contentType: 'application/json' };
+      }
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };
@@ -2309,6 +2756,24 @@ export function installDevBridge(): void {
       if (patched && req?.githubAccount !== undefined) {
         const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
         project.githubAccount = req.githubAccount;
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
+      // And the tool its agents run and what they start on with it, which a
+      // new tool clears unless it is given too (SetProjectAgentDefaults).
+      if (patched && (req?.agentTool !== undefined || req?.agentModel !== undefined || req?.agentEffort !== undefined || req?.agentContextWindow !== undefined || req?.agentMode !== undefined)) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        if (req.agentTool !== undefined && req.agentTool !== project.agentTool) {
+          Object.assign(project, { agentTool: req.agentTool, agentModel: '', agentEffort: '', agentContextWindow: '', agentMode: '' });
+        }
+        for (const key of ['agentModel', 'agentEffort', 'agentContextWindow', 'agentMode'] as const) {
+          if (req[key] !== undefined) project[key] = req[key]!;
+        }
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
+      // And so does turning the project's Pull requests tab off or on.
+      if (patched && req?.pullRequests !== undefined) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        project.pullRequests = req.pullRequests;
         return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
       }
       const renameGitHub = method === 'POST' ? /^\/v1\/auth\/github\/([^/]+)\/rename$/.exec(path) : null;
@@ -2334,7 +2799,13 @@ export function installDevBridge(): void {
     },
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},
-    onEvent: () => () => {},
+    onEvent: (fn: (event: unknown) => void) => {
+      devEventListeners.add(fn);
+      return () => devEventListeners.delete(fn);
+    },
+    staleDaemon: async () => devState.staleDaemon ?? null,
+    onStaleDaemon: () => () => {},
+    restartStaleDaemon: async () => {},
     info: async () => ({ socket: '/run/user/1000/agentbox.sock', version: devState.appVersion ?? 'preview', electron: '38.1.0', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
@@ -2367,8 +2838,10 @@ export function installDevBridge(): void {
       const policy = renderPolicy(network).replace(/; sandbox [^;]*$/, '');
       return URL.createObjectURL(new Blob([injectHead(html, `<meta http-equiv="Content-Security-Policy" content="${policy}">`)], { type: 'text/html' }));
     },
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, onMainLag: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
+    pickFile: async () => null,
+    pickSaveFile: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
@@ -2378,9 +2851,12 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    hostPower: async () => ({ onBattery: false }),
+    onHostPower: () => () => {},
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
+    badge: () => {},
     copyText: () => {},
     readText: async () => '',
     copyImage: () => {},
@@ -2408,10 +2884,285 @@ export function seedNightly(queryClient: QueryClient): void {
   queryClient.setQueryData(['app-info'], { socket: '/run/user/1000/agentbox.sock', version: nightlyVersion, electron: '38.1.0', packaged: true, platform: 'linux' });
 }
 
+// seedStaleDaemon is the ?olddaemon=1 scenario: the app updated to a nightly while
+// a job ran, and the daemon still the release before it (main/daemon.ts).
+export function seedStaleDaemon(): void {
+  devState.staleDaemon = { daemon: '0.15.0', app: nightlyVersion, jobs: 2 };
+}
+
 // richStreamText is an answer caught mid-stream ('open': a page's fence not
 // yet closed) or with a closed page taller than its frame ('tall').
 export function richStreamText(which: 'open' | 'tall'): string {
   const fence = '```';
   const rows = Array.from({ length: which === 'tall' ? 40 : 6 }, (_, i) => `<div style="padding:6px 0;border-bottom:1px solid #8884">Row ${i + 1}</div>`);
   return ['Here is the page:', '', `${fence}html preview`, '<!doctype html><html><body><h3>Tall page</h3>', ...rows, ...(which === 'tall' ? ['</body></html>', fence, '', 'And that was all.'] : [])].join('\n');
+}
+
+// remoteAgents are agents the lead runs on the user's other machines, one of
+// each status the rail tells apart, and one with a long title on a machine
+// with a long name, for the rail's width.
+export function remoteAgents(): T.RemoteAgent[] {
+  const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  return [
+    { machine: 'vps', machineId: 'env_2', name: 'agent-03', title: 'Reminders page', branch: 'agentbox/reminders', status: 'working', updatedAt: at(2) },
+    { machine: 'vps', machineId: 'env_2', name: 'agent-04', title: 'Paginate the API', status: 'asking', summary: 'Should the reminders page paginate, or load them all?', updatedAt: at(5) },
+    { machine: 'home-workstation-with-gpu', machineId: 'env_3', name: 'agent-01', title: 'Move every scheduled reminder to the new background queue without losing the ones already due', status: 'done', summary: 'Opened #412', prUrl: 'https://github.com/acme/hello/pull/412', updatedAt: at(40) },
+    { machine: 'vps', machineId: 'env_2', name: 'agent-02', title: 'CSV export', status: 'failed', summary: 'create_agent failed: the disk is full', updatedAt: at(90) },
+  ];
+}
+
+// The chats' sessions, by project, as the dev bridge keeps them: the
+// fixtures' project has the one it always had, an incident's and a quiet
+// one's, each in its colour; any other has its chat alone. A session opened here joins them.
+const sessionsByProject = new Map<string, T.LeadSession[]>();
+function devSessions(project: string): T.LeadSession[] {
+  let list = sessionsByProject.get(project);
+  if (!list) {
+    const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+    list =
+      project === PROJECT
+        ? [
+            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'lilac', chat: 'running', status: 'working', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
+            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', color: 'peach', chat: 'ready', status: 'needsYou', needsYou: 2, agents: 2, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+            { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', status: 'idle', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000), last: { kind: 'assistant', text: 'Drafted the three welcome screens.', at: at(900_000) } },
+          ]
+        : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'sky', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
+    // ?sessions=1: the project has only the one open, which shows no colour.
+    if (new URLSearchParams(location.search).get('sessions') === '1') list = list.slice(0, 1);
+    // ?sessionStatus=live: every session starts quiet, then moves through
+    // liveSessionSteps as the daemon's status events would say.
+    if (project === PROJECT && new URLSearchParams(location.search).get('sessionStatus') === 'live') {
+      list = list.map((s) => ({ ...s, status: s.id === 'main' ? 'working' : 'idle', needsYou: 0, chat: s.id === 'main' ? 'running' : 'ready', last: undefined }));
+      startLiveSessions(project);
+    }
+    sessionsByProject.set(project, list);
+  }
+  return list;
+}
+
+// The dev bridge's event stream: what devEmit sends goes through the app's own
+// handling (lib/events.ts), as the daemon's events do.
+const devEventListeners = new Set<(event: unknown) => void>();
+function devEmit(type: string, data: unknown): void {
+  for (const fn of devEventListeners) fn({ type, time: new Date().toISOString(), data });
+}
+
+// liveSessionSteps is ?sessionStatus=live's script, a step every 5 seconds:
+// a permission waits in a session you aren't on (toast), another, the main
+// session's turn ends with its agents done (toast), one stops on an error,
+// and the waiting is answered.
+const liveSessionSteps: { id: string; set: Partial<T.LeadSession> }[] = [
+  { id: 'prod-login-500s', set: { status: 'needsYou', needsYou: 1 } },
+  { id: 'onboarding-copy', set: { status: 'working', chat: 'running' } },
+  { id: 'prod-login-500s', set: { needsYou: 2 } },
+  { id: 'main', set: { status: 'idle', chat: 'ready', agentsWorking: 0 } },
+  { id: 'onboarding-copy', set: { status: 'failed', chat: 'error' } },
+  { id: 'prod-login-500s', set: { status: 'idle', needsYou: 0, last: { kind: 'assistant', text: 'Allowed: agent-41 pushed the fix.', at: '' } } },
+];
+function startLiveSessions(project: string): void {
+  let step = 0;
+  const timer = setInterval(() => {
+    const next = liveSessionSteps[step++];
+    if (!next) return clearInterval(timer);
+    const now = new Date().toISOString();
+    const set = next.set.last ? { ...next.set, last: { ...next.set.last, at: now } } : next.set;
+    const list = devSessions(project).map((s) => (s.id === next.id ? { ...s, ...set } : s));
+    sessionsByProject.set(project, list);
+    devEmit('lead.session.status', { project, sessions: list } satisfies T.LeadSessionStatusChange);
+  }, 5000);
+}
+
+// seeded is the preview's query client, which a message sent from the
+// project's chat to an agent joins as the daemon's notice would.
+let seeded: QueryClient | undefined;
+
+// closedByProject is the preview's chat histories, which closing, settling
+// and reopening move sessions into and out of.
+const closedByProject = new Map<string, T.LeadSession[]>();
+const closedOf = (project: string): T.LeadSession[] => {
+  if (!closedByProject.has(project)) closedByProject.set(project, seedClosed(project));
+  return closedByProject.get(project) ?? [];
+};
+
+// devOutput is what each of the incident project's sessions made, for its
+// header (chat/SessionHeader.tsx): onboarding-copy's work is all in, so it is
+// the one ?settle=demo settles.
+function devOutput(project: string, id: string): T.SessionOutput {
+  const pr = (number: number, state: string, checks: string, title: string): T.PullRequest => ({ number, title, state, checks, url: `https://github.com/acme/web/pull/${number}` });
+  const live = (name: string, title: string, working: boolean, p?: T.PullRequest): T.SessionAgent => ({ ref: `${project}/${name}`, name, title, branch: `agentbox/${name}`, working, pr: p });
+  const retired = (name: string, title: string, p: T.PullRequest): T.SessionAgent => ({ ref: `${project}/${name}`, name, title, branch: `agentbox/${name}`, archived: true, pr: p });
+  const byId: Record<string, T.SessionAgent[]> = {
+    main: [live('agent-99', 'PR agent', true, pr(412, 'open', 'passing', 'Show the PR agent’s work')), live('agent-96', 'Fix the agent rail overflowing on wide text', true, pr(398, 'open', 'pending', 'Wrap the rail')), live('agent-39', 'Paginate the reminders page', false, pr(377, 'merged', 'passing', 'Paginate reminders'))],
+    'prod-login-500s': [live('agent-12', 'Add a "New project" button to the Sidebar', true, pr(405, 'open', 'failing', 'Fix the session cookie')), live('agent-98', 'Question agent', false), retired('agent-41', 'Find the 500s', pr(401, 'merged', 'passing', 'Log the login 500s'))],
+    'onboarding-copy': [live('agent-97', 'Long path agent', false, pr(390, 'merged', 'passing', 'Rewrite the welcome copy')), live('agent-38', 'Migrate the reminders table', false, pr(389, 'closed', '', 'Migrate reminders'))],
+  };
+  return { project, session: id, agents: project === PROJECT ? (byId[id] ?? []) : [] };
+}
+
+const devDiff = (name: string) => `diff --git a/src/${name}.ts b/src/${name}.ts
+--- a/src/${name}.ts
++++ b/src/${name}.ts
+@@ -1,4 +1,6 @@
+ export function handler(req: Request) {
+-  return legacy(req);
++  // ${name}: read the session from its cookie first
++  const session = readCookie(req, 'session');
++  return session ? fresh(req, session) : legacy(req);
+ }
+`;
+
+// settleDemo, with ?settle=demo, settles onboarding-copy a few seconds in, as
+// the daemon's sweep would (daemon/sessionsettle.go), toast and all.
+export function settleDemo(queryClient: QueryClient): void {
+  if (new URLSearchParams(location.search).get('settle') !== 'demo') return;
+  setTimeout(() => {
+    const open = devSessions(PROJECT);
+    const s = open.find((x) => x.id === 'onboarding-copy');
+    if (!s) return;
+    const settled: T.LeadSession = { ...s, closedAt: new Date().toISOString(), settled: true, chat: 'off' };
+    sessionsByProject.set(PROJECT, open.filter((x) => x.id !== s.id));
+    closedByProject.set(PROJECT, [settled, ...(closedOf(PROJECT))]);
+    void queryClient.invalidateQueries({ queryKey: ['leadSessions', PROJECT] });
+    sessionsSettled({ project: PROJECT, sessions: [settled] });
+  }, 4000);
+}
+
+// The fixtures' project's history: one closed session.
+const seedClosed = (project: string): T.LeadSession[] => {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  return project === PROJECT
+    ? [{ project, id: 'release-notes', ref: `${project}/lead.release-notes`, topic: 'Release notes for v0.17', color: 'sky', chat: 'off', agents: 1, createdAt: at(5 * 86_400_000), activeAt: at(3 * 86_400_000), closedAt: at(3 * 86_400_000), last: { kind: 'assistant', text: 'The changelog leads with the session cookie fix.', at: at(3 * 86_400_000) } }]
+    : [];
+};
+
+// What each fixture session said, for the search palette's sessions group.
+const devSaid: Record<string, string> = {
+  main: 'Ask agent-12 to retry the flaky upload test',
+  'prod-login-500s': 'agent-41 found it: the session cookie expires before the redirect.',
+  'onboarding-copy': 'The welcome screen should mention the cookie banner once.',
+  'release-notes': 'The changelog leads with the session cookie fix.',
+};
+
+// devSessionHits is the sessions group of a search: by topic or by what was
+// said, open and closed, the fixtures' project's only.
+function devSessionHits(q: string, scope: string | null): T.SearchHit[] {
+  if (!q || (scope && scope !== PROJECT)) return [];
+  return [...devSessions(PROJECT), ...closedOf(PROJECT)].flatMap((s): T.SearchHit[] => {
+    const said = devSaid[s.id] ?? '';
+    const byTopic = s.topic.toLowerCase().includes(q);
+    if (!byTopic && !said.toLowerCase().includes(q)) return [];
+    return [{ id: s.id, title: s.topic, detail: said || undefined, project: PROJECT, session: s.id, archived: !!s.closedAt || undefined, at: s.activeAt }];
+  });
+}
+
+function sessionsRequest(method: string, path: string, body: unknown) {
+  const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
+  const history = /^\/v1\/projects\/([^/]+)\/sessions\?closed=true$/.exec(path);
+  if (history && method === 'GET') return json(closedOf(decodeURIComponent(history[1])));
+  const output = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/output$/.exec(path);
+  if (output && method === 'GET') return json(devOutput(decodeURIComponent(output[1]), decodeURIComponent(output[2])));
+  const diff = /^\/v1\/(?:archived-)?agents\/[^/]+\/([^/]+)\/diff$/.exec(path);
+  if (diff && method === 'GET') return { status: 200, body: devDiff(decodeURIComponent(diff[1])), contentType: 'text/plain' };
+  const act = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/(snooze|close|reopen)$/.exec(path);
+  if (act && method === 'POST') {
+    const [project, id, verb] = [decodeURIComponent(act[1]), decodeURIComponent(act[2]), act[3]];
+    const open = devSessions(project);
+    const closed = closedOf(project);
+    if (verb === 'reopen') {
+      const s = closed.find((x) => x.id === id);
+      if (!s) return { status: 409, body: JSON.stringify({ error: 'open' }), contentType: 'application/json' };
+      const back: T.LeadSession = { ...s, closedAt: undefined, settled: undefined };
+      closedByProject.set(project, closed.filter((x) => x.id !== id));
+      sessionsByProject.set(project, [...open, back]);
+      return json(back);
+    }
+    const s = open.find((x) => x.id === id);
+    if (!s) return { status: 409, body: JSON.stringify({ error: 'closed' }), contentType: 'application/json' };
+    if (verb === 'close') {
+      const gone: T.LeadSession = { ...s, closedAt: new Date().toISOString(), snoozedUntil: undefined };
+      sessionsByProject.set(project, open.filter((x) => x.id !== id));
+      closedByProject.set(project, [gone, ...closed]);
+      return json(gone);
+    }
+    const until = (body as T.LeadSessionSnooze).until;
+    const next: T.LeadSession = { ...s, snoozedUntil: until };
+    sessionsByProject.set(project, open.map((x) => (x.id === id ? next : x)));
+    return json(next);
+  }
+  const tabsOrder = (list: T.LeadSession[]) => [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  const order = /^\/v1\/projects\/([^/]+)\/sessions\/order$/.exec(path);
+  if (order && method === 'PUT') {
+    const project = decodeURIComponent(order[1]);
+    const ids = (body as T.LeadSessionOrder).ids;
+    const had = devSessions(project);
+    const next = tabsOrder([...ids.flatMap((id) => had.filter((x) => x.id === id)), ...had.filter((x) => !ids.includes(x.id))]);
+    sessionsByProject.set(project, next);
+    return json(next);
+  }
+  const one = /^\/v1\/projects\/([^/]+)\/sessions\/([^/?]+)$/.exec(path);
+  if (one && method === 'PATCH') {
+    const [project, id] = [decodeURIComponent(one[1]), decodeURIComponent(one[2])];
+    const { topic, pinned } = body as T.LeadSessionPatch;
+    const next = tabsOrder(devSessions(project).map((x) => (x.id === id ? { ...x, ...(topic ? { topic, untitled: false } : {}), ...(pinned !== undefined ? { pinned } : {}) } : x)));
+    sessionsByProject.set(project, next);
+    return json(next.find((x) => x.id === id));
+  }
+  const list = /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
+  if (list && method === 'GET') return json(devSessions(decodeURIComponent(list[1])));
+  if (list && method === 'POST') {
+    const project = decodeURIComponent(list[1]);
+    const topic = (body as T.NewLeadSessionRequest).topic;
+    const base = topic?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+    const taken = new Set(devSessions(project).map((x) => x.id));
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    const now = new Date().toISOString();
+    const used = new Set(devSessions(project).map((x) => x.color));
+    const color = SESSION_COLORS.find((c) => !used.has(c)) ?? 'rose';
+    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
+    sessionsByProject.set(project, [...devSessions(project), s]);
+    return json(s);
+  }
+  const seen = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/seen$/.exec(path);
+  if (seen && method === 'POST') {
+    const [project, id] = [decodeURIComponent(seen[1]), decodeURIComponent(seen[2])];
+    const at = (body as T.SeeLeadSessionRequest | undefined)?.at ?? new Date().toISOString();
+    const list = devSessions(project).map((s) => (s.id === id ? { ...s, seenAt: at, unread: false } : s));
+    sessionsByProject.set(project, list);
+    return json(list.find((s) => s.id === id) ?? {});
+  }
+  const lead = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/lead$/.exec(path);
+  if (lead && method === 'GET') {
+    const [project, id] = [decodeURIComponent(lead[1]), decodeURIComponent(lead[2])];
+    const s = devSessions(project).find((x) => x.id === id);
+    return json({ project, session: id, ref: s?.ref ?? `${project}/lead`, started: true, chat: s?.chat ?? 'ready' } satisfies T.ProjectChat);
+  }
+  const send = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/chat\/messages$/.exec(path);
+  if (send && method === 'POST') {
+    const now = new Date().toISOString();
+    const { text, to } = body as T.ChatMessageRequest;
+    // In the turn the thread ends in: the fixtures add to an older one.
+    if (to) {
+      const id = decodeURIComponent(send[2]);
+      const ref = `${decodeURIComponent(send[1])}/${id === 'main' ? 'lead' : `lead.${id}`}`;
+      const told: T.ChatItem = { id: `n-${Date.now()}`, turn: '', kind: 'notice', to, text, createdAt: now, updatedAt: now };
+      seeded?.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, { ...told, turn: thread.items.at(-1)?.turn ?? '' }] });
+      return json(told);
+    }
+    return json({ id: `u-${Date.now()}`, turn: '', kind: 'user', text: (body as T.ChatMessageRequest).text, createdAt: now, updatedAt: now } satisfies T.ChatItem);
+  }
+  return undefined;
+}
+
+// seedCacheCard leaves the incident's session idle to within a minute of its
+// prompt cache's expiry, shown, with its card up (?cache=due).
+export function seedCacheCard(queryClient: QueryClient): void {
+  const ref = `${PROJECT}/lead.prod-login-500s`;
+  const now = Date.now();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  queryClient.setQueryData(['chatCache', ref], {
+    project: PROJECT, session: 'prod-login-500s', idleSince: iso(now - 56 * 60_000), ttlSeconds: 3600, ttlSource: 'subscription',
+    dueAt: iso(now - 60_000), expiresAt: iso(now + 4 * 60_000), contextUsed: 184_000, due: true,
+  } satisfies T.ChatCache);
+  queryClient.setQueryData(['chat', ref], { ...leadChat(), agent: ref, session: { ...leadChat().session, state: 'ready' } });
 }

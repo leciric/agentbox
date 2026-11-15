@@ -23,6 +23,9 @@ type FanOutRequest struct {
 	// Judge asks the project's chat to compare the agents' work and
 	// recommend one once they have all finished.
 	Judge bool `json:"judge,omitempty"`
+	// LeadSession is the chat session that asked, set by the daemon (see
+	// CreateAgentRequest.LeadSession).
+	LeadSession string `json:"-"`
 }
 
 // FanOutVariant is what one agent of a group runs: CreateAgentRequest's
@@ -36,6 +39,8 @@ type FanOutVariant struct {
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 }
 
 // FanOutResult is the group made, and the jobs making its agents.

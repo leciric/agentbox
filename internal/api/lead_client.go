@@ -13,6 +13,22 @@ import (
 
 func (c *Client) leadPath(suffix string) string { return "/v1/project" + suffix }
 
+// OnMachine is c reaching the same project on another machine of the hub
+// account, named as the hub lists it: the lead calls below act there, through
+// this machine's daemon and the hub (internal/daemon/peers.go).
+func (c *Client) OnMachine(machine string) *Client {
+	out := *c
+	out.base = c.base + c.leadPath("/machines/"+url.PathEscape(machine)+"/api")
+	return &out
+}
+
+// ProjectMachines lists the other machines of the hub account, and whether
+// each has the project.
+func (c *Client) ProjectMachines(ctx context.Context) ([]Machine, error) {
+	var out []Machine
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/machines"), nil, &out)
+}
+
 // ProjectFleet lists the agents of the project behind the lead socket.
 func (c *Client) ProjectFleet(ctx context.Context) (Fleet, error) {
 	var out Fleet
@@ -69,6 +85,19 @@ func (c *Client) TellAgent(ctx context.Context, agent, message string) (TellResu
 	var out TellResult
 	path := c.leadPath("/agents/" + url.PathEscape(agent) + "/chat/messages")
 	return out, c.do(ctx, http.MethodPost, path, ChatMessageRequest{Text: message}, &out)
+}
+
+// SetAgentGoal sets or changes one of the project's agents' goal, for its
+// lead, and sends it to work towards it.
+func (c *Client) SetAgentGoal(ctx context.Context, agent string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.do(ctx, http.MethodPut, c.leadPath("/agents/"+url.PathEscape(agent)+"/goal"), spec, &out)
+}
+
+// ClearAgentGoal clears one of the project's agents' goal, for its lead.
+func (c *Client) ClearAgentGoal(ctx context.Context, agent string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.do(ctx, http.MethodDelete, c.leadPath("/agents/"+url.PathEscape(agent)+"/goal"), nil, &out)
 }
 
 func (c *Client) AgentChat(ctx context.Context, agent string) (ChatThread, error) {

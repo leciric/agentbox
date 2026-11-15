@@ -117,6 +117,33 @@ var migrations = []string{
 	// Tailscale, the second transport: '' is Cloudflare.
 	`ALTER TABLE environment_tunnels ADD COLUMN transport TEXT NOT NULL DEFAULT '';
 	ALTER TABLE environment_tunnels ADD COLUMN address TEXT NOT NULL DEFAULT '';`,
+	// Remote MCP (mcp.go): an environment's pairings with other apps, the
+	// tokens those apps call with, and the OAuth clients that registered.
+	`CREATE TABLE mcp_pairings (
+		id TEXT PRIMARY KEY,
+		environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+		label TEXT NOT NULL,
+		access TEXT NOT NULL,
+		projects TEXT NOT NULL,
+		created_at BIGINT NOT NULL,
+		last_used_at BIGINT NOT NULL
+	);
+	CREATE INDEX mcp_pairings_environment ON mcp_pairings(environment_id);
+	CREATE TABLE mcp_tokens (
+		token_hash TEXT PRIMARY KEY,
+		pairing_id TEXT NOT NULL REFERENCES mcp_pairings(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		created_at BIGINT NOT NULL,
+		expires_at BIGINT NOT NULL
+	);
+	CREATE INDEX mcp_tokens_pairing ON mcp_tokens(pairing_id);
+	CREATE TABLE oauth_clients (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		redirect_uris TEXT NOT NULL,
+		created_at BIGINT NOT NULL
+	);`,
 }
 
 func (s *SQLStore) migrate(ctx context.Context) error {
@@ -420,6 +447,14 @@ func (s *SQLStore) SeenEnvironment(ctx context.Context, id string, seen time.Tim
 }
 
 func (s *SQLStore) DeleteEnvironment(ctx context.Context, id string) error {
+	// Its MCP pairings go first, and their tokens: SQLite only cascades when
+	// foreign keys are on.
+	if _, err := s.exec(ctx, `DELETE FROM mcp_tokens WHERE pairing_id IN (SELECT id FROM mcp_pairings WHERE environment_id = ?)`, id); err != nil {
+		return err
+	}
+	if _, err := s.exec(ctx, `DELETE FROM mcp_pairings WHERE environment_id = ?`, id); err != nil {
+		return err
+	}
 	res, err := s.exec(ctx, `DELETE FROM environments WHERE id = ?`, id)
 	if err != nil {
 		return err

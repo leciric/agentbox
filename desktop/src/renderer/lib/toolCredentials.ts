@@ -9,9 +9,11 @@ const variables: Record<string, string[]> = {
   claude: A.ClaudeCredentialVariables.split(' '),
   codex: A.CodexCredentialVariables.split(' '),
   opencode: A.OpenCodeCredentialVariables.split(' '),
+  gemini: A.GeminiCredentialVariables.split(' '),
+  copilot: A.CopilotCredentialVariables.split(' '),
 };
 
-// aiToolsReading are the AI tools (claude, codex, opencode) that would take
+// aiToolsReading are the AI tools (claude, codex, opencode, gemini, copilot) that would take
 // name as their credential, in a stable order: empty for any other name.
 export function aiToolsReading(name: string): string[] {
   const n = name.trim();

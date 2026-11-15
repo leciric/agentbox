@@ -13,7 +13,7 @@ export function PopoverContent({ className, align = 'end', ...props }: Component
         align={align}
         sideOffset={8}
         className={cn(
-          'z-50 animate-fade-in rounded-xl border border-line-strong bg-overlay p-3 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur',
+          'z-50 animate-fade-in rounded-xl border border-line-strong bg-overlay p-3 shadow-pop backdrop-blur',
           className,
         )}
         {...props}

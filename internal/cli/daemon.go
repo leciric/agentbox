@@ -216,6 +216,17 @@ func insideAgent() bool {
 	return err == nil && strings.HasPrefix(host, insideAgentHostnamePrefix)
 }
 
+// onAgentMachine is insideAgent without its hostname fallback: what a guard
+// that refuses work uses, so a host that happens to be named ab-… isn't
+// taken for an agent.
+func onAgentMachine() bool {
+	if _, err := os.Stat(inAgentMarker()); err == nil {
+		return true
+	}
+	_, err := os.Stat(inAgentSocket())
+	return err == nil
+}
+
 // inAgentSocket is api.InAgentSocket, unless AGENTBOX_IN_AGENT_SOCKET says
 // otherwise: a seam so tests can point whoami at a path they control instead
 // of the real in-agent socket, which may or may not exist on the machine

@@ -42,11 +42,15 @@ func newMCPCmd(a *app) *cobra.Command {
 			if os.Getenv("AGENTBOX_CHAT") == "home" {
 				tools = homeTools
 			}
-			srv := &mcp.Server{Name: "agentbox", Version: version, Tools: tools(cmd.Context(), c)}
+			srv := &mcp.Server{Name: "agentbox", Version: version, LoadTools: func() []mcp.Tool { return tools(cmd.Context(), c) }}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 }
+
+// startupRead bounds each read the tools make of the daemon as they start: a
+// daemon slower than that leaves them AgentBox's defaults rather than no tools.
+const startupRead = 10 * time.Second
 
 // merge adds one set of schema properties to another, for parameters built at
 // startup from what the daemon knows.
@@ -94,15 +98,18 @@ func choiceOf(description string, values ...string) map[string]any {
 // that choosing is its job.
 func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel bool, ready readyTools) {
 	var models, efforts, openCodeModels []string
-	var openCode, cursorReady bool
-	var cursorModels []api.ChatOptionChoice
+	var openCode, cursorReady, geminiReady, copilotReady bool
+	var cursorModels, geminiModels, copilotModels []api.ChatOptionChoice
 	// The defaults an agent created with none of these gets, named in the
 	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
 	// never reach its agents.
 	defaultModel, defaultWindow := state.DefaultClaudeModel, strings.ToLower(state.FormatContextWindow(state.DefaultClaudeCompactWindow))
 	var enforced bool
-	if settings, err := c.ProjectSettings(ctx); err == nil {
+	read, cancel := context.WithTimeout(ctx, startupRead)
+	settings, err := c.ProjectSettings(read)
+	cancel()
+	if err == nil {
 		enforced = settings.EnforceAgentDefaults
 		if settings.DefaultClaudeModel != "" {
 			defaultModel = settings.DefaultClaudeModel
@@ -125,15 +132,24 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		}
 		openCode = settings.OpenCodeReady
 		cursorReady, cursorModels = settings.CursorReady, settings.CursorModelChoices
+		geminiReady, geminiModels = settings.GeminiReady, settings.GeminiModelChoices
+		copilotReady, copilotModels = settings.CopilotReady, settings.CopilotModelChoices
 	}
 	// What the project asks of this parameter. The lead's brief says the same
 	// thing at greater length; this is what a model reads at the moment it
 	// fills the tool call in.
 	var auto bool
+	var projectTool string
 	defaultFrom := "Settings → Models' default"
-	if p, err := c.ProjectSelf(ctx); err == nil {
+	read, cancel = context.WithTimeout(ctx, startupRead)
+	p, err := c.ProjectSelf(read)
+	cancel()
+	if err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
-		if p.AgentModel != "" && !auto {
+		projectTool = p.AgentTool
+		// The project's model is its tool's: a Claude Code name only while
+		// that tool is Claude Code.
+		if p.AgentModel != "" && !auto && (projectTool == "" || projectTool == "claude") {
 			defaultModel, defaultFrom = p.AgentModel, "this project's choice"
 		}
 	}
@@ -192,6 +208,35 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		tools = append(tools, "cursor")
 		aiDescription += "; cursor (Cursor's and other vendors' models on the user's Cursor account: chat only, and it never asks permission)"
 	}
+	if geminiReady {
+		named := "Gemini CLI's model ids (\"auto\" lets it choose)"
+		if len(geminiModels) > 0 {
+			ids := make([]string, len(geminiModels))
+			for i, m := range geminiModels {
+				ids[i] = m.Value
+			}
+			named = "one of " + strings.Join(ids, ", ")
+		}
+		model += " For ai=\"gemini\" it is " + named + "."
+		tools = append(tools, "gemini")
+		aiDescription += "; gemini (Gemini CLI, Google's Gemini models on the user's Google account or API key)"
+	}
+	if copilotReady {
+		named := "GitHub Copilot CLI's model ids (\"auto\" lets it choose)"
+		if len(copilotModels) > 0 {
+			ids := make([]string, len(copilotModels))
+			for i, m := range copilotModels {
+				ids[i] = m.Value
+			}
+			named = "one of " + strings.Join(ids, ", ")
+		}
+		model += " For ai=\"copilot\" it is " + named + "."
+		tools = append(tools, "copilot")
+		aiDescription += "; copilot (GitHub Copilot CLI, the models of the user's Copilot plan, spending its AI credits)"
+	}
+	if projectTool != "" {
+		aiDescription = strings.Replace(aiDescription, ", the default", "", 1) + ". Left out, it runs " + projectTool + ", the tool this project's settings name for its agents"
+	}
 	if len(tools) > 1 {
 		params["ai"] = choiceOf(aiDescription+". Another than claude only when the task or the user asks for it; say which and why.", tools...)
 	}
@@ -204,7 +249,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	params["permissions"] = choiceOf("autonomous (the default) never asks: its machine is the sandbox. ask stops before every change, "+
 		"only for an agent someone is watching", "autonomous", "ask")
 	effort := str("how hard it thinks, as Claude Code names it; an unknown level is refused, and a model with none ignores it. " +
-		"None for OpenCode; a Cursor model's own levels, listed with it. Leave this out for the effort new agents start on in Settings, else medium.")
+		"None for OpenCode or Gemini CLI; a Cursor model's own levels, listed with it; Copilot's low, medium or high on a model that reasons. Leave this out for the effort new agents start on in Settings, else medium.")
 	if len(efforts) > 0 {
 		effort["enum"] = efforts
 	}
@@ -214,19 +259,117 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		params["context_window"] = str("where its chat compacts. Settings → Models enforces " + defaultWindow +
 			" for every agent you create, so leave this out: any other window is refused.")
 	case defaultWindow == "1m":
-		params["context_window"] = str("where its chat compacts, \"200k\" or \"1m\" (not for Haiku). Leave this out for 1m, " +
-			"Settings → Models' default and the most it allows. Late in a long task 1m costs up to twice as much a step: " +
-			"choose 200k unless the work needs a very large codebase or log in view at once.")
+		params["context_window"] = str("where its chat compacts, as \"200k\" or \"1m\". Any window from " +
+			state.FormatContextWindow(state.MinContextWindow) + " up to the model's whole window works, and a longer one is refused " +
+			"(Haiku's whole window is 200k). Leave this out for 1m, Settings → Models' default and the most it allows. " +
+			"Late in a long task 1m costs up to twice as much a step: choose 200k unless the work needs a very large codebase or log in view at once.")
 	default:
-		params["context_window"] = str("where its chat compacts. Leave this out for " + defaultWindow +
-			", Settings → Models' default, which is also the most it allows: a longer one is refused.")
+		params["context_window"] = str("where its chat compacts, as \"200k\" or \"1m\". Leave this out for " + defaultWindow +
+			", Settings → Models' default, which is also the most you may use: pass any window from " +
+			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", and a longer one is refused.")
 	}
-	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady, copilot: copilotReady}
 }
 
 // readyTools says which AI tools besides Claude Code an agent could run right
 // now, so create_agent offers only those.
-type readyTools struct{ openCode, cursor bool }
+type readyTools struct{ openCode, cursor, gemini, copilot bool }
+
+// goalParams are a goal's parameters: create_agent's and tell_agent's.
+func goalParams() map[string]any {
+	return map[string]any{
+		"goal": str("what done looks like, when AgentBox should hold it to that: " + goalHeld),
+		"goal_checks": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+			"description": "with goal: \"pr_open\", \"ci_green\" (its pull request's checks all passed), or a shell command that must exit 0 in its worktree"},
+		"goal_budget": map[string]any{"type": "integer", "description": "with goal: the most times it is sent back, 10 by default"},
+	}
+}
+
+// goalSpec is create_agent's goal arguments as the API takes them; nil
+// without a goal.
+func goalSpec(goal string, checks []string, budget int) *api.GoalSpec {
+	if strings.TrimSpace(goal) == "" {
+		return nil
+	}
+	spec := &api.GoalSpec{Objective: goal, Budget: budget}
+	for _, c := range checks {
+		switch c = strings.TrimSpace(c); c {
+		case "":
+		case api.GoalCheckPROpen, api.GoalCheckCIGreen:
+			spec.Checks = append(spec.Checks, api.GoalCheck{Kind: c})
+		default:
+			spec.Checks = append(spec.Checks, api.GoalCheck{Kind: api.GoalCheckCommand, Command: c})
+		}
+	}
+	return spec
+}
+
+// goalArgs are a goal's arguments: create_agent's, tell_agent's and the Home
+// chat's set_goal's (which says clear for clear_goal).
+type goalArgs struct {
+	Goal       string
+	GoalChecks []string `json:"goal_checks"`
+	GoalBudget int      `json:"goal_budget"`
+	ClearGoal  bool     `json:"clear_goal"`
+}
+
+// goalHeld is what holding an agent to a goal means, for the tools'
+// descriptions.
+const goalHeld = "after each turn AgentBox runs goal_checks and sends it back with what is missing until they pass or goal_budget runs out; you hear when it is met or blocked"
+
+// runSetGoal sets or clears a goal through set and clear, and says what
+// happened.
+func runSetGoal(in goalArgs, name string, set func(api.GoalSpec) (api.GoalResult, error), clear func() (api.GoalResult, error)) (string, error) {
+	if in.ClearGoal {
+		if _, err := clear(); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Cleared %s's goal; AgentBox no longer checks it.", name), nil
+	}
+	spec := goalSpec(in.Goal, in.GoalChecks, in.GoalBudget)
+	if spec == nil {
+		return "", errors.New("give the goal (what done looks like), or clear it")
+	}
+	res, err := set(*spec)
+	if err != nil {
+		return "", err
+	}
+	how := "it was idle, so it is working towards it now"
+	if res.Told == "aside" {
+		how = "it reads it mid-work"
+	}
+	if res.Woke != "" {
+		how += fmt.Sprintf(" (its machine was %s first)", res.Woke)
+	}
+	return fmt.Sprintf("Set %s's goal: %s; %s. You hear when it is met or blocked.", name, describeGoal(&res.Goal), how), nil
+}
+
+// describeGoal is an agent's goal in a line: its objective, state, checks and
+// budget left.
+func describeGoal(g *api.AgentGoal) string {
+	if g == nil || g.Status == api.GoalCleared {
+		return ""
+	}
+	s := fmt.Sprintf("%q, %s", g.Objective, g.Status)
+	if n := len(g.Checks); n > 0 {
+		passed := 0
+		for _, c := range g.Checks {
+			if c.Met != nil && *c.Met {
+				passed++
+			}
+		}
+		s += fmt.Sprintf(", %d of %d checks passed", passed, n)
+	}
+	if g.Source == api.GoalSourceAgentBox && g.Budget > 0 {
+		s += fmt.Sprintf(", sent back %d of %d times", g.Continuations, g.Budget)
+	} else if g.Source == api.GoalSourceTool {
+		s += " (its AI tool's own /goal)"
+	}
+	if g.Status == api.GoalBlocked && g.LastUnmet != "" {
+		s += ": " + g.LastUnmet
+	}
+	return s
+}
 
 // cursorMenu names Cursor's models for the lead, each with the effort levels
 // it takes, like "claude-opus-5-5 (effort: low, high)".
@@ -243,8 +386,9 @@ func cursorMenu(models []api.ChatOptionChoice) string {
 }
 
 // leadAI reads create_agent's "ai": the AI tool the agent runs. Empty stays
-// empty, for the daemon to give the agent the tool its lead runs, on the
-// lead's account (agent.LeadToolDefault), or Claude Code when agents can't run
+// empty, for the daemon to give the agent the tool its project names for its
+// agents (Project.AgentTool), else the tool its lead runs, on the lead's
+// account (agent.LeadToolDefault), or Claude Code when agents can't run
 // that tool here. A named tool is checked here rather than in the daemon, so the refusal can say why the tool
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an
@@ -258,7 +402,8 @@ func leadAI(ai string, ready readyTools) (string, error) {
 	case "opencode":
 		if !ready.openCode {
 			return "", errors.New("this machine can't run OpenCode agents: OpenCode has to be built into the base image " +
-				"(agentbox image build --opencode) and logged in (agentbox auth opencode). Create the agent with ai=\"claude\", " +
+				"(agentbox image build --opencode; OpenCode 2 needs no build) and logged in (agentbox auth opencode). " +
+				"Create the agent with ai=\"claude\", " +
 				"or ask the user to set OpenCode up first")
 		}
 		return "opencode", nil
@@ -268,8 +413,20 @@ func leadAI(ai string, ready readyTools) (string, error) {
 				"Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Cursor first")
 		}
 		return "cursor", nil
+	case "gemini":
+		if !ready.gemini {
+			return "", errors.New("this machine can't run Gemini CLI agents: agents have no Gemini CLI login (agentbox auth gemini, or " +
+				"a Gemini API key under Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Gemini CLI first")
+		}
+		return "gemini", nil
+	case "copilot":
+		if !ready.copilot {
+			return "", errors.New("this machine can't run GitHub Copilot CLI agents: agents have no Copilot login (agentbox auth copilot, or " +
+				"a GitHub token under Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to add one first")
+		}
+		return "copilot", nil
 	default:
-		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode) or \"cursor\" (Cursor)", ai)
+		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode), \"cursor\" (Cursor), \"gemini\" (Gemini CLI) or \"copilot\" (GitHub Copilot CLI)", ai)
 	}
 }
 
@@ -376,7 +533,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if leadPicksModel {
 		startsOn = "Choose its model (see model); effort and permissions default to what new agents start on here."
 	}
-	agent := str("its name, like agent-03")
+	goals := goalParams()
+	agent := str("its name, like agent-03; agent-03@vps on the machine vps")
+	machine := str("another machine (list_resources machines)")
 	// Each account left out is yours when the agent runs the tool you run,
 	// else the project's.
 	accounts := map[string]any{
@@ -387,6 +546,12 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if ready.cursor {
 		accounts["cursor_account"] = str("the same for a Cursor agent")
 	}
+	if ready.gemini {
+		accounts["gemini_account"] = str("the same for a Gemini CLI agent")
+	}
+	if ready.copilot {
+		accounts["copilot_account"] = str("the same for a GitHub Copilot CLI agent")
+	}
 	if ready.openCode {
 		accounts["opencode_accounts"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
 			"description": "for ai=\"opencode\": provider → account, like {\"anthropic\": \"work\"}; the project's for a provider left out"}
@@ -396,12 +561,13 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "list_agents",
 			Description: "This project's agents: what each is for and doing, its changes, media and pull request, and whether it " +
 				"finished and still holds a machine. Queued ones show their place. With archived, past agents instead, which read_agent still reads.",
-			Schema: object(nil, archivedParams),
+			Schema: object(nil, merge(map[string]any{"machine": machine}, archivedParams)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in archivedArgs
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c := onMachine(c, args)
 				if in.Archived {
 					past, err := c.ProjectArchivedAgents(ctx, in.options(""))
 					if err != nil {
@@ -422,7 +588,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"directly: what to do, what done looks like, what to leave alone. With issue, the task is that GitHub issue and its " +
 				"pull request closes it. " +
 				startsOn + runsTool,
-			Schema: object(nil, merge(merge(map[string]any{
+			Schema: object(nil, merge(merge(merge(map[string]any{
 				"title": str("a short name for the sidebar, like \"Reminders page\"; required without issue"),
 				"task":  str("what to do, directly: usually a few lines; required without issue, added after it with one"),
 				"issue": map[string]any{"type": "integer", "description": "an open issue's number (list_resources issues)"},
@@ -435,14 +601,20 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"react to; it matters only when the project's finish notices go to the lead", "chat", "off"),
 				"connectors": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 					"description": "which connectors (list_resources connectors) it gets, like [\"notion\"]; [] for none, all when left out. Each costs it context every turn"},
-			}, accounts), settings)),
+				"machine": machine,
+			}, accounts), settings), goals)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
+					Goal                          string
+					GoalChecks                    []string `json:"goal_checks"`
+					GoalBudget                    int      `json:"goal_budget"`
 					Title, Task, From, AI, Branch string
 					Issue                         int
 					ClaudeAccount                 string            `json:"claude_account"`
 					CodexAccount                  string            `json:"codex_account"`
 					CursorAccount                 string            `json:"cursor_account"`
+					GeminiAccount                 string            `json:"gemini_account"`
+					CopilotAccount                string            `json:"copilot_account"`
 					OpenCodeAccounts              map[string]string `json:"opencode_accounts"`
 					Research                      bool
 					// Pointers: an agent given no model is not the same as one
@@ -483,16 +655,19 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						return "", fmt.Errorf("notify is %q: it is \"chat\" (wakes you when this agent finishes) or \"off\" (only records it)", *in.Notify)
 					}
 				}
-				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
+				job, err := onMachine(c, args).CreateProjectAgent(ctx, api.CreateAgentRequest{
 					Title: in.Title, Task: in.Task, Issue: in.Issue, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
 					ContextWindow:    in.ContextWindow,
 					ClaudeAccount:    in.ClaudeAccount,
 					CodexAccount:     in.CodexAccount,
 					CursorAccount:    in.CursorAccount,
+					GeminiAccount:    in.GeminiAccount,
+					CopilotAccount:   in.CopilotAccount,
 					OpenCodeAccounts: in.OpenCodeAccounts,
 					FinishNotice:     notify,
 					Connectors:       in.Connectors,
+					Goal:             goalSpec(in.Goal, in.GoalChecks, in.GoalBudget),
 				})
 				if err != nil {
 					return "", err
@@ -501,8 +676,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if in.Issue != 0 {
 					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
 				}
-				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.%s",
-					what, describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
+				return fmt.Sprintf("Creating %s%s%s; it starts on the task by itself. Job %s.%s",
+					what, onMachineText(args), describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, in.GeminiAccount, in.CopilotAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -531,6 +706,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						ClaudeAccount    string            `json:"claude_account"`
 						CodexAccount     string            `json:"codex_account"`
 						CursorAccount    string            `json:"cursor_account"`
+						GeminiAccount    string            `json:"gemini_account"`
+						CopilotAccount   string            `json:"copilot_account"`
 						OpenCodeAccounts map[string]string `json:"opencode_accounts"`
 					}
 				}
@@ -545,7 +722,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					}
 					req.Variants = append(req.Variants, api.FanOutVariant{
 						AI: ai, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
-						ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, CursorAccount: v.CursorAccount, OpenCodeAccounts: v.OpenCodeAccounts,
+						ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, CursorAccount: v.CursorAccount, GeminiAccount: v.GeminiAccount, CopilotAccount: v.CopilotAccount, OpenCodeAccounts: v.OpenCodeAccounts,
 					})
 				}
 				out, err := c.ProjectFanOut(ctx, req)
@@ -601,17 +778,34 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "tell_agent",
 			Description: "Send one of this project's agents a correction, more detail or its next step. A working agent gets it " +
-				"mid-work and decides when to act on it, so don't wait for it or stop it first.",
-			Schema: object([]string{"agent", "message"}, map[string]any{
-				"agent":   agent,
-				"message": str("what to tell it, in a line or two"),
+				"mid-work and decides when to act on it, so don't wait for it or stop it first. With goal, it sets its goal " +
+				"instead, sending an idle agent back to work.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":       agent,
+				"message":     str("what to tell it, in a line or two"),
+				"goal":        str("set or replace its goal: as create_agent's"),
+				"goal_checks": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "as create_agent's"},
+				"goal_budget": map[string]any{"type": "integer", "description": "as create_agent's"},
+				"clear_goal":  map[string]any{"type": "boolean", "description": "clear its goal"},
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ Agent, Message string }
+				var in struct {
+					Agent, Message string
+					goalArgs
+				}
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				it, err := c.TellAgent(ctx, in.Agent, in.Message)
+				on, name := agentOn(c, args, in.Agent)
+				if in.Goal != "" || in.ClearGoal {
+					return runSetGoal(in.goalArgs, in.Agent,
+						func(spec api.GoalSpec) (api.GoalResult, error) { return on.SetAgentGoal(ctx, name, spec) },
+						func() (api.GoalResult, error) { return on.ClearAgentGoal(ctx, name) })
+				}
+				if strings.TrimSpace(in.Message) == "" {
+					return "", errors.New("give the message, a goal, or clear_goal")
+				}
+				it, err := on.TellAgent(ctx, name, in.Message)
 				if err != nil {
 					return "", err
 				}
@@ -642,6 +836,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c, name := agentOn(c, args, in.Agent)
+				in.Agent = name
 				switch in.Show {
 				case "", "chat":
 					if in.Last <= 0 {
@@ -677,7 +873,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				res, err := c.RunInAgent(ctx, in.Agent, api.LeadRunRequest{Command: in.Command, Timeout: in.TimeoutSeconds})
+				on, name := agentOn(c, args, in.Agent)
+				res, err := on.RunInAgent(ctx, name, api.LeadRunRequest{Command: in.Command, Timeout: in.TimeoutSeconds})
 				if err != nil {
 					return "", err
 				}
@@ -697,10 +894,19 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"worktree's root without. A directory arrives under its own name"),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ To, Path, From, Into string }
+				var in struct{ To, Path, From, Into, Machine string }
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c, to := agentOn(c, args, in.To)
+				from, fromMachine := in.From, ""
+				if name, m, ok := strings.Cut(in.From, "@"); ok {
+					from, fromMachine = name, m
+				}
+				if _, toMachine, _ := strings.Cut(in.To, "@"); fromMachine != cmp.Or(in.Machine, toMachine) {
+					return "", errors.New("copy between two agents of one machine: this machine's files and agents can't be copied to another; commit and push instead")
+				}
+				in.To, in.From = to, from
 				if in.From == "" {
 					res, err := c.CopyToAgent(ctx, api.LeadHostCopyRequest{Path: in.Path, To: in.To, Into: in.Into})
 					if err != nil {
@@ -733,7 +939,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				result, err := c.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{in.Agent}, Force: in.Force})
+				on, name := agentOn(c, args, in.Agent)
+				result, err := on.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{name}, Force: in.Force})
 				if err != nil {
 					return "", err
 				}
@@ -783,6 +990,35 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	)
 }
 
+// onMachine is c, or c reaching another machine of the hub account when a
+// tool call names one (machine).
+func onMachine(c *api.Client, args json.RawMessage) *api.Client {
+	var in struct{ Machine string }
+	if decodeArgs(args, &in) != nil || strings.TrimSpace(in.Machine) == "" {
+		return c
+	}
+	return c.OnMachine(strings.TrimSpace(in.Machine))
+}
+
+// agentOn is c and an agent's name, reaching another machine of the hub
+// account when the call names one, as machine or as the name's @machine
+// (agent-03@vps).
+func agentOn(c *api.Client, args json.RawMessage, agent string) (*api.Client, string) {
+	if name, machine, ok := strings.Cut(agent, "@"); ok && machine != "" {
+		return c.OnMachine(machine), name
+	}
+	return onMachine(c, args), agent
+}
+
+// onMachineText says, in a tool's reply, which machine a call acted on.
+func onMachineText(args json.RawMessage) string {
+	var in struct{ Machine string }
+	if decodeArgs(args, &in) != nil || strings.TrimSpace(in.Machine) == "" {
+		return ""
+	}
+	return " on " + strings.TrimSpace(in.Machine)
+}
+
 // agentDiff is read_agent's diff: whole when it is small, else clipped to
 // what it touches and how it starts (D87).
 func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path string) (string, error) {
@@ -812,10 +1048,17 @@ func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path
 
 // memoryHeld says what the VM's memory pressure holds of an agent's tests and
 // builds, "" for nothing.
+// memoryHeld is what memory holds of an agent, for list_agents: its whole
+// machine, paused or waiting to boot, with its place in line, or its heavy
+// commands.
 func memoryHeld(h *api.MemoryHold) string {
 	switch {
 	case h == nil:
 		return ""
+	case h.Machine == "paused":
+		return fmt.Sprintf("paused, waiting for memory, %s in line (it resumes by itself; messages wait for it)", ordinal(h.Ahead+1))
+	case h.Machine == "waiting":
+		return fmt.Sprintf("waiting for memory to boot, %s in line", ordinal(h.Ahead+1))
 	case h.Paused > 0 && h.Waiting > 0:
 		return fmt.Sprintf("%d test/build %s paused and %d waiting for memory", h.Paused, plural(h.Paused, "command", "commands"), h.Waiting)
 	case h.Paused > 0:
@@ -824,8 +1067,24 @@ func memoryHeld(h *api.MemoryHold) string {
 	return fmt.Sprintf("%d test/build %s waiting for memory", h.Waiting, plural(h.Waiting, "command", "commands"))
 }
 
+// ordinal is n as "1st", "2nd", "3rd", "11th".
+func ordinal(n int) string {
+	suffix := "th"
+	if n%100 < 11 || n%100 > 13 {
+		switch n % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}
+
 func describeFleet(fleet api.Fleet) string {
-	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 {
+	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 && len(fleet.Remote) == 0 {
 		return "This project has no agents yet. Create one with create_agent."
 	}
 	var b strings.Builder
@@ -844,11 +1103,14 @@ func describeFleet(fleet api.Fleet) string {
 		if held := memoryHeld(f.Memory); held != "" {
 			fmt.Fprintf(&b, ", %s", held)
 		}
-		if account := cmp.Or(f.ClaudeAccount, f.CodexAccount, f.CursorAccount, describeAccountMap(f.OpenCodeAccounts)); account != "" {
+		if account := cmp.Or(f.ClaudeAccount, f.CodexAccount, f.CursorAccount, f.GeminiAccount, f.CopilotAccount, describeAccountMap(f.OpenCodeAccounts)); account != "" {
 			fmt.Fprintf(&b, ", account: %s", account)
 		}
 		if f.Idle {
 			b.WriteString(" (finished, still holding its machine)")
+		}
+		if f.SessionTopic != "" {
+			fmt.Fprintf(&b, "\n  session: %s", f.SessionTopic)
 		}
 		fmt.Fprintf(&b, "\n  changes: %s", changes(f.Changes))
 		if f.Media > 0 {
@@ -857,10 +1119,33 @@ func describeFleet(fleet api.Fleet) string {
 		if f.PR != nil {
 			fmt.Fprintf(&b, "\n  pull request: %s", pullRequest(f.PR))
 		}
+		if g := describeGoal(f.Goal); g != "" {
+			fmt.Fprintf(&b, "\n  goal: %s", g)
+		}
 		b.WriteString("\n")
 	}
 	if fleet.Idle > 0 {
 		fmt.Fprintf(&b, "\n%d agent(s) finished and are holding a machine. retire_agent frees one; its work stays on its branch.\n", fleet.Idle)
+	}
+	if len(fleet.Remote) > 0 {
+		b.WriteString("\nOn other machines, as their last notice said (list_agents with machine for the rest):\n")
+		for _, r := range fleet.Remote {
+			fmt.Fprintf(&b, "- %s on %s", r.Name, r.Machine)
+			if r.Title != "" {
+				fmt.Fprintf(&b, " — %s", r.Title)
+			}
+			fmt.Fprintf(&b, "\n  %s", dash(r.Status))
+			if r.Branch != "" {
+				fmt.Fprintf(&b, ", branch: %s", r.Branch)
+			}
+			if r.Summary != "" {
+				fmt.Fprintf(&b, ": %s", oneLine(clip(r.Summary, 160)))
+			}
+			if r.PRURL != "" {
+				fmt.Fprintf(&b, "\n  pull request: %s", r.PRURL)
+			}
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
 }
@@ -872,7 +1157,7 @@ func describeFleet(fleet api.Fleet) string {
 // from D85, said the same honest way agentbox tokens says it: a window past
 // its reset is said to have reset, not shown with a number that no longer
 // describes it.
-// describeToolAccounts lists the Codex, OpenCode and Cursor accounts, and
+// describeToolAccounts lists the Codex, OpenCode, Cursor, Gemini CLI and Copilot accounts, and
 // says which this project uses; nothing when there are none.
 func describeToolAccounts(accounts []api.ToolAccount, p api.Project) string {
 	if len(accounts) == 0 {
@@ -882,8 +1167,8 @@ func describeToolAccounts(accounts []api.ToolAccount, p api.Project) string {
 	b.WriteString("\nThe other tools' accounts, for an agent that runs them:\n")
 	for _, a := range accounts {
 		name := a.Name
-		own := map[string]string{"codex": p.CodexAccount, "cursor": p.CursorAccount, "opencode": p.OpenCodeAccounts[a.Provider]}[a.Tool]
-		label := map[string]string{"codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}[a.Tool]
+		own := map[string]string{"codex": p.CodexAccount, "cursor": p.CursorAccount, "gemini": p.GeminiAccount, "copilot": p.CopilotAccount, "opencode": p.OpenCodeAccounts[a.Provider]}[a.Tool]
+		label := map[string]string{"codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI", "copilot": "GitHub Copilot CLI"}[a.Tool]
 		if a.Provider != "" {
 			label += " (" + a.Provider + ")"
 		}
@@ -1213,8 +1498,11 @@ func describeQuestions(questions []api.Question, leadManaged map[string]bool) st
 
 // credentialWanted names what a credential request asks for.
 func credentialWanted(q api.Question) string {
-	if q.Kind == api.CredentialSecret {
+	switch q.Kind {
+	case api.CredentialSecret:
 		return "the secret $" + q.SecretName
+	case api.CredentialIOSPorts:
+		return "leave to forward ports to the Mac"
 	}
 	return "a GitHub account"
 }
@@ -1321,6 +1609,9 @@ func describeWorking(w api.WorkingMemory) string {
 	}
 	if w.CurrentTask != "" {
 		fmt.Fprintf(&b, "Now: %s\n", w.CurrentTask)
+	}
+	for _, id := range slices.Sorted(maps.Keys(w.Sessions)) {
+		fmt.Fprintf(&b, "In the %s session: %s\n", id, w.Sessions[id])
 	}
 	if len(w.ActiveAgents) > 0 {
 		fmt.Fprintf(&b, "On it: %s\n", strings.Join(w.ActiveAgents, ", "))

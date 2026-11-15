@@ -429,7 +429,7 @@ func (s *Server) pauseForLimit(ctx context.Context, a state.Agent, end chat.Turn
 	}
 	s.record(ctx, ev)
 	if prev.kind != api.AgentOutcomeLimited {
-		s.tellLead(ctx, a.Project, limitedNotice(a, until), false)
+		s.tellOwner(ctx, a, limitedNotice(a, until), false)
 	}
 }
 

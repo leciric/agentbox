@@ -162,8 +162,13 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return err
 		}
+		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		m.buildOutputSources(ctx, a)
+		ClearStaleCgroups(a.Instance)
+		err := m.Incus.Start(ctx, a.Instance)
+		release()
+		if err != nil {
 			return err
 		}
 	}
@@ -228,7 +233,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		return state.Agent{}, err
 	}
 	// The fork keeps the original's accounts.
-	logins, err := m.CheckLogin(src.AI, p, Logins{Claude: src.ClaudeAccount, Codex: src.CodexAccount, OpenCode: src.OpenCodeAccounts, Cursor: src.CursorAccount})
+	logins, err := m.CheckLogin(src.AI, p, Logins{Claude: src.ClaudeAccount, Codex: src.CodexAccount, OpenCode: src.OpenCodeAccounts, Cursor: src.CursorAccount, Gemini: src.GeminiAccount, Copilot: src.CopilotAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}

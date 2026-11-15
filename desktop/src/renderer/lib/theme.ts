@@ -16,7 +16,7 @@ import { pageTheme, type PageTheme } from './rich.ts';
 
 // The properties styles.css declares defaults for. Setting one here overrides
 // that default for the whole window; clearing it puts AgentBox's own back.
-const properties = ['--ab-brand-300', '--ab-brand-400', '--ab-brand-500', '--ab-brand-600', '--ab-ink', '--ab-wash-near', '--ab-wash-far', '--ab-selection', '--ab-brand-mid', '--ab-brand-deep', '--ab-brand-far'] as const;
+const properties = ['--ab-brand-100', '--ab-brand-200', '--ab-brand-300', '--ab-brand-400', '--ab-brand-500', '--ab-brand-600', '--ab-brand-700', '--ab-on-brand', '--ab-ink', '--ab-wash-near', '--ab-wash-far', '--ab-selection', '--ab-brand-mid', '--ab-brand-deep', '--ab-brand-far'] as const;
 
 type Rgb = [number, number, number];
 
@@ -39,6 +39,32 @@ const alpha = ([r, g, b]: Rgb, a: number) => `rgb(${r} ${g} ${b} / ${a})`;
 
 const white: Rgb = [255, 255, 255];
 const black: Rgb = [0, 0, 0];
+const nearBlack: Rgb = [9, 9, 11];
+
+// contrast is WCAG's contrast ratio between two colours, 1 to 21.
+export function contrast(a: Rgb, b: Rgb): number {
+  const lum = (c: Rgb) => {
+    const [r, g, b] = c.map((v) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// readable is c moved towards toward until it reads 4.5:1 on background, the
+// bar styles.css holds every text role to: a theme's accent is whatever its
+// author liked, and the shades of it the app sets text in have to be legible
+// on the window whatever it is.
+function readable(c: Rgb, background: Rgb, toward: Rgb): Rgb {
+  for (let amount = 0; amount < 1; amount += 0.05) {
+    const next = mix(c, toward, amount);
+    if (contrast(next, background) >= 4.5) return next;
+  }
+  return toward;
+}
 
 // Mode is which way round the window is painted. It is not the same question
 // as which theme the accent comes from: the app can be light while following a
@@ -53,20 +79,32 @@ export type Mode = 'dark' | 'light';
 export function modeOf(theme: T.Theme | undefined): Mode {
   if (!theme) return 'dark';
   if (theme.appearance === 'light' || theme.appearance === 'dark') return theme.appearance;
-  if (theme.available && theme.mode === 'light') return 'light';
+  if (worn(theme) && theme.mode === 'light') return 'light';
   return 'dark';
 }
 
-// followed says the host's own palette is what the app should wear: the
-// setting is "follow" and there is a theme on this machine to follow.
-const followed = (theme: T.Theme | undefined): boolean => theme?.appearance === 'follow' && theme.available === true;
+// Look is the mode, or a theme AgentBox carries itself and colours more of the
+// window for than an accent: Dracula, whose other hues styles.css keys on
+// data-appearance="dracula". The parts built in JavaScript (code blocks, the
+// terminal) pick their colours by look, since Dracula is dark but not
+// AgentBox's dark.
+export type Look = Mode | 'dracula';
+
+export function lookOf(theme: T.Theme | undefined): Look {
+  return theme?.appearance === 'dracula' ? 'dracula' : modeOf(theme);
+}
+
+// worn says the palette the daemon reported is what the app should wear: the
+// host's, when the setting is "follow" and there is a theme to follow, or
+// Dracula's, which the daemon reports in its place when that is chosen.
+const worn = (theme: T.Theme | undefined): boolean => theme?.appearance === 'dracula' || (theme?.appearance === 'follow' && theme.available === true);
 
 // palette is the properties a theme resolves to, or null when it resolves to
 // nothing usable — an accent that isn't a colour, or a theme that isn't being
-// followed. A null is AgentBox's own accent, which is what the stylesheet has,
+// worn. A null is AgentBox's own accent, which is what the stylesheet has,
 // in whichever mode the window is in.
 export function palette(theme: T.Theme | undefined): Record<string, string> | null {
-  if (!followed(theme) || !theme) return null;
+  if (!worn(theme) || !theme) return null;
   const accent = parse(theme.accent);
   if (!accent) return null;
 
@@ -75,16 +113,30 @@ export function palette(theme: T.Theme | undefined): Record<string, string> | nu
   // under a light one.
   const light = theme.mode === 'light';
   const background = parse(theme.background);
-  const ink = background ? hex(mix(background, light ? white : black, 0.35)) : null;
+  const ground = background ? mix(background, light ? white : black, 0.35) : null;
+  const ink = ground ? hex(ground) : null;
+
+  // The shades text is set in run towards the text's own end — paler on a
+  // dark window, deeper on a light one — and then as far again as legibility
+  // needs. Styles.css's own window stands in when the theme gives none.
+  const behind = ground ?? (light ? ([0xff, 0xff, 0xff] as Rgb) : ([0x0e, 0x0e, 0x10] as Rgb));
+  const text = light ? black : white;
+  const shade = (amount: number) => hex(readable(mix(accent, text, amount), behind, text));
 
   return {
-    '--ab-brand-300': hex(mix(accent, white, 0.35)),
-    '--ab-brand-400': hex(mix(accent, white, 0.18)),
+    '--ab-brand-100': shade(0.7),
+    '--ab-brand-200': shade(0.5),
+    '--ab-brand-300': shade(0.35),
+    '--ab-brand-400': shade(0.18),
     '--ab-brand-500': hex(accent),
     '--ab-brand-600': hex(mix(accent, black, 0.18)),
+    '--ab-brand-700': hex(mix(accent, black, 0.32)),
+    // White on the accent when it reads there, else whichever of white and
+    // the near-black of a bright fill reads better.
+    '--ab-on-brand': contrast(white, accent) >= 4.5 || contrast(white, accent) >= contrast(nearBlack, accent) ? '#ffffff' : hex(nearBlack),
     ...(ink ? { '--ab-ink': ink } : {}),
-    '--ab-wash-near': alpha(accent, light ? 0.12 : 0.16),
-    '--ab-wash-far': alpha(mix(accent, light ? black : white, 0.3), light ? 0.08 : 0.07),
+    '--ab-wash-near': alpha(accent, light ? 0.06 : 0.08),
+    '--ab-wash-far': alpha(mix(accent, light ? black : white, 0.3), light ? 0.04 : 0.035),
     '--ab-selection': alpha(accent, light ? 0.28 : 0.35),
     // The companion hues AgentBox's gradients run through — its wordmark, its
     // primary button, the tiles. A theme names one accent, and a gradient
@@ -102,42 +154,50 @@ export function palette(theme: T.Theme | undefined): Record<string, string> | nu
 // runs before there is an environment to ask at all — would always be dark.
 const remembered = 'agentbox.appearance';
 
-// restoreMode paints the window in the mode it was last in, before anything
+// restoreMode paints the window in the look it was last in, before anything
 // renders. Call it once, from the entry point, above createRoot.
 export function restoreMode(): void {
   try {
-    if (localStorage.getItem(remembered) === 'light') setMode('light');
+    const last = localStorage.getItem(remembered);
+    if (last === 'light' || last === 'dracula') setLook(last);
   } catch {
     // A browser that refuses storage: the window opens dark, as it always did.
   }
 }
 
-// setMode is the one place the window turns over: the attribute styles.css
-// keys its light block on, the colour the phone paints its chrome in, and the
-// listeners below for the parts built in JavaScript rather than in CSS.
-function setMode(next: Mode): void {
+// setLook is the one place the window turns over: the attribute styles.css
+// keys its light and Dracula blocks on, the colour the phone paints its chrome
+// in, and the listeners below for the parts built in JavaScript rather than in
+// CSS.
+function setLook(next: Look): void {
   const root = document.documentElement;
-  if (next === 'light') root.setAttribute('data-appearance', 'light');
-  else root.removeAttribute('data-appearance');
+  if (next === 'dark') root.removeAttribute('data-appearance');
+  else root.setAttribute('data-appearance', next);
   // The web app is installable, and the browser paints its chrome from this.
   // index.html has no such tag; web.html does.
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', getComputedStyle(root).getPropertyValue('--ab-ink').trim());
-  if (next === mode) return;
-  mode = next;
+  if (next === look) return;
+  look = next;
+  mode = next === 'light' ? 'light' : 'dark';
   for (const listener of listeners) listener();
 }
 
 // The mode is not only a class of CSS: the terminal is a canvas and the chat's
 // syntax highlighting is a set of inline colours, and both are built in
 // JavaScript from a palette rather than from a utility. They subscribe here
-// and rebuild themselves when the window turns over.
+// and rebuild themselves when the window turns over, which includes going from
+// dark to Dracula.
 const listeners = new Set<() => void>();
 let mode: Mode = 'dark';
+let look: Look = 'dark';
 
 // currentMode is which way round the window is right now, for the code that
 // picks a colour rather than a class.
 export const currentMode = (): Mode => mode;
+
+// currentLook is the look right now, for the code that picks a palette by it.
+export const currentLook = (): Look => look;
 
 // onMode runs fn whenever the window turns over, and returns the unsubscribe.
 export function onMode(fn: () => void): () => void {
@@ -159,8 +219,8 @@ export function applyTheme(theme: T.Theme | undefined): void {
     else style.removeProperty(property);
   }
 
-  const next = modeOf(theme);
-  setMode(next);
+  const next = lookOf(theme);
+  setLook(next);
   painted++;
   for (const listener of paintListeners) listener();
   if (theme) {
@@ -176,6 +236,11 @@ export function applyTheme(theme: T.Theme | undefined): void {
 // rather than let CSS do the work.
 export function useMode(): Mode {
   return useSyncExternalStore(onMode, currentMode);
+}
+
+// useLook is the look, for a component that builds colours in JavaScript.
+export function useLook(): Look {
+  return useSyncExternalStore(onMode, currentLook);
 }
 
 // The window's look changes with its mode and with the accent a theme brings,
@@ -195,7 +260,7 @@ function onPaint(fn: () => void): () => void {
 }
 
 function currentPageTheme(): PageTheme {
-  const key = `${mode}\0${painted}`;
+  const key = `${look}\0${painted}`;
   if (pageThemeCache?.key !== key) {
     const style = getComputedStyle(document.documentElement);
     pageThemeCache = { key, theme: pageTheme(mode, (p) => style.getPropertyValue(p)) };

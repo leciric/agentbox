@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agentbox/internal/api"
+	"agentbox/internal/features"
 	"agentbox/internal/mcp"
 )
 
@@ -530,6 +531,9 @@ func messageProjectTool(ctx context.Context, c *api.Client) mcp.Tool {
 			if err != nil {
 				return "", err
 			}
+			if t.Project == api.HomeProject {
+				return fmt.Sprintf("Answered the Home chat (thread %s): the user reads it there.", t.ID), nil
+			}
 			return fmt.Sprintf("Replied to %s's lead (thread %s, %d messages).", t.Project, t.ID, t.Messages), nil
 		}},
 		action{"settle", func(raw json.RawMessage) (string, error) {
@@ -568,10 +572,18 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 			"fulfil: give request id a secret managed by you its stored value, which you never see (your brief says how to refresh it); "+
 			"every other credential request is the user's",
 		map[string]any{
-			"id":   str("answer, escalate, fulfil: the question's id"),
-			"text": str("answer: what to do and why. escalate: why it is the user's call, and your suggestion"),
+			"id":      str("answer, escalate, fulfil: the question's id"),
+			"text":    str("answer: what to do and why. escalate: why it is the user's call, and your suggestion"),
+			"machine": str("not fulfil: the asking agent's machine"),
 		},
-		action{"list", func(json.RawMessage) (string, error) {
+		action{"list", func(raw json.RawMessage) (string, error) {
+			if on := onMachine(c, raw); on != c {
+				questions, err := on.ProjectQuestions(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeQuestions(questions, nil), nil
+			}
 			questions, err := c.ProjectQuestions(ctx)
 			if err != nil {
 				return "", err
@@ -587,7 +599,7 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 			if err != nil {
 				return "", err
 			}
-			if _, err := c.LeadAnswerQuestion(ctx, in.ID, in.Text); err != nil {
+			if _, err := onMachine(c, raw).LeadAnswerQuestion(ctx, in.ID, in.Text); err != nil {
 				return "", err
 			}
 			return "Answered; the agent is carrying on.", nil
@@ -597,7 +609,7 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 			if err != nil {
 				return "", err
 			}
-			if _, err := c.LeadEscalateQuestion(ctx, in.ID, in.Text); err != nil {
+			if _, err := onMachine(c, raw).LeadEscalateQuestion(ctx, in.ID, in.Text); err != nil {
 				return "", err
 			}
 			return "Passed to the user; say in your reply what you need from them. The agent waits.", nil
@@ -627,16 +639,25 @@ func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 			"across them with create_agent's accounts. secrets: the names of the keys agents have as environment variables, to brief " +
 			"one precisely (\"the Stripe key is in $STRIPE_SECRET_KEY\"), and which you manage. connectors: remote MCP servers like Notion, each one's " +
 			"status and agents; the connected ones are your tools too (mcp__<name>__*). A missing secret or connector is the user's " +
-			"to add, in the project's Settings: never ask for a value in this chat. issues: open GitHub issues and which agent has each.",
+			"to add, in the project's Settings: never ask for a value in this chat. issues: open GitHub issues and which agent has each. " +
+			"machines: your hub account's other machines, and whether each is reachable and has this project. " +
+			"features: what AgentBox does, where it is and its tool or command, matching query; offer, before suggesting one, says if it was already.",
 		Schema: object([]string{"kind"}, map[string]any{
-			"kind": choiceOf("what to list", "accounts", "secrets", "connectors", "issues"),
+			"kind":  choiceOf("what to list", "accounts", "secrets", "connectors", "issues", "machines", "features"),
+			"query": str("features: the user's words"),
+			"offer": str("features: the name of one you'd suggest"),
 		}),
 		Run: func(args json.RawMessage) (string, error) {
-			var in struct{ Kind string }
+			var in struct{ Kind, Query, Offer string }
 			if err := decodeArgs(args, &in); err != nil {
 				return "", err
 			}
 			switch in.Kind {
+			case "features":
+				if in.Offer != "" {
+					return offerFeature(ctx, c.LeadMemory(), in.Offer)
+				}
+				return describeFeatures(features.Search(in.Query, 4)), nil
 			case "accounts":
 				accounts, err := c.ProjectAccounts(ctx)
 				if err != nil {
@@ -670,8 +691,88 @@ func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 					return "", err
 				}
 				return describeIssues(issues), nil
+			case "machines":
+				machines, err := c.ProjectMachines(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeMachines(machines), nil
 			}
-			return "", fmt.Errorf("kind is %q: it is accounts, secrets, connectors or issues", in.Kind)
+			return "", fmt.Errorf("kind is %q: it is accounts, secrets, connectors, issues, machines or features", in.Kind)
 		},
 	}
+}
+
+// describeMachines lists the hub account's other machines for list_resources.
+func describeMachines(machines []api.Machine) string {
+	if len(machines) == 0 {
+		return "This hub account has no other machine. Agents run here."
+	}
+	var b strings.Builder
+	for _, m := range machines {
+		fmt.Fprintf(&b, "- %s", m.Name)
+		if m.Hostname != "" && m.Hostname != m.Name {
+			fmt.Fprintf(&b, " (%s)", m.Hostname)
+		}
+		switch {
+		case !m.Online:
+			b.WriteString(": offline")
+		case m.Error != "":
+			fmt.Fprintf(&b, ": reachable, but couldn't say whether it has this project: %s", m.Error)
+		case m.HasProject:
+			fmt.Fprintf(&b, ": reachable, has this project as %s", m.Project)
+		default:
+			b.WriteString(": reachable, doesn't have this project yet (create_agent with machine clones it)")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// describeFeatures is list_resources features' answer: each feature found, in
+// what the lead needs to do it or to say where it is.
+func describeFeatures(found []features.Feature) string {
+	if len(found) == 0 {
+		return "No feature matches. AgentBox may not do it: say so, or search again in other words."
+	}
+	var b strings.Builder
+	for _, f := range found {
+		fmt.Fprintf(&b, "- %s: %s", f.Name, f.What)
+		if f.Where != "" {
+			fmt.Fprintf(&b, " Where: %s.", f.Where)
+		}
+		if f.Tool != "" {
+			fmt.Fprintf(&b, " Your tool: %s.", f.Tool)
+		}
+		if len(f.CLI) > 0 {
+			fmt.Fprintf(&b, " Command: %s.", strings.Join(f.CLI, ", "))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// offerFeature records that the lead is suggesting a feature to the user, as
+// an event in the project's memory, so that it suggests each at most once per
+// project: one it suggested before, it is told not to again.
+func offerFeature(ctx context.Context, memory *api.MemoryClient, name string) (string, error) {
+	f, ok := features.Named(name)
+	if !ok {
+		return "", fmt.Errorf("no feature is called %q: offer takes a name list_resources features gave", name)
+	}
+	offered, err := memory.Events(ctx, api.EventQuery{Types: []string{features.OfferedEvent}, Limit: 1000})
+	if err != nil {
+		return "", err
+	}
+	for _, e := range offered {
+		var p struct{ Feature string }
+		if json.Unmarshal(e.Payload, &p) == nil && p.Feature == f.Name {
+			return fmt.Sprintf("%s was suggested to this project on %s: don't suggest it again.", f.Name, e.At.Format("2 January 2006")), nil
+		}
+	}
+	payload, _ := json.Marshal(map[string]string{"feature": f.Name})
+	if _, err := memory.AppendEvent(ctx, api.AddMemoryEventRequest{Type: features.OfferedEvent, Payload: payload}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Never suggested before: suggest %s now, in a sentence, and not again.", f.Name), nil
 }

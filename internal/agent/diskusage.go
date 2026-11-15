@@ -21,6 +21,8 @@ const pool = "default"
 type DiskUsageItem struct {
 	Label string
 	Bytes int64
+	Kind  string // api.DiskItemBaseImage and so on; "" for an agent or a project
+	Name  string
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
@@ -43,7 +45,10 @@ type DiskUsage struct {
 // state.db and the daemon log from the host filesystem. It is meant to be
 // called when asked, not kept warm on a poll: a full pass walks every
 // worktree and every media directory on the host.
-func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
+//
+// extra are categories the caller measured itself (the daemon's caches),
+// sorted and totalled with the rest.
+func (m *Manager) DiskUsage(ctx context.Context, extra ...DiskUsageCategory) (DiskUsage, error) {
 	projects, err := m.Store.Projects(ctx)
 	if err != nil {
 		return DiskUsage{}, err
@@ -62,14 +67,14 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	bases := DiskUsageCategory{Kind: api.DiskBases, Label: "Base images and saved bases"}
 	if used, err := m.Incus.VolumeUsage(ctx, pool, image.Base); err == nil {
-		bases.Items = append(bases.Items, DiskUsageItem{Label: "Base image", Bytes: used})
+		bases.Items = append(bases.Items, DiskUsageItem{Label: "Base image", Bytes: used, Kind: api.DiskItemBaseImage})
 	}
 	for _, p := range projects {
 		if used, err := m.Incus.VolumeUsage(ctx, pool, ProjectBaseInstance(p.Name)); err == nil {
-			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base", Bytes: used})
+			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base", Bytes: used, Kind: api.DiskItemProjectBase, Name: p.Name})
 		}
 		if used, err := m.Incus.VolumeUsage(ctx, pool, PreviousBaseInstance(p.Name)); err == nil {
-			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base (previous)", Bytes: used})
+			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base (previous)", Bytes: used, Kind: api.DiskItemPreviousBase, Name: p.Name})
 		}
 	}
 
@@ -92,16 +97,17 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	state := DiskUsageCategory{Kind: api.DiskState, Label: "state.db and logs"}
 	if info, err := os.Stat(m.Paths.StateDB()); err == nil {
-		state.Items = append(state.Items, DiskUsageItem{Label: "state.db", Bytes: info.Size()})
+		state.Items = append(state.Items, DiskUsageItem{Label: "state.db", Bytes: info.Size(), Kind: api.DiskItemStateDB})
 	}
 	if info, err := os.Stat(m.Paths.DaemonLog()); err == nil {
-		state.Items = append(state.Items, DiskUsageItem{Label: "daemon.log", Bytes: info.Size()})
+		state.Items = append(state.Items, DiskUsageItem{Label: "daemon.log", Bytes: info.Size(), Kind: api.DiskItemDaemonLog})
 	}
 
-	categories := []DiskUsageCategory{machines, bases, worktrees, media, state}
+	categories := append([]DiskUsageCategory{machines, bases, worktrees, media, state}, extra...)
 	var total int64
 	for i := range categories {
 		sortItemsDesc(categories[i].Items)
+		categories[i].Bytes = 0
 		for _, it := range categories[i].Items {
 			categories[i].Bytes += it.Bytes
 		}

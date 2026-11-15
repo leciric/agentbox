@@ -411,6 +411,16 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
 }
 
+// SetIOSForwardPorts sets the ports a project's agents may forward to the
+// Mac's localhost for the iOS Simulator.
+func (c *Client) SetIOSForwardPorts(ctx context.Context, project string, ports []int) (Project, error) {
+	if ports == nil {
+		ports = []int{} // none, where null would change nothing
+	}
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{IOSForwardPorts: &ports}, &out)
+}
+
 // SetAgentPRs sets whether a project's agents push their own branch and open
 // their own pull request when they finish.
 func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {
@@ -560,6 +570,21 @@ func (c *Client) MergePullRequest(ctx context.Context, project string, number in
 	return out, c.do(ctx, http.MethodPost, path, MergePullRequestRequest{Method: method}, &out)
 }
 
+// MergeWhenGreen resolves an agent's work and has the daemon merge its pull
+// request once the checks pass.
+func (c *Client) MergeWhenGreen(ctx context.Context, project string, number int, req MergeWhenGreenRequest) (MergeWhenGreen, error) {
+	var out MergeWhenGreen
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
+// CancelMergeWhenGreen cancels a pull request's merge when green, or
+// dismisses one that was given up.
+func (c *Client) CancelMergeWhenGreen(ctx context.Context, project string, number int) error {
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // ProjectLabels lists the labels of a project's repository.
 func (c *Client) ProjectLabels(ctx context.Context, project string) (ProjectLabels, error) {
 	var out ProjectLabels
@@ -582,6 +607,24 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 	}
 	err := c.do(ctx, http.MethodPost, "/v1/auth/github", GitHubTokenRequest{Token: token, Account: account}, &out)
 	return out.User, err
+}
+
+// StartGitHubLogin starts a device-flow GitHub sign-in for an account, as a job.
+func (c *Client) StartGitHubLogin(ctx context.Context, account string) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/github/login", GitHubLoginRequest{Account: account}, &out)
+}
+
+// GitHubRepos lists the repositories the default GitHub account can push to.
+func (c *Client) GitHubRepos(ctx context.Context) ([]GitHubRepo, error) {
+	var out []GitHubRepo
+	return out, c.do(ctx, http.MethodGet, "/v1/github/repos", nil, &out)
+}
+
+// GitHubLogin is how far the device-flow sign-in running as job has got.
+func (c *Client) GitHubLogin(ctx context.Context, job string) (GitHubLogin, error) {
+	var out GitHubLogin
+	return out, c.do(ctx, http.MethodGet, "/v1/auth/github/login/"+url.PathEscape(job), nil, &out)
 }
 
 // SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
@@ -699,6 +742,25 @@ func (c *Client) StartClaudeLogin(ctx context.Context, req ClaudeLoginRequest) (
 func (c *Client) ClaudeLogin(ctx context.Context, job string) (ClaudeLogin, error) {
 	var login ClaudeLogin
 	return login, c.do(ctx, http.MethodGet, "/v1/auth/claude/login/"+url.PathEscape(job), nil, &login)
+}
+
+// StartGeminiLogin runs Gemini CLI's Google sign-in on the daemon's machine,
+// as a job: the page to approve comes back from GeminiLogin as CodeURL, and
+// the sign-in is stored under the account when it finishes.
+func (c *Client) StartGeminiLogin(ctx context.Context, account string) (Job, error) {
+	var job Job
+	return job, c.do(ctx, http.MethodPost, "/v1/auth/gemini/login", ClaudeLoginRequest{Account: account}, &job)
+}
+
+// GeminiLogin is how far a Gemini CLI sign-in has got.
+func (c *Client) GeminiLogin(ctx context.Context, job string) (ClaudeLogin, error) {
+	var login ClaudeLogin
+	return login, c.do(ctx, http.MethodGet, "/v1/auth/gemini/login/"+url.PathEscape(job), nil, &login)
+}
+
+// GeminiLoginCode hands a running Gemini CLI sign-in the code its page ended on.
+func (c *Client) GeminiLoginCode(ctx context.Context, job, code string) error {
+	return c.do(ctx, http.MethodPost, "/v1/auth/gemini/login/"+url.PathEscape(job)+"/code", ClaudeLoginCodeRequest{Code: code}, nil)
 }
 
 // ClaudeLoginCode hands a running login the code from its fallback page.
@@ -989,6 +1051,25 @@ func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLReque
 	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
 }
 
+// IOSUI reads the agent's simulator's screen, or acts on it.
+func (c *Client) IOSUI(ctx context.Context, ref string, req IOSUIRequest) (IOSUIResult, error) {
+	var result IOSUIResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/ui", req, &result)
+}
+
+// IOSApps are the apps installed on the agent's simulator.
+func (c *Client) IOSApps(ctx context.Context, ref string, req IOSDeviceRequest) ([]IOSApp, error) {
+	var apps []IOSApp
+	return apps, c.iosDo(ctx, http.MethodPost, ref, "/apps", req, &apps)
+}
+
+// ForwardIOS makes the agent's ports reach the Mac's localhost, or with
+// Stop gives them back, and lists every agent's forwards.
+func (c *Client) ForwardIOS(ctx context.Context, ref string, req IOSForwardRequest) ([]IOSForward, error) {
+	var forwards []IOSForward
+	return forwards, c.iosDo(ctx, http.MethodPost, ref, "/forward", req, &forwards)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)
@@ -1041,6 +1122,13 @@ func (c *Client) AddProject(ctx context.Context, req AddProjectRequest) (Project
 	return out, c.do(ctx, http.MethodPost, "/v1/projects", req, &out)
 }
 
+// CloneProject starts the job that clones a repository and adds it as a
+// project: the finished job's Result is the Project.
+func (c *Client) CloneProject(ctx context.Context, req CloneProjectRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/clone", req, &out)
+}
+
 func (c *Client) Project(ctx context.Context, name string) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(name), nil, &out)
@@ -1069,7 +1157,15 @@ func (c *Client) ProjectIcon(ctx context.Context, project string) (ProjectIcon, 
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon", nil, &out)
 }
 
-// SetProjectIcon chooses a project's icon: an emoji or an image.
+// ProjectIconCandidates returns the icons found in a project's repository,
+// best first, to choose from.
+func (c *Client) ProjectIconCandidates(ctx context.Context, project string) ([]ProjectIconCandidate, error) {
+	var out []ProjectIconCandidate
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon/candidates", nil, &out)
+}
+
+// SetProjectIcon chooses a project's icon: an emoji, an image, or one of
+// its candidates.
 func (c *Client) SetProjectIcon(ctx context.Context, project string, req SetProjectIconRequest) (ProjectIcon, error) {
 	var out ProjectIcon
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/icon", req, &out)
@@ -1137,6 +1233,19 @@ func (c *Client) Agents(ctx context.Context, project string) ([]Agent, error) {
 func (c *Client) Agent(ctx context.Context, ref string) (Agent, error) {
 	var out Agent
 	return out, c.agentDo(ctx, http.MethodGet, ref, "", nil, &out)
+}
+
+// SetGoal sets or changes an existing agent's goal, from its
+// "<project>/<agent>" ref, and sends it to work towards it.
+func (c *Client) SetGoal(ctx context.Context, ref string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodPut, ref, "/goal", spec, &out)
+}
+
+// ClearGoal clears an agent's goal: AgentBox stops checking it.
+func (c *Client) ClearGoal(ctx context.Context, ref string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodDelete, ref, "/goal", nil, &out)
 }
 
 func (c *Client) CreateAgent(ctx context.Context, req CreateAgentRequest) (Job, error) {
@@ -1234,6 +1343,13 @@ func (c *Client) DiskGuard(ctx context.Context) (DiskGuard, error) {
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
+}
+
+// TrimDisk trims AgentBox's VM's disks now, giving the host's disk back the
+// space the VM freed, and says how much.
+func (c *Client) TrimDisk(ctx context.Context) (DiskTrim, error) {
+	var out DiskTrim
+	return out, c.do(ctx, http.MethodPost, "/v1/usage/disk/trim", nil, &out)
 }
 
 // AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
@@ -1384,6 +1500,29 @@ func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
 }
 
+// MCPPairings lists the apps paired with this machine over remote MCP.
+func (c *Client) MCPPairings(ctx context.Context) (MCPPairings, error) {
+	var out MCPPairings
+	return out, c.do(ctx, http.MethodGet, "/v1/remote/mcp", nil, &out)
+}
+
+// PairMCP pairs another app; the answer carries what to give it, once.
+func (c *Client) PairMCP(ctx context.Context, req MCPPairRequest) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings", req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code, for signing its app in again.
+func (c *Client) RenewMCPCode(ctx context.Context, id string) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings/"+url.PathEscape(id)+"/code", nil, &out)
+}
+
+// RevokeMCPPairing ends an app's access.
+func (c *Client) RevokeMCPPairing(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/remote/mcp/pairings/"+url.PathEscape(id), nil, nil)
+}
+
 // Self asks the in-agent API which agent this is.
 func (c *Client) Self(ctx context.Context) (Self, error) {
 	var out Self
@@ -1435,6 +1574,12 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// DebugStats reads the daemon's process and memory figures (socket only).
+func (c *Client) DebugStats(ctx context.Context) (DebugStats, error) {
+	var out DebugStats
+	return out, c.do(ctx, http.MethodGet, "/debug/stats", nil, &out)
+}
+
 // Profile copies one of the daemon's Go profiles (net/http/pprof, served on
 // its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
 // "gc=1" or "debug=1".
@@ -1450,4 +1595,9 @@ func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) e
 	defer func() { _ = resp.Body.Close() }()
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+// PutHostLoad reports the user's computer's load (internal/hostload).
+func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
+	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
 }

@@ -60,13 +60,23 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
+	route := r.Header.Get(api.PreviewHeader)
 	// A connector's sign-in comes back to the proxy's own address rather
 	// than an agent's (connectors/flow.go).
-	if r.URL.Path == connectors.CallbackPath && (net.ParseIP(host) != nil || strings.EqualFold(host, "localhost")) {
+	if route == "" && r.URL.Path == connectors.CallbackPath && (net.ParseIP(host) != nil || strings.EqualFold(host, "localhost")) {
 		s.connectors.ServeCallback(w, r)
 		return
 	}
 	name, ok := strings.CutSuffix(strings.ToLower(host), ".localhost")
+	if route != "" {
+		// Only with a loopback Host, as the forwards send it: a page that
+		// rebinds its own name to 127.0.0.1 could set the header too.
+		if ip := net.ParseIP(host); !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+			http.Error(w, "AgentBox preview: "+api.PreviewHeader+" needs a localhost Host", http.StatusForbidden)
+			return
+		}
+		name, ok = strings.ToLower(route), true
+	}
 	labels := strings.Split(name, ".")
 	if !ok || len(labels) != 3 {
 		http.Error(w, "AgentBox preview: open http://<port>.<agent>.<project>.localhost with this port", http.StatusNotFound)
@@ -90,6 +100,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 			pr.SetURL(target)
 			// Dev servers often check the Host header, and usually accept *.localhost.
 			pr.Out.Host = pr.In.Host
+			pr.Out.Header.Del(api.PreviewHeader)
 			pr.SetXForwarded()
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {

@@ -4,7 +4,7 @@
 // hubs, installs the command-line tool, updates the app (updater.ts), and
 // keeps the tray icon (tray.ts).
 import { isSafeExternalUrl } from './externalurl';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerMonitor, powerSaveBlocker, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
@@ -12,15 +12,31 @@ import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
-import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
+import {
+  type ApiResponse,
+  ensureDaemon,
+  notListening,
+  onStaleDaemon,
+  request,
+  restartDaemon,
+  restartIfStale,
+  restartStaleDaemon,
+  socketPath,
+  staleDaemon,
+  stopHostDaemon,
+  stopStartingDaemon,
+  unreachable,
+} from './daemon';
 import { EventStream } from './events';
 import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { startHomeHost, stopHomeHost } from './homehost';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
+import { registerBrowserCookies } from './browsercookies';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
-import { showNotice, type OSNotice } from './notify';
+import { setBadge, showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
@@ -41,7 +57,9 @@ import { parseHubLink } from '../shared/hublink';
 import type { HubAccount, HubConnectResult } from '../preload';
 import './vmpower';
 import { keepAwake } from './keepawake';
+import { watchHostPower } from './hostpower';
 import { AppTray } from './tray';
+import { watchLoopLag } from './looplag';
 import type { TrayTarget } from './traymodel';
 
 guardStdio();
@@ -52,8 +70,16 @@ guardStdio();
 const appLog = new AppLog(app.getPath('logs'));
 captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
+process.on('exit', () => appLog.flushSync());
+// A stall of this process stalls every window: logged, and sent with the
+// window's own timing to the daemon's diagnostics (looplag.ts).
+watchLoopLag((lag) => {
+  appLog.write('LAG', `the main process's event loop stalled ${lag.maxMs} ms (p99 ${lag.p99Ms} ms) in ${lag.windowMs / 1000} s`);
+  send('app:mainLag', lag);
+});
 registerMediaScheme();
 registerBrowserKeys();
+registerBrowserCookies(ipcMain);
 enableShortcutPortal();
 
 let win: BrowserWindow | undefined;
@@ -75,6 +101,9 @@ const events = new EventStream(
     // version phones are served (phoneweb.ts).
     // And error reports made while it was away go now (reportqueue.ts).
     if (state.state === 'connected') {
+      // A daemon of another version (started by the command line, or one
+      // that outlived a restart) is restarted, or shown as stale.
+      void restartIfStale().catch(() => {});
       void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
       void errorReports.flush();
     }
@@ -134,6 +163,13 @@ async function callDaemon(method: string, path: string, body?: unknown): Promise
 const setKeepAwake = keepAwake(powerSaveBlocker);
 ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
+// The computer's power, for the renderer's presence lease (main/hostpower.ts):
+// powerMonitor answers only once the app is ready.
+let hostPower: (() => T.HostPower) | undefined;
+ipcMain.handle('power:get', (): T.HostPower => hostPower?.() ?? { onBattery: false });
+ipcMain.handle('daemon:stale', () => staleDaemon());
+ipcMain.handle('daemon:restartStale', () => restartStaleDaemon());
+onStaleDaemon((stale) => send('daemon:stale', stale));
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
   version: app.getVersion(),
@@ -356,6 +392,25 @@ ipcMain.handle('dialog:directory', async () => {
   if (!path) throw new Error(t('main.notInDistro', { picked, distro }));
   return path;
 });
+// A file to import, or where to write an export: like the folder picker, in
+// the distro's terms on Windows.
+const daemonPath = (picked: string) => {
+  if (!onWindows) return picked;
+  const path = linuxPath(picked);
+  if (!path) throw new Error(t('main.notInDistro', { picked, distro }));
+  return path;
+};
+const inDistro = onWindows ? `\\\\wsl.localhost\\${distro}\\home` : undefined;
+ipcMain.handle('dialog:file', async (_event, title: string) => {
+  const options = { title, properties: ['openFile' as const], ...(inDistro ? { defaultPath: inDistro } : {}) };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : daemonPath(result.filePaths[0]);
+});
+ipcMain.handle('dialog:saveFile', async (_event, title: string, name: string) => {
+  const options = { title, defaultPath: inDistro ? `${inDistro}\\${name}` : name };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  return result.canceled || !result.filePath ? null : daemonPath(result.filePath);
+});
 // The daemon's paths are the distro's; Explorer opens them through \\wsl.localhost.
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
@@ -370,6 +425,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
 ipcMain.handle('render:register', (_event, html: string, network: boolean) => registerRender(String(html), !!network));
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
+ipcMain.on('notify:badge', (_event, count: number) => setBadge(win, typeof count === 'number' ? count : 0));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 // A PNG the renderer drew (the weekly recap's share card): onto the clipboard,
@@ -430,7 +486,7 @@ function createWindow(): void {
   win = new BrowserWindow({
     ...windowOptions(),
     title: 'AgentBox',
-    backgroundColor: '#07070b',
+    backgroundColor: '#0e0e10',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
@@ -471,6 +527,7 @@ function showWindow(): void {
 app.on('activate', () => showWindow());
 
 void app.whenReady().then(async () => {
+  hostPower = watchHostPower(powerMonitor, (power) => send('power:change', power));
   if (duplicate) return;
   handleMedia();
   denyMedia();
@@ -480,6 +537,7 @@ void app.whenReady().then(async () => {
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
   if (onWindows) await startRelay(agentboxBin()).catch(() => {});
+  void startHomeHost();
   await learnMode();
   await restartIfStale().catch(() => {});
   events.start();
@@ -491,6 +549,7 @@ void app.whenReady().then(async () => {
 // quitting (vmmode.ts).
 app.on('window-all-closed', () => {
   events.stop();
+  stopHomeHost();
   stopRelay();
   app.quit();
 });
@@ -511,6 +570,7 @@ app.on('before-quit', (event) => {
   if (vmStop === 'stopping') return;
   vmStop = 'stopping';
   events.stop();
+  stopHomeHost();
   for (const window of BrowserWindow.getAllWindows()) window.hide();
   const stopped = stopStartingDaemon().then(stopVM);
   const timedOut = new Promise<void>((resolve) => setTimeout(resolve, vmStopTimeout));

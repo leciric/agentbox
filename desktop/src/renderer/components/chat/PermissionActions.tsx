@@ -78,7 +78,7 @@ export function PermissionActions({
           onClick={() => onAnswer(deny.id)}
           title={deny.name}
           data-agent-permission-option={deny.kind}
-          className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
+          className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-ui text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
         >
           {spin(deny.id)}
           {denyText}
@@ -93,7 +93,7 @@ export function PermissionActions({
             onClick={() => onAnswer(approve.id)}
             title={approve.name}
             data-agent-permission-option={approve.kind}
-            className={cn('flex h-7 items-center gap-1.5 bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60', always || others.length > 0 ? 'rounded-l-lg' : 'rounded-lg')}
+            className={cn('flex h-7 items-center gap-1.5 bg-amber-300 px-3 text-ui font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60', always || others.length > 0 ? 'rounded-l-lg' : 'rounded-lg')}
           >
             {pending && sending === approve.id ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
             {pending && sending === approve.id ? t('chat.permission.sending') : approveText}

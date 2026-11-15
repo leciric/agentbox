@@ -33,7 +33,9 @@ func TestWorkListsLiveAndPastAgents(t *testing.T) {
 	ready := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 	working := addAgent(t, d, repo, "hello-stack", "agent-02", "Still at it")
 	d.srv.record(ctx, createdEvent(working, "Do the thing", now))
-	d.srv.record(ctx, finishedEvent(ready, api.AgentChanges{Files: 2, Insertions: 10, Deletions: 1}, &api.PullRequest{Number: 7, State: "open"}, "Paginated the reminders list.", now.Add(-time.Minute)))
+	commitOn(t, ready, "a.txt")
+	commitOn(t, ready, "b.txt")
+	d.srv.record(ctx, finishedEvent(ready, api.AgentChanges{Files: 2, Insertions: 2}, &api.PullRequest{Number: 7, State: "open"}, "Paginated the reminders list.", now.Add(-time.Minute)))
 	if _, err := d.srv.memory().AddReport(ctx, memory.Report{Project: "hello-stack", Agent: "agent-01", Status: memory.StatusPartial, Summary: "Paged it; sorting is left."}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +185,14 @@ func TestWorkMeasuresPastChangesOncePerCommit(t *testing.T) {
 	testutil.Git(t, repo, "checkout", "-q", "agentbox/agent-07")
 	commit("two.txt")
 	testutil.Git(t, repo, "checkout", "-q", head)
+	// Its branches are taken as read for tipsTTL, so until then nothing has
+	// moved.
+	if got := files(); got != 1 || measured() != 1 {
+		t.Errorf("within tipsTTL: files = %d, measured %d; want what was read", got, measured())
+	}
+	d.srv.mu.Lock()
+	d.srv.branchTips[repo] = tipsRead{d.srv.branchTips[repo].tips, time.Now().Add(-tipsTTL)}
+	d.srv.mu.Unlock()
 	if got := files(); got != 2 || measured() != 2 {
 		t.Errorf("after the branch moved: files = %d, measured %d; want 2 and 2", got, measured())
 	}

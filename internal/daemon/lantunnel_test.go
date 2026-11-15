@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,12 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
+
+// withoutMetrics is cloudflared's command line less its --metrics address,
+// a free port that changes every run.
+func withoutMetrics(args string) string {
+	return strings.TrimSpace(regexp.MustCompile(`--metrics \S+ `).ReplaceAllString(args, ""))
+}
 
 // fakeCloudflared writes a cloudflared that says what the real one does when
 // its tunnel is up, and records how it was run in dir.
@@ -76,6 +83,7 @@ func TestPhoneThroughATunnel(t *testing.T) {
 	// of its own, and the tunnel works all the same.
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = find
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.mu.Unlock()
 
@@ -102,7 +110,7 @@ func TestPhoneThroughATunnel(t *testing.T) {
 	d.srv.lan.mu.Lock()
 	origin := d.srv.lan.tunnel.origin
 	d.srv.lan.mu.Unlock()
-	if args, _ := os.ReadFile(filepath.Join(dir, "args")); strings.TrimSpace(string(args)) != "tunnel --no-autoupdate --url "+origin ||
+	if args, _ := os.ReadFile(filepath.Join(dir, "args")); withoutMetrics(string(args)) != "tunnel --no-autoupdate --url "+origin ||
 		!strings.HasPrefix(origin, "http://127.0.0.1:") {
 		t.Fatalf("cloudflared ran with %q, the listener is %s", args, origin)
 	}
@@ -196,7 +204,7 @@ func TestPhoneThroughATunnel(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, "token")); string(got) != token {
 		t.Errorf("cloudflared's TUNNEL_TOKEN = %q", got)
 	}
-	if args, _ := os.ReadFile(filepath.Join(dir, "args")); strings.Contains(string(args), token) || strings.TrimSpace(string(args)) != "tunnel --no-autoupdate run" {
+	if args, _ := os.ReadFile(filepath.Join(dir, "args")); strings.Contains(string(args), token) || withoutMetrics(string(args)) != "tunnel --no-autoupdate run" {
 		t.Errorf("cloudflared's arguments = %q", args)
 	}
 
@@ -275,6 +283,7 @@ func TestPhoneThroughTheHubsTunnel(t *testing.T) {
 	d.srv.lan.mu.Lock()
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = find
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.hubRetry = 20 * time.Millisecond
 	d.srv.lan.mu.Unlock()
@@ -309,7 +318,7 @@ func TestPhoneThroughTheHubsTunnel(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, "token")); string(got) != hub.tunnelToken {
 		t.Errorf("cloudflared's TUNNEL_TOKEN = %q", got)
 	}
-	if args, _ := os.ReadFile(filepath.Join(dir, "args")); strings.TrimSpace(string(args)) != "tunnel --no-autoupdate run" {
+	if args, _ := os.ReadFile(filepath.Join(dir, "args")); withoutMetrics(string(args)) != "tunnel --no-autoupdate run" {
 		t.Errorf("cloudflared's arguments = %q", args)
 	}
 	if stored, _ := d.srv.store.Setting(ctx, state.SettingLANTunnelHubToken); stored == "" || strings.Contains(stored, hub.tunnelToken) {
@@ -404,6 +413,7 @@ func TestPhoneOverTheHubsTailnet(t *testing.T) {
 	d.srv.lan.mu.Lock()
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = cloudflared
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tailscale = find
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.hubRetry = 20 * time.Millisecond

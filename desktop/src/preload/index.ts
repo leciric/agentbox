@@ -4,6 +4,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type * as T from '../shared/api';
 import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
+import type { ExtractResult } from '../main/browsercookies';
 import type { TraySettings } from '../main/tray';
 import type { TrayTarget } from '../main/traymodel';
 
@@ -18,6 +19,9 @@ export interface ConnectionState {
   error?: string;
   starting?: { since: number; step: string }; // the daemon is being started (main/daemon.ts StartProgress)
 }
+
+export type { StaleDaemon } from '../main/staledaemon';
+import type { StaleDaemon } from '../main/staledaemon';
 
 export interface HostSetupStatus {
   pkexec: string | null;
@@ -133,6 +137,7 @@ export interface VMLimits {
   maxCpus: number;
   minMemory: number; // bytes
   maxMemory: number; // bytes
+  hostMemory?: number; // bytes, the Mac's own
 }
 
 export interface WSLStatus {
@@ -232,6 +237,15 @@ const bridge = {
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),
   onConnection: (fn: (state: ConnectionState) => void) => listen('daemon:connection', fn),
   onEvent: (fn: (event: unknown) => void) => listen('daemon:event', fn),
+  // The computer's power (main/hostpower.ts), for the presence lease
+  // (lib/presence.ts): on battery, and its thermal state on a Mac.
+  hostPower: (): Promise<T.HostPower> => ipcRenderer.invoke('power:get'),
+  onHostPower: (fn: (power: T.HostPower) => void) => listen('power:change', fn),
+  // A daemon of another version than this app, still running after an update
+  // (main/daemon.ts StaleDaemon); null when it's the app's.
+  staleDaemon: (): Promise<StaleDaemon | null> => ipcRenderer.invoke('daemon:stale'),
+  onStaleDaemon: (fn: (stale: StaleDaemon | null) => void) => listen('daemon:stale', fn),
+  restartStaleDaemon: (): Promise<void> => ipcRenderer.invoke('daemon:restartStale'),
   info: (): Promise<{ socket: string; version: string; electron: string; packaged: boolean; platform: string }> => ipcRenderer.invoke('app:info'),
   // WebSocket endpoints of the API: bytes go as binary messages, strings as text messages.
   stream: {
@@ -353,12 +367,19 @@ const bridge = {
     sections: (): Promise<T.ReportSection[]> => ipcRenderer.invoke('report:sections'),
     windowError: (err: { name: string; message: string; stack?: string }) => ipcRenderer.send('report:windowError', err),
     onAppError: (fn: (err: { at: string; where: 'main' | 'window'; name: string; message: string; stack?: string }) => void) => listen('app:error', fn),
+    // onMainLag is told each time the main process's event loop stalled
+    // (main/looplag.ts).
+    onMainLag: (fn: (lag: { at: string; maxMs: number; p99Ms: number; windowMs: number }) => void) => listen('app:mainLag', fn),
     openLogs: (): Promise<string> => ipcRenderer.invoke('report:openLogs'),
     // send sends an automatic error report through the main process, which
     // keeps it for later when the daemon can't be reached (main/reportqueue.ts).
     send: (req: T.ReportRequest): Promise<'sent' | 'refused' | 'unreachable' | 'capped'> => ipcRenderer.invoke('report:send', req),
   },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:directory'),
+  // pickFile and pickSaveFile choose a file to open, or where to write one
+  // (Settings → Export / Import), as the daemon names it; null when cancelled.
+  pickFile: (title: string): Promise<string | null> => ipcRenderer.invoke('dialog:file', title),
+  pickSaveFile: (title: string, name: string): Promise<string | null> => ipcRenderer.invoke('dialog:saveFile', title, name),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
   // openChatFile opens a file sent in a chat, given its daemon path
   // (.../chat/files/<id>), with the system's default app: main/chatfiles.ts
@@ -375,11 +396,19 @@ const bridge = {
   // onNotificationClick gets its ID when it's clicked.
   notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
   onNotificationClick: (fn: (id: string) => void) => listen('notify:click', fn),
+  // The count on the dock or launcher icon: what waits on you (main/notify.ts).
+  badge: (count: number) => ipcRenderer.send('notify:badge', count),
   // The passphrase a Chromium browser seals its cookies with, read from the
   // host's keyring (main/browserkeys.ts) for a browser-cookie import, since
   // the daemon in the VM can't reach the keyring. '' when there's none to
   // fetch. The value is passed straight to the import and never kept.
   browserKeyringSecret: (keyring: string): Promise<string> => ipcRenderer.invoke('browserkeys:get', keyring),
+  // Reads a Windows browser's cookies on the host by launching the browser
+  // itself (main/browsercookies.ts), for a Chrome/Edge/Brave profile the
+  // daemon in the VM can't open (app-bound encryption). Returns the decrypted
+  // cookies, or an error code; the cookies go straight to the import.
+  extractBrowserCookies: (browser: string, profileDir: string): Promise<ExtractResult> =>
+    ipcRenderer.invoke('browsercookies:extract', browser, profileDir),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
   // setLanguage tells the main process the app's language, for its dialogs.
   setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),

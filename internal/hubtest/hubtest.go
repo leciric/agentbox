@@ -11,7 +11,10 @@
 // persistence are the hub's business, and none of them are here: it takes any
 // password or setup link, approves a pairing when the test says so (Approve)
 // or any session does, keeps everything in memory, and lets any session see
-// any environment. Don't grow it into a hub — if a test needs a hub's judgement
+// any environment. Peers (hubapi.PathPeers) are listed by owner, the one
+// thing a test can't do without, but any environment reaches any other
+// through hubapi.PeerAPI, so a test can see an environment refuse a peer
+// that isn't its owner's. Don't grow it into a hub — if a test needs a hub's judgement
 // about who may see what, that test belongs with the hub.
 package hubtest
 
@@ -46,7 +49,16 @@ type Hub struct {
 	envs     map[string]*environment // by ID
 	byToken  map[string]*environment
 	nextID   int
-	pairings map[string]*pairing // by code
+	pairings map[string]*pairing    // by code
+	mcp      map[string]*mcpPairing // by ID
+}
+
+// mcpPairing is an app paired over MCP: the environment it reaches, and the
+// bearer token it calls PathMCP with.
+type mcpPairing struct {
+	info  hubapi.HubMCPPairing
+	env   *environment
+	token string
 }
 
 type pairing struct {
@@ -57,6 +69,7 @@ type pairing struct {
 
 type environment struct {
 	info    hubapi.HubEnvironment
+	owner   string
 	token   string
 	session *yamux.Session
 	proxy   *httputil.ReverseProxy
@@ -65,7 +78,7 @@ type environment struct {
 // New starts a stand-in hub, and stops it when the test ends.
 func New(t *testing.T) *Hub {
 	t.Helper()
-	h := &Hub{t: t, envs: map[string]*environment{}, byToken: map[string]*environment{}, pairings: map[string]*pairing{}}
+	h := &Hub{t: t, envs: map[string]*environment{}, byToken: map[string]*environment{}, pairings: map[string]*pairing{}, mcp: map[string]*mcpPairing{}}
 	h.http = httptest.NewServer(h.handler())
 	h.URL = h.http.URL
 	t.Cleanup(func() {
@@ -112,6 +125,13 @@ func (h *Hub) handler() http.Handler {
 	mux.HandleFunc(http.MethodDelete+" "+hubapi.PathEnvironments+"/{id}", h.deleteEnvironment)
 	mux.HandleFunc(http.MethodGet+" "+hubapi.PathConnect, h.connect)
 	mux.HandleFunc(hubapi.EnvironmentAPI("{id}")+"/{path...}", h.proxy)
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathPeers, h.listPeers)
+	mux.HandleFunc(hubapi.PeerAPI("{id}")+"/{path...}", h.peerProxy)
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathMCPPairings, h.listMCPPairings)
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathMCPPairings, h.createMCPPairing)
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathMCPPairings+"/{id}/code", h.renewMCPCode)
+	mux.HandleFunc(http.MethodDelete+" "+hubapi.PathMCPPairings+"/{id}", h.deleteMCPPairing)
+	mux.HandleFunc(hubapi.PathMCP, h.mcpProxy)
 	return mux
 }
 
@@ -299,11 +319,18 @@ func (h *Hub) createEnvironment(w http.ResponseWriter, r *http.Request) {
 // AddEnvironment adds an environment and returns it with its token, as the
 // hub's own answer would. Tests that don't need the HTTP call use this.
 func (h *Hub) AddEnvironment(name string) hubapi.HubEnvironmentToken {
+	return h.AddEnvironmentOf("usr_test", name)
+}
+
+// AddEnvironmentOf is AddEnvironment for another owner's environment, which
+// isn't among the others' peers.
+func (h *Hub) AddEnvironmentOf(owner, name string) hubapi.HubEnvironmentToken {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.nextID++
 	e := &environment{
 		info:  hubapi.HubEnvironment{ID: "env_" + strconv.Itoa(h.nextID), Name: name, CreatedAt: time.Now()},
+		owner: owner,
 		token: hubapi.EnvironmentTokenPrefix + "test" + strconv.Itoa(h.nextID),
 	}
 	h.envs[e.info.ID] = e
@@ -374,6 +401,17 @@ func (h *Hub) connect(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del("Cookie")
 			pr.Out.Header.Del("Origin")
+			pr.Out.Header.Del(hubapi.HeaderPeer)
+			pr.Out.Header.Del(hubapi.HeaderPeerName)
+			pr.Out.Header.Del(hubapi.HeaderMCPPairing)
+			if id, ok := pr.In.Context().Value(mcpKey{}).(string); ok {
+				pr.Out.URL.Path = hubapi.EnvironmentMCPPath
+				pr.Out.Header.Set(hubapi.HeaderMCPPairing, id)
+			}
+			if p, ok := pr.In.Context().Value(peerKey{}).(hubapi.HubEnvironment); ok {
+				pr.Out.Header.Set(hubapi.HeaderPeer, p.ID)
+				pr.Out.Header.Set(hubapi.HeaderPeerName, p.Name)
+			}
 		},
 		Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return session.Open() },
@@ -419,4 +457,169 @@ func (h *Hub) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+type peerKey struct{}
+
+// listPeers lists the asking environment's owner's other environments.
+func (h *Hub) listPeers(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	self := h.byToken[bearer(r)]
+	if self == nil {
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+		return
+	}
+	out := []hubapi.HubEnvironment{}
+	for _, e := range h.envs {
+		if e != self && e.owner == self.owner {
+			out = append(out, e.info)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// peerProxy passes an environment's request to any other, whoever owns it,
+// saying which one asked.
+func (h *Hub) peerProxy(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	self, e := h.byToken[bearer(r)], h.envs[r.PathValue("id")]
+	var proxy *httputil.ReverseProxy
+	var info hubapi.HubEnvironment
+	if e != nil {
+		proxy = e.proxy
+	}
+	if self != nil {
+		info = self.info
+	}
+	h.mu.Unlock()
+	switch {
+	case self == nil:
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+	case e == nil:
+		fail(w, http.StatusNotFound, "no such environment")
+	case proxy == nil:
+		fail(w, http.StatusServiceUnavailable, e.info.Name+" is offline")
+	default:
+		proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), peerKey{}, info)))
+	}
+}
+
+type mcpKey struct{}
+
+// MCP pairings, as a real hub keeps them, without OAuth: every pairing gets a
+// bearer token, whether it asked for one or not, so a test can call PathMCP.
+
+func (h *Hub) listMCPPairings(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	self := h.byToken[bearer(r)]
+	if self == nil {
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+		return
+	}
+	out := []hubapi.HubMCPPairing{}
+	for _, p := range h.mcp {
+		if p.env == self {
+			out = append(out, p.info)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Hub) createMCPPairing(w http.ResponseWriter, r *http.Request) {
+	var req hubapi.HubMCPPairingRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	self := h.byToken[bearer(r)]
+	if self == nil {
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+		return
+	}
+	h.nextID++
+	id := "mcp_" + strconv.Itoa(h.nextID)
+	p := &mcpPairing{env: self, token: hubapi.MCPTokenPrefix + id, info: hubapi.HubMCPPairing{
+		ID: id, Label: req.Label, Access: req.Access, Projects: req.Projects, URL: h.URL + hubapi.PathMCP, CreatedAt: time.Now(),
+	}}
+	h.mcp[id] = p
+	out := p.info
+	out.Code, out.CodeExpiresAt = "BCDF-GHJK", time.Now().Add(10*time.Minute)
+	if req.Token {
+		out.Token = p.token
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (h *Hub) renewMCPCode(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.mcp[r.PathValue("id")]
+	if p == nil || p.env != h.byToken[bearer(r)] {
+		fail(w, http.StatusNotFound, "no such pairing")
+		return
+	}
+	out := p.info
+	out.Code, out.CodeExpiresAt = "LMNP-QRST", time.Now().Add(10*time.Minute)
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Hub) deleteMCPPairing(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.mcp[r.PathValue("id")]
+	if p == nil || p.env != h.byToken[bearer(r)] {
+		fail(w, http.StatusNotFound, "no such pairing")
+		return
+	}
+	delete(h.mcp, p.info.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// MCPToken is the bearer token of a pairing, by its ID, or "".
+func (h *Hub) MCPToken(id string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if p := h.mcp[id]; p != nil {
+		return p.token
+	}
+	return ""
+}
+
+// AddMCPPairing adds a pairing the environment never asked for, as a hub
+// that was tampered with might, and answers its ID and token.
+func (h *Hub) AddMCPPairing(environmentID string) (id, token string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.nextID++
+	id = "mcp_" + strconv.Itoa(h.nextID)
+	p := &mcpPairing{env: h.envs[environmentID], token: hubapi.MCPTokenPrefix + id, info: hubapi.HubMCPPairing{ID: id, Label: "forged", Access: hubapi.MCPAccessFull}}
+	h.mcp[id] = p
+	return id, p.token
+}
+
+// mcpProxy passes an app's call to the environment its token is paired
+// with, saying which pairing it is.
+func (h *Hub) mcpProxy(w http.ResponseWriter, r *http.Request) {
+	token := bearer(r)
+	h.mu.Lock()
+	var found *mcpPairing
+	for _, p := range h.mcp {
+		if p.token == token {
+			found = p
+		}
+	}
+	var proxy *httputil.ReverseProxy
+	if found != nil && found.env != nil {
+		proxy = found.env.proxy
+	}
+	h.mu.Unlock()
+	switch {
+	case found == nil:
+		fail(w, http.StatusUnauthorized, "unknown token")
+	case proxy == nil:
+		fail(w, http.StatusServiceUnavailable, "the machine is offline")
+	default:
+		proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), mcpKey{}, found.info.ID)))
+	}
 }

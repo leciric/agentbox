@@ -1,21 +1,30 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 )
 
-func TestMemoryLimitLeavesTheVMItsShare(t *testing.T) {
+func TestMemoryLimitIsTheAgentsShareOfTheVM(t *testing.T) {
 	t.Parallel()
-	for total, want := range map[int64]int64{
-		16 * gib: 14 * gib, // an eighth
-		4 * gib:  3 * gib,  // at least 1 GiB
-		2 * gib:  1 * gib,  // never below half
-		0:        0,        // unknown: none
+	for _, c := range []struct {
+		total int64
+		share int
+		want  int64
+	}{
+		{18 * gib, 0, 18 * gib / 100 * 50}, // half by default: 9 GiB, not 16
+		{16 * gib, 50, 16 * gib / 100 * 50},
+		{16 * gib, 75, 16 * gib / 100 * 75},
+		{16 * gib, 99, 16 * gib / 100 * 90}, // never more than 90%
+		{16 * gib, 1, 16 * gib / 100 * 10},  // nor less than 10%
+		{0, 50, 0},                          // unknown: none
 	} {
-		if got := MemoryLimit(total); got != want {
-			t.Errorf("MemoryLimit(%d GiB) = %d MiB, want %d MiB", total/gib, got>>20, want>>20)
+		if got := MemoryLimit(c.total, c.share); got != c.want {
+			t.Errorf("MemoryLimit(%d GiB, %d%%) = %d MiB, want %d MiB", c.total/gib, c.share, got>>20, c.want>>20)
 		}
 	}
 }
@@ -61,8 +70,13 @@ func TestMemoryEventsReadsKillsAndTheLimit(t *testing.T) {
 	writeCgroupFile(t, filepath.Join(dir, "memory.events"), "low 0\nhigh 0\nmax 12\noom 3\noom_kill 5\noom_group_kill 0\n")
 	writeCgroupFile(t, filepath.Join(dir, "memory.events.local"), "low 0\nhigh 0\nmax 12\noom 2\noom_kill 0\noom_group_kill 0\n")
 	writeCgroupFile(t, filepath.Join(dir, "memory.max"), "15032385536\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "abc", "memory.max"), "536870912\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "abc", "memory.events.local"), "oom 4\noom_kill 4\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "memory.max"), "max\n")
 	got, ok := memoryEvents(dir)
-	if want := (MemoryCounts{Kills: 5, OwnLimit: 2, Limit: 15032385536}); !ok || got != want {
+	want := MemoryCounts{Kills: 5, OwnLimit: 2, Limit: 15032385536,
+		Nested: map[string]NestedLimit{"docker/abc": {Limit: 512 << 20, Reached: 4}}}
+	if !ok || !reflect.DeepEqual(got, want) {
 		t.Errorf("memoryEvents = %+v, %v; want %+v", got, ok, want)
 	}
 	if _, ok := memoryEvents(filepath.Join(dir, "gone")); ok {
@@ -139,7 +153,7 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil || len(wrote) != 0 {
 		t.Fatalf("freezing a run with no cgroup: %v, %v", wrote, err)
 	}
-	if err := reclaimRun(root, "m", "k", write); err != nil || len(wrote) != 0 {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error { return write(path, value) }); err != nil || len(wrote) != 0 {
 		t.Fatalf("reclaiming a run with no cgroup: %v, %v", wrote, err)
 	}
 	if runPopulated(root, "m", "k") {
@@ -152,13 +166,13 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil {
 		t.Fatal(err)
 	}
-	if err := reclaimRun(root, "m", "k", func(path, value string) error {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error {
 		wrote = append(wrote, filepath.Base(path)+"="+value)
 		return errReclaimShort // the kernel got what it could
 	}); err != nil {
 		t.Fatalf("a short reclaim is an error: %v", err)
 	}
-	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=3221225472" {
+	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=134217728" { // one chunk, then it fell short
 		t.Errorf("wrote %v", wrote)
 	}
 	if !runPopulated(root, "m", "k") {

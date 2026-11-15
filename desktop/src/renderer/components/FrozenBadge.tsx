@@ -14,7 +14,7 @@ export function FrozenBadge({ agent, className }: { agent: Pick<T.Agent, 'state'
   return (
     <span
       title={tip}
-      className={cn('inline-flex shrink-0 items-center gap-1 rounded bg-sky-400/15 px-1 text-[10.5px] font-medium leading-4 text-sky-300', className)}
+      className={cn('inline-flex shrink-0 items-center gap-1 rounded bg-sky-400/15 px-1 text-caption font-medium leading-4 text-sky-300', className)}
       data-frozen
     >
       <Snowflake className="size-2.5" aria-hidden />

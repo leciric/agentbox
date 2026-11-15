@@ -88,9 +88,9 @@ func TestTokenReport(t *testing.T) {
 	}
 }
 
-// TestTokenReportTPS: avgTPS is output over generation seconds, summed across
-// rows before dividing rather than averaging each row's own rate, and a row
-// with no generation time doesn't lower it.
+// TestTokenReportTPS: avgTPS is timed output over timed seconds, summed
+// across rows before dividing rather than averaging each row's own rate, and
+// a row timed only the old way doesn't count.
 func TestTokenReportTPS(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -98,18 +98,18 @@ func TestTokenReportTPS(t *testing.T) {
 	// A minute back: a row stamped at this very instant can land after the
 	// report's own "now" once both are rounded, and drop out of it.
 	now := time.Now().Add(-time.Minute)
-	add := func(turn, model string, output, generationMS int64) {
+	add := func(turn, model string, output, timedMS int64) {
 		t.Helper()
 		if err := d.srv.store.AddTokenRows(ctx, []state.TokenRow{{
 			Project: "acme", Agent: "agent-24", AI: "claude", Turn: turn, Kind: state.TokensTurn,
-			Model: model, At: now, Output: output, GenerationMS: generationMS,
+			Model: model, At: now, Output: output, GenerationMS: 60_000, TimedOutput: output, TimedMS: timedMS,
 		}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	add("t1", "claude-sonnet-5", 200, 2_000) // 100 tok/s
 	add("t2", "claude-sonnet-5", 300, 3_000) // 100 tok/s
-	add("t3", "claude-sonnet-5", 1_000, 0)   // no duration: left out
+	add("t3", "claude-sonnet-5", 1_000, 0)   // not timed: left out
 
 	report, err := getTokens(t, d, "project=acme")
 	if err != nil {

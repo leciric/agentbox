@@ -7,9 +7,14 @@ import { AgentModelAuto } from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
+import { drop } from '../lib/sidebar';
+import { useSections } from '../lib/useSections';
+import { formatTokens } from '../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage } from '../lib/utils';
 import { ModelByName } from './ModelByName';
+import { aiLabel } from './state';
+import { FolderIcon } from './v2/SidebarSections';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -41,10 +46,21 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'name',
+          description: t('defaults.project.nameDescription', { id: project.name }),
+          essential: true,
           label: t('defaults.project.nameLabel'),
           keywords: t('defaults.project.nameKeywords'),
           // Keyed on the saved name, so a save (or another client's) starts the draft over.
           render: () => <ProjectNameField key={name} project={project} />,
+        },
+        {
+          id: 'folder',
+          description: t('defaults.project.folderHelp'),
+          essential: true,
+          label: t('defaults.project.folder'),
+          keywords: t('defaults.project.folderKeywords'),
+          modified: project.section !== '',
+          render: () => <FolderPicker project={project} />,
         },
       ],
     },
@@ -54,17 +70,69 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       description: t('defaults.project.groupAgentsDescription', { name }),
       entries: [
         {
-          id: 'model',
-          label: t('defaults.project.modelLabel'),
-          keywords: t('defaults.project.modelKeywords'),
-          modified: project.agentModel !== '',
-          render: () => <AgentModelPicker project={project} />,
+          id: 'tool',
+          description: t('defaults.project.toolDescription'),
+          label: t('defaults.project.toolLabel'),
+          keywords: t('defaults.project.toolKeywords'),
+          modified: project.agentTool !== '',
+          render: () => <AgentToolPicker project={project} />,
         },
+        // Each row below is a setting of the project's tool, and only the
+        // rows that tool has are offered (agentToolRows).
+        ...(agentToolRows(project).model
+          ? [
+              {
+                id: 'model',
+                description: t('defaults.project.modelDescription'),
+                essential: true,
+                label: t('defaults.project.modelLabel'),
+                keywords: t('defaults.project.modelKeywords'),
+                modified: project.agentModel !== '',
+                render: () => <AgentModelPicker project={project} />,
+              },
+            ]
+          : []),
+        ...(agentToolRows(project).effort
+          ? [
+              {
+                id: 'effort',
+                description: t('defaults.project.effortDescription'),
+                label: t('defaults.project.effortLabel'),
+                keywords: t('defaults.project.effortKeywords'),
+                modified: project.agentEffort !== '',
+                render: () => <AgentEffortPicker project={project} />,
+              },
+            ]
+          : []),
+        ...(agentToolRows(project).window
+          ? [
+              {
+                id: 'context-window',
+                description: t('defaults.project.windowDescription'),
+                label: t('defaults.project.windowLabel'),
+                keywords: t('defaults.project.windowKeywords'),
+                modified: project.agentContextWindow !== '',
+                render: () => <AgentWindowPicker project={project} />,
+              },
+            ]
+          : []),
+        ...(agentToolRows(project).modes.length > 0
+          ? [
+              {
+                id: 'mode',
+                description: t('defaults.project.modeDescription'),
+                label: t('defaults.project.modeLabel'),
+                keywords: t('defaults.project.modeKeywords'),
+                modified: project.agentMode !== '',
+                render: () => <AgentModePicker project={project} />,
+              },
+            ]
+          : []),
         {
           id: 'branch-prefix',
+          description: t('defaults.project.prefixDescription', { example: `${project.branchPrefix}fix-login-redirect` }),
           label: t('defaults.project.prefixLabel'),
           keywords: t('defaults.project.prefixKeywords'),
-          advanced: true,
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
           render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
@@ -78,6 +146,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'claude-account',
+          description: t('project.accounts.claudeDescription'),
+          essential: true,
           label: t('defaults.project.claudeAccountLabel'),
           keywords: t('defaults.project.claudeAccountKeywords'),
           modified: project.claudeAccount !== '',
@@ -85,6 +155,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'claude-accounts',
+          description: t('project.accounts.allowedDescription', { state: 'all' }),
           label: t('defaults.project.allowedLabel'),
           keywords: t('defaults.project.allowedKeywords'),
           modified: project.claudeAccounts.length > 0,
@@ -92,6 +163,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'codex-account',
+          description: t('project.accounts.codexDescription'),
           label: t('project.accounts.codexLabel'),
           keywords: t('project.accounts.codexKeywords'),
           modified: project.codexAccount !== '',
@@ -99,6 +171,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'opencode-accounts',
+          description: t('project.accounts.openCodeDescription'),
           label: t('project.accounts.openCodeLabel'),
           keywords: t('project.accounts.openCodeKeywords'),
           modified: Object.keys(project.openCodeAccounts ?? {}).length > 0,
@@ -106,13 +179,29 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'cursor-account',
+          description: t('project.accounts.cursorDescription'),
           label: t('project.accounts.cursorLabel'),
           keywords: t('project.accounts.cursorKeywords'),
           modified: project.cursorAccount !== '',
           render: () => <ToolAccountPicker project={project} tool="cursor" />,
         },
         {
+          id: 'gemini-account',
+          label: t('project.accounts.geminiLabel'),
+          keywords: t('project.accounts.geminiKeywords'),
+          modified: project.geminiAccount !== '',
+          render: () => <ToolAccountPicker project={project} tool="gemini" />,
+        },
+        {
+          id: 'copilot-account',
+          label: t('project.accounts.copilotLabel'),
+          keywords: t('project.accounts.copilotKeywords'),
+          modified: project.copilotAccount !== '',
+          render: () => <ToolAccountPicker project={project} tool="copilot" />,
+        },
+        {
           id: 'tool-credentials',
+          description: t('project.accounts.runningOnDescription'),
           label: t('project.accounts.runningOnLabel'),
           keywords: t('project.accounts.runningOnKeywords'),
           modified: false,
@@ -124,6 +213,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'github-account',
+          description: t('project.accounts.githubDescription'),
+          essential: true,
           label: t('defaults.project.githubAccountLabel'),
           keywords: t('defaults.project.githubAccountKeywords'),
           modified: project.githubAccount !== '',
@@ -138,6 +229,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'sync-base',
+          description: t('defaults.project.syncOnDescription'),
           label: t('defaults.project.syncLabel'),
           keywords: t('defaults.project.syncKeywords'),
           modified: !project.syncBase,
@@ -151,7 +243,16 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       description: t('defaults.project.groupPullsDescription'),
       entries: [
         {
+          id: 'pulls-tab',
+          description: t('defaults.project.pullsTabOnDescription'),
+          label: t('defaults.project.pullsTabLabel'),
+          keywords: t('defaults.project.pullsTabKeywords'),
+          modified: !project.pullRequests,
+          render: () => <PullsTabToggle project={project} />,
+        },
+        {
           id: 'agent-prs',
+          description: t('defaults.project.agentPRsOnDescription'),
           label: t('defaults.project.agentPRsLabel'),
           keywords: t('defaults.project.agentPRsKeywords'),
           modified: project.agentPRs,
@@ -159,6 +260,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'pick-up-issues',
+          description: t('defaults.project.pickUpOnDescription'),
           label: t('defaults.project.pickUpLabel'),
           keywords: t('defaults.project.pickUpKeywords'),
           modified: project.pickUpIssues,
@@ -166,6 +268,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'pr-watch',
+          description: t('defaults.project.prWatchDescription'),
           label: t('defaults.project.prWatchLabel'),
           keywords: t('defaults.project.prWatchKeywords'),
           modified: project.prWatch !== '',
@@ -180,6 +283,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'autonomy',
+          description: t('defaults.project.autonomyOnDescription'),
           label: t('defaults.project.autonomyLabel'),
           keywords: t('defaults.project.autonomyKeywords'),
           modified: project.autonomy === 'on',
@@ -187,10 +291,19 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'finish-notices',
+          description: t('defaults.project.finishDescription'),
           label: t('defaults.project.finishLabel'),
           keywords: t('defaults.project.finishKeywords'),
           modified: project.finishNotices !== 'lead',
           render: () => <FinishNoticesPicker project={project} />,
+        },
+        {
+          id: 'settle-sessions',
+          description: t('defaults.project.settleDescription'),
+          label: t('defaults.project.settleLabel'),
+          keywords: t('defaults.project.settleKeywords'),
+          modified: project.settleHours !== 24,
+          render: () => <SettlePicker project={project} />,
         },
       ],
     },
@@ -200,6 +313,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'full-test-suite',
+          description: t('defaults.project.fullSuiteOnDescription'),
           label: t('defaults.project.fullSuiteLabel'),
           keywords: t('defaults.project.fullSuiteKeywords'),
           modified: project.fullTestSuite,
@@ -207,15 +321,35 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
       ],
     },
+    // The ports an iOS project's agents may forward to the Mac, for the
+    // simulator's apps: none until the user names them.
+    ...(project.ios
+      ? [
+          {
+            id: 'ios',
+            title: t('defaults.project.groupIOS'),
+            entries: [
+              {
+                id: 'ios-ports',
+                description: t('defaults.project.iosPortsDescription'),
+                label: t('defaults.project.iosPortsLabel'),
+                keywords: t('defaults.project.iosPortsKeywords'),
+                modified: project.iosForwardPorts.length > 0,
+                render: () => <IOSPortsField key={project.iosForwardPorts.join(',')} project={project} />,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       id: 'testing',
       title: t('defaults.project.groupTesting'),
       entries: [
         {
           id: 'nesting',
+          description: t('defaults.project.nestingDescription'),
           label: t('defaults.project.nestingLabel'),
           keywords: t('defaults.project.nestingKeywords'),
-          advanced: true,
           modified: project.nesting,
           render: () => <NestingToggle project={project} />,
         },
@@ -235,13 +369,229 @@ export function projectSection(project: T.Project): SettingSection {
   };
 }
 
-// ProjectSettings is the same groups, on the project's Overview.
+// ProjectSettings is the same groups, on the project's Settings tab: its
+// essential ones (its name, the model and the accounts its agents get), and
+// the rest folded under Advanced.
 export function ProjectSettings({ project }: { project: T.Project }) {
   useT();
   return (
     <div className="grid gap-8">
       <SettingGroups groups={projectSettingGroups(project)} />
     </div>
+  );
+}
+
+// FolderPicker is which sidebar folder (a section, D79) holds the project, the
+// same move as dragging it there: it goes to the end of that folder, or of the
+// projects in none.
+function FolderPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const sec = useSections();
+  const folders = sec.sections.data ?? [];
+  const current = folders.find((f) => f.id === project.section);
+  return (
+    <SettingRow
+      label={t('defaults.project.folder')}
+      description={t('defaults.project.folderHelp')}
+      control={
+        <Select
+          id="project-folder"
+          aria-label={t('defaults.project.folder')}
+          value={current ? current.id : ''}
+          disabled={!sec.sections.data}
+          onChange={(id) => sec.apply(drop(sec.lists, { kind: 'project', name: project.name }, { kind: 'list', section: id || null }), project.name)}
+          data-project-folder
+        >
+          <SelectOption value="">{t('defaults.project.folderNone')}</SelectOption>
+          {folders.map((f) => (
+            <SelectOption key={f.id} value={f.id}>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderIcon color={f.color} className="size-3.5" />
+                <span className="truncate">{f.name}</span>
+              </span>
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+// The permission modes a project can start its agents on, by kind: the one
+// name every tool's menu shares (state.ModeKinds).
+const modeKinds = ['standard', 'auto_review', 'full_access', 'plan'] as const;
+type ModeKind = (typeof modeKinds)[number];
+
+// agentToolRows is which of a tool's settings it really has: Codex no model or
+// effort of its own, OpenCode no effort or window, Cursor no window and no
+// permission modes (it never asks), Gemini CLI and Copilot a model only (a
+// Copilot agent's effort is its chat's), and each its own modes. OpenCode's
+// modes are agents, build and plan, of which only plan is a kind; Gemini CLI's
+// autoEdit is none of the kinds, and Copilot's autopilot is full access.
+function agentToolRows(project: T.Project): { model: boolean; effort: boolean; window: boolean; modes: readonly ModeKind[] } {
+  switch (project.agentTool || 'claude') {
+    case 'codex':
+      return { model: false, effort: false, window: false, modes: ['standard', 'auto_review', 'full_access'] };
+    case 'opencode':
+      return { model: true, effort: false, window: false, modes: ['plan'] };
+    case 'cursor':
+      return { model: true, effort: true, window: false, modes: [] };
+    case 'gemini':
+    case 'copilot':
+      return { model: true, effort: false, window: false, modes: ['standard', 'full_access', 'plan'] };
+    default:
+      return { model: true, effort: true, window: true, modes: modeKinds };
+  }
+}
+
+const agentTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot'] as const;
+
+// useSaveAgentDefaults saves the project's tool or one of its defaults, and
+// says what changed.
+function useSaveAgentDefaults(project: T.Project, describe: (updated: T.Project) => string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: T.UpdateProjectRequest) => api.updateProject(project.name, req),
+    onSuccess: async (updated) => {
+      toast(describe(updated));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+}
+
+// AgentToolPicker chooses the AI tool this project's new agents run when they
+// name none: in the New agent dialog, on the command line, and for the agents
+// its chat creates. None is what every project did before: Claude Code in the
+// dialog and on the command line, the chat's own tool for the chat's agents.
+// The rows under it are that tool's, and choosing another clears them.
+function AgentToolPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const save = useSaveAgentDefaults(project, (updated) =>
+    updated.agentTool
+      ? t('defaults.project.describeTool', { name: projectLabel(updated), tool: aiLabel(updated.agentTool) })
+      : t('defaults.project.describeNoTool', { name: projectLabel(updated) }),
+  );
+  return (
+    <SettingRow
+      label={t('defaults.project.toolLabel')}
+      description={t('defaults.project.toolDescription')}
+      details={t('defaults.project.toolDetails')}
+      control={
+        <Select id="project-agent-tool" aria-label={t('defaults.project.toolLabel')} value={project.agentTool} disabled={save.isPending} onChange={(agentTool) => save.mutate({ agentTool })}>
+          <SelectOption value="">{t('defaults.project.toolNone')}</SelectOption>
+          {agentTools.map((tool) => (
+            <SelectOption key={tool} value={tool}>
+              {aiLabel(tool)}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+// AgentEffortPicker chooses how hard this project's new agents think: Claude
+// Code's levels, or the ones the Cursor model it names takes.
+function AgentEffortPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const save = useSaveAgentDefaults(project, (updated) =>
+    updated.agentEffort ? t('defaults.project.describeEffort', { name: projectLabel(updated), effort: updated.agentEffort }) : t('defaults.project.describeEffortHome', { name: projectLabel(updated) }),
+  );
+  const cursor = project.agentTool === 'cursor';
+  const cursorModel = project.agentModel || settings.data?.defaultCursorModel || '';
+  const levels = cursor
+    ? (settings.data?.cursorModelChoices.find((c) => c.value === cursorModel)?.efforts ?? []).map((level) => ({ value: level, name: level }))
+    : (settings.data?.claudeEffortChoices ?? []);
+  const home = cursor ? settings.data?.defaultCursorEffort || t('defaults.project.effortModelOwn') : settings.data?.defaultClaudeEffort || 'medium';
+  const value = project.agentEffort;
+  return (
+    <SettingRow
+      label={t('defaults.project.effortLabel')}
+      description={t('defaults.project.effortDescription')}
+      control={
+        <Select id="project-agent-effort" aria-label={t('defaults.project.effortLabel')} value={value} disabled={save.isPending || !settings.data} onChange={(agentEffort) => save.mutate({ agentEffort })}>
+          <SelectOption value="">{t('defaults.project.sameAsSettingsValue', { value: home })}</SelectOption>
+          {value && !levels.some((c) => c.value === value) && <SelectOption value={value}>{value}</SelectOption>}
+          {levels.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+// AgentWindowPicker chooses where this project's new Claude Code agents'
+// chats compact (D91), from the windows the model they start on has. Stored in
+// tokens, like Settings' own; a model without it gets the compact window.
+function AgentWindowPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const save = useSaveAgentDefaults(project, (updated) =>
+    updated.agentContextWindow
+      ? t('defaults.project.describeWindow', { name: projectLabel(updated), window: formatTokens(Number(updated.agentContextWindow)) })
+      : t('defaults.project.describeWindowHome', { name: projectLabel(updated) }),
+  );
+  const model = (project.agentModel !== AgentModelAuto && project.agentModel) || settings.data?.defaultClaudeModel || 'opus';
+  const windows = settings.data?.claudeContextWindows?.[model] ?? [];
+  const value = project.agentContextWindow;
+  const home = settings.data?.defaultAgentContextWindow ? formatTokens(Number(settings.data.defaultAgentContextWindow)) : formatTokens(settings.data?.claudeCompactWindow ?? 0);
+  return (
+    <SettingRow
+      label={t('defaults.project.windowLabel')}
+      description={t('defaults.project.windowDescription')}
+      control={
+        <Select id="project-agent-window" aria-label={t('defaults.project.windowLabel')} value={value} disabled={save.isPending || !settings.data} onChange={(agentContextWindow) => save.mutate({ agentContextWindow })}>
+          <SelectOption value="">{t('defaults.project.sameAsSettingsValue', { value: home })}</SelectOption>
+          {value && !windows.includes(Number(value)) && <SelectOption value={value}>{formatTokens(Number(value))}</SelectOption>}
+          {windows.map((w) => (
+            <SelectOption key={w} value={String(w)}>
+              {formatTokens(w)}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+const modeKeys: Record<ModeKind, MessageKey> = {
+  standard: 'defaults.project.modeStandard',
+  auto_review: 'defaults.project.modeAutoReview',
+  full_access: 'defaults.project.modeFullAccess',
+  plan: 'defaults.project.modePlan',
+};
+
+// AgentModePicker chooses the permission mode this project's new agents start
+// on, by kind, the name every tool's menu shares; each agent can still change
+// it in its chat. None is full access for an autonomous agent, the tool's own
+// default for one that asks.
+function AgentModePicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const save = useSaveAgentDefaults(project, (updated) =>
+    updated.agentMode
+      ? t('defaults.project.describeMode', { name: projectLabel(updated), mode: t(modeKeys[updated.agentMode as ModeKind] ?? 'defaults.project.modeNone') })
+      : t('defaults.project.describeModeHome', { name: projectLabel(updated) }),
+  );
+  return (
+    <SettingRow
+      label={t('defaults.project.modeLabel')}
+      description={t('defaults.project.modeDescription')}
+      control={
+        <Select id="project-agent-mode" aria-label={t('defaults.project.modeLabel')} value={project.agentMode} disabled={save.isPending} onChange={(agentMode) => save.mutate({ agentMode })}>
+          <SelectOption value="">{t('defaults.project.modeNone')}</SelectOption>
+          {agentToolRows(project).modes.map((kind) => (
+            <SelectOption key={kind} value={kind}>
+              {t(modeKeys[kind])}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
   );
 }
 
@@ -279,7 +629,19 @@ function AgentModelPicker({ project }: { project: T.Project }) {
   // "no model of my own", which is what the first item here already says, and
   // the daemon refuses it as a project's model rather than store a sentinel
   // where a model is read (SetProjectAgentModel).
-  const choices = (settings.data?.claudeModelChoices ?? []).filter((c) => c.value !== 'default');
+  const tool = project.agentTool || 'claude';
+  const claude = tool === 'claude';
+  const choices = (
+    tool === 'opencode'
+      ? settings.data?.openCodeModelChoices
+      : tool === 'cursor'
+        ? settings.data?.cursorModelChoices
+        : tool === 'gemini'
+          ? settings.data?.geminiModelChoices
+          : tool === 'copilot'
+            ? settings.data?.copilotModelChoices
+            : (settings.data?.claudeModelChoices ?? [])
+  )?.filter((c) => c.value !== 'default') ?? [];
   const value = project.agentModel;
   const picked = choices.find((c) => c.value === value);
   // "auto" is a mode rather than a model, so it is never the missing entry.
@@ -289,10 +651,19 @@ function AgentModelPicker({ project }: { project: T.Project }) {
   const label = !settings.data ? t('common.loading') : value === '' ? homeDefault.name : value === AgentModelAuto ? auto.name : (picked && choiceName(picked)) || value;
   // What Settings currently says, so "same as" isn't a promise you have to
   // leave the page to read.
-  const home = settings.data?.defaultClaudeModel || t('defaults.project.homeFallback');
+  const home =
+    tool === 'opencode'
+      ? t('defaults.project.homeOpenCode')
+      : tool === 'cursor'
+        ? settings.data?.defaultCursorModel || t('defaults.project.homeCursor')
+        : tool === 'gemini'
+          ? settings.data?.defaultGeminiModel || t('defaults.project.homeCursor')
+        : tool === 'copilot'
+          ? settings.data?.defaultCopilotModel || t('defaults.project.homeCursor')
+        : settings.data?.defaultClaudeModel || t('defaults.project.homeFallback');
   // With enforcement on, the lead creates every agent on Settings' model, so
   // this project's own choice has no effect.
-  const enforced = settings.data?.enforceAgentDefaults === true;
+  const enforced = claude && settings.data?.enforceAgentDefaults === true;
   const enforcedModel = home;
 
   return (
@@ -327,7 +698,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
                   placeholder={t('common.search')}
-                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                  className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
@@ -335,15 +706,15 @@ function AgentModelPicker({ project }: { project: T.Project }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{homeDefault.name}</span>
-                  <span className="text-[11px] text-subtle">{t('defaults.project.currently', { home })}</span>
+                  <span className="text-caption text-subtle">{t('defaults.project.currently', { home })}</span>
                 </span>
               </MenuItem>
             )}
-            {matchesQuery(auto, query) && (
+            {claude && matchesQuery(auto, query) && (
               <MenuItem onSelect={() => save.mutate(AgentModelAuto)} hint={value === AgentModelAuto ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{auto.name}</span>
-                  <span className="text-[11px] text-subtle">{auto.description}</span>
+                  <span className="text-caption text-subtle">{auto.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -356,9 +727,9 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
+                    <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -377,18 +748,18 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
-                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                      {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                     </span>
                   </MenuItem>
                 ))}
               </div>
             ))}
             {choices.length === 0 && (
-              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
-                {t('defaults.project.noMenu')}
+              <div className="px-2.5 py-3 text-caption leading-relaxed text-subtle">
+                {claude ? t('defaults.project.noMenu') : t('defaults.project.noToolMenu', { tool: aiLabel(tool) })}
               </div>
             )}
             <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
@@ -467,7 +838,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
             <Input
               id="project-branch-prefix"
               data-project-branch-prefix
-              className="pl-9 font-mono text-[12.5px]"
+              className="pl-9 font-mono text-ui"
               placeholder={t('defaults.project.noPrefix')}
               spellCheck={false}
               value={draft}
@@ -490,6 +861,84 @@ function BranchPrefixField({ project }: { project: T.Project }) {
             </>
           )}
         </div>
+        {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
+      </form>
+    </SettingRow>
+  );
+}
+
+// IOSPortsField sets the ports this project's agents may forward to the Mac's
+// localhost, where an app in the iOS Simulator reaches their Metro and API
+// (agentbox ios forward). Such a port is the browser's localhost too, so
+// agents get none until the user names them here.
+function IOSPortsField({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const saved = project.iosForwardPorts.join(', ');
+  const [draft, setDraft] = useState(saved);
+  const save = useMutation({
+    mutationFn: (ports: number[]) => api.updateProject(project.name, { iosForwardPorts: ports }),
+    onSuccess: async (updated) => {
+      toast(
+        updated.iosForwardPorts.length > 0
+          ? t('defaults.project.iosPortsToast', { name: projectLabel(updated), ports: updated.iosForwardPorts.join(', ') })
+          : t('defaults.project.iosPortsNoneToast', { name: projectLabel(updated) }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+  const words = draft.split(/[\s,]+/).filter(Boolean);
+  const ports = words.map(Number);
+  const valid = ports.every((p) => Number.isInteger(p));
+  const changed = draft.trim() !== saved;
+
+  return (
+    <SettingRow
+      label={t('defaults.project.iosPortsLabel')}
+      htmlFor="project-ios-ports"
+      description={t('defaults.project.iosPortsDescription')}
+      details={t('defaults.project.iosPortsDetails')}
+    >
+      <form
+        className="grid gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (changed && valid) save.mutate(ports);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && changed && !save.isPending) {
+            setDraft(saved);
+            save.reset();
+          }
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            id="project-ios-ports"
+            data-project-ios-ports
+            className="min-w-0 flex-1 font-mono text-ui sm:max-w-sm"
+            placeholder={t('defaults.project.iosPortsPlaceholder')}
+            spellCheck={false}
+            value={draft}
+            disabled={save.isPending}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              save.reset();
+            }}
+          />
+          {changed && (
+            <>
+              <Button type="submit" variant="primary" size="sm" disabled={save.isPending || !valid}>
+                {save.isPending && <LoaderCircle className="animate-spin" />}
+                {t('common.save')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(saved), save.reset())}>
+                {t('common.cancel')}
+              </Button>
+            </>
+          )}
+        </div>
+        {!valid && <SettingNote tone="error">{t('defaults.project.iosPortsInvalid')}</SettingNote>}
         {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
       </form>
     </SettingRow>
@@ -625,8 +1074,7 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-agent-prs"
           data-project-agent-prs
-          checked={project.agentPRs}
-          disabled={save.isPending}
+          checked={save.isPending ? save.variables : project.agentPRs}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -706,11 +1154,79 @@ function FullTestSuiteToggle({ project }: { project: T.Project }) {
   );
 }
 
+// PullsTabToggle turns the lead's Pull requests tab on or off for this
+// project, and with it the minute's poll of GitHub that keeps its counts
+// (RightPanel's LeadSwitch). On by default.
+function PullsTabToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (pullRequests: boolean) => api.updateProject(project.name, { pullRequests }),
+    onSuccess: async (updated) => {
+      toast(updated.pullRequests ? t('defaults.project.pullsTabOnToast', { name: updated.name }) : t('defaults.project.pullsTabOffToast', { name: updated.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label={t('defaults.project.pullsTabLabel')}
+      htmlFor="project-pulls-tab"
+      description={project.pullRequests ? t('defaults.project.pullsTabOnDescription') : t('defaults.project.pullsTabOffDescription')}
+      details={t('defaults.project.pullsTabDetails')}
+      control={
+        <Switch
+          id="project-pulls-tab"
+          data-project-pulls-tab
+          checked={save.isPending ? save.variables : project.pullRequests}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
 // SyncBaseToggle keeps the project's base branch (main) up to date with its
 // remote: the daemon fetches every few minutes and before it creates an
 // agent, and fast-forwards the local branch when it is strictly behind. On by
 // default, since an agent made from a stale main starts without what was
 // merged since.
+// settleChoices are the idle times SettlePicker offers, in hours; 0 is never.
+const settleChoices = [1, 4, 24, 72, 168, 0];
+
+// SettlePicker chooses how long one of the project's chat sessions waits
+// idle, its agents' pull requests all merged or closed, before it settles
+// into History by itself (daemon/sessionsettle.go), or that it never does.
+function SettlePicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (settleHours: number) => api.updateProject(project.name, { settleHours }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const value = save.isPending ? save.variables : project.settleHours;
+  return (
+    <SettingRow
+      label={t('defaults.project.settleLabel')}
+      description={t('defaults.project.settleDescription')}
+      details={t('defaults.project.settleDetails')}
+      control={
+        <Select id="project-settle" data-project-settle aria-label={t('defaults.project.settleLabel')} value={String(value)} disabled={save.isPending} onChange={(v) => save.mutate(Number(v))}>
+          {[...new Set([...settleChoices, value])].map((hours) => (
+            <SelectOption key={hours} value={String(hours)}>
+              {hours === 0 ? t('defaults.project.settleNever') : t('defaults.project.settleAfter', { hours })}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
 function SyncBaseToggle({ project }: { project: T.Project }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -733,8 +1249,7 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-sync-base"
           data-project-sync-base
-          checked={project.syncBase}
-          disabled={save.isPending}
+          checked={save.isPending ? save.variables : project.syncBase}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -771,8 +1286,8 @@ function NestingToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-nesting"
           data-project-nesting
-          checked={project.nesting}
-          disabled={save.isPending || (!hasIncus && !project.nesting)}
+          checked={save.isPending ? save.variables : project.nesting}
+          disabled={!hasIncus && !project.nesting}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }

@@ -124,6 +124,7 @@ export function PullRequestModal({
   pr,
   onClose,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onMerge,
@@ -135,6 +136,7 @@ export function PullRequestModal({
   pr: T.PullRequest | null;
   onClose: () => void;
   canMerge: boolean;
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
@@ -150,6 +152,7 @@ export function PullRequestModal({
             project={project}
             pr={pr}
             canMerge={canMerge}
+            mergeBlocked={mergeBlocked}
             mergeRunning={mergeRunning}
             mergeError={mergeError}
             onMerge={onMerge}
@@ -163,12 +166,22 @@ export function PullRequestModal({
   );
 }
 
+// MergeBlocked is why Merge is greyed out, beside it, as the review's footer says it.
+export function MergeBlocked({ reason }: { reason: string }) {
+  return (
+    <span className="min-w-0 truncate text-caption text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" title={reason} data-merge-blocked>
+      {reason}
+    </span>
+  );
+}
+
 // PullRequestView is what the modal shows, also used on its own: as the last
 // slide of "Ready to review" (inline, inside a dialog that has its own title).
 export function PullRequestView({
   project,
   pr: listed,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onMerge,
@@ -189,6 +202,7 @@ export function PullRequestView({
   project: string;
   pr: T.PullRequest;
   canMerge: boolean;
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
@@ -232,7 +246,7 @@ export function PullRequestView({
                 </Title>
               );
             })()}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-caption text-muted">
               {pr.draft ? (
                 <Badge>{t('memory.pulls.draft')}</Badge>
               ) : (
@@ -246,8 +260,8 @@ export function PullRequestView({
                       {pr.author || '?'}
                     </span>
                   ),
-                  head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.headBranch}</code>,
-                  base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.baseBranch}</code>,
+                  head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-micro text-tertiary">{pr.headBranch}</code>,
+                  base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-micro text-tertiary">{pr.baseBranch}</code>,
                 })}
               </span>
               {pr.updatedAt && <span className="text-faint">· {timeAgo(pr.updatedAt)}</span>}
@@ -276,7 +290,7 @@ export function PullRequestView({
             <TabsTrigger value="files" data-pull-files-tab>
               <FileDiff />
               {t('pulls.detail.tab.files')}
-              {detail.data && <span className="rounded-full bg-surface-raised px-1.5 text-[11px] text-subtle">{detail.data.changedFiles}</span>}
+              {detail.data && <span className="rounded-full bg-surface-raised px-1.5 text-micro text-subtle">{detail.data.changedFiles}</span>}
             </TabsTrigger>
           </TabsList>
         </header>
@@ -288,10 +302,10 @@ export function PullRequestView({
               detail.data.body.trim() ? (
                 <Markdown text={detail.data.body} imageSrc={imageSrc} className="text-[13.5px]" />
               ) : (
-                <p className="text-[13px] italic text-subtle">{t('pulls.detail.noDescription')}</p>
+                <p className="text-ui italic text-subtle">{t('pulls.detail.noDescription')}</p>
               )
             ) : (
-              !detail.error && <p className="text-[13px] text-subtle">{t('common.loading')}</p>
+              !detail.error && <p className="text-ui text-subtle">{t('common.loading')}</p>
             )}
 
             {detail.data && detail.data.checkRuns.length > 0 && <Checks runs={detail.data.checkRuns} />}
@@ -313,10 +327,13 @@ export function PullRequestView({
             {t('pulls.detail.openOnGitHub')}
           </Button>
           {canMerge && (
-            <Button size="sm" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
-              {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-              {t('memory.pulls.merge')}
-            </Button>
+            <>
+              {mergeBlocked && <MergeBlocked reason={mergeBlocked} />}
+              <Button size="sm" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+                {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
+                {t('memory.pulls.merge')}
+              </Button>
+            </>
           )}
         </footer>
       )}
@@ -330,7 +347,7 @@ function LabelChip({ label, onRemove }: { label: T.Label; onRemove: () => void }
   return (
     <span
       title={label.description || undefined}
-      className="group inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11.5px] font-medium text-secondary"
+      className="group inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-micro font-medium text-secondary bg-surface-raised"
       data-pull-label={label.name}
     >
       <span className="size-2 rounded-full" style={{ backgroundColor: labelHex(label.color) }} />
@@ -368,12 +385,12 @@ function Checks({ runs }: { runs: T.PullCheck[] }) {
   const t = useT();
   return (
     <section className="mt-6" data-pull-checks>
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-subtle">{t('pulls.detail.checks')}</h3>
+      <h3 className="mb-2 text-caption font-medium text-subtle">{t('pulls.detail.checks')}</h3>
       <ul className="overflow-hidden rounded-xl border border-line-faint">
         {runs.map((run, i) => {
           const state = checkState(run);
           return (
-            <li key={`${run.name}-${i}`} className="flex min-w-0 items-center gap-2 border-b border-line-faint px-3 py-1.5 text-[12.5px] last:border-b-0">
+            <li key={`${run.name}-${i}`} className="flex min-w-0 items-center gap-2 border-b border-line-faint px-3 py-1.5 text-caption last:border-b-0">
               {state.icon}
               <span className="min-w-0 flex-1 truncate text-secondary">{run.name}</span>
               <span className="shrink-0 text-faint">{t(state.label)}</span>
@@ -440,7 +457,7 @@ function Files({ project, pr, state, setState }: { project: string; pr: T.PullRe
   return (
     <section className="flex min-h-0 flex-1 flex-col" data-pull-files data-view={view}>
       <div className="flex items-center gap-2 border-b border-line-faint px-6 py-2">
-        <h3 className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-subtle">
+        <h3 className="flex items-center gap-2 text-caption font-medium text-subtle">
           {files ? t('pulls.detail.files', { count: files.files.length }) : !query.error && t('common.loading')}
           {files && (
             <span className="font-mono normal-case tracking-normal">
@@ -463,7 +480,7 @@ function Files({ project, pr, state, setState }: { project: string; pr: T.PullRe
               data-files-view={v}
               onClick={() => setView(v)}
               className={cn(
-                'flex h-6 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-muted transition-colors hover:text-primary',
+                'flex h-6 items-center gap-1.5 rounded-md px-2 text-caption font-medium text-muted transition-colors hover:text-primary',
                 view === v && 'bg-surface-strong text-title',
               )}
             >
@@ -474,7 +491,7 @@ function Files({ project, pr, state, setState }: { project: string; pr: T.PullRe
         </div>
       </div>
       {query.error && <Notice className="mx-6 mt-3">{t('pulls.detail.filesFailed', { error: errorMessage(query.error) })}</Notice>}
-      {files?.truncated && <p className="px-6 pt-2 text-[12px] text-subtle">{t('pulls.detail.filesTruncated', { count: files.files.length })}</p>}
+      {files?.truncated && <p className="px-6 pt-2 text-caption text-subtle">{t('pulls.detail.filesTruncated', { count: files.files.length })}</p>}
       {files &&
         (view === 'tree' ? (
           <FilesTree project={project} pr={pr} files={files.files} state={state} setState={setState} onLoaded={onLoaded} />
@@ -565,7 +582,7 @@ function FilesTree({ project, pr, files, state, setState, onLoaded }: FilesViewP
         {selected ? (
           <SelectedFile key={selected.path} project={project} pr={pr} file={selected} onLoaded={onLoaded} />
         ) : (
-          <p className="text-[13px] text-subtle">{t('pulls.detail.pickFile')}</p>
+          <p className="text-ui text-subtle">{t('pulls.detail.pickFile')}</p>
         )}
       </div>
     </div>
@@ -599,7 +616,7 @@ function TreeLevel({
               type="button"
               style={indent}
               onClick={() => onFold(node.path)}
-              className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-muted hover:bg-surface-raised hover:text-primary"
+              className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-caption text-muted hover:bg-surface-raised hover:text-primary"
               title={node.path}
             >
               <ChevronRight className={cn('size-3 shrink-0 transition-transform', !folded.has(node.path) && 'rotate-90')} />
@@ -619,7 +636,7 @@ function TreeLevel({
               data-tree-file={node.file.path}
               aria-current={node.file.path === selected || undefined}
               className={cn(
-                'flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-secondary hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400',
+                'flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-caption text-secondary hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400',
                 node.file.path === selected && 'bg-surface-strong text-title',
               )}
               title={node.file.path}
@@ -639,13 +656,13 @@ function SelectedFile({ project, pr, file, onLoaded }: { project: string; pr: T.
   const t = useT();
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={file.path} data-open>
-      <div className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-[12.5px]">
+      <div className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-caption">
         <FileSummary file={file} />
       </div>
       {file.hasDiff ? (
         <Diff project={project} pr={pr} path={file.path} enabled onLoaded={onLoaded} />
       ) : (
-        <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+        <p className="px-3 py-2 text-caption text-subtle">{t('pulls.detail.noDiff')}</p>
       )}
     </div>
   );
@@ -665,8 +682,8 @@ function FileSummary({ file }: { file: T.PullFile }) {
         <span className="hidden min-w-0 truncate font-mono text-faint sm:inline">{t('pulls.detail.renamedFrom', { path: file.previousPath })}</span>
       )}
       {statusLabels[file.status] && <span className="shrink-0 text-faint">{t(statusLabels[file.status])}</span>}
-      {kind !== 'code' && <span className="shrink-0 rounded bg-surface-raised px-1.5 text-[11px] text-subtle">{t(kindLabels[kind])}</span>}
-      <span className="ml-auto shrink-0 font-mono text-[11.5px]">
+      {kind !== 'code' && <span className="shrink-0 rounded bg-surface-raised px-1.5 text-micro text-subtle">{t(kindLabels[kind])}</span>}
+      <span className="ml-auto shrink-0 font-mono text-micro">
         <span className="text-emerald-400">+{file.additions}</span> <span className="text-rose-400">−{file.deletions}</span>
       </span>
     </>
@@ -696,7 +713,7 @@ function FileRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-left text-[12.5px] hover:bg-surface-raised"
+        className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-left text-caption hover:bg-surface-raised"
       >
         <ChevronRight className={cn('size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-90')} />
         <FileSummary file={file} />
@@ -705,7 +722,7 @@ function FileRow({
         (file.hasDiff ? (
           <Diff project={project} pr={pr} path={file.path} enabled={mayLoad} onLoaded={onLoaded} />
         ) : (
-          <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+          <p className="px-3 py-2 text-caption text-subtle">{t('pulls.detail.noDiff')}</p>
         ))}
     </div>
   );
@@ -739,8 +756,8 @@ function Diff({
   }, [done, onLoaded, path]);
   const lines = diff.data ? parsePatch(diff.data.patch) : null;
   const tokens = useHighlighted(lines, languageOfPath(path));
-  if (diff.error) return <p className="px-3 py-2 text-[12px] text-rose-400">{t('pulls.detail.diffFailed', { error: errorMessage(diff.error) })}</p>;
-  if (!lines) return <p className="px-3 py-2 text-[12px] text-subtle">{t('common.loading')}</p>;
+  if (diff.error) return <p className="px-3 py-2 text-caption text-rose-400">{t('pulls.detail.diffFailed', { error: errorMessage(diff.error) })}</p>;
+  if (!lines) return <p className="px-3 py-2 text-caption text-subtle">{t('common.loading')}</p>;
   return (
     <div className="overflow-x-auto border-t border-line-faint bg-well" data-pull-diff={path}>
       <DiffTable path={path} lines={lines} tokens={tokens} />

@@ -79,6 +79,43 @@ func TestFullSuite(t *testing.T) {
 		"go test",
 		"go test -run TestFullSuite ./...",
 		"go test ./internal/cli ./internal/brief",
+		"vitest --version",
+		"vitest -v",
+		"npx vitest --help",
+		"vitest run -h",
+		"vitest list",
+		"jest --version",
+		"jest -v",
+		"jest --help",
+		"jest --listTests",
+		"jest --showConfig",
+		"pytest --version",
+		"pytest -V",
+		"pytest --help",
+		"pytest --fixtures",
+		"pytest --markers",
+		"pytest --co",
+		"go test -list .",
+		"go test -list=Test ./...",
+		"go test -h",
+		"cargo test -- --list",
+		"cargo test --workspace -- --list",
+		"cargo test --help",
+		"cargo test --version",
+		"cargo nextest list",
+		"npm test -- --version",
+		"npm test -- --help",
+		"pnpm test --help",
+		"bun test --help",
+		"playwright test --list",
+		"npx playwright test --list",
+		"make --version",
+		"make -v test",
+		"make --help",
+		"turbo run test --help",
+		"./gradlew --version",
+		"mvn -v test",
+		"bazel test --help //...",
 		"go build ./...",
 		"go vet ./...",
 		"npm test -- src/a.test.ts",
@@ -240,7 +277,7 @@ func TestFullSuiteMessage(t *testing.T) {
 }
 
 // The hook refuses a whole suite only while the daemon says it's blocked,
-// and asks the daemon only about a command that is one.
+// and asks the daemon about memory for none: the shims do.
 func TestHeavyHookFullSuite(t *testing.T) {
 	t.Parallel()
 	envFile := filepath.Join(t.TempDir(), "heavy.env")
@@ -249,7 +286,7 @@ func TestHeavyHookFullSuite(t *testing.T) {
 	if code != 2 || !strings.Contains(out, "runs the whole test suite") || len(f.asked) != 0 {
 		t.Fatalf("blocked: exit %d, %q, %d asked to start", code, out, len(f.asked))
 	}
-	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"AGENTBOX_FULL_SUITE=1 go test ./..."}}`); code != 0 || out != "" || len(f.asked) != 1 {
+	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"AGENTBOX_FULL_SUITE=1 go test ./..."}}`); code != 0 || out != "" || len(f.asked) != 0 {
 		t.Fatalf("asked for by name: exit %d, %q", code, out)
 	}
 	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t3","tool_input":{"command":"go test ./internal/cli"}}`); code != 0 || out != "" {

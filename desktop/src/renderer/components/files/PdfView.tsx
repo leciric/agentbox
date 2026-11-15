@@ -29,20 +29,19 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
     setError('');
     setPage(1);
     setZoom('fit');
-    let current = true;
-    let destroy: (() => Promise<void>) | undefined;
+    const run: { current: boolean; destroy?: () => Promise<void> } = { current: true };
     (async () => {
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       const task = pdfjs.getDocument({ data: bytes });
-      destroy = () => task.destroy();
+      run.destroy = () => task.destroy();
       const loaded = await task.promise;
-      if (current) setDoc(loaded);
-    })().catch((err: unknown) => current && setError(errorMessage(err)));
+      if (run.current) setDoc(loaded);
+    })().catch((err: unknown) => run.current && setError(errorMessage(err)));
     return () => {
-      current = false;
-      void destroy?.();
+      run.current = false;
+      void run.destroy?.();
     };
   }, [data]);
 
@@ -57,13 +56,12 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
 
   useEffect(() => {
     if (!doc || !width || !canvas.current) return;
-    let current = true;
-    let task: RenderTask | undefined;
+    const run: { current: boolean; task?: RenderTask } = { current: true };
     (async () => {
       const p = await doc.getPage(page);
       const natural = p.getViewport({ scale: 1 });
       const fit = Math.max(0.1, (width - 32) / natural.width);
-      if (!current) return;
+      if (!run.current) return;
       setFitScale(fit);
       const viewport = p.getViewport({ scale: zoom === 'fit' ? fit : zoom });
       const el = canvas.current;
@@ -73,14 +71,14 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
       el.height = Math.floor(viewport.height * ratio);
       el.style.width = `${Math.floor(viewport.width)}px`;
       el.style.height = `${Math.floor(viewport.height)}px`;
-      task = p.render({ canvas: el, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
-      await task.promise;
+      run.task = p.render({ canvas: el, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
+      await run.task.promise;
     })().catch((err: unknown) => {
-      if (current && (err as { name?: string })?.name !== 'RenderingCancelledException') setError(errorMessage(err));
+      if (run.current && (err as { name?: string })?.name !== 'RenderingCancelledException') setError(errorMessage(err));
     });
     return () => {
-      current = false;
-      task?.cancel();
+      run.current = false;
+      run.task?.cancel();
     };
   }, [doc, page, zoom, width]);
 
@@ -113,7 +111,7 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
         e.preventDefault();
       }}
     >
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line-faint px-2 text-[12px] text-subtle">
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line-faint px-2 text-caption text-subtle">
         <BarButton label={t('files.pdf.previous')} disabled={page <= 1} onClick={() => go(page - 1)}>
           <ChevronLeft />
         </BarButton>
@@ -140,7 +138,7 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
       </div>
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto bg-sunken p-4">
         {!doc && <div className="skeleton mx-auto aspect-[1/1.414] w-full max-w-md rounded" />}
-        <canvas ref={canvas} className={cn('mx-auto block bg-white shadow-lg ring-1 ring-line-strong', !doc && 'hidden')} aria-label={t('files.pdf.pageOf', { name, page })} role="img" />
+        <canvas ref={canvas} className={cn('mx-auto block bg-white shadow-pop ring-1 ring-line-strong', !doc && 'hidden')} aria-label={t('files.pdf.pageOf', { name, page })} role="img" />
       </div>
     </div>
   );

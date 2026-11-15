@@ -35,7 +35,10 @@ type jobs struct {
 
 	mu   sync.Mutex
 	byID map[string]*job
-	wg   sync.WaitGroup
+	// latest is the newest job of each kind, by kind: kept in byID once
+	// finished, for what reads the last of a kind back (lastImageBuild).
+	latest map[string]string
+	wg     sync.WaitGroup
 }
 
 // wait blocks until every job has finished, including rollbacks after a cancel.
@@ -54,7 +57,7 @@ type job struct {
 }
 
 func newJobs(base context.Context, store jobStore, events *broker) *jobs {
-	return &jobs{base: base, store: store, events: events, byID: map[string]*job{}}
+	return &jobs{base: base, store: store, events: events, byID: map[string]*job{}, latest: map[string]string{}}
 }
 
 // start runs fn in the background as a job. Its log is fn's writer; its
@@ -73,6 +76,10 @@ func (js *jobs) start(kind, target string, fn func(ctx context.Context, log io.W
 	}
 	js.mu.Lock()
 	js.byID[j.info.ID] = j
+	if prev, ok := js.byID[js.latest[kind]]; ok && prev.dropped() {
+		delete(js.byID, prev.info.ID) // kept only for being the latest
+	}
+	js.latest[kind] = j.info.ID
 	js.mu.Unlock()
 	js.events.publish(api.EventJob, j.snapshot())
 
@@ -92,16 +99,26 @@ func (js *jobs) start(kind, target string, fn func(ctx context.Context, log io.W
 		js.events.publish(api.EventJob, info)
 		// Its log is in the store now, and read from there once dropped:
 		// not at once, for whoever is still following it.
-		time.AfterFunc(jobKept, j.dropLog)
+		time.AfterFunc(jobKept, func() { js.drop(j) })
 	}()
 	return j, nil
 }
 
-// jobKept is how long a finished job keeps its log in memory. Every job used
-// to keep every line it logged for the daemon's life; after this the log is
-// read from the store, where it went as the job finished, and only the job's
-// info stays.
+// jobKept is how long a finished job stays in memory, log and all. Every job
+// used to stay for the daemon's life; after this it is read from the store,
+// where it went as it finished. The newest of each kind keeps its info.
 const jobKept = 5 * time.Minute
+
+// drop lets a finished job go from memory (jobKept): its log, and the job
+// itself unless it is the newest of its kind.
+func (js *jobs) drop(j *job) {
+	j.dropLog()
+	js.mu.Lock()
+	defer js.mu.Unlock()
+	if id := j.info.ID; js.latest[j.info.Kind] != id && js.byID[id] == j {
+		delete(js.byID, id)
+	}
+}
 
 func (js *jobs) get(id string) (*job, bool) {
 	js.mu.Lock()
@@ -240,6 +257,13 @@ func (j *job) dropLog() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.lines, j.logGone = nil, true
+}
+
+// dropped is whether dropLog has run.
+func (j *job) dropped() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.logGone
 }
 
 // keptLog is the job's log, unless dropLog has let it go.

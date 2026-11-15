@@ -48,7 +48,7 @@ export function PlainHTTPNote({ className = '' }: { className?: string }) {
   const t = useT();
   if (location.protocol === 'https:') return null;
   return (
-    <p className={`text-[12px] leading-relaxed text-subtle ${className}`}>
+    <p className={`text-caption leading-relaxed text-subtle ${className}`}>
       {t('web.pair.plainHTTP')}
     </p>
   );
@@ -75,12 +75,12 @@ export function NotPaired({ error, unreachable }: { error?: string; unreachable?
           </div>
           <div className="grid gap-2">
             <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.pair.title')}</h1>
-            <p className="text-[14px] leading-relaxed text-muted">{t.rich('web.pair.steps', { hl })}</p>
-            <p className="text-[14px] leading-relaxed text-muted">
-              {t.rich('web.pair.terminal', { mono: (c) => <span className="font-mono text-[13px] text-primary">{c}</span> })}
+            <p className="text-body leading-relaxed text-muted">{t.rich('web.pair.steps', { hl })}</p>
+            <p className="text-body leading-relaxed text-muted">
+              {t.rich('web.pair.terminal', { mono: (c) => <span className="font-mono text-ui text-primary">{c}</span> })}
             </p>
           </div>
-          {standalone && <p className="text-[13px] leading-relaxed text-secondary">{t('web.pair.installed')}</p>}
+          {standalone && <p className="text-ui leading-relaxed text-secondary">{t('web.pair.installed')}</p>}
           {unreachable && <Failure>{t('web.pair.unreachable', { error: unreachable })}</Failure>}
           {error && <Failure>{t('web.pair.failed', { error })}</Failure>}
           <PairHere />
@@ -94,7 +94,7 @@ export function NotPaired({ error, unreachable }: { error?: string; unreachable?
 
 function Failure({ children }: { children: ReactNode }) {
   return (
-    <div className="flex gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-[13px] text-rose-200">
+    <div className="flex gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-ui text-rose-200">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <span>{children}</span>
     </div>
@@ -131,7 +131,7 @@ function PairHere() {
           </div>
         ))}
       <form className="grid gap-1.5" onSubmit={submit}>
-        <label htmlFor="phone-pair-code" className="text-[13px] text-muted">
+        <label htmlFor="phone-pair-code" className="text-ui text-muted">
           {t('web.pair.pasteLabel')}
         </label>
         <div className="flex gap-2">
@@ -154,7 +154,7 @@ function PairHere() {
             {t('web.pair.pasteSubmit')}
           </Button>
         </div>
-        {wrong && <p className="text-[12px] text-rose-300">{t('web.pair.notACode')}</p>}
+        {wrong && <p className="text-caption text-rose-300">{t('web.pair.notACode')}</p>}
       </form>
     </div>
   );
@@ -203,7 +203,7 @@ function Scanner({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <video ref={video} className="aspect-square w-full rounded-2xl bg-black object-cover" muted playsInline />
-          <p className="text-[13px] text-muted">{t('web.pair.scanning')}</p>
+          <p className="text-ui text-muted">{t('web.pair.scanning')}</p>
         </>
       )}
       <div>

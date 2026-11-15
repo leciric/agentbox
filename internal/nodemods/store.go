@@ -62,7 +62,9 @@ type Store struct {
 	// restoring counts the copies being made from each snapshot, which Trim
 	// leaves alone.
 	restoring map[string]int
-	now       func() time.Time
+	// held is each instance's Hold.
+	held map[string]*sync.Mutex
+	now  func() time.Time
 }
 
 // Install is a group as an agent has it: its lockfile's key, and when the
@@ -122,9 +124,13 @@ type snapshotMeta struct {
 // that are empty from the project's snapshot of its key, when there is one. It
 // returns the lockfiles whose install it gave. A directory that already holds
 // something — the agent's own, when its machine is made again — is left as
-// it is.
+// it is. What Release took away is forgotten: what Prepare gives is the
+// machine's now.
 func (s *Store) Prepare(instance, project string, installs []Install) (restored []string, err error) {
 	if err := s.mkdirs(s.agentDir(instance)); err != nil {
+		return nil, err
+	}
+	if err := os.Remove(s.AgentFile(instance, releasedFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	for _, in := range installs {
@@ -577,7 +583,11 @@ func (s *Store) copyTree(src, dst string) error {
 			if err := os.Symlink(link, target); err != nil {
 				return err
 			}
-			return s.chown(target)
+			if err := s.chown(target); err != nil {
+				return err
+			}
+			// Its own time too, which untouched compares with the install's.
+			return linkTime(target, info.ModTime())
 		case d.Type().IsRegular():
 			if clone {
 				err := cloneFile(p, target, info)

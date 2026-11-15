@@ -13,7 +13,8 @@ import (
 )
 
 // socketHandler is the API as the socket serves it: routes(), plus Go's
-// profiler under /debug/pprof/ (agentbox debug heap). Only the socket has it,
+// profiler under /debug/pprof/ (agentbox debug heap, debug pprof) and the
+// process's figures at /debug/stats (agentbox debug stats). Only the socket has it,
 // which is as private as state.db: routes() is also what phones on the LAN and
 // the hub reach (lan.go, remote.go), and a profile names projects and paths.
 func (s *Server) socketHandler() http.Handler {
@@ -24,6 +25,7 @@ func (s *Server) socketHandler() http.Handler {
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("GET /debug/stats", s.debugStats)
 	mux.Handle("/", api)
 	return mux
 }

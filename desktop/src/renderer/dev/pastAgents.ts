@@ -61,6 +61,12 @@ function liveWork(): T.WorkItem[] {
   const report = (agent: string, status: string, summary: string, remainingIssues?: string[]): T.AgentReport => ({ id: `rep-${agent}`, project: PROJECT, agent, createdAt: ago(hour / 2), status, summary, remainingIssues });
   return [
     live('agent-40', 'Work page: everything agents did, in place of Today', 'working', 10 * 60_000),
+    // Two of the agents the rest of the preview has ready to review
+    // (fixtures.ts): agent-41, which waits, and agent-98, which also asks a
+    // question, so the counts (lib/agentCounts.ts) have it asking and its row
+    // here says so, out of To review.
+    live('agent-41', 'Watch CI on the release branch', 'review', 30 * 60_000, {}, { pr: { ...pr(404, 'open', 'ci: watch the release branch'), checks: 'passing' } }),
+    live('agent-98', 'Question agent', 'review', 40 * 60_000),
     // A stack: agent-22 was made from agent-21's branch, and is listed first,
     // having finished later.
     live('agent-22', 'Export button on the reminders page', 'working', 20 * 60_000, {}, { branch: 'agentbox/csv-export-button', baseRef: 'agentbox/csv-export', pr: { ...pr(86, 'open', 'feat: an Export button on the reminders page'), baseBranch: 'agentbox/csv-export', checks: 'passing' } }),
@@ -79,6 +85,22 @@ function liveWork(): T.WorkItem[] {
       hour / 2,
       { report: report('agent-38', 'done', 'Added the popover with the breakdown by agent, the page cache and swap. Tests pass; screenshots attached.'), screenshots: 2, recordings: 1 },
       { changes: { files: 6, insertions: 214, deletions: 18, dirty: false }, pr: { ...pr(371, 'open', 'feat: the VM memory breakdown in a popover'), checks: 'passing' }, summary: 'Added the popover.' },
+    ),
+    // Resolved to merge when green, its checks failed after: still armed,
+    // its agent at work on the fix, and out of To review.
+    live(
+      'agent-37',
+      'Retry the base image download on a reset connection',
+      'working',
+      hour,
+      {},
+      {
+        changes: { files: 2, insertions: 41, deletions: 6, dirty: false },
+        pr: { ...pr(402, 'open', 'fix: retry the base image download'), checks: 'failing' },
+        verdict: 'reviewed',
+        reviewedAt: ago(hour),
+        mergeWhenGreen: { number: 402, method: 'squash', at: ago(hour), waiting: 'failing', detail: 'test', fixRounds: 1 },
+      },
     ),
     live(
       'agent-36',

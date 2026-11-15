@@ -8,6 +8,7 @@ import (
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 // Plan is a toggle beside the permission mode, not one of its choices. The AI
@@ -70,6 +71,9 @@ func (c *conversation) level(o api.ChatOption) (string, bool) {
 	if c.agent.Autonomous {
 		kinds = append([]string{"full_access"}, kinds...)
 	}
+	if kind := c.stored.Options[state.ChatOptionModeKind]; kind != "" {
+		kinds = append([]string{kind}, kinds...)
+	}
 	for _, kind := range kinds {
 		for _, ch := range o.Choices {
 			if ch.Kind == kind && ch.Value != plan {
@@ -87,11 +91,18 @@ func (c *conversation) level(o api.ChatOption) (string, bool) {
 // plans, the level otherwise. A tool without plan keeps the old rule: what you
 // chose, or full access for an autonomous agent. Caller holds c.mu.
 func (c *conversation) wantedMode(o api.ChatOption) (string, bool) {
+	// A mode chosen by kind, by the agent's project, before it knew what its
+	// tool calls it (state.ChatOptionModeKind), comes before full access.
+	kind := c.stored.Options[state.ChatOptionModeKind]
 	if planChoice(o) == "" {
 		value, ok := c.stored.Options[o.ID]
-		if !ok && c.agent.Autonomous {
+		wants := []string{kind}
+		if c.agent.Autonomous {
+			wants = append(wants, "full_access")
+		}
+		for _, want := range wants {
 			for _, ch := range o.Choices {
-				if ch.Kind == "full_access" {
+				if !ok && want != "" && ch.Kind == want {
 					return ch.Value, true
 				}
 			}
@@ -101,7 +112,7 @@ func (c *conversation) wantedMode(o api.ChatOption) (string, bool) {
 	if c.planning(o) {
 		return planChoice(o), true
 	}
-	if _, chosen := c.stored.Options[o.ID]; !chosen && !c.agent.Autonomous {
+	if _, chosen := c.stored.Options[o.ID]; !chosen && !c.agent.Autonomous && kind == "" {
 		return "", false // the tool's own default
 	}
 	return c.level(o)

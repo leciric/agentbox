@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"agentbox/internal/api"
@@ -27,6 +28,9 @@ const (
 	// always been the agents' — the lead never read it — so splitting the two
 	// moved nothing.
 	SettingDefaultClaudeModel = "default_claude_model"
+	// SettingCloneFolder is where projects added from a link are cloned
+	// (Settings.CloneFolder); empty is ~/src.
+	SettingCloneFolder = "clone_folder"
 	// SettingDefaultAgentContextWindow is the context window (D91) new Claude
 	// Code agents start with: "" for the installation's compact window, which
 	// is what every agent had before this setting, or ClaudeFullWindow as a
@@ -43,6 +47,12 @@ const (
 	// SettingDefaultLeadContextWindow is SettingDefaultAgentContextWindow for
 	// the lead's chat, read the way SettingDefaultLeadModel is.
 	SettingDefaultLeadContextWindow = "default_lead_context_window"
+	// SettingDefaultLeadEffort is the "effort" chat option the lead's chat
+	// falls back to, and SettingDefaultLeadMode its permission mode ("mode"),
+	// both read the way SettingDefaultLeadModel is. Empty means Claude Code's
+	// own default.
+	SettingDefaultLeadEffort = "default_lead_effort"
+	SettingDefaultLeadMode   = "default_lead_mode"
 	// SettingClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised, as JSON. AgentBox never invents a model list here — it
 	// arrives over ACP, per account — so this remembers the real one between
@@ -66,6 +76,10 @@ const (
 	// (Haiku 4.5 sent none; Haiku 5.5 sends them all). So this is the levels Claude Code
 	// has been seen to name, not a promise about one model.
 	SettingClaudeEffortChoices = "claude_effort_choices"
+	// SettingClaudeModeChoices is the permission-mode menu the Claude Code
+	// adapter last advertised, as JSON, remembered so Settings can offer the
+	// lead's default mode with no chat running.
+	SettingClaudeModeChoices = "claude_mode_choices"
 	// SettingOpenCodeModelChoices is the model menu OpenCode last advertised,
 	// as JSON, remembered for the same reason as the Claude Code menus: which
 	// models OpenCode can run depends on which providers the login has keys
@@ -73,6 +87,13 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingOpenCodeVersion is which OpenCode an installation runs: "1" for
+	// the one the base image pins, "2" for OpenCode 2, installed beside it as
+	// `opencode2`. Empty is "1", which is what every installation ran before
+	// the setting existed, so an installation that does not choose stays
+	// exactly where it was. "2" needs nothing from the image: each agent installs
+	// OpenCode 2 itself the first time it starts on it.
+	SettingOpenCodeVersion = "opencode_version"
 	// SettingCursorModelChoices is Cursor's model menu, as JSON, remembered
 	// for the same reason: which models a Cursor account can run is Cursor's
 	// answer. It arrives from a Cursor chat's ACP session or from the
@@ -85,6 +106,29 @@ const (
 	// Cursor's "Auto" and the model's own default level.
 	SettingDefaultCursorModel  = "default_cursor_model"
 	SettingDefaultCursorEffort = "default_cursor_effort"
+	// SettingGeminiModelChoices is Gemini CLI's model menu, as JSON,
+	// remembered for the same reason: it is the one a Gemini CLI session
+	// names, which arrives from a chat's ACP session or from asking Gemini
+	// CLI on the host for one (daemon/gemini.go).
+	SettingGeminiModelChoices = "gemini_model_choices"
+	// SettingDefaultGeminiModel is the model new Gemini CLI agents start on,
+	// in Gemini CLI's own ids. Empty is its "auto".
+	SettingDefaultGeminiModel = "default_gemini_model"
+	// SettingCopilotModelChoices and SettingDefaultCopilotModel are the same
+	// for GitHub Copilot CLI (daemon/copilot.go). Empty is Copilot's own
+	// default model.
+	SettingCopilotModelChoices = "copilot_model_choices"
+	SettingDefaultCopilotModel = "default_copilot_model"
+	// SettingLastAgentPick is the tool, model and effort the app's New agent
+	// dialog last created an agent with, as JSON ({"ai", "model", "effort"}),
+	// which the dialog opens on in a project that names no tool. It is the
+	// installation's, like the Settings → Models defaults it comes before.
+	SettingLastAgentPick = "last_agent_pick"
+	// SettingFirstRun is "1" while the app's first-run screen is still to be
+	// gone through: written only into a database made just now
+	// (freshInstallSettings), so an installation that already existed never
+	// shows it, and removed once it is finished or skipped.
+	SettingFirstRun = "first_run"
 	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
 	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
@@ -102,8 +146,8 @@ const (
 	SettingImageIncus = "image_incus"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
-	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its
-	// own colours one way round or the other. Unlike the image flags above it
+	// agent's desktop), api.AppearanceLight or api.AppearanceDark for its
+	// own colours one way round or the other, or api.AppearanceDracula. Unlike the image flags above it
 	// has a default that isn't the zero value, which is why it is read with
 	// Appearance rather than Setting: a machine running Omarchy should match
 	// the desktop around it without anyone having found a switch, and a
@@ -145,6 +189,9 @@ const (
 	// (by turning the setting on or off, or by dismissing the card). Empty
 	// until the first merge, so the offer is made once and never again.
 	SettingBuiltWithBadgeOffer = "built_with_badge_offer"
+	// SettingSeenFeatures is the ids of the new features whose dot the app
+	// has cleared, one per line (SeeFeature).
+	SettingSeenFeatures = "seen_features"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named
@@ -175,6 +222,10 @@ const (
 	// failing checks, changes requested. On until somebody turns it off
 	// (FlagOn); a project can override it (Project.PRWatch).
 	SettingPRWatch = "pr_watch"
+	// SettingMergeWhenGreen says whether the review offers "Resolved — merge
+	// when CI is green" (state.MergeWhenGreen), and whether the daemon acts
+	// on those marks. Off until somebody turns it on (Flag).
+	SettingMergeWhenGreen = "merge_when_green"
 	// SettingAgentGPU says whether every agent gets the GPU of AgentBox's VM
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
@@ -223,6 +274,10 @@ const (
 	// agent.DefaultDiskFloor's.
 	SettingDiskFloorMin     = "disk_floor_min"
 	SettingDiskFloorPercent = "disk_floor_percent"
+	// SettingAgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have before its processes are killed
+	// (agent.MemoryLimit). Empty means agent.DefaultAgentMemoryShare.
+	SettingAgentMemoryShare = "agent_memory_share"
 	// SettingDiskGuardPaused are the agents the disk guard paused and hasn't
 	// resumed yet, as a JSON list of refs, so a daemon restarted while a disk
 	// was at its floor still resumes them when there's room again.
@@ -286,8 +341,9 @@ const (
 	// memory (daemon/idlereclaim.go): an agent idle SettingIdleFreezeAfter has
 	// what it left running frozen and pushed out to swap, woken when touched,
 	// and one that finished and stayed idle SettingIdleStopAfter has its
-	// machine stopped, started again by the next message. Experimental, off
-	// until somebody turns it on.
+	// machine stopped, On hold (Agent.Hold), started again by the next
+	// message or by opening it. On until somebody turns it off (FlagOn): it
+	// replaced SettingAutoStopIdle as what frees idle agents' memory.
 	SettingIdleReclaim = "idle_reclaim"
 	// SettingIdleFreezeAfter and SettingIdleStopAfter are SettingIdleReclaim's
 	// waits, as counts of seconds. Empty means DefaultIdleFreezeAfter and
@@ -312,21 +368,57 @@ func (s *Store) OfferBuiltWithBadge(ctx context.Context) error {
 	return s.SetSetting(ctx, SettingBuiltWithBadgeOffer, BadgeOfferReady)
 }
 
+// validFeature is what a feature's id in the app's registry looks like.
+var validFeature = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// SeeFeature adds id to SettingSeenFeatures, once. One statement, so two
+// dots cleared at the same moment can't lose either.
+func (s *Store) SeeFeature(ctx context.Context, id string) error {
+	if !validFeature.MatchString(id) {
+		return fmt.Errorf("invalid feature id %q", id)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = CASE
+			WHEN instr(char(10) || value || char(10), char(10) || ? || char(10)) > 0 THEN value
+			ELSE value || char(10) || ? END`, SettingSeenFeatures, id, id, id)
+	return err
+}
+
+// SeenFeatures reads SettingSeenFeatures, never nil.
+func (s *Store) SeenFeatures(ctx context.Context) ([]string, error) {
+	v, err := s.Setting(ctx, SettingSeenFeatures)
+	if err != nil {
+		return nil, err
+	}
+	seen := []string{}
+	for _, id := range strings.Split(v, "\n") {
+		if id != "" {
+			seen = append(seen, id)
+		}
+	}
+	return seen, nil
+}
+
 // DefaultIdleFreezeAfter is how long an agent's chat is idle before idle
 // reclaim freezes what it left running, when nobody chose: longer than the
 // pause between reading a reply and answering it, short enough that a dev
 // server nobody looks at gives its memory back within minutes.
 const DefaultIdleFreezeAfter = 5 * time.Minute
 
+// DefaultIdleReclaimAfter is how long an agent's chat is idle before idle
+// reclaim pushes its machine's memory out to swap, the first tier: nothing
+// is stopped or frozen, and what it touches again pages back in.
+const DefaultIdleReclaimAfter = 2 * time.Minute
+
 // DefaultIdleStopAfter is how long a finished agent stays idle before idle
 // reclaim stops its machine, when nobody chose: time to read what it did and
 // ask for a change without waiting on its machine to start.
 const DefaultIdleStopAfter = 10 * time.Minute
 
-// IdleReclaim reads "reclaim idle agents' memory": off until somebody turns
-// it on, and its two waits, the defaults when nobody chose.
+// IdleReclaim reads "reclaim idle agents' memory": on until somebody turns
+// it off, and its two waits, the defaults when nobody chose.
 func (s *Store) IdleReclaim(ctx context.Context) (on bool, freezeAfter, stopAfter time.Duration, err error) {
-	if on, err = s.Flag(ctx, SettingIdleReclaim); err != nil {
+	if on, err = s.FlagOn(ctx, SettingIdleReclaim); err != nil {
 		return false, 0, 0, err
 	}
 	freezeAfter, stopAfter = DefaultIdleFreezeAfter, DefaultIdleStopAfter
@@ -607,6 +699,7 @@ var freshInstallSettings = [][2]string{
 	{SettingDefaultAgentContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
 	{SettingDefaultLeadModel, DefaultLeadModel},
 	{SettingDefaultLeadContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
+	{SettingFirstRun, "1"},
 }
 
 // DefaultContextWindow checks a context window chosen as a default in
@@ -682,11 +775,11 @@ func ChoiceValues(raw string) []string {
 //
 // Alias is the short name Claude Code's own menu lists it by once the account
 // does offer it, like "fable": that entry is the same model, so the pinned
-// one would be a second "Fable 5.1" beside it.
+// one would be a second "Fable 5.2" beside it.
 type pinnedClaudeModel struct{ Value, Alias, Name string }
 
 var pinnedClaudeModels = []pinnedClaudeModel{
-	{Value: "claude-fable-5-1", Alias: "fable", Name: "Fable 5.1"},
+	{Value: "claude-fable-5-2", Alias: "fable", Name: "Fable 5.2"},
 }
 
 // offers reports whether a menu already has the pinned model, by its value,
@@ -793,14 +886,14 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	return err
 }
 
-// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight or
-// AppearanceDark. Anything else — never written, or the "1" this setting used
+// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight,
+// AppearanceDark or AppearanceDracula. Anything else — never written, or the "1" this setting used
 // to be stored as — is following, which is the default. See the constant for
 // why "0" reads as dark.
 func (s *Store) Appearance(ctx context.Context) (string, error) {
 	value, err := s.Setting(ctx, SettingAppearance)
 	switch value {
-	case api.AppearanceLight, api.AppearanceDark:
+	case api.AppearanceLight, api.AppearanceDark, api.AppearanceDracula:
 		return value, err
 	case "0":
 		return api.AppearanceDark, err

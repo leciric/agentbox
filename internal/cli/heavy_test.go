@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -54,33 +53,58 @@ func (f *fakeHeavy) EndHeavy(_ context.Context, key string) error {
 func TestHeavyCommand(t *testing.T) {
 	t.Parallel()
 	for cmd, heavy := range map[string]bool{
-		"go test ./internal/...":                     true,
-		"cd x && go build -o bin/agentbox ./cmd/ab":  true,
-		"npm --prefix desktop test":                  true,
-		"pnpm run build":                             true,
-		"npx vitest run src":                         true,
-		"./gradlew assembleDebug":                    true,
-		"cargo test -p core":                         true,
-		"docker compose up -d":                       true,
-		"(make -j8)":                                 true,
-		"git status":                                 false,
-		"ls -la":                                     false,
-		"go vet ./...":                               false,
-		"cat makefile":                               false,
-		"npm install":                                false,
-		"gofmt -l internal":                          false,
-		"sudo make install":                          true,
-		"CGO_ENABLED=0 go build ./cmd/agentbox":      true,
-		"timeout 600 npx vp test run --maxWorkers=2": true,
-		"bash -c 'go test ./...'":                    true,
-		"agentbox heavy -- pytest -x":                true,
-		"ls\nnpm test":                               true,
+		"go test ./internal/...":                           true,
+		"cd x && go build -o bin/agentbox ./cmd/ab":        true,
+		"npm --prefix desktop test":                        true,
+		"pnpm run build":                                   true,
+		"npx vitest run src":                               true,
+		"./gradlew assembleDebug":                          true,
+		"cargo test -p core":                               true,
+		"cargo +nightly miri test":                         true,
+		"cargo +1.80.0 build --release":                    true,
+		"cargo -q build":                                   true,
+		"cargo --locked test":                              true,
+		"cargo --manifest-path x/Cargo.toml build":         true,
+		"cargo --manifest-path=x/Cargo.toml build":         true,
+		"cargo -C sub -Z unstable-options nextest run":     true,
+		"cargo nextest run":                                true,
+		"cargo install --path .":                           true,
+		"cargo xtask dist":                                 true,
+		"cargo doc --no-deps":                              true,
+		"cargo miri test":                                  true,
+		"cross build --target aarch64-unknown-linux-gnu":   true,
+		"cd x && rustc main.rs":                            true,
+		"just test":                                        true,
+		"RUSTFLAGS=-Dwarnings cargo clippy":                true,
+		"cargo fmt":                                        false,
+		"cargo --version":                                  false,
+		"cargo +nightly fmt":                               false,
+		"cargo -q":                                         false,
+		"echo cargo build":                                 false,
+		"echo just rustc":                                  false,
+		"cat <<EOF\ncargo build\njust test\nEOF":           false,
+		`git commit -m "cargo build"`:                      false,
+		"git commit -m 'run just now'":                     false,
+		"docker compose up -d":                             true,
+		"(make -j8)":                                       true,
+		"git status":                                       false,
+		"ls -la":                                           false,
+		"go vet ./...":                                     false,
+		"cat makefile":                                     false,
+		"npm install":                                      false,
+		"gofmt -l internal":                                false,
+		"sudo make install":                                true,
+		"CGO_ENABLED=0 go build ./cmd/agentbox":            true,
+		"timeout 600 npx vp test run --maxWorkers=2":       true,
+		"bash -c 'go test ./...'":                          true,
+		"agentbox heavy -- pytest -x":                      true,
+		"ls\nnpm test":                                     true,
 		"cat <<EOF > notes.md\nmake sure\nEOF\nmake build": true,
 		`git commit -m "fix: make the tsc build pass"`:     false,
-		"npx vp lint":          false,
-		"echo jest":            false,
-		"grep -rn 'go test' .": false,
-		"cat <<< \"make\"":     false,
+		"npx vp lint":                                      false,
+		"echo jest":                                        false,
+		"grep -rn 'go test' .":                             false,
+		"cat <<< \"make\"":                                 false,
 		// 2026-10-12: a script fed to python3 on stdin, which says "make".
 		"python3 - <<'EOF'\nimport re\n# make sure the file ends in a newline\ns = open('a').read()\nEOF": false,
 		"cat > x.sh <<-END\n\tmake all\n\tEND\nchmod +x x.sh":                                             false,
@@ -113,68 +137,32 @@ func hook(t *testing.T, f *fakeHeavy, envFile, call string) (int, string) {
 	return code, stderr.String()
 }
 
-// The hook says nothing when it isn't needed or its command may start, and
-// one line, blocking the tool, only when the wait runs out. A command that
-// starts leaves its join line for the shell the Bash tool starts next.
+// The hook asks nothing for a heavy command any more, the shims do, for
+// every tool alike; it says nothing, and empties a join line an earlier hook
+// left.
 func TestHeavyHook(t *testing.T) {
 	t.Parallel()
 	envFile := filepath.Join(t.TempDir(), ".cache", "agentbox", "heavy.env")
 	f := &fakeHeavy{start: true}
-
-	if code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"git diff"}}`); code != 0 || out != "" || len(f.asked) != 0 {
-		t.Fatalf("a light command: exit %d, %q, %d asked", code, out, len(f.asked))
-	}
-	code, out := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"go test ./..."}}`)
-	if code != 0 || out != "" || len(f.asked) != 1 || f.asked[0].Key != "bash-t2" || f.asked[0].Command != "go test ./..." {
-		t.Fatalf("a test run: exit %d, %q, asked %+v", code, out, f.asked)
-	}
-	env, _ := os.ReadFile(envFile)
-	if string(env) != joinLine("bash-t2") || !strings.Contains(string(env), `heavy-join 'bash-t2' "$$"`) {
-		t.Errorf("the env file = %q", env)
-	}
-	// The command's shell runs it, and what it runs empties the file, so the
-	// shells after it don't join too.
-	if _, err := exec.LookPath("bash"); err == nil {
-		bin := filepath.Join(t.TempDir(), "agentbox")
-		script := "#!/bin/sh\necho \"$@\" > " + bin + ".args\n: > " + envFile + "\n"
-		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-			t.Fatal(err)
+	for _, call := range []string{
+		`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"git diff"}}`,
+		`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"go test ./..."}}`,
+		`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"go test ./..."}}`,
+		`{"hook_event_name":"PreToolUse","tool_name":"mcp__playwright__browser_navigate","tool_use_id":"t3"}`,
+	} {
+		if code, out := hook(t, f, envFile, call); code != 0 || out != "" {
+			t.Fatalf("%s: exit %d, %q", call, code, out)
 		}
-		line := strings.Replace(joinLine("bash-t2"), "/usr/local/bin/agentbox", bin, 1)
-		if err := os.WriteFile(envFile, []byte(line), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		cmd := exec.Command("bash", "-c", `echo $$`)
-		cmd.Env = append(os.Environ(), "BASH_ENV="+envFile)
-		pid, err := cmd.Output()
-		if err != nil {
-			t.Fatal(err)
-		}
-		args, _ := os.ReadFile(bin + ".args")
-		if got, want := strings.TrimSpace(string(args)), "heavy-join bash-t2 "+strings.TrimSpace(string(pid)); got != want {
-			t.Errorf("the shell ran %q, want %q", got, want)
-		}
-		writeJoin(envFile, "bash-t2")
 	}
-	if code, out := hook(t, f, envFile, `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"go test ./..."}}`); code != 0 || out != "" || len(f.ended) != 1 || f.ended[0] != "bash-t2" {
-		t.Fatalf("after: exit %d, %q, ended %v", code, out, f.ended)
+	if len(f.asked)+len(f.ended) != 0 {
+		t.Errorf("asked %+v, ended %v: want nothing", f.asked, f.ended)
+	}
+	writeJoin(envFile, "bash-old")
+	if code, _ := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t4","tool_input":{"command":"ls"}}`); code != 0 {
+		t.Fatalf("exit %d", code)
 	}
 	if env, _ := os.ReadFile(envFile); len(env) != 0 {
-		t.Errorf("after it ended, the env file = %q", env)
-	}
-
-	// The browser isn't a command the hook holds.
-	if code, _ := hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"mcp__playwright__browser_navigate","tool_use_id":"t3"}`); code != 0 || len(f.asked) != 1 {
-		t.Fatalf("the browser: exit %d, asked %+v", code, f.asked)
-	}
-
-	f.start = false
-	code, out = hook(t, f, envFile, `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"t4","tool_input":{"command":"npm test"}}`)
-	if code != 2 || strings.Count(out, "\n") != 1 || !strings.Contains(out, "2 commands are ahead of it") {
-		t.Errorf("a wait that ran out: exit %d, %q; want 2 and one line", code, out)
-	}
-	if code, out := hook(t, f, envFile, `not json`); code != 0 || out != "" {
-		t.Errorf("garbage: exit %d, %q", code, out)
+		t.Errorf("an earlier hook's join line stayed: %q", env)
 	}
 }
 
@@ -228,7 +216,7 @@ func TestRunHeavyWaitsItsTurn(t *testing.T) {
 	if code, err := runHeavy(context.Background(), w, []string{"true"}, &stderr); code != 0 || err != nil {
 		t.Fatalf("exit %d, %v", code, err)
 	}
-	if strings.Count(stderr.String(), "waiting for memory") != 1 || !strings.Contains(stderr.String(), "2 commands are ahead") {
+	if strings.Count(stderr.String(), "waits for memory") != 1 || !strings.Contains(stderr.String(), "2 commands are ahead") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
 	if len(f.asked) != 3 || f.asked[0].Key != f.asked[2].Key {

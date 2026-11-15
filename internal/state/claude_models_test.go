@@ -12,22 +12,22 @@ func TestMergePinnedClaudeModels(t *testing.T) {
 	// An empty menu still gets the pinned models: there's nothing to
 	// de-duplicate against yet.
 	merged := state.MergePinnedClaudeModels(nil)
-	if !hasValue(merged, "claude-fable-5-1") || len(merged) != 1 {
+	if !hasValue(merged, "claude-fable-5-2") || len(merged) != 1 {
 		t.Fatalf("MergePinnedClaudeModels(nil) = %+v, want Fable alone", merged)
 	}
 
 	// A menu that already lists a pinned value keeps the adapter's own entry
 	// for it, not AgentBox's placeholder.
-	adapterFable := api.ChatOptionChoice{Value: "claude-fable-5-1", Name: "Fable (really offered)", Description: "from the adapter"}
+	adapterFable := api.ChatOptionChoice{Value: "claude-fable-5-2", Name: "Fable (really offered)", Description: "from the adapter"}
 	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{adapterFable})
-	got, ok := find(merged, "claude-fable-5-1")
+	got, ok := find(merged, "claude-fable-5-2")
 	if !ok || !reflect.DeepEqual(got, adapterFable) {
 		t.Fatalf("a menu that already offers a pinned value got overwritten: %+v", got)
 	}
 
 	// Claude Code lists the model by its alias once the account offers it:
-	// that entry is Fable, so no second "Fable 5.1" joins it.
-	alias := api.ChatOptionChoice{Value: "fable", Name: "Fable 5.1", Description: "Fable 5.1 · Most capable"}
+	// that entry is Fable, so no second "Fable 5.2" joins it.
+	alias := api.ChatOptionChoice{Value: "fable", Name: "Fable 5.2", Description: "Fable 5.2 · Most capable"}
 	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{alias})
 	if len(merged) != 1 || merged[0].Value != "fable" {
 		t.Fatalf("a menu offering Fable by its alias got the pinned one too: %+v", merged)
@@ -39,7 +39,7 @@ func TestMergePinnedClaudeModels(t *testing.T) {
 	// A menu with unrelated models keeps them, and gains the pinned ones.
 	other := api.ChatOptionChoice{Value: "sonnet", Name: "Sonnet"}
 	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{other})
-	if !hasValue(merged, "sonnet") || !hasValue(merged, "claude-fable-5-1") || len(merged) != 2 {
+	if !hasValue(merged, "sonnet") || !hasValue(merged, "claude-fable-5-2") || len(merged) != 2 {
 		t.Fatalf("MergePinnedClaudeModels didn't keep the real menu and add Fable: %+v", merged)
 	}
 
@@ -53,7 +53,7 @@ func TestMergePinnedClaudeModels(t *testing.T) {
 
 func TestIsPinnedClaudeChoice(t *testing.T) {
 	merged := state.MergePinnedClaudeModels(nil)
-	fable, ok := find(merged, "claude-fable-5-1")
+	fable, ok := find(merged, "claude-fable-5-2")
 	if !ok {
 		t.Fatal("Fable missing from a merged empty menu")
 	}
@@ -63,7 +63,7 @@ func TestIsPinnedClaudeChoice(t *testing.T) {
 
 	// A real adapter entry sharing the same value, but with the adapter's own
 	// name and description, is not mistaken for AgentBox's own.
-	adapterFable := api.ChatOptionChoice{Value: "claude-fable-5-1", Name: "Fable (really offered)", Description: "from the adapter"}
+	adapterFable := api.ChatOptionChoice{Value: "claude-fable-5-2", Name: "Fable (really offered)", Description: "from the adapter"}
 	if state.IsPinnedClaudeChoice(adapterFable) {
 		t.Errorf("IsPinnedClaudeChoice(%+v) = true, want false", adapterFable)
 	}
@@ -76,7 +76,7 @@ func TestIsPinnedClaudeChoice(t *testing.T) {
 
 func TestMergePinnedClaudeModelValues(t *testing.T) {
 	got := state.MergePinnedClaudeModelValues([]string{"sonnet", state.DefaultClaudeModel})
-	want := map[string]bool{"sonnet": true, state.DefaultClaudeModel: true, "claude-fable-5-1": true}
+	want := map[string]bool{"sonnet": true, state.DefaultClaudeModel: true, "claude-fable-5-2": true}
 	if len(got) != len(want) {
 		t.Fatalf("MergePinnedClaudeModelValues() = %v, want %v", got, want)
 	}

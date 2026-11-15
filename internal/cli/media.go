@@ -217,8 +217,34 @@ func mediaAgent(item api.MediaItem) string {
 	return name
 }
 
+// pairFlags are --pair, --before and --after, which make what a command keeps
+// one half of a before/after pair, for the review to show the two together.
+type pairFlags struct {
+	pair          string
+	before, after bool
+}
+
+func (p *pairFlags) add(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&p.pair, "pair", "", `make it half of a before/after pair, like "settings-dark", with --before or --after`)
+	cmd.Flags().BoolVar(&p.before, "before", false, "the pair's before (its pair taken from the name, like settings-before, without --pair)")
+	cmd.Flags().BoolVar(&p.after, "after", false, "the pair's after")
+	cmd.MarkFlagsMutuallyExclusive("before", "after")
+}
+
+// side is before, after, or "" for neither.
+func (p *pairFlags) side() string {
+	switch {
+	case p.before:
+		return "before"
+	case p.after:
+		return "after"
+	}
+	return ""
+}
+
 func newMediaScreenshotCmd(a *app) *cobra.Command {
 	var req api.ScreenshotRequest
+	var pair pairFlags
 	var display bool
 	cmd := &cobra.Command{
 		Use:   "screenshot [agent]",
@@ -229,6 +255,7 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 			if display {
 				req.Target = "display"
 			}
+			req.Pair, req.Side = pair.pair, pair.side()
 			c, err := a.scopedClient(cmd, ref)
 			if err != nil {
 				return err
@@ -245,6 +272,7 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&req.Target, "target", "", "browser, display or android (default: the browser's page, or the display when the browser has none)")
 	cmd.Flags().BoolVar(&display, "display", false, "same as --target display")
 	cmd.Flags().BoolVar(&req.FullPage, "full-page", false, "the whole page, not just the visible part")
+	pair.add(cmd)
 	return cmd
 }
 
@@ -252,6 +280,7 @@ func newRecordStartCmd(a *app) *cobra.Command {
 	var name, input, target string
 	var limit time.Duration
 	var noTrim, wholeDisplay, noEdit bool
+	var pair pairFlags
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
 		Short: "Start recording the agent's display",
@@ -282,7 +311,12 @@ Stopping a recording edits it, in the agent and with no model: the camera
 zooms in on where it is clicked and backs out between chapters, each note made
 meanwhile is a caption on it, numbered like 2/5, and it opens on a title card.
 The original stays beside it: agentbox media save --raw copies it out.
---no-edit keeps the recording as it was recorded.`,
+--no-edit keeps the recording as it was recorded.
+
+An Android recording isn't edited: it is the emulator's screen as it was, with
+only a ripple where each tap lands and a dot following a finger held down or
+dragged, drawn as it records, whether the tap came from adb shell input or the
+app's Android tab.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)
@@ -290,7 +324,7 @@ The original stays beside it: agentbox media save --raw copies it out.
 			if err != nil {
 				return err
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, NoEdit: noEdit})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, NoEdit: noEdit, Pair: pair.pair, Side: pair.side()})
 			if err != nil {
 				return err
 			}
@@ -305,6 +339,7 @@ The original stays beside it: agentbox media save --raw copies it out.
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
 	cmd.Flags().BoolVar(&wholeDisplay, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	cmd.Flags().BoolVar(&noTrim, "no-trim", false, "keep every frame, where the screen standing still otherwise plays as a moment of it")
+	pair.add(cmd)
 	cmd.Flags().BoolVar(&noEdit, "no-edit", false, "keep it as recorded, without zooming in on the clicks or captioning the notes")
 	return cmd
 }
@@ -389,6 +424,7 @@ func newRecordStatusCmd(a *app) *cobra.Command {
 
 func newMediaAddCmd(a *app) *cobra.Command {
 	var req api.AddMediaRequest
+	var pair pairFlags
 	cmd := &cobra.Command{
 		Use:   "add [agent] <path>",
 		Short: "Keep a file from the agent: a test report, a log, an image",
@@ -403,6 +439,7 @@ relative paths are relative to the agent's worktree.`,
 				return errors.New("usage: agentbox media add [agent] <path>")
 			}
 			req.Path = rest[0]
+			req.Pair, req.Side = pair.pair, pair.side()
 			if ref == "" && !filepath.IsAbs(req.Path) {
 				abs, err := filepath.Abs(req.Path)
 				if err != nil {
@@ -424,6 +461,7 @@ relative paths are relative to the agent's worktree.`,
 	}
 	cmd.Flags().StringVar(&req.Kind, "kind", "", "screenshot, recording, report, log or file (default: guessed)")
 	cmd.Flags().StringVar(&req.Name, "name", "", "a name (default: the file name)")
+	pair.add(cmd)
 	return cmd
 }
 

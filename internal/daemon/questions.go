@@ -95,9 +95,10 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 		s.events.publish(api.EventQuestion, toAPIQuestion(q))
 		s.record(r.Context(), questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 		s.logf("%s asks its project's chat: %s", a.Ref(), req.Question)
+		s.wakeSessionOf(r.Context(), a, "asks something")
 		// Put it in front of the lead, and wake it: an agent waits on an answer,
 		// so a question always starts a turn whatever finishNotices says.
-		s.tellLead(r.Context(), a.Project, questionNotice(q), true)
+		s.tellLeadAbout(r.Context(), a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
 
 		select {
 		case answered := <-ch:
@@ -127,7 +128,8 @@ func (s *Server) askForTest(ctx context.Context, a state.Agent, question, about 
 		"questionId": q.ID, "question": q.Text, "context": q.Context,
 	}, "")
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
-	s.tellLead(ctx, a.Project, questionNotice(q), true)
+	s.wakeSessionOf(ctx, a, "asks something")
+	s.tellLeadAbout(ctx, a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
 	select {
 	case answered := <-ch:
 		return toAPIQuestion(answered), nil
@@ -291,7 +293,7 @@ func errOnlyTheUser(q state.Question) error {
 func toAPIQuestion(q state.Question) api.Question {
 	out := api.Question{
 		ID: q.ID, Project: q.Project, Agent: q.Agent, Ref: q.Ref(),
-		Kind: q.Kind, SecretName: q.SecretName, Connector: q.Connector, ConnectorURL: q.ConnectorURL, Question: q.Text, Context: q.Context, Status: q.Status,
+		Kind: q.Kind, SecretName: q.SecretName, Connector: q.Connector, ConnectorURL: q.ConnectorURL, Ports: q.Ports, Question: q.Text, Context: q.Context, Status: q.Status,
 		Answer: q.Answer, AnsweredBy: q.AnsweredBy, Escalation: q.Escalation,
 		CreatedAt: q.CreatedAt,
 	}
@@ -301,10 +303,12 @@ func toAPIQuestion(q state.Question) api.Question {
 	return out
 }
 
-// tellLead puts something in front of a project's chat. With act it starts a
-// turn too, so the lead reacts on its own; without, the notice waits in the
-// conversation and the lead reads it the next time the user writes — the
-// history still shows what happened, and nothing is spent on it.
+// tellLead puts something in front of a project's chat: of the session most
+// recently active, since it is about no agent a session made (tellOwner is
+// for one that is). With act it starts a turn too, so the lead reacts on its
+// own; without, the notice waits in the conversation and the lead reads it
+// the next time the user writes — the history still shows what happened, and
+// nothing is spent on it.
 //
 // Autonomy governs what the lead then *does* about a notice it acts on — act,
 // or propose and wait — not whether it notices at all: the lead's own brief
@@ -319,13 +323,26 @@ func (s *Server) tellLead(ctx context.Context, project, notice string, act bool)
 // tellLeadOf is tellLead with the notice's options: Finished, say, for the
 // app to show what the agents finished with. It is always hidden.
 func (s *Server) tellLeadOf(ctx context.Context, project, notice string, opts chat.NoticeOptions) {
-	if _, err := s.store.Project(ctx, project); err != nil {
+	s.tellSessionOf(ctx, project, "", notice, opts)
+}
+
+// tellSessionOf is tellLeadOf for one session of the project's chat: the one
+// that made the agent a notice is about (tellOwnerOf). One deleted, or ""
+// for none, is the session most recently active (leadOf). A project with no
+// session at all opens one for a notice that starts a turn, titled after it;
+// one that would only wait has nobody to read it.
+//
+// The Home chat's notices go the same way: to the session that caused them,
+// else the one most recently active.
+func (s *Server) tellSessionOf(ctx context.Context, project, session, notice string, opts chat.NoticeOptions) {
+	if err := s.chatProject(ctx, project); err != nil {
 		return
 	}
-	lead, err := s.manager(nil).Lead(ctx, project)
+	lead, err := s.leadOf(ctx, project, session, eventTopic(notice), opts.Act)
 	if err != nil {
-		// No chat yet: the notice would have nowhere to go. The question still
-		// waits, and the user sees it in the project's Questions.
+		if !errors.Is(err, state.ErrNotFound) {
+			s.logf("telling %s's chat: %v", project, err)
+		}
 		return
 	}
 	if opts.Act {
@@ -431,7 +448,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	case verdictCancelled:
 		// Stopped from its chat: whoever stopped it knows.
 		s.markToldWaiting(a, false)
-		s.setOutcome(a, api.AgentOutcomeIdle, "")
+		if !s.stopExpected(a.Ref()) {
+			// A stop, pause, retire or destroy cancels it too, and the agent
+			// keeps what its last turn left: done, with its pull request.
+			s.setOutcome(a, api.AgentOutcomeIdle, "")
+		}
 		return
 	case verdictPaused:
 		// Not a finish: leadWaits stays as it was, so the finish that follows
@@ -440,6 +461,13 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		return
 	case verdictFailed:
 		s.markToldWaiting(a, false)
+		if s.stopExpected(a.Ref()) {
+			// Its machine went down under it because somebody stopped,
+			// paused, retired or destroyed it (expectStop): not a failure,
+			// and the agent keeps the outcome of its last real turn.
+			s.logf("%s: its turn ended as it was stopped on purpose: %s", a.Ref(), headWords(note, 200))
+			return
+		}
 		s.setOutcome(a, api.AgentOutcomeFailed, note)
 		s.pushFailed(a, note)
 		if end.Lost {
@@ -456,10 +484,14 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		// It wakes the lead when the lead waits on this agent, and stays
 		// still waiting for the finish. A turn somebody drove by hand is
 		// theirs to see, and the lead reads it when it next looks.
-		if s.leadIsWaiting(a) {
-			s.stallTell(ctx, a.Project, failedNotice(a, headWords(note, 300)))
-		} else {
-			s.tellLead(ctx, a.Project, failedNotice(a, headWords(note, 300)), false)
+		failed := peerEvent{Status: state.RemoteFailed, Summary: note}
+		switch {
+		case s.isPeerAgent(ctx, a):
+			s.tellLeadAbout(ctx, a, failedNotice(a, headWords(note, 300)), chat.NoticeOptions{Act: s.leadIsWaiting(a)}, failed)
+		case s.leadIsWaiting(a):
+			s.stallTell(ctx, a, failedNotice(a, headWords(note, 300)))
+		default:
+			s.tellOwner(ctx, a, failedNotice(a, headWords(note, 300)), false)
 		}
 		return
 	case verdictBackground:
@@ -471,13 +503,19 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		// each of those turns ends waiting too.
 		s.setOutcome(a, "", "")
 		if s.markToldWaiting(a, true) {
-			s.tellLead(ctx, a.Project, backgroundNotice(a, end.Background), false)
+			s.tellLeadAbout(ctx, a, backgroundNotice(a, end.Background), chat.NoticeOptions{}, peerEvent{Status: state.RemoteWorking})
 		}
 		return
 	}
 	s.markToldWaiting(a, false)
+	// A goal the daemon drives sends the agent back while its checks fail,
+	// or stops it blocked, rather than reporting a finish (goals.go).
+	if s.goalAfterTurn(ctx, a, end) {
+		return
+	}
 	closing := closingWords(end.LastMessage)
-	changes, pr := changesOf(a), s.prFor(ctx, a)
+	pr := s.prFor(ctx, a)
+	changes := changesOf(a, prBase(pr)...)
 	if v == verdictUnsure {
 		v = verdictEnded
 		if !shows(changes, pr) {
@@ -495,7 +533,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 			}
 		}
 		s.setOutcome(a, api.AgentOutcomeIdle, "Says it waits on work, and nothing will wake it")
-		s.tellLead(ctx, a.Project, unwokenNotice(a), s.leadWasWaiting(a))
+		s.tellLeadAbout(ctx, a, unwokenNotice(a), chat.NoticeOptions{Act: s.leadWasWaiting(a)}, peerEvent{Status: state.RemoteDone})
 		return
 	}
 	s.clearNudge(a)
@@ -512,7 +550,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		// Only the lead's own request wakes it: a question asked in a chat
 		// somebody drives by hand is theirs to see.
 		// It still waits for the finish that follows the answer.
-		s.tellLead(ctx, a.Project, askingNotice(a, q), s.leadIsWaiting(a))
+		s.tellLeadAbout(ctx, a, askingNotice(a, q), chat.NoticeOptions{Act: s.leadIsWaiting(a)}, peerEvent{Status: state.RemoteAsking, Summary: q})
 		return
 	}
 	// An agent that finished has often just pushed: the watch looks now, and
@@ -540,7 +578,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	// One of a group's agents waits for the rest: the lead hears once, as
 	// the last one finishes (groupMaybeDone), rather than at each.
 	group := s.groupMemberFinished(ctx, a)
-	s.tellLeadOf(ctx, a.Project, finishNotice(ev), chat.NoticeOptions{Act: waiting && group == "" && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}})
+	finished := peerEvent{Status: state.RemoteDone, Summary: ev.Summary}
+	if pr != nil {
+		finished.PRURL = pr.URL
+	}
+	s.tellLeadAbout(ctx, a, finishNotice(ev), chat.NoticeOptions{Act: waiting && group == "" && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}}, finished)
 	if group != "" {
 		s.groupMoved(ctx, group)
 	}

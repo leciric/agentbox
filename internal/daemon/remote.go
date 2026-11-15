@@ -42,7 +42,7 @@ func (s *Server) startRemote(ctx context.Context) {
 		return
 	}
 	hostname, _ := os.Hostname()
-	c := &remote.Connector{Hub: cfg.Hub, Token: cfg.Token, Handler: s.remoteHandler(), Version: Version, Hostname: hostname, Log: s.cfg.Log}
+	c := &remote.Connector{Hub: cfg.Hub, Token: cfg.Token, Handler: s.hubHandler(), Version: Version, Hostname: hostname, Log: s.cfg.Log}
 	rctx, cancel := context.WithCancel(ctx)
 	s.remote, s.remoteStop = c, cancel
 	go c.Run(rctx)
@@ -223,6 +223,10 @@ func (s *Server) connectRemote(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) disconnectRemote(w http.ResponseWriter, r *http.Request) error {
 	s.stopPairing()
+	// The apps paired through this hub go with it.
+	if cfg := s.readRemoteConfig(); cfg != nil {
+		s.revokeAllRemoteMCP(r.Context(), cfg)
+	}
 	if err := os.Remove(s.remoteConfigPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}

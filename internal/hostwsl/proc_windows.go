@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -47,4 +48,30 @@ func runForeground(cmd *exec.Cmd) error {
 	signal.Ignore(os.Interrupt)
 	defer signal.Reset(os.Interrupt)
 	return cmd.Run()
+}
+
+// memoryStatusEx is MEMORYSTATUSEX, which GlobalMemoryStatusEx fills in.
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
+
+var globalMemoryStatusEx = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
+
+// windowsMemory is the computer's physical memory, in bytes; 0 when Windows
+// won't say.
+func windowsMemory() int64 {
+	var st memoryStatusEx
+	st.Length = uint32(unsafe.Sizeof(st))
+	if ok, _, _ := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&st))); ok == 0 {
+		return 0
+	}
+	return int64(st.TotalPhys)
 }

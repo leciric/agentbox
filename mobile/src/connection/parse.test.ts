@@ -113,3 +113,31 @@ test('chat and agent events are checked before they reach the queries', () => {
   assert.equal(P.agentChange({ state: 'running' }), undefined);
   assert.deepEqual(P.agentChange({ ref: 'web/a', state: null }), { ref: 'web/a', state: '', removed: false });
 });
+
+test('a project chat’s sessions keep only the ones with an id and a ref', () => {
+  const got = P.leadSessions([{ id: 'main', ref: 'web/lead', topic: 'Chat', agents: 2 }, { id: 'x' }, null, { id: 'prod', ref: 'web/lead.prod', agents: 'two' }]);
+  assert.deepEqual(got.map((s) => [s.id, s.agents, s.topic]), [['main', 2, 'Chat'], ['prod', 0, '']]);
+  assert.deepEqual(P.leadSessions(null), []);
+});
+
+test('a session output keeps the agents that have a ref, and pull requests with a number', () => {
+  const got = P.sessionOutput({
+    agents: [{ ref: 'web/agent-01', name: 'agent-01', working: true, pr: { number: 7, state: 'merged', checks: 'passing' } }, { name: 'nobody' }, { ref: 'web/agent-02', archived: true, pr: { state: 'open' } }],
+  });
+  assert.equal(got.length, 2);
+  assert.equal(got[0].working, true);
+  assert.equal(got[0].pr?.number, 7);
+  assert.equal(got[1].archived, true);
+  assert.equal(got[1].pr, undefined);
+  assert.deepEqual(P.sessionOutput(null), []);
+});
+
+test('a session status event carries the project and its sessions as they stand', () => {
+  const change = P.leadSessionStatus({ project: 'web', sessions: [{ id: 'prod', ref: 'web/lead.prod', status: 'needsYou', needsYou: 2, unread: 'yes' }, { id: 'broken' }] });
+  assert.equal(change?.project, 'web');
+  assert.equal(change?.sessions.length, 1, 'a session with no ref is dropped');
+  assert.equal(change?.sessions[0].status, 'needsYou');
+  assert.equal(change?.sessions[0].needsYou, 2);
+  assert.equal(change?.sessions[0].unread, false, 'only true is unread');
+  assert.equal(P.leadSessionStatus({ sessions: [] }), undefined);
+});

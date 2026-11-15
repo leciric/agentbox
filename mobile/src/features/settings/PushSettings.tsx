@@ -3,6 +3,7 @@
 // daemon at once (PUT /lan/push), which is what decides what to push.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Bell, Settings } from 'lucide-react-native';
 import { Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
 import { api } from '../../connection/api.ts';
@@ -81,7 +82,7 @@ export function PushSettings() {
             <Text style={styles.small}>{t('mobile.push.quietOff')}</Text>
           )}
           {save.error && <Note tone="error">{save.error.message}</Note>}
-          <Button kind="secondary" label={t('mobile.push.test')} busy={sendTest.isPending} onPress={() => sendTest.mutate()} style={{ marginTop: 6 }} />
+          <Button kind="secondary" label={t('mobile.push.test')} icon={Bell} busy={sendTest.isPending} onPress={() => sendTest.mutate()} style={{ marginTop: 6 }} />
           {test && <Text style={styles.small}>{test.sent ? t('mobile.push.testSent') : t('mobile.push.testLocal', { error: test.error ?? '' })}</Text>}
         </>
       )}
@@ -100,7 +101,7 @@ function StatusNote({ status, error }: { status: string; error?: string }) {
       return (
         <>
           <Note tone="warning">{t('mobile.push.denied')}</Note>
-          <Button kind="secondary" label={t('mobile.push.openSettings')} onPress={() => void Linking.openSettings()} />
+          <Button kind="secondary" label={t('mobile.push.openSettings')} icon={Settings} onPress={() => void Linking.openSettings()} />
         </>
       );
     case 'unconfigured':

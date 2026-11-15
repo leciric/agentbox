@@ -413,7 +413,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	f := leadFixture(t)
 	// The lead has the tools to create agents, as it does under the daemon;
 	// nothing in this test reaches the socket, only the brief it implies.
-	f.m.LeadSocketPath = func(project string) string { return filepath.Join(t.TempDir(), project+".sock") }
+	f.m.LeadSocketPath = func(project, _ string) string { return filepath.Join(t.TempDir(), project+".sock") }
 	// A menu a Claude Code chat really advertised, which is the only place the
 	// models named in the brief may come from.
 	if err := f.st.SetSetting(ctx, state.SettingClaudeModelChoices,
@@ -438,7 +438,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 
 	// The lead is running on a model of its own, written into its settings by
 	// PrepareChatModel. Rewriting the brief must not take it away.
-	if err := f.m.PrepareChatModel(ctx, a, "claude-fable-5-1", state.DefaultClaudeCompactWindow); err != nil {
+	if err := f.m.PrepareChatModel(ctx, a, "claude-fable-5-2", state.DefaultClaudeCompactWindow); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.st.SetProjectAgentModel(ctx, "hello-stack", state.AgentModelAuto); err != nil {
@@ -461,7 +461,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(settings), "claude-fable-5-1") {
+	if !strings.Contains(string(settings), "claude-fable-5-2") {
 		t.Error("rewriting the brief lost the model the lead itself runs on")
 	}
 	if !strings.Contains(string(settings), `"autoCompactWindow": 500000`) {
@@ -594,6 +594,7 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 	for _, path := range []string{
 		filepath.Join(f.m.Paths.Tools(), ".local", "bin", "claude"),
 		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "claude-agent-acp"),
+		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "gemini"),
 		f.m.GHPath(),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -626,6 +627,26 @@ func TestLeadChatReportsTheAgentboxEntrypoint(t *testing.T) {
 	}
 }
 
+// A lead on Gemini CLI keeps it in the process the chat stops
+// (geminiNoRelaunch); other tools aren't told.
+func TestLeadGeminiDoesntRelaunchItself(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := leadEnv(t, f, a)["GEMINI_CLI_NO_RELAUNCH"]; ok {
+		t.Error("a Claude Code lead is told GEMINI_CLI_NO_RELAUNCH")
+	}
+	if err := f.m.Creds.SaveToolAccount("gemini", "", "", []byte(`{"GEMINI_API_KEY":"AIza-test"}`)); err != nil {
+		t.Fatal(err)
+	}
+	a.AI = "gemini"
+	if got := leadEnv(t, f, a)["GEMINI_CLI_NO_RELAUNCH"]; got != "1" {
+		t.Errorf("the Gemini CLI lead's GEMINI_CLI_NO_RELAUNCH is %q", got)
+	}
+}
+
 // In a VM made before /etc/agentbox/vm was, the front end's environment is
 // the only thing that tells agentbox it runs in the VM. The lead's is a fresh
 // one, with a HOME that holds no state.db, so its `agentbox mcp` took itself
@@ -652,6 +673,23 @@ func TestLeadKnowsItRunsInTheVM(t *testing.T) {
 		if v, ok := env[name]; ok {
 			t.Errorf("the lead's chat has %s=%q on a machine of its own", name, v)
 		}
+	}
+}
+
+// The lead's HOME is its own, so the `agentbox` it runs in its shell looked
+// for the daemon under it, tried to start one there and failed ("the AgentBox
+// daemon didn't start"), and the lead told the user AgentBox was down. It now
+// gets the daemon's socket, and never starts a daemon of its own.
+func TestLeadsShellReachesTheDaemon(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := leadEnv(t, f, a)
+	if env["AGENTBOX_SOCKET"] != f.m.Paths.Socket() || env["AGENTBOX_NO_AUTOSTART"] != "1" {
+		t.Errorf("the lead's chat has AGENTBOX_SOCKET=%q, AGENTBOX_NO_AUTOSTART=%q; want %q and 1",
+			env["AGENTBOX_SOCKET"], env["AGENTBOX_NO_AUTOSTART"], f.m.Paths.Socket())
 	}
 }
 
@@ -785,7 +823,7 @@ func TestLeadIsGivenItsProjectsConnectors(t *testing.T) {
 	ctx := context.Background()
 	f := leadFixture(t)
 	socket := filepath.Join(t.TempDir(), "lead.sock")
-	f.m.LeadSocketPath = func(string) string { return socket }
+	f.m.LeadSocketPath = func(string, string) string { return socket }
 	f.m.Binary = "/usr/local/bin/agentbox"
 	for _, c := range []state.Connector{
 		{Project: "hello-stack", Name: "notion", URL: "https://mcp.notion.com/mcp", Auth: "oauth", Enabled: true},

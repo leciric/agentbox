@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -108,5 +109,26 @@ func TestDiskGuardRefusesPausesAndResumes(t *testing.T) {
 	if settings, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{DiskFloorMin: &zero, DiskFloorPercent: &negative}); err != nil ||
 		settings.DiskFloorMin != agent.DefaultDiskFloorMin || settings.DiskFloorPercent != agent.DefaultDiskFloorPercent {
 		t.Errorf("back to the default: %+v, %v", settings, err)
+	}
+}
+
+// A check whose Incus call never answers gives up at its deadline rather
+// than holding the guard for good.
+func TestDiskCheckGivesUpOnAHungIncus(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	w := d.srv.disk
+	w.checkTimeout = 100 * time.Millisecond
+	w.measure = func(ctx context.Context) []agent.DiskSpace {
+		<-ctx.Done() // as a call to an Incus that hung
+		return nil
+	}
+	w.writers = func(context.Context) ([]agent.DiskWriter, error) { return nil, nil }
+	done := make(chan struct{})
+	go func() { d.srv.checkDisk(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the check still waits on a hung Incus")
 	}
 }

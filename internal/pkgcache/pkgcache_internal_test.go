@@ -193,7 +193,12 @@ func TestTrimWaitsForAgentsAtWorkUnlessFarOverTheCap(t *testing.T) {
 	for i := range 4 {
 		put(t, c.Dir, "go/build/bb/"+string(rune('a'+i))+"-d", time.Duration(i)*time.Minute)
 	}
-	// 16 files of a cap of 10: past BusyCeiling.
+	// 16 files of a cap of 10: past BusyCeiling, which a pass finds once the
+	// last measure is BusyRemeasure old.
+	if freed := c.Trim(); freed != 0 {
+		t.Errorf("freed %d, walking again within %s of the last measure", freed, BusyRemeasure)
+	}
+	c.now = func() time.Time { return epoch.Add(24*time.Hour + BusyRemeasure) }
 	if freed := c.Trim(); freed == 0 {
 		t.Error("nothing freed far over the cap, though agents were at work")
 	}
@@ -285,5 +290,37 @@ func TestEveryTrimPassLogsWhatItDid(t *testing.T) {
 	c.Trim()
 	if len(lines) != 1 || !strings.Contains(lines[0], "short of") {
 		t.Errorf("lines %q", lines)
+	}
+}
+
+func TestTrimDoesntWalkTheCachesOnlyToSkipThem(t *testing.T) {
+	c := newCache(t, 10*kib64)
+	var lines []string
+	c.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	put(t, c.Dir, "go/build/aa/a-d", 0)
+	c.Trim()
+	c.Busy = func() bool { return true }
+	c.Trim()
+	if len(lines) != 2 || !strings.Contains(lines[1], "when last measured") || strings.Contains(lines[1], "walked") {
+		t.Errorf("a busy pass walked the caches: %q", lines)
+	}
+}
+
+func TestWaitIsLongerWellUnderTheCap(t *testing.T) {
+	c := newCache(t, 10*kib64)
+	if got := c.Wait(time.Minute); got != time.Minute {
+		t.Errorf("never measured: waits %s, want a minute", got)
+	}
+	put(t, c.Dir, "go/build/aa/a-d", 0)
+	c.Trim()
+	if got := c.Wait(time.Minute); got != 6*time.Minute {
+		t.Errorf("a tenth of the cap: waits %s, want 6m", got)
+	}
+	for i := range 8 {
+		put(t, c.Dir, "go/build/bb/"+string(rune('a'+i))+"-d", 0)
+	}
+	c.Trim()
+	if got := c.Wait(time.Minute); got != time.Minute {
+		t.Errorf("near the cap: waits %s, want a minute", got)
 	}
 }

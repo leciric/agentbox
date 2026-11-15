@@ -1,148 +1,48 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
-/* AgentBox's own look, and the only place its colours are written down.
-   Everything below reaches a colour through one of these, so the app can wear
-   another palette at runtime: when the daemon reports that this machine is
-   running an Omarchy theme, and the setting says to follow it, lib/theme.ts
-   sets these same properties on <html>, where an inline style wins over this
-   rule. Nothing else in the app knows a theme exists.
+/* AgentBox's look. Its values are in tokens.css, generated from
+   src/shared/design-tokens.json, which the native app's palette is generated
+   from too: change a colour, a size or a radius there, never here.
 
+   Everything below reaches a colour through one of those properties, so the
+   app can wear another palette at runtime: when the daemon reports that this
+   machine is running an Omarchy theme, and the setting says to follow it,
+   lib/theme.ts sets the same properties on <html>, where an inline style wins.
    Custom properties, rather than rewriting the @theme block, because Tailwind
    resolves @theme at build time: --color-brand-400 below is what every
-   bg-brand-400 in the app compiles to, and pointing it at a variable is what
-   makes the value changeable after the build.
+   bg-brand-400 compiles to, and pointing it at a variable is what makes the
+   value changeable after the build.
 
-   The same properties are what makes the app light or dark. :root is dark,
-   which is AgentBox's own look and its default; the block after it is light,
-   and applies when lib/theme.ts puts data-appearance="light" on <html>. That
-   is the one mechanism — there is no dark: variant anywhere in the app, and no
-   colour written as a zinc, slate or neutral utility. A component asks for the
-   role it wants (text-muted, bg-surface-raised, border-line) and gets the
-   value the current mode gives that role. */
+   The same properties make the app light or dark. :root is dark, the default;
+   light applies when lib/theme.ts puts data-appearance="light" on <html>.
+   There is no dark: variant anywhere in the app, and no colour written as a
+   zinc, slate or neutral utility: a component asks for the role it wants
+   (text-muted, bg-surface-raised, border-line) and gets the mode's value.
+
+   The direction is a quiet one, after macOS:
+
+   - The window (ink) is one neutral, and the conversation is the same colour:
+     content is not a card on a page. The chrome either side (rail) is a tint
+     of the window with the accent's wash showing faintly through it.
+   - Text runs title, primary, secondary, tertiary, muted, subtle, faint, each
+     at least 4.5:1 on the window, the chat and a raised surface in both modes.
+     Ghost is for what isn't read: a grip, a chevron, a divider's dash.
+   - Surfaces (faint to vivid) are tints of the opposite of the ink, for hover,
+     selection and controls. A selected row is a surface, not the accent.
+   - Lines (faint to heavy) are hairlines. Reach for line-faint between
+     regions and line around a control; a box is the exception.
+   - A panel is flat: one tint and a hairline, no gradient, and no shadow.
+     Only what floats casts one: shadow-pop under a menu or a popover,
+     shadow-modal under a dialog.
+   - The brand is the one accent: a primary button, a link, a focus ring.
+     500 is the button's fill (white on it reads 4.6:1); 100 to 400 are text.
+   - The status hues don't move with a theme, but light darkens each to stay
+     4.5:1 on white.
+   - Sunken, well, overlay, modal and scrim are depths: an input, a block of
+     code, a menu, a dialog and what dims behind it. The stage frames another
+     machine's screen and stays dark in both modes. */
 :root {
-  --ab-brand-300: #c4b5fd;
-  --ab-brand-400: #a78bfa;
-  --ab-brand-500: #8b5cf6;
-  --ab-brand-600: #7c3aed;
-  --ab-ink: #07070b;
-  /* The two washes across the top of the window, and the selection: an
-     accent's alpha forms, because a colour-mix of a runtime variable is the
-     only way to tint them with one. */
-  --ab-wash-near: rgb(139 92 246 / 0.13);
-  --ab-wash-far: rgb(56 189 248 / 0.07);
-  --ab-selection: rgb(139 92 246 / 0.35);
-  /* The brand's companion hues, which its gradients run through after the
-     accent: Tailwind's indigo-500, indigo-600 and sky-400 by default. A theme
-     gives one accent, so under a theme these become shades of it. */
-  --ab-brand-mid: #6366f1;
-  --ab-brand-deep: #4f46e5;
-  --ab-brand-far: #38bdf8;
-
-  /* Text, from the loudest to the quietest. Dark is Tailwind's zinc ramp read
-     downwards (50 to 700); light reads the same ramp upwards, so every role
-     keeps its place in the order and only the direction of the contrast
-     changes. */
-  --ab-title: #fafafa;
-  --ab-primary: #f4f4f5;
-  --ab-secondary: #e4e4e7;
-  --ab-tertiary: #d4d4d8;
-  --ab-muted: #a1a1aa;
-  --ab-subtle: #71717a;
-  --ab-faint: #52525b;
-  --ab-ghost: #3f3f46;
-
-  /* Surfaces that sit on the window: a tint of the opposite of the ink, so a
-     panel lifts off the background in the dark and settles into it in the
-     light. Four steps, from the barest tint to a control that is clearly its
-     own thing. */
-  --ab-surface-faint: rgb(255 255 255 / 0.03);
-  --ab-surface: rgb(255 255 255 / 0.05);
-  --ab-surface-raised: rgb(255 255 255 / 0.065);
-  --ab-surface-strong: rgb(255 255 255 / 0.09);
-  --ab-surface-vivid: rgb(255 255 255 / 0.14);
-
-  /* Lines: borders, rings and dividers, in the same four steps plus a heavy
-     one for a control drawn over an image. Light needs more of them than dark
-     does — a 6% line reads on black and disappears on white — so these are
-     not the surface steps reused. */
-  --ab-line-faint: rgb(255 255 255 / 0.05);
-  --ab-line: rgb(255 255 255 / 0.065);
-  --ab-line-strong: rgb(255 255 255 / 0.1);
-  --ab-line-vivid: rgb(255 255 255 / 0.15);
-  --ab-line-heavy: rgb(255 255 255 / 0.25);
-
-  /* Layers that are not a tint of the ink but a depth against it: the chrome
-     down either side, a well an input or a block of code sits in, a deeper
-     well for a log, the menus and dialogs that float over everything, and the
-     scrim behind them. In the light these invert: a rail is lighter than the
-     page it is beside, not darker. */
-  --ab-rail: rgb(0 0 0 / 0.25);
-  --ab-sunken: rgb(0 0 0 / 0.3);
-  --ab-well: rgb(0 0 0 / 0.42);
-  --ab-overlay: rgb(24 24 27 / 0.95);
-  --ab-modal: rgb(9 9 11 / 0.95);
-  --ab-scrim: rgb(0 0 0 / 0.62);
-  --ab-gloss: rgb(255 255 255 / 0.25);
-  /* Three surfaces with a colour of their own rather than a tint of the ink,
-     because each is a room you sit inside rather than a card on a page: the
-     chat behind the conversation, the composer floating on it, and the stage a
-     terminal, a browser or an Android screen is framed in. */
-  --ab-chat: #09090d;
-  --ab-composer: #131318;
-  --ab-stage: #0a0a0f;
-  /* The banner on the composer's top edge, in its three tones. */
-  --ab-attached-warning: #1d1810;
-  --ab-attached-danger: #1f1014;
-  --ab-attached-neutral: #111116;
-  /* The .panel component: the gradient down a card and the shadow under it.
-     Light casts a real shadow where dark only hints at one, because a card on
-     a pale window is told apart by its edge rather than by its fill. */
-  --ab-panel-top: rgb(255 255 255 / 0.035);
-  --ab-panel-bottom: rgb(255 255 255 / 0.015);
-  --ab-panel-shadow:
-    0 1px 0 rgb(255 255 255 / 0.04) inset,
-    0 18px 40px -24px rgb(0 0 0 / 0.8);
-  /* What a thing that floats casts. Dark can afford near-black, because it is
-     already nearly black; light cannot, and a 90%-black drop shadow under a
-     menu on a white page is a bruise. Written as properties because these are
-     inside arbitrary shadow-[...] utilities, which have no colour of their
-     own to swap. */
-  --ab-shadow-deep: rgb(0 0 0 / 0.9);
-  --ab-shadow-soft: rgb(0 0 0 / 0.4);
-
-  /* A control painted the other way round from the window: the light button on
-     a dark app, and the dark one on a light app. */
-  --ab-inverted: #f4f4f5;
-  --ab-inverted-hover: #ffffff;
-  --ab-on-inverted: #18181b;
-  /* Text on a bright fill — an amber button, a brand one — which is the same
-     near-black whichever way round the window is. */
-  --ab-on-bright: #09090b;
-
-  /* The status hues. A status colour doesn't move with the theme (a running
-     agent is the same green under every wallpaper), but it does have to stay
-     legible, and a 300 that reads on black is invisible on white. So the light
-     mode below darkens each of these by about three steps of its ramp, and
-     every text-amber-300 in the app follows without being touched. */
-  --ab-emerald-200: #a7f3d0;
-  --ab-emerald-300: #6ee7b7;
-  --ab-emerald-400: #34d399;
-  --ab-amber-50: #fffbeb;
-  --ab-amber-100: #fef3c7;
-  --ab-amber-200: #fde68a;
-  --ab-amber-300: #fcd34d;
-  --ab-amber-400: #fbbf24;
-  --ab-rose-100: #ffe4e6;
-  --ab-rose-200: #fecdd3;
-  --ab-rose-300: #fda4af;
-  --ab-rose-400: #fb7185;
-  --ab-sky-50: #f0f9ff;
-  --ab-sky-200: #bae6fd;
-  --ab-sky-300: #7dd3fc;
-  --ab-sky-400: #38bdf8;
-  --ab-violet-300: #c4b5fd;
-  --ab-violet-400: #a78bfa;
-
   /* The terminal's palette, read by lib/terminals.ts rather than by a class:
      xterm.js is a canvas, and takes its colours as strings. */
   --ab-term-background: #0a0a0f;
@@ -159,89 +59,8 @@
   --ab-term-red: #fb7185;
 }
 
-/* Light. The app is the same app: every role keeps its meaning and only its
-   value changes, so a panel is still a step away from the window and muted
-   text is still quieter than primary. The window is near-white, surfaces are a
-   tint of near-black over it (a panel settles rather than lifts), and the rail,
-   the wells and the menus go the other way and become white. */
-:root[data-appearance="light"] {
-  --ab-ink: #f4f4f6;
-  --ab-wash-near: rgb(139 92 246 / 0.1);
-  --ab-wash-far: rgb(56 189 248 / 0.08);
-  --ab-selection: rgb(139 92 246 / 0.28);
-
-  --ab-title: #09090b;
-  --ab-primary: #18181b;
-  --ab-secondary: #27272a;
-  --ab-tertiary: #3f3f46;
-  --ab-muted: #52525b;
-  /* Subtle and faint are a step darker than the ramp: timestamps, hints,
-     placeholders and list headers are subtle or faint, and on near-white the
-     ramp's #71717a and #a1a1aa read too pale (4.4:1 and 2.3:1). These are
-     5.5:1 and 4.1:1 against the window. */
-  --ab-subtle: #62626c;
-  --ab-faint: #76767f;
-  --ab-ghost: #a1a1aa;
-
-  --ab-surface-faint: rgb(9 9 11 / 0.035);
-  --ab-surface: rgb(9 9 11 / 0.05);
-  --ab-surface-raised: rgb(9 9 11 / 0.07);
-  --ab-surface-strong: rgb(9 9 11 / 0.1);
-  --ab-surface-vivid: rgb(9 9 11 / 0.16);
-
-  --ab-line-faint: rgb(9 9 11 / 0.08);
-  --ab-line: rgb(9 9 11 / 0.11);
-  --ab-line-strong: rgb(9 9 11 / 0.16);
-  --ab-line-vivid: rgb(9 9 11 / 0.24);
-  --ab-line-heavy: rgb(9 9 11 / 0.38);
-
-  --ab-rail: rgb(255 255 255 / 0.58);
-  --ab-sunken: rgb(255 255 255 / 0.85);
-  --ab-well: rgb(255 255 255 / 0.7);
-  --ab-overlay: rgb(255 255 255 / 0.97);
-  --ab-modal: rgb(255 255 255 / 0.98);
-  --ab-scrim: rgb(9 9 11 / 0.4);
-  --ab-gloss: rgb(255 255 255 / 0.6);
-  --ab-chat: #fafafb;
-  --ab-composer: #ffffff;
-  /* The stage does not turn over: it frames another machine's screen — a
-     terminal, a browser, an Android emulator — and a pale mount around a dark
-     desktop is a worse frame than a dark one, in either mode. The terminal
-     inside it does turn over (--ab-term-* below). */
-  --ab-attached-warning: #fef6e7;
-  --ab-attached-danger: #fdeef0;
-  --ab-attached-neutral: #f4f4f6;
-  --ab-panel-top: rgb(255 255 255 / 0.85);
-  --ab-panel-bottom: rgb(255 255 255 / 0.6);
-  --ab-panel-shadow:
-    0 1px 0 rgb(255 255 255 / 0.9) inset,
-    0 10px 26px -18px rgb(9 9 11 / 0.35);
-  --ab-shadow-deep: rgb(9 9 11 / 0.24);
-  --ab-shadow-soft: rgb(9 9 11 / 0.12);
-
-  --ab-inverted: #27272a;
-  --ab-inverted-hover: #18181b;
-  --ab-on-inverted: #fafafa;
-
-  --ab-emerald-200: #047857;
-  --ab-emerald-300: #059669;
-  --ab-emerald-400: #059669;
-  --ab-amber-50: #451a03;
-  --ab-amber-100: #78350f;
-  --ab-amber-200: #b45309;
-  --ab-amber-300: #b45309;
-  --ab-amber-400: #d97706;
-  --ab-rose-100: #881337;
-  --ab-rose-200: #9f1239;
-  --ab-rose-300: #be123c;
-  --ab-rose-400: #e11d48;
-  --ab-sky-50: #082f49;
-  --ab-sky-200: #0369a1;
-  --ab-sky-300: #0284c7;
-  --ab-sky-400: #0284c7;
-  --ab-violet-300: #6d28d9;
-  --ab-violet-400: #7c3aed;
-
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
   --ab-term-background: #fbfbfd;
   --ab-term-foreground: #27272a;
   --ab-term-black: #d4d4d8;
@@ -256,14 +75,126 @@
   --ab-term-red: #be123c;
 }
 
+/* Dracula (VS Code's Dracula Official), which AgentBox carries itself. Its
+   accent, ink and washes come through lib/theme.ts like a followed theme's;
+   this block is the rest of what makes it Dracula rather than AgentBox's dark
+   with a purple accent: its backgrounds, its text, and its other hues standing
+   in for the status colours and the terminal's. */
+:root[data-appearance="dracula"] {
+  --ab-chat: #282a36;
+  --ab-composer: #343746;
+  --ab-stage: #21222c;
+  --ab-attached-neutral: #21222c;
+  --ab-overlay: rgb(33 34 44 / 0.97);
+  --ab-modal: rgb(33 34 44 / 0.97);
+
+  --ab-title: #ffffff;
+  --ab-primary: #f8f8f2;
+  --ab-secondary: #ecece6;
+  --ab-tertiary: #d8d8d2;
+  --ab-muted: #adb5cb;
+  /* Lifted from Dracula's comment colour (#6272a4, 3.0:1 on its background)
+     to the 4.5:1 every text role keeps: 5.7:1 and 5.0:1 on the chat. */
+  --ab-subtle: #99a3cc;
+  --ab-faint: #8c97c2;
+  --ab-ghost: #44475a;
+
+  --ab-inverted: #f8f8f2;
+  --ab-on-inverted: #282a36;
+
+  --ab-emerald-200: #8afba5;
+  --ab-emerald-300: #50fa7b;
+  --ab-emerald-400: #50fa7b;
+  --ab-amber-200: #f1fa8c;
+  --ab-amber-300: #f1fa8c;
+  --ab-amber-400: #ffb86c;
+  --ab-rose-200: #ff9a9a;
+  --ab-rose-300: #ff6e6e;
+  --ab-rose-400: #ff5555;
+  --ab-sky-200: #a4ffff;
+  --ab-sky-300: #8be9fd;
+  --ab-sky-400: #8be9fd;
+  --ab-violet-300: #d6acff;
+  --ab-violet-400: #bd93f9;
+
+  --ab-term-background: #282a36;
+  --ab-term-foreground: #f8f8f2;
+  --ab-term-black: #21222c;
+  --ab-term-bright-black: #6272a4;
+  --ab-term-blue: #bd93f9;
+  --ab-term-bright-blue: #d6acff;
+  --ab-term-magenta: #ff79c6;
+  --ab-term-bright-magenta: #ff92df;
+  --ab-term-cyan: #8be9fd;
+  --ab-term-green: #50fa7b;
+  --ab-term-yellow: #f1fa8c;
+  --ab-term-red: #ff5555;
+}
+
+/* Dracula colours its menus too, a hue per place, so the sidebar, the tabs and
+   Settings' sections can be told apart at a glance — the way the palette
+   colours a keyword, a string and a function differently. Each item names
+   itself (data-nav, data-tab, data-settings-nav, data-v2-foot-item) and only
+   this look gives the names a colour: the icon wears it, and the open item a
+   wash of it. */
+:root[data-appearance="dracula"] {
+  --ab-d-purple: #bd93f9;
+  --ab-d-pink: #ff79c6;
+  --ab-d-green: #50fa7b;
+  --ab-d-cyan: #8be9fd;
+  --ab-d-orange: #ffb86c;
+  --ab-d-yellow: #f1fa8c;
+  --ab-d-red: #ff5555;
+}
+/* Purple first, as the fallback for anything named and not listed below (a
+   project's own Settings section). */
+:root[data-appearance="dracula"] :is([data-nav="settings"], [data-v2-foot-item="settings"], [data-tab="pulls"], [data-tab="settings"], [data-tab="context"], [data-settings-nav]) {
+  --ab-hue: var(--ab-d-purple);
+}
+:root[data-appearance="dracula"] :is([data-nav="home"], [data-v2-home], [data-tab="browser"], [data-tab="status"], [data-tab="memories"], [data-settings-nav="phone"], [data-settings-nav="agents"], [data-settings-nav="resources"]) {
+  --ab-hue: var(--ab-d-cyan);
+}
+:root[data-appearance="dracula"] :is([data-nav="chat"], [data-nav="add"], [data-tab="chat"], [data-tab="android"], [data-tab="search"], [data-settings-nav="connectors"], [data-settings-nav="experimental"]) {
+  --ab-hue: var(--ab-d-green);
+}
+:root[data-appearance="dracula"] :is([data-nav="media"], [data-v2-foot-item="media"], [data-tab="media"], [data-tab="memory"], [data-tab="events"], [data-settings-nav="models"], [data-settings-nav="memory"]) {
+  --ab-hue: var(--ab-d-pink);
+}
+:root[data-appearance="dracula"] :is([data-nav="work"], [data-v2-foot-item="work"], [data-tab="past"], [data-tab="snapshots"], [data-tab="files"], [data-settings-nav="accounts"], [data-settings-nav="setup"]) {
+  --ab-hue: var(--ab-d-orange);
+}
+:root[data-appearance="dracula"] :is([data-nav="jobs"], [data-v2-foot-item="jobs"], [data-tab="terminal"], [data-tab="reports"], [data-settings-nav="notifications"]) {
+  --ab-hue: var(--ab-d-yellow);
+}
+:root[data-appearance="dracula"] :is([data-tab="issues"], [data-settings-nav="diagnostics"]) {
+  --ab-hue: var(--ab-d-red);
+}
+:root[data-appearance="dracula"] :is([data-nav], [data-tab], [data-settings-nav], [data-v2-foot-item]) > svg,
+:root[data-appearance="dracula"] [data-v2-home] svg {
+  color: var(--ab-hue);
+}
+:root[data-appearance="dracula"] [data-heading] {
+  color: var(--ab-d-pink);
+}
+:root[data-appearance="dracula"] :is([data-nav][data-active], [data-tab][data-state="active"], [data-settings-nav][aria-current="page"], [data-v2-foot-item][aria-current="page"]) {
+  background-color: color-mix(in srgb, var(--ab-hue) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-hue) 30%, transparent);
+}
+
 @theme {
-  --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
+  /* The system's face where it is San Francisco, and Inter, the nearest to
+     it, everywhere else. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
 
+  --color-brand-100: var(--ab-brand-100);
+  --color-brand-200: var(--ab-brand-200);
   --color-brand-300: var(--ab-brand-300);
   --color-brand-400: var(--ab-brand-400);
   --color-brand-500: var(--ab-brand-500);
   --color-brand-600: var(--ab-brand-600);
+  --color-brand-700: var(--ab-brand-700);
+  --color-on-brand: var(--ab-on-brand);
   /* Claude's own orange, for the top bar's Claude usage: told apart from the machine's meters. */
   --color-claude: #d97757;
   --color-ink: var(--ab-ink);
@@ -334,10 +265,30 @@
   --color-violet-300: var(--ab-violet-300);
   --color-violet-400: var(--ab-violet-400);
 
+  /* The type scale is tokens.css's: six sizes, and nothing between them.
+
+       text-micro    11px  metadata under a row, a count beside an icon
+       text-caption  12px  labels, timestamps, badges, counts, kbd
+       text-ui       13px  dense controls: list rows, menus, tabs, small buttons
+       text-body     14px  reading text, inputs, default buttons
+       text-heading  16px  a panel's, a dialog's or a card's title
+       text-display  20px  a page's title
+
+     None sets a line-height: each keeps what it sits in, and leading-* says
+     otherwise. A label above a group is text-caption font-medium text-subtle,
+     in sentence case — no uppercase, no tracking. Two weights: medium for
+     what is a name or a control, semibold for a title. Tailwind's own
+     text-xs/sm/base/xl are the same 12/14/16/20; text-lg, text-2xl and any
+     text-[Npx] are off the scale. */
+
   --animate-fade-in: fade-in 160ms ease-out;
   --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-slide-up: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-sheet-up: sheet-up 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-glow: glow 2.4s ease-in-out infinite;
+  /* The one loop a status dot may play: something is working right now. Every
+     other state is a still dot; motion is kept for the thing that is moving. */
+  --animate-working: working 1.8s ease-in-out infinite;
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-page-drop: page-drop 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-page-glow: page-glow 1.6s ease-out 380ms backwards;
@@ -392,6 +343,11 @@
       box-shadow: 0 0 0 10px transparent;
     }
   }
+  @keyframes working {
+    50% {
+      opacity: 0.4;
+    }
+  }
   @keyframes shimmer {
     from {
       background-position: -200% 0;
@@ -407,7 +363,8 @@
     color-scheme: dark;
   }
 
-  :root[data-appearance="light"] {
+  :root[data-appearance="light"],
+  [data-appearance-scope="light"] {
     color-scheme: light;
   }
 
@@ -434,6 +391,17 @@
     background: var(--ab-selection);
   }
 
+  /* Loops stop for whoever asked for less motion, the working dot included:
+     it is still there, and still its colour. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-working,
+    .animate-pulse,
+    .animate-ping,
+    .animate-glow {
+      animation: none;
+    }
+  }
+
   /* The scrollbars and the focus ring: the two people notice last and
      complain about first, and the two with no class of their own to convert. */
   * {
@@ -453,10 +421,10 @@
 }
 
 @layer components {
+  /* A panel at rest: one tint and a hairline. It casts nothing. */
   .panel {
     border: 1px solid var(--ab-line);
-    background: linear-gradient(180deg, var(--ab-panel-top), var(--ab-panel-bottom));
-    box-shadow: var(--ab-panel-shadow);
+    background: var(--ab-panel-top);
   }
 
   .brand-gradient {
@@ -704,6 +672,19 @@
   -webkit-background-clip: text;
   background-clip: text;
   animation: chat-shine 2.2s linear infinite;
+}
+
+/* appear-late shows something only once it has been there long enough to
+   matter, like a message still on its way after most have arrived. */
+.appear-late {
+  opacity: 0;
+  animation: appear-late 0.2s ease-out 0.8s forwards;
+}
+
+@keyframes appear-late {
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes chat-shine {
@@ -986,7 +967,8 @@ html[data-blurred] :is(.animate-glow, .nightly-sky)::after {
   --ab-star: rgb(255 255 255 / 0.7);
   --ab-night: rgb(99 102 241 / 0.16);
 }
-:root[data-appearance="light"] {
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
   --ab-star: rgb(79 70 229 / 0.75);
   --ab-night: rgb(99 102 241 / 0.14);
 }
@@ -1095,6 +1077,181 @@ body[data-touring] [data-sonner-toaster] {
   }
 }
 
+/* The setting a search in Settings opened its section at, lit for a moment
+   so the eye finds it (SettingsPage's reveal). */
+[data-setting-id][data-revealed] {
+  animation: setting-revealed 1.6s ease-out;
+  border-radius: 12px;
+}
+@keyframes setting-revealed {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--ab-brand-400) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-400) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+/* The agent cards' tiny monitors (components/v2/AgentMonitor.tsx). A working
+   screen's column of lines steps up one line per --ab-pace (its recent tool
+   calls set it), while the bottom line types out behind the cursor in the
+   same beat; a "?" pops from the screen of one that needs you, over a frame
+   whose amber glow breathes; a failed one's screen glitches now and then; a
+   ready one's ✓ pops in once; an idle one's "z" floats up. Transform and
+   opacity only, none of it under prefers-reduced-motion, and paused for a
+   card off screen ([data-paused], AgentList's useSeenRows) or a window that
+   isn't looked at (html[data-blurred], above). */
+.ab-monitor[data-paused] *,
+html[data-blurred] .ab-monitor * {
+  animation-play-state: paused !important;
+}
+.ab-monitor-glow {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ab-monitor-scroll {
+    animation: ab-monitor-scroll calc(var(--ab-pace) * 4) infinite;
+  }
+  .ab-monitor-type {
+    transform-origin: left center;
+    animation: ab-monitor-type var(--ab-pace) linear infinite;
+  }
+  .ab-monitor-caret {
+    animation: ab-monitor-caret var(--ab-pace) linear infinite;
+  }
+  .ab-monitor-cursor {
+    animation: term-cursor 1.1s steps(1, end) infinite;
+  }
+  .ab-monitor-ask {
+    animation:
+      ab-monitor-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      ab-monitor-bob 2.4s ease-in-out 420ms infinite;
+  }
+  .ab-monitor-glow {
+    animation: ab-monitor-glow 2.4s ease-in-out infinite;
+  }
+  .ab-monitor-glitch {
+    animation: ab-monitor-glitch 4s steps(1, end) infinite;
+  }
+  .ab-monitor-pop {
+    animation: ab-monitor-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .ab-monitor-z {
+    animation: ab-monitor-z 3.6s ease-in-out infinite;
+  }
+}
+/* Each quarter holds a line in place for as long as the bottom one types,
+   then slides up one: 3px of bar and 4px of gap. The column holds its bars
+   twice, so -28px looks like 0. */
+@keyframes ab-monitor-scroll {
+  0%,
+  20% {
+    transform: translateY(0);
+  }
+  25%,
+  45% {
+    transform: translateY(-7px);
+  }
+  50%,
+  70% {
+    transform: translateY(-14px);
+  }
+  75%,
+  95% {
+    transform: translateY(-21px);
+  }
+  100% {
+    transform: translateY(-28px);
+  }
+}
+@keyframes ab-monitor-type {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  80% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+@keyframes ab-monitor-caret {
+  0% {
+    transform: translateX(-100%);
+  }
+  80%,
+  100% {
+    transform: translateX(0);
+  }
+}
+@keyframes ab-monitor-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3) translateY(4px);
+  }
+}
+@keyframes ab-monitor-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes ab-monitor-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+@keyframes ab-monitor-glitch {
+  0%,
+  10%,
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+  2% {
+    transform: translateX(-2px) skewX(8deg);
+    opacity: 0.7;
+  }
+  4% {
+    transform: translateX(2px);
+    opacity: 1;
+  }
+  6% {
+    transform: translateX(-1px) skewX(-6deg);
+    opacity: 0.6;
+  }
+  8% {
+    transform: translateX(1px);
+  }
+}
+@keyframes ab-monitor-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 3px);
+  }
+  30%,
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(3px, -6px);
+  }
+}
+
 /* The phone's web app (web/PhoneApp.tsx) wraps the desktop's chat: what a
    finger and a phone's browser need from it, and nothing the desktop sees.
    Unlayered, so it wins over the utilities it adjusts; on the root, which
@@ -1171,4 +1328,161 @@ body[data-touring] [data-sonner-toaster] {
   height: 2.75rem;
   align-items: center;
   justify-content: center;
+}
+
+/* A chat session's colour (components/chat/sessionColor.ts): a soft hue per
+   name in SESSION_COLORS (lib/sessions.ts), a little lighter on dark and
+   deeper on light so a thin line reads on both.
+   [data-session-color] sets --session from it; a name this app doesn't know
+   leaves it unset, and nothing framed. .session-line colours an element's
+   border with it: the session's tab
+   (a tab not shown is half as strong, .session-line-quiet); the agents it
+   made are headed by its dot in the right-hand panel (v2/AgentList). over the
+   content, taking no room, so showing it moves nothing. The three oldest
+   names (lemon, teal, lime) are gone from the palette; sessions that still
+   have one borrow a current hue. */
+:root {
+  --ab-session-rose: #d58a9c;
+  --ab-session-sky: #7fb0d9;
+  --ab-session-mint: #84c4a0;
+  --ab-session-lilac: #b7a0dc;
+  --ab-session-peach: #dcaa86;
+  --ab-session-line: 80%;
+}
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
+  --ab-session-rose: #cc7189;
+  --ab-session-sky: #5b97cb;
+  --ab-session-mint: #50a47b;
+  --ab-session-lilac: #9a7ccb;
+  --ab-session-peach: #cf8c58;
+  --ab-session-line: 85%;
+}
+[data-session-color="rose"] { --session: var(--ab-session-rose); }
+[data-session-color="sky"] { --session: var(--ab-session-sky); }
+[data-session-color="mint"] { --session: var(--ab-session-mint); }
+[data-session-color="lilac"] { --session: var(--ab-session-lilac); }
+[data-session-color="peach"] { --session: var(--ab-session-peach); }
+[data-session-color="teal"] { --session: var(--ab-session-sky); }
+[data-session-color="lemon"] { --session: var(--ab-session-peach); }
+[data-session-color="lime"] { --session: var(--ab-session-mint); }
+
+/* A short rule under the tab's name, rather than a box around the tab. */
+.session-line,
+.session-line-quiet {
+  background-image: linear-gradient(var(--session-rule), var(--session-rule));
+  background-repeat: no-repeat;
+  background-position: 10px 100%;
+  background-size: calc(100% - 20px) 2px;
+}
+.session-line {
+  --session-rule: color-mix(in oklab, var(--session, transparent) var(--ab-session-line), transparent);
+}
+.session-line-quiet {
+  --session-rule: color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * 0.65), transparent);
+}
+
+/* revealFeature's pulse on a feature's dot (components/FeatureDot.tsx), as
+   What's new points at it. */
+.feature-dot-reveal {
+  animation: feature-dot-reveal 0.9s ease-out 3;
+}
+@keyframes feature-dot-reveal {
+  from {
+    box-shadow: 0 0 0 0 var(--color-brand-400);
+  }
+  to {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feature-dot-reveal {
+    animation: none;
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 3px;
+  }
+}
+
+/* A part of the app in the light theme whatever the app's (the Office, over
+   its bright room): the theme's values are set on it by the light blocks
+   above, and Tailwind's colours, which @theme resolves once on :root, are
+   resolved again here so they take them. */
+[data-appearance-scope] {
+  --color-brand-100: var(--ab-brand-100);
+  --color-brand-200: var(--ab-brand-200);
+  --color-brand-300: var(--ab-brand-300);
+  --color-brand-400: var(--ab-brand-400);
+  --color-brand-500: var(--ab-brand-500);
+  --color-brand-600: var(--ab-brand-600);
+  --color-brand-700: var(--ab-brand-700);
+  --color-on-brand: var(--ab-on-brand);
+  --color-ink: var(--ab-ink);
+  --color-indigo-500: var(--ab-brand-mid);
+  --color-indigo-600: var(--ab-brand-deep);
+  --color-title: var(--ab-title);
+  --color-primary: var(--ab-primary);
+  --color-secondary: var(--ab-secondary);
+  --color-tertiary: var(--ab-tertiary);
+  --color-muted: var(--ab-muted);
+  --color-subtle: var(--ab-subtle);
+  --color-faint: var(--ab-faint);
+  --color-ghost: var(--ab-ghost);
+  --color-surface-faint: var(--ab-surface-faint);
+  --color-surface: var(--ab-surface);
+  --color-surface-raised: var(--ab-surface-raised);
+  --color-surface-strong: var(--ab-surface-strong);
+  --color-surface-vivid: var(--ab-surface-vivid);
+  --color-line-faint: var(--ab-line-faint);
+  --color-line: var(--ab-line);
+  --color-line-strong: var(--ab-line-strong);
+  --color-line-vivid: var(--ab-line-vivid);
+  --color-line-heavy: var(--ab-line-heavy);
+  --color-rail: var(--ab-rail);
+  --color-sunken: var(--ab-sunken);
+  --color-well: var(--ab-well);
+  --color-overlay: var(--ab-overlay);
+  --color-modal: var(--ab-modal);
+  --color-scrim: var(--ab-scrim);
+  --color-gloss: var(--ab-gloss);
+  --color-chat: var(--ab-chat);
+  --color-composer: var(--ab-composer);
+  --color-stage: var(--ab-stage);
+  --color-terminal: var(--ab-term-background);
+  --color-attached-warning: var(--ab-attached-warning);
+  --color-attached-danger: var(--ab-attached-danger);
+  --color-attached-neutral: var(--ab-attached-neutral);
+  --color-inverted: var(--ab-inverted);
+  --color-inverted-hover: var(--ab-inverted-hover);
+  --color-on-inverted: var(--ab-on-inverted);
+  --color-on-bright: var(--ab-on-bright);
+  --color-emerald-200: var(--ab-emerald-200);
+  --color-emerald-300: var(--ab-emerald-300);
+  --color-emerald-400: var(--ab-emerald-400);
+  --color-amber-50: var(--ab-amber-50);
+  --color-amber-100: var(--ab-amber-100);
+  --color-amber-200: var(--ab-amber-200);
+  --color-amber-300: var(--ab-amber-300);
+  --color-amber-400: var(--ab-amber-400);
+  --color-rose-100: var(--ab-rose-100);
+  --color-rose-200: var(--ab-rose-200);
+  --color-rose-300: var(--ab-rose-300);
+  --color-rose-400: var(--ab-rose-400);
+  --color-sky-50: var(--ab-sky-50);
+  --color-sky-200: var(--ab-sky-200);
+  --color-sky-300: var(--ab-sky-300);
+  --color-sky-400: var(--ab-sky-400);
+  --color-violet-300: var(--ab-violet-300);
+  --color-violet-400: var(--ab-violet-400);
+}
+
+/* The Office's chat in place takes the window's right edge: the app's toasts
+   step left of it rather than over its composer. */
+body:has([data-office-chat]) [data-sonner-toaster][data-x-position="right"] {
+  right: calc(min(34rem, 100vw - 1.5rem) + 1.5rem) !important;
+}
+
+/* In the Office's narrow chat panel, the pile of unseen pages would sit over
+   the messages: they stay in the app's own chat. */
+[data-office-chat] [data-page-stack] {
+  display: none;
 }

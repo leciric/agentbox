@@ -1,12 +1,14 @@
 // Package pricing is what models cost at API list prices, for estimating
 // what a turn cost when its AI tool didn't say.
 //
-// Of the four AI tools, Claude Code (claude-agent-acp) and OpenCode report a
+// Of the six AI tools, Claude Code (claude-agent-acp) and OpenCode report a
 // cost with every model result (usage_update's running total, read by
-// internal/chat). Codex (codex-acp) and Cursor (AgentBox's own adapter over
-// Cursor's SDK) report tokens only, and OpenCode reports 0 for a model it
-// has no price for or reaches through a subscription. Their turns are priced
-// from the table below.
+// internal/chat). Codex (codex-acp), Cursor (AgentBox's own adapter over
+// Cursor's SDK), Gemini CLI and GitHub Copilot CLI report tokens only, and
+// OpenCode reports 0 for a model it has no price for or reaches through a
+// subscription. Their turns are priced from the table below. Copilot bills
+// its plan's AI credits rather than tokens: its turns are priced at the
+// vendors' list prices like the rest, what the same work costs on an API.
 //
 // # Updating the table
 //
@@ -17,6 +19,10 @@
 //   - OpenAI: https://developers.openai.com/api/docs/pricing. OpenAI doesn't
 //     charge for writing the cache, and Codex reports no cache writes.
 //   - Cursor: https://cursor.com/docs/models.
+//   - Google: https://ai.google.dev/gemini-api/docs/pricing, the paid tier's
+//     Standard price for prompts up to 200K tokens. Google charges for
+//     keeping a cache by the hour rather than for writing it, which a turn
+//     can't say, so cache writes are free here.
 //
 // Add a model under the name its tool reports, without a date suffix
 // (claude-haiku-4-5, not claude-haiku-4-5-20251001): Lookup strips those,
@@ -55,6 +61,7 @@ func anthropic(input, output, cacheRead float64) Price {
 var table = map[string]Price{
 	// Anthropic.
 	"claude-fable-5-1":  anthropic(10, 50, 0.25),
+	"claude-fable-5-2":  anthropic(10, 50, 0.25),
 	"claude-mythos-5-1": anthropic(10, 50, 0.25),
 	"claude-fable-5":    anthropic(10, 50, 1),
 	"claude-mythos-5":   anthropic(10, 50, 1),
@@ -95,6 +102,21 @@ var table = map[string]Price{
 	// a tenth of input, as most vendors charge.
 	"composer-2": {Input: 0.50, Output: 2.50, CacheRead: 0.05},
 	"composer-1": {Input: 1.25, Output: 10, CacheRead: 0.125},
+
+	// Google, checked 30 October 2026. Gemini 3.8 Flash and 3.6 Flash go to
+	// $1.50/$7.50/$0.15 on 1 January 2027.
+	"gemini-3.1-pro-preview": {Input: 2, Output: 12, CacheRead: 0.20},
+	// What Gemini CLI picks for 3.1 Pro on an API key: the same model, tuned
+	// for custom tools, at the same price.
+	"gemini-3.1-pro-preview-customtools": {Input: 2, Output: 12, CacheRead: 0.20},
+	"gemini-3.8-flash":                   {Input: 0.75, Output: 3.75, CacheRead: 0.075},
+	"gemini-3.6-flash":                   {Input: 0.75, Output: 3.75, CacheRead: 0.075},
+	"gemini-3.5-flash-lite":              {Input: 0.30, Output: 2.50, CacheRead: 0.03},
+	"gemini-3.1-flash-lite":              {Input: 0.25, Output: 1.50, CacheRead: 0.025},
+	"gemini-3-flash-preview":             {Input: 0.50, Output: 3, CacheRead: 0.05},
+	"gemini-2.5-pro":                     {Input: 1.25, Output: 10, CacheRead: 0.125},
+	"gemini-2.5-flash":                   {Input: 0.30, Output: 2.50, CacheRead: 0.03},
+	"gemini-2.5-flash-lite":              {Input: 0.10, Output: 0.40, CacheRead: 0.01},
 }
 
 var (
@@ -104,6 +126,10 @@ var (
 	// cursorClaude is how Cursor names Claude models, version first:
 	// claude-4.5-sonnet, claude-4.6-opus-thinking.
 	cursorClaude = regexp.MustCompile(`^claude-(\d+)(?:\.(\d+))?-(opus|sonnet|haiku)(?:-.*)?$`)
+	// copilotClaude is how GitHub Copilot CLI names Claude models, with a dot
+	// in the version: claude-sonnet-5.5. A variant after it (-fast) has a
+	// price of its own, so it doesn't match.
+	copilotClaude = regexp.MustCompile(`^(claude-[a-z]+-\d+)\.(\d+)$`)
 )
 
 // Lookup is the price of model as an AI tool named it, and whether there is
@@ -130,6 +156,9 @@ func canonical(name string) string {
 		if m[2] != "" {
 			name += "-" + m[2]
 		}
+	}
+	if m := copilotClaude.FindStringSubmatch(name); m != nil {
+		name = m[1] + "-" + m[2]
 	}
 	return name
 }

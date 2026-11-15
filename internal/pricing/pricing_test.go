@@ -21,6 +21,12 @@ func TestLookupFindsTheModelHoweverItsToolNamesIt(t *testing.T) {
 		"claude-opus-4-1-20250805":       "claude-opus-4-1",
 		"claude-3-5-haiku-20241022":      "claude-3-5-haiku",
 		"opencode/anthropic/gpt-5-codex": "gpt-5-codex",
+		// Gemini CLI's 3.1 Pro on an API key.
+		"gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview",
+		// GitHub Copilot CLI's Claude ids.
+		"claude-sonnet-5.5": "claude-sonnet-5-5",
+		"claude-opus-4.8":   "claude-opus-4-8",
+		"claude-haiku-4.5":  "claude-haiku-4-5",
 	} {
 		got, ok := Lookup(model)
 		if !ok || got != table[want] {
@@ -32,7 +38,7 @@ func TestLookupFindsTheModelHoweverItsToolNamesIt(t *testing.T) {
 func TestLookupLeavesUnknownModelsUnpriced(t *testing.T) {
 	// A name close to one in the table isn't priced as it: a new version may
 	// cost something else entirely.
-	for _, model := range []string{"", "opus", "default", "claude-opus-4-9", "gpt-5.6", "gpt-5-6", "acme/secret-finetune-v2", "claude-sonnet"} {
+	for _, model := range []string{"", "opus", "default", "claude-opus-4-9", "gpt-5.6", "gpt-5-6", "acme/secret-finetune-v2", "claude-sonnet", "claude-opus-4.8-fast"} {
 		if p, ok := Lookup(model); ok {
 			t.Errorf("Lookup(%q) = %+v, want no price", model, p)
 		}

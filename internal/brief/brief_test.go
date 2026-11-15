@@ -24,13 +24,14 @@ func TestRender(t *testing.T) {
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
 		"node-modules": {
-			Project:     "pawly",
-			Agent:       "agent-04",
-			Worktree:    "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
-			Branch:      "agentbox/agent-04",
-			BaseRef:     "main",
-			IP:          "10.239.149.25",
-			NodeModules: []string{".", "apps/web"},
+			Project:      "pawly",
+			Agent:        "agent-04",
+			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:       "agentbox/agent-04",
+			BaseRef:      "main",
+			IP:           "10.239.149.25",
+			NodeModules:  []string{".", "apps/web"},
+			CargoTargets: []string{"crates/engine"},
 		},
 		"android": {
 			Project:  "pawly",
@@ -53,6 +54,7 @@ func TestRender(t *testing.T) {
 			VM:       true,
 			Host:     "a Mac",
 			IOS:      true,
+			IOSPorts: []int{5236, 8081},
 		},
 		"nesting": {
 			Project:  "agentbox",
@@ -220,7 +222,9 @@ func TestRenderLeadGolden(t *testing.T) {
 				ClaudeAccounts:  []string{"personal", "work"},
 				Notes:           "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
 				Recap:           "**What this project is doing**\n\n- Adding reminders to the pet profile.",
-				NoteSuggestions: suggestionsFor(tc.name == "on"), // offers in one golden file only
+				NoteSuggestions: suggestionsFor(tc.name == "on"),                // offers in one golden file only
+				Session:         sessionIf(tc.name == "on", "Prod: login 500s"), // one of several sessions in one golden file only
+				OtherSessions:   othersIf(tc.name == "on", "Chat", "Docs"),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -844,6 +848,40 @@ func TestRenderLeadShellByHost(t *testing.T) {
 	}
 }
 
+// An iOS agent whose project allows no ports yet is told the user allows
+// them when it forwards.
+func TestRenderIOSWithNoPorts(t *testing.T) {
+	got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-08", Worktree: "/w", Branch: "b", BaseRef: "main", VM: true, Host: "a Mac", IOS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "any port wait for the user to allow them in the app") {
+		t.Errorf("the brief doesn't say the user allows the ports:\n%s", got)
+	}
+}
+
+// An iOS project's lead on a Mac knows its agents drive the Mac's iOS
+// Simulator, so it creates one instead of sending the user to the Mac.
+func TestRenderLeadIOS(t *testing.T) {
+	render := func(ios bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/Users/dev/pawly", Worktree: "/w", BaseRef: "main",
+			Autonomy: "ask", CanSpawn: true, VM: true, Host: "a Mac", IOS: ios,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := render(false); strings.Contains(got, "iOS Simulator") {
+		t.Errorf("a project with no iOS app gets the iOS Simulator:\n%s", got)
+	}
+	if got := render(true); !strings.Contains(got, "so a job that needs it is an agent's") {
+		t.Errorf("an iOS project's lead isn't told agents drive the simulator:\n%s", got)
+	}
+}
+
 // The recheck is only in the lead's brief when it's on, and comes with its
 // one hard rule; nothing speaks of a queue or slots, which are gone.
 func TestRenderLeadRecheck(t *testing.T) {
@@ -880,12 +918,16 @@ func TestRenderLeadRecheck(t *testing.T) {
 
 // TestRenderHome checks the Home chat's brief, with projects and without.
 func TestRenderHome(t *testing.T) {
-	for name, projects := range map[string][]brief.HomeProject{
-		"home":       {{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}},
-		"home-empty": nil,
+	pawly := []brief.HomeProject{{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}}
+	for name, d := range map[string]brief.HomeData{
+		"home":       {Projects: pawly},
+		"home-empty": {},
+		// One of several sessions: the brief names the others.
+		"home-sessions": {Projects: pawly, Session: "Weekly planning", OtherSessions: []string{"Chat", "Prod: login 500s"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := brief.RenderHome(brief.HomeData{Dir: "/home/dev/.agentbox", Projects: projects, VM: true, Host: "a Linux host"})
+			d.Dir, d.VM, d.Host = "/home/dev/.agentbox", true, "a Linux host"
+			got, err := brief.RenderHome(d)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -903,6 +945,28 @@ func TestRenderHome(t *testing.T) {
 				t.Errorf("RenderHome() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// TestRenderHomeOnHost checks the Home chat's brief when its tool runs on
+// the user's computer rather than in AgentBox's VM.
+func TestRenderHomeOnHost(t *testing.T) {
+	got, err := brief.RenderHome(brief.HomeData{Dir: "/Users/dev/.local/share/agentbox/home-chat", VM: true,
+		Host: "a Mac", OnHost: true, HostHome: "/Users/dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a shell on the user's own computer (a Mac)", "home folder is `/Users/dev`", "run in its VM", "mounted there at the same path"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief doesn't say %q:\n%s", want, got)
+		}
+	}
+	got, err = brief.RenderHome(brief.HomeData{Dir: `C:\Users\dev`, VM: true, Host: "Windows", OnHost: true, HostHome: `C:\Users\dev`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "WSL distro, so") || !strings.Contains(got, "not a Windows path") {
+		t.Errorf("the Windows brief doesn't say where projects are:\n%s", got)
 	}
 }
 
@@ -927,5 +991,38 @@ func TestRenderProjectName(t *testing.T) {
 	same, err := brief.Render(brief.Data{Project: "pawly", ProjectName: "pawly", Agent: "agent-1", Worktree: "/w", Branch: "b", BaseRef: "main"})
 	if err != nil || !strings.Contains(same, "- Project: pawly\n") {
 		t.Errorf("same name: %v", err)
+	}
+}
+
+func sessionIf(on bool, topic string) string {
+	if !on {
+		return ""
+	}
+	return topic
+}
+
+func othersIf(on bool, topics ...string) []string {
+	if !on {
+		return nil
+	}
+	return topics
+}
+
+// TestRenderLeadAgentTool: a project that names a tool for its agents says
+// so in place of "the tool you run on yourself".
+func TestRenderLeadAgentTool(t *testing.T) {
+	for tool, want := range map[string]string{"OpenCode": "runs OpenCode**", "": "runs the tool you run on yourself**"} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", AgentTool: tool, CanSpawn: true,
+			AgentDefaultModel: "opus", AgentDefaultWindow: "200k",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("with AgentTool %q the brief doesn't say %q", tool, want)
+		}
 	}
 }

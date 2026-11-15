@@ -18,6 +18,8 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // (Settings → Experimental): before anything its chat says, which waits too.
   const machine = machineHold(agent);
   if (machine) return { text: machine.text, tone: 'warning' };
+  const hold = onHold(agent);
+  if (hold) return { text: hold.text, tone: agent.hold === 'idle' ? 'muted' : 'warning' };
   if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
@@ -72,9 +74,11 @@ function limitedText(agent: Pick<T.Agent, 'outcomeUntil'>): string {
 
 // statusTip is what chatLabel's words leave out, for a tooltip: what holds
 // its commands for memory, the question it asked, the error it stopped on.
-export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed'>): string | undefined {
+export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed' | 'hold'>): string | undefined {
   const machine = machineHold(agent);
   if (machine) return machine.tip;
+  const hold = onHold(agent);
+  if (hold) return hold.tip;
   const held = memoryHold(agent);
   if (held) return held.tip;
   if (agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.status.reclaimedFrozenTip');
@@ -105,21 +109,31 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
 }
 
 // machineHold is what pausing whole agents for memory (Settings →
-// Experimental) does to an agent's machine: "Paused: waiting for memory, 2
-// ahead" while it is frozen, "Waiting for memory, 1 ahead" while it waits to
-// boot, with what holds it for a tooltip. undefined when neither.
+// Experimental) does to an agent's machine: "Paused: waiting for memory, 3rd
+// in line" while it is frozen, "Waiting for memory, 2nd in line" while it
+// waits to boot, with what holds it for a tooltip. undefined when neither.
 export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip: string } | undefined {
   const held = agent.memory;
   if (!held?.machine) return undefined;
-  const ahead = formatNumber(held.ahead ?? 0);
+  const place = (held.ahead ?? 0) + 1;
   const why = memoryWhy(held);
   const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
   if (held.machine === 'paused' && held.swapFull) {
-    return { text: t('agent.status.machinePausedSwapFull', { ahead }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
+    return { text: t('agent.status.machinePausedSwapFull', { place }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
   }
-  if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { ahead }), tip: tip('agent.status.machinePausedTip') };
-  if (held.machine === 'waiting') return { text: t('agent.status.machineWaiting', { ahead }), tip: tip('agent.status.machineWaitingTip') };
+  if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { place }), tip: tip('agent.status.machinePausedTip') };
+  // Waiting to boot: On hold, machine stopped (T.Agent.hold), until its turn.
+  if (held.machine === 'waiting') return { text: t('agent.status.onHoldMemory', { place }), tip: tip('agent.status.onHoldMemoryTip') };
   return undefined;
+}
+
+// onHold is an agent On hold whose place in line the daemon doesn't hold
+// now (T.Agent.hold): after sitting idle, until something touches it, or for
+// memory, before a restarted daemon has it back in line. undefined otherwise.
+export function onHold(agent: Pick<T.Agent, 'hold' | 'state' | 'memory'>): { text: string; tip: string } | undefined {
+  if (!agent.hold || agent.state === 'running' || agent.state === 'paused' || agent.memory?.machine) return undefined;
+  if (agent.hold === 'idle') return { text: t('agent.status.onHoldIdle'), tip: t('agent.status.onHoldIdleTip') };
+  return { text: t('agent.status.onHoldMemoryNoPlace'), tip: t('agent.status.onHoldMemoryTip') };
 }
 
 // frozenTip is why an agent is frozen, for the "Frozen" badge on its row, or
@@ -144,6 +158,10 @@ const memoryWhys: Record<string, MessageKey> = {
   churning: 'agent.status.memoryWhy.churning',
   low: 'agent.status.memoryWhy.low',
   easing: 'agent.status.memoryWhy.easing',
+  host: 'agent.status.memoryWhy.host',
+  full: 'agent.status.memoryWhy.full',
+  memory: 'agent.status.memoryWhy.bootMemory',
+  builds: 'agent.status.memoryWhy.bootBuilds',
 };
 
 // memoryWhy is what holds an agent's commands now, a sentence; '' from a
@@ -222,21 +240,6 @@ export function settled(agent: T.Agent): boolean {
 }
 
 const toneOrder: StatusTone[] = ['urgent', 'error', 'warning', 'live', 'muted'];
-
-// projectTone is the most urgent tone among a set of agents, standing in for
-// all of them: the same priority the rail sorts by, collapsed to one signal
-// for a place (like the project list) with no room for a row per agent.
-// A machine that's merely up (state running, chat idle) doesn't count -
-// that's not the same as an agent mid-turn or waiting on you.
-export function projectTone(agents: T.Agent[]): StatusTone | undefined {
-  let best: StatusTone | undefined;
-  for (const agent of agents) {
-    const tone = chatLabel(agent).tone;
-    if (tone === 'muted') continue;
-    if (!best || toneOrder.indexOf(tone) < toneOrder.indexOf(best)) best = tone;
-  }
-  return best;
-}
 
 // Mood is what an agent's avatar acts out: the same reading as chatLabel,
 // cut to the five poses a face can hold.

@@ -97,6 +97,13 @@ func CheckHost(u User) error {
 // is shown.
 const Version = "2026.10.20.1"
 
+// OpenCode2Version is the OpenCode 2 each agent installs on demand, beside
+// OpenCode 1 as `opencode2`, the first time it starts on OpenCode 2. The base
+// image carries none of it, so a choice of OpenCode 2 never needs a rebuild. It
+// is not in tools.txt: OpenCode 2 is not a mise tool here, it is the npm
+// platform binary the install links into place.
+const OpenCode2Version = "2.1.4"
+
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
 // OpenCodeMissing says it for OpenCode, which is optional the same way.
@@ -455,7 +462,10 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	baseLock.Lock()
 	defer baseLock.Unlock()
 	old := Base + "-old"
-	_ = inc.Delete(ctx, old)
+	if err := remove(ctx, inc, old); err != nil {
+		_ = inc.Delete(context.WithoutCancel(ctx), next)
+		return err
+	}
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
@@ -618,13 +628,34 @@ func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, 
 	)
 }
 
-// remove deletes an instance left behind by an interrupted build.
+// remove deletes an instance left behind by an interrupted build, or what's
+// left of it: an Incus interrupted copying or deleting it can keep its storage
+// and forget the instance, and every build after then fails making it again.
+// Any of the base's copies lost with it is taken back too, for the next
+// remove to delete. Recovering asks Incus' admin API: when that fails, the
+// build goes on as it did before, and fails making the copy only if there
+// really is one left.
 func remove(ctx context.Context, inc incus.Client, name string) error {
 	if _, err := inc.Instance(ctx, name); err != nil {
-		if errors.Is(err, incus.ErrNotFound) {
+		if !errors.Is(err, incus.ErrNotFound) {
+			return err
+		}
+		names := []string{name}
+		for _, n := range []string{Base + "-next", Base + "-old"} {
+			if n != name {
+				names = append(names, n)
+			}
+		}
+		recovered, err := inc.RecoverLeftovers(ctx, names...)
+		if err != nil {
+			if errors.Is(err, incus.ErrCantRecover) {
+				return err
+			}
 			return nil
 		}
-		return err
+		if !slices.Contains(recovered, name) {
+			return nil
+		}
 	}
 	return inc.Delete(ctx, name)
 }

@@ -42,7 +42,7 @@ func (s *Server) freeReviewed(ctx context.Context, a state.Agent, why string, pr
 		s.logf("%s: %s; machine kept: %s", a.Ref(), why, reason)
 		if s.setKept(a.Ref(), true) {
 			s.events.publish(api.EventReview, a.Project)
-			s.tellLead(ctx, a.Project, keptNotice(a, reason), false)
+			s.tellOwner(ctx, a, keptNotice(a, reason), false)
 		}
 		return
 	}

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect an app to AgentBox</title>
+<style>
+  :root { color-scheme: light dark; --bg: #0d0f12; --card: #16191e; --line: #262a31; --text: #e8eaed; --sub: #9aa0a8; --brand: #7c8cff; --bad: #f87171; }
+  @media (prefers-color-scheme: light) { :root { --bg: #f5f6f8; --card: #fff; --line: #e2e5ea; --text: #15181d; --sub: #5d6470; --brand: #4f5fe0; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 40px 20px 60px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  header .logo { width: 28px; height: 28px; border-radius: 8px; background: var(--brand); display: grid; place-items: center; color: #fff; font-weight: 700; }
+  header h1 { font-size: 16px; margin: 0; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  h2 { font-size: 15px; margin: 0 0 6px; }
+  p { margin: 0 0 12px; color: var(--sub); }
+  b { color: var(--text); }
+  button { font: inherit; font-weight: 500; border: 1px solid var(--line); background: transparent; color: var(--text); padding: 7px 14px; border-radius: 9px; cursor: pointer; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  input[type=text] { font: 600 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; }
+  .error { color: var(--bad); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 16px; }
+  dt { color: var(--sub); } dd { margin: 0; overflow-wrap: anywhere; }
+  .warn { border-left: 3px solid var(--bad); padding-left: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header><div class="logo">A</div><h1>AgentBox hub</h1></header>
+  <section>
+  {{if .Fatal}}
+    <h2>This app can't be connected</h2>
+    <p class="error">{{.Fatal}}</p>
+    <p>Nothing was shared with it. Close this page and try again from the app.</p>
+  {{else if .Pairing}}
+    <h2>Let {{.Client}} use AgentBox?</h2>
+    <p>It will be sent back to <b>{{.RedirectHost}}</b> with access to:</p>
+    <dl>
+      <dt>Pairing</dt><dd>{{.Pairing.Label}}</dd>
+      <dt>Machine</dt><dd>{{.Machine}}</dd>
+      <dt>It may</dt><dd>{{.AccessText}}</dd>
+      <dt>Projects</dt><dd>{{.ProjectsText}}</dd>
+    </dl>
+    <p class="warn">Allow it only if you started this yourself, just now, in that app. Whoever gets access keeps it until you revoke the pairing in AgentBox's Settings.</p>
+    <form method="post" class="row">
+      {{template "params" .}}
+      <input type="hidden" name="pairing_code" value="{{.Code}}">
+      <button class="primary" name="step" value="allow">Allow</button>
+      <button name="step" value="deny">Cancel</button>
+    </form>
+  {{else}}
+    <h2>Connect {{.Client}} to AgentBox</h2>
+    <p><b>{{.Client}}</b> (which will be sent back to <b>{{.RedirectHost}}</b>) is asking to use AgentBox on one of your machines.</p>
+    <p>Type the code from the AgentBox app: <b>Settings → Other apps → Pair an app</b>. No code there? Then you didn't start this: close this page.</p>
+    <form method="post">
+      {{template "params" .}}
+      <input type="text" name="pairing_code" placeholder="BCDF-GHJK" autocomplete="off" autocapitalize="characters" spellcheck="false" autofocus required value="{{.Code}}">
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+      <div class="row"><button class="primary" name="step" value="check">Continue</button><button name="step" value="deny" formnovalidate>Cancel</button></div>
+    </form>
+  {{end}}
+  </section>
+</main>
+</body>
+</html>
+{{define "params"}}{{range $name, $value := .Params}}<input type="hidden" name="{{$name}}" value="{{$value}}">{{end}}{{end}}

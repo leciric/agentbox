@@ -37,7 +37,7 @@ func (f *fakeIdleCgroups) Thaw(instance string, fr *agent.IdleFreeze) error {
 	return nil
 }
 
-func (f *fakeIdleCgroups) Reclaim(instance string) (int64, int64, error) {
+func (f *fakeIdleCgroups) Reclaim(_ context.Context, instance string) (int64, int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reclaimed = append(f.reclaimed, instance)

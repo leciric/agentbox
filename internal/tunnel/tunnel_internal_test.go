@@ -4,11 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -112,16 +116,25 @@ func binary(path string) func(context.Context, func(string)) (string, error) {
 	return func(context.Context, func(string)) (string, error) { return path, nil }
 }
 
+// withoutMetrics is cloudflared's command line less its --metrics address,
+// a free port that changes every run.
+func withoutMetrics(args string) string {
+	return strings.TrimSpace(regexp.MustCompile(`--metrics \S+ `).ReplaceAllString(args, ""))
+}
+
+// resolved is a Resolve for which every name is already in DNS.
+func resolved(context.Context, string) error { return nil }
+
 func TestQuickTunnel(t *testing.T) {
 	bin, dir := fake(t, 0)
 	home := t.TempDir()
-	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Home: home}, nil, t.Logf)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Home: home, Resolve: resolved}, nil, t.Logf)
 	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
 	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
 		t.Fatalf("URL %q", st.URL)
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args"))
-	if got := strings.TrimSpace(string(args)); got != "tunnel --no-autoupdate --url http://127.0.0.1:4321" {
+	if got := withoutMetrics(string(args)); got != "tunnel --no-autoupdate --url http://127.0.0.1:4321" {
 		t.Fatalf("args %q", got)
 	}
 	if h, _ := os.ReadFile(filepath.Join(dir, "home")); strings.TrimSpace(string(h)) != home {
@@ -149,7 +162,7 @@ func TestNamedTunnelKeepsItsTokenOffTheCommandLine(t *testing.T) {
 		t.Fatalf("URL %q", st.URL)
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args"))
-	if got := strings.TrimSpace(string(args)); got != "tunnel --no-autoupdate run" {
+	if got := withoutMetrics(string(args)); got != "tunnel --no-autoupdate run" {
 		t.Fatalf("args %q", got)
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "token")); string(got) != token {
@@ -178,7 +191,7 @@ func TestADownloadThatFailsIsTriedAgain(t *testing.T) {
 	minBackoff = 10 * time.Millisecond
 	bin, _ := fake(t, 0)
 	tries := 0
-	tun := Start(context.Background(), Config{Origin: "http://127.0.0.1:1", Binary: func(_ context.Context, status func(string)) (string, error) {
+	tun := Start(context.Background(), Config{Origin: "http://127.0.0.1:1", Resolve: resolved, Binary: func(_ context.Context, status func(string)) (string, error) {
 		tries++
 		status("Downloading cloudflared, once for this machine")
 		if tries == 1 {
@@ -188,4 +201,208 @@ func TestADownloadThatFailsIsTriedAgain(t *testing.T) {
 	}}, nil, t.Logf)
 	defer tun.Stop()
 	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+}
+
+func TestAQuickTunnelIsRunningOnlyOnceItsNameResolves(t *testing.T) {
+	defer func(a time.Duration) { resolveEvery = a }(resolveEvery)
+	resolveEvery = 10 * time.Millisecond
+	bin, _ := fake(t, 0)
+	var mu sync.Mutex
+	inDNS := false
+	var asked string
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(_ context.Context, host string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = host
+		if !inDNS {
+			return errors.New("no such host")
+		}
+		return nil
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	// Connected, but not in DNS yet: a phone opening it would be told the
+	// name doesn't exist, and keep that answer a while.
+	var host string
+	for deadline := time.Now().Add(10 * time.Second); host == ""; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the name was never looked up")
+		}
+		mu.Lock()
+		host = asked
+		mu.Unlock()
+	}
+	if host != "quiet-river-1234.trycloudflare.com" {
+		t.Fatalf("resolved %q", host)
+	}
+	if st := tun.Status(); st.State != StateStarting || st.URL != "" {
+		t.Fatalf("before its name resolves: %+v", st)
+	}
+	mu.Lock()
+	inDNS = true
+	mu.Unlock()
+	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
+		t.Fatalf("URL %q", st.URL)
+	}
+}
+
+// readyServer stands in for cloudflared's metrics server: /ready answers 200
+// while ready holds, 503 otherwise, as cloudflared does with no connection to
+// Cloudflare's edge.
+func readyServer(t *testing.T) *atomic.Bool {
+	t.Helper()
+	var ready atomic.Bool
+	ready.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ready" || !ready.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	defer func(f func() (string, error)) { t.Cleanup(func() { metricsAddr = f }) }(metricsAddr)
+	metricsAddr = func() (string, error) { return srv.Listener.Addr().String(), nil }
+	defer func(a, b time.Duration) { t.Cleanup(func() { healthEvery, lostAfter = a, b }) }(healthEvery, lostAfter)
+	healthEvery = 10 * time.Millisecond
+	return &ready
+}
+
+func TestATunnelThatLosesCloudflareHidesItsAddressThenStartsAgain(t *testing.T) {
+	defer func(a time.Duration) { minBackoff = a }(minBackoff)
+	minBackoff = 10 * time.Millisecond
+	ready := readyServer(t)
+	lostAfter = 300 * time.Millisecond
+	bin, dir := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: resolved}, nil, t.Logf)
+	defer tun.Stop()
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	// cloudflared keeps running, but can't register with Cloudflare again:
+	// its address is gone from DNS, so it isn't shown.
+	ready.Store(false)
+	st := waitFor(t, tun, func(s Status) bool { return s.State != StateRunning })
+	if st.URL != "" || !strings.Contains(st.Error, "lost its connection to Cloudflare") {
+		t.Fatalf("lost: %+v", st)
+	}
+	// Still lost after lostAfter: cloudflared is stopped and started again,
+	// for a tunnel that works.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cloudflared was never started again")
+		}
+	}
+	ready.Store(true)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+}
+
+func TestATunnelThatReconnectsShowsItsAddressAgain(t *testing.T) {
+	ready := readyServer(t)
+	lostAfter = time.Hour
+	bin, dir := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: resolved}, nil, t.Logf)
+	defer tun.Stop()
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	ready.Store(false)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateStarting })
+	ready.Store(true)
+	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
+		t.Fatalf("URL %q", st.URL)
+	}
+	if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) != "1" {
+		t.Fatalf("runs %q: a reconnect needs no new cloudflared", runs)
+	}
+}
+
+func TestATunnelThatNeverConnectsIsStartedAgain(t *testing.T) {
+	defer func(a time.Duration) { minBackoff = a }(minBackoff)
+	minBackoff = 10 * time.Millisecond
+	ready := readyServer(t)
+	ready.Store(false)
+	lostAfter = 300 * time.Millisecond
+	bin, dir := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: resolved}, nil, t.Logf)
+	defer tun.Stop()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cloudflared was never started again: %+v", tun.Status())
+		}
+	}
+}
+
+func TestAReconnectedQuickTunnelWaitsForItsName(t *testing.T) {
+	ready := readyServer(t)
+	lostAfter = time.Hour
+	var inDNS atomic.Bool
+	inDNS.Store(true)
+	bin, _ := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(context.Context, string) error {
+		if !inDNS.Load() {
+			return errors.New("no such host")
+		}
+		return nil
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	inDNS.Store(false)
+	ready.Store(false)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateStarting })
+	ready.Store(true)
+	time.Sleep(200 * time.Millisecond)
+	if st := tun.Status(); st.State != StateStarting {
+		t.Fatalf("shown before its name is back: %+v", st)
+	}
+	inDNS.Store(true)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+}
+
+func TestAReconnectedQuickTunnelIsShownAnywayWhenDNSIsBlocked(t *testing.T) {
+	defer func(a time.Duration) { resolveFor = a }(resolveFor)
+	ready := readyServer(t)
+	lostAfter, resolveFor = 300*time.Millisecond, 600*time.Millisecond
+	var blocked atomic.Bool
+	bin, dir := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(context.Context, string) error {
+		if blocked.Load() {
+			return errors.New("i/o timeout")
+		}
+		return nil
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	blocked.Store(true)
+	ready.Store(false)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateStarting })
+	ready.Store(true)
+	// Connected again: the loss timer doesn't run on while DNS can't answer.
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) != "1" {
+		t.Fatalf("runs %q: a connected cloudflared was stopped", runs)
+	}
+}
+
+func TestACloudflaredThatNeverServesReadyNorConnectsIsStartedAgain(t *testing.T) {
+	defer func(a, b, c time.Duration, f func() (string, error)) {
+		minBackoff, healthEvery, lostAfter, metricsAddr = a, b, c, f
+	}(minBackoff, healthEvery, lostAfter, metricsAddr)
+	minBackoff, healthEvery, lostAfter = 10*time.Millisecond, 10*time.Millisecond, 300*time.Millisecond
+	metricsAddr = func() (string, error) { return "127.0.0.1:1", nil } // nothing answers
+	bin, dir := fake(t, 0)
+	// Its name never resolves, so it never gets to running.
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(context.Context, string) error {
+		return errors.New("no such host")
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cloudflared was never started again: %+v", tun.Status())
+		}
+	}
 }
