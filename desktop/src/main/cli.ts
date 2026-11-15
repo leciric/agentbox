@@ -7,14 +7,15 @@
 // (internal/hostwsl), and the Linux agentbox it installs in the distro, which
 // it looks for beside itself: both are kept in %LOCALAPPDATA%\AgentBox\bin, and
 // "Install command-line tool" puts that folder on the user's PATH.
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { firstCli } from './clipath';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { app } from 'electron';
 import { t } from '../shared/i18n/index.ts';
+import { leftAlone, me, ownerName, versionSaid } from './managedcopy';
 import { dataDir } from './paths';
 import { onWindows } from './relay';
 
@@ -56,7 +57,7 @@ function run(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<stri
 // be replaced on Windows, but it can be renamed: the old one is moved aside,
 // and removed the next time it isn't running.
 function keepCurrent(src: string, dst: string): void {
-  if (existsSync(dst) && statSync(dst).size === statSync(src).size && digest(dst) === digest(src)) return;
+  if (same(src, dst)) return;
   mkdirSync(dirname(dst), { recursive: true });
   for (const name of readdirSync(dirname(dst))) {
     if (!name.startsWith(`${basename(dst)}.old-`)) continue;
@@ -80,8 +81,51 @@ function keepCurrent(src: string, dst: string): void {
   renameSync(dst + '.new', dst);
 }
 
+function same(src: string, dst: string): boolean {
+  return existsSync(dst) && statSync(dst).size === statSync(src).size && digest(dst) === digest(src);
+}
+
 function digest(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
+// The managed copy's version, asked once per file: agentboxBin runs often.
+const said = new Map<string, string | null>();
+
+function managedVersion(): string | null {
+  const stat = statSync(managedBin);
+  const key = `${stat.size}:${stat.mtimeMs}`;
+  if (!said.has(key)) {
+    let out: string | null = null;
+    try {
+      out = execFileSync(managedBin, ['--version'], { timeout: 10_000, windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      // it wouldn't say
+    }
+    said.set(key, versionSaid(out));
+  }
+  return said.get(key) ?? null;
+}
+
+function owner(): string | null {
+  try {
+    return readFileSync(join(managedDir, ownerName), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// leftTheirs is the version of the native app's managed copy, this app's
+// version or a newer one, when agentboxBin left it alone (managedcopy.ts).
+let leftTheirs: string | null = null;
+
+// daemonVersion is the version of the daemon this app starts: its own, or
+// that of the native app's tool, when that's the managed copy. An app from
+// a checkout has none.
+export function daemonVersion(): string | undefined {
+  if (!app.isPackaged) return undefined;
+  agentboxBin();
+  return leftTheirs ?? app.getVersion();
 }
 
 // agentboxBin is the binary the app starts the daemon with.
@@ -89,8 +133,18 @@ export function agentboxBin(): string {
   if (process.env.AGENTBOX_BIN) return process.env.AGENTBOX_BIN;
   const bundled = bundledBin();
   if (!bundled) return 'agentbox';
-  // Keep the app's own copy current, so the daemon and agents get this version.
-  keepCurrent(bundled, managedBin);
+  // Keep the app's own copy current, so the daemon and agents get this
+  // version, unless the native app's is there and no older (managedcopy.ts).
+  if (!same(bundled, managedBin)) {
+    const theirs = existsSync(managedBin) ? managedVersion() : null;
+    if (leftAlone(owner(), theirs, app.getVersion())) {
+      leftTheirs = theirs;
+      return managedBin;
+    }
+    keepCurrent(bundled, managedBin);
+    writeFileSync(join(managedDir, ownerName), me);
+  }
+  leftTheirs = null;
   const linux = join(dirname(bundled), linuxName);
   if (existsSync(linux)) keepCurrent(linux, join(managedDir, linuxName));
   return managedBin;

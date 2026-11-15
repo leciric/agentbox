@@ -10,6 +10,7 @@ import type { AppUpdateProgress, AppUpdateResult } from '../shared/appupdate.ts'
 import { AppUpdates } from './appimageupdate';
 import { cleanDownloads, cleanUp, detectInstall, update, UpdateError, type Release, type Run } from './appupdate';
 import { isLocal } from './connection';
+import { daemonVersion } from './cli';
 import { request } from './daemon';
 import { isOutdated } from './staledaemon';
 import { isPrerelease } from '../shared/appimageupdate.ts';
@@ -106,7 +107,7 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
     // release would be offered that release, and downgraded to it.
     const status = await request('GET', '/v1/update');
     const daemon = status.status === 200 ? (JSON.parse(status.body) as { current?: string; available?: { version: string } }) : {};
-    if (isLocal() && isOutdated(daemon.current, app.isPackaged ? app.getVersion() : undefined)) {
+    if (isLocal() && isOutdated(daemon.current, daemonVersion())) {
       return { ok: false, code: 'daemonStale', detail: daemon.current ?? '' };
     }
     const res = await request('GET', '/v1/update/release');
