@@ -101,7 +101,7 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Changed
 
-* remove the Ask, Watch, Review prototype navigation ([#672](https://github.com/leciric/agentbox/issues/672)) ([37e02b9](https://github.com/leciric/agentbox/commit/37e02b9c192f501c9a2ced1323095cd8fba941f1))
+* the Ask, Watch and Review prototype screens are gone from the navigation ([#672](https://github.com/leciric/agentbox/issues/672)) ([37e02b9](https://github.com/leciric/agentbox/commit/37e02b9c192f501c9a2ced1323095cd8fba941f1))
 
 ## [0.17.0](https://github.com/leciric/agentbox/compare/v0.16.0...v0.17.0) (2026-11-01)
 
