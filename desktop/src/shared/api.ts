@@ -141,6 +141,8 @@ export interface Section {
   name: string;
   position: number;
   collapsed: boolean;
+  color: string;
+  description: string;
   createdAt: string;
 }
 
@@ -151,6 +153,8 @@ export interface AddSectionRequest {
 export interface UpdateSectionRequest {
   name?: string;
   collapsed?: boolean;
+  color?: string;
+  description?: string;
 }
 
 export interface ProjectLayout {

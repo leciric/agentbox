@@ -56,7 +56,7 @@ import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
 import { setPanel, settingsOpen, toggleSettings, usePanel } from '../../lib/rightPanel';
 import { Logo } from '../Logo';
-import { describeDelete, dropLine, moveKeys, NameSection, RenameSection, SectionHeader } from './SidebarSections';
+import { describeDelete, dropLine, EditSection, moveKeys, NameSection, SectionHeader } from './SidebarSections';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { dotLabel, FeatureDot, useFeatureDot } from '../FeatureDot';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
@@ -447,6 +447,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
                   onToggle={() => sec.patchSection.mutate({ id: it.id, req: { collapsed: !it.collapsed } })}
                   onMove={(delta) => sec.moveSectionBy(it, delta)}
                   onRename={() => setNaming({ id: it.id })}
+                  onColor={(color) => sec.patchSection.mutate({ id: it.id, req: { color } })}
                   onDelete={() => setDeleting(it)}
                   onDragStart={dnd.startDrag({ kind: 'section', id: it.id })}
                   onDragEnd={dnd.finishDrag}
@@ -598,12 +599,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         </p>
       </nav>
       {naming && naming.id !== '' && (
-        <RenameSection
+        <EditSection
           section={sec.sections.data?.find((it) => it.id === naming.id)}
           onClose={() => setNaming(null)}
-          onSave={(name) => {
+          onSave={(req) => {
             setNaming(null);
-            sec.patchSection.mutate({ id: naming.id, req: { name } });
+            sec.patchSection.mutate({ id: naming.id, req });
           }}
         />
       )}

@@ -1595,8 +1595,8 @@ function dragBridge(queryClient: QueryClient, delay: number): void {
   const inner = bridge.request;
   const createdAt = new Date().toISOString();
   let sections: T.Section[] = [
-    { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
-    { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
+    { id: 'work', name: 'Work', position: 1, collapsed: false, color: 'sky', description: 'Paid work', createdAt },
+    { id: 'side', name: 'Side projects', position: 2, collapsed: false, color: '', description: '', createdAt },
   ];
   const groups: [string, string[]][] = [
     ['work', [PROJECT, 'agentbox-landing', 'agentbox-hub']],
