@@ -151,13 +151,13 @@ function SessionChanges({ topic, agents, onClose }: { topic: string; agents: T.S
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex h-[88vh] max-w-5xl flex-col gap-0 p-0" data-session-changes-view>
-        <DialogHeader className="shrink-0 border-b border-line px-6 py-4">
+        <DialogHeader className="shrink-0 border-b border-line-faint px-6 py-4">
           <DialogTitle>{t('sessions.header.changesTitle', { topic })}</DialogTitle>
           <DialogDescription>{t('sessions.header.changesDescription', { count: agents.length })}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {agents.map((a) => (
-            <section key={a.ref} className="border-b border-line" data-session-changes-agent={a.ref}>
+            <section key={a.ref} className="border-b border-line-faint" data-session-changes-agent={a.ref}>
               <div className="sticky top-0 z-10 flex min-w-0 items-center gap-2 border-b border-line-faint bg-modal px-5 py-2.5">
                 <span className="min-w-0 truncate text-ui font-medium text-primary">{a.title || a.name}</span>
                 {a.branch && (

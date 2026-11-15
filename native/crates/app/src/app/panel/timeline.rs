@@ -383,7 +383,7 @@ impl AppView {
             .px_3()
             .border_b_1()
             .border_color(theme::line_faint())
-            .text_size(px(12.))
+            .text_size(theme::text::CAPTION)
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::secondary())
             .child(
@@ -670,9 +670,10 @@ impl AppView {
                     })
                     .map(|el| {
                         if kind == "run" {
-                            el.font_family(theme::mono()).text_size(px(12.))
+                            el.font_family(theme::mono())
+                                .text_size(theme::text::CAPTION)
                         } else {
-                            el.text_size(px(13.))
+                            el.text_size(theme::text::UI)
                         }
                     })
                     .child(step_title(s, kind));
@@ -748,7 +749,7 @@ impl AppView {
                             h_flex()
                                 .gap(px(10.))
                                 .pl(px(6.))
-                                .text_size(px(12.))
+                                .text_size(theme::text::CAPTION)
                                 .text_color(theme::subtle())
                                 .child(crate::motion::pulse(
                                     div().size_2().rounded_full().bg(theme::emerald(400)),
@@ -894,7 +895,7 @@ impl AppView {
                     .px(px(10.))
                     .pb(px(6.))
                     .pt_6()
-                    .text_size(px(12.))
+                    .text_size(theme::text::CAPTION)
                     .line_height(px(18.))
                     .text_color(white().opacity(0.85))
                     .bg(linear_gradient(

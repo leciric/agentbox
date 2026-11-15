@@ -83,6 +83,8 @@ flowchart LR
 - [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
+- [Project folders](project-folders.md) — grouping projects in the sidebar: making, colouring and
+  describing a folder, dragging projects in and out, folding it, and deleting it.
 - [Project notes and the brief](notes-and-brief.md) — the per-project notes file, and the brief
   each AI tool is given about its machine.
 - [The base image](base-image.md) — what's provisioned into the image every agent's container

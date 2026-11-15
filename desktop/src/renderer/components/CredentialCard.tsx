@@ -32,13 +32,13 @@ export function CredentialCard({ question, group = [question], bare = false }: {
   return (
     <div className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-thread-credential={question.id}>
       {!bare && (
-        <p className="flex items-center gap-1.5 text-[13px] font-medium text-secondary">
+        <p className="flex items-center gap-1.5 text-ui font-medium text-secondary">
           {question.kind === A.CredentialIOSPorts ? <Smartphone className="size-3.5 shrink-0 text-subtle" /> : <KeyRound className="size-3.5 shrink-0 text-subtle" />}
           <span className="min-w-0 break-words">
             {question.kind === A.CredentialSecret ? (
-              t.rich('chat.credential.needsSecret', { name: <code className="font-mono text-[12px]">${question.secretName}</code> })
+              t.rich('chat.credential.needsSecret', { name: <code className="font-mono text-caption">${question.secretName}</code> })
             ) : question.kind === A.CredentialIOSPorts ? (
-              t.rich('chat.credential.needsIOSPorts', { ports: <code className="font-mono text-[12px]">{(question.ports ?? []).join(', ')}</code> })
+              t.rich('chat.credential.needsIOSPorts', { ports: <code className="font-mono text-caption">{(question.ports ?? []).join(', ')}</code> })
             ) : (
               t('chat.credential.needsGitHub')
             )}
@@ -48,7 +48,7 @@ export function CredentialCard({ question, group = [question], bare = false }: {
       <RequestReasons group={group} />
       {question.kind === A.CredentialSecret && question.secretName && <AIToolSecretWarning name={question.secretName} />}
       {question.status === 'cancelled' && (
-        <p className="break-words text-[12px] text-faint" data-credential-cancelled>
+        <p className="break-words text-caption text-faint" data-credential-cancelled>
           {t('chat.connector.cancelled')} {question.answer || t('chat.connector.nobodyAnswered')}
         </p>
       )}
@@ -138,7 +138,7 @@ function RequestRow({ group, title, onClose }: { group: T.Question[]; title?: st
       <div className="flex min-w-0 items-center gap-2 py-1.5 pr-1.5 pl-3">
         <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', waiting ? 'bg-amber-400' : 'bg-ghost')} />
         <Icon className="size-3.5 shrink-0 text-subtle" />
-        <p className="min-w-0 flex-1 truncate text-[13px] text-tertiary" data-credential-asker={group.map((x) => x.agent).join(' ')}>
+        <p className="min-w-0 flex-1 truncate text-ui text-tertiary" data-credential-asker={group.map((x) => x.agent).join(' ')}>
           {requestSummary(t, group)}
           {title && <span className="text-faint"> · {title}</span>}
         </p>
@@ -149,7 +149,7 @@ function RequestRow({ group, title, onClose }: { group: T.Question[]; title?: st
           </Button>
         ) : (
           <>
-            <span className="max-w-[45%] shrink truncate text-[12px] text-subtle" data-request-settled>
+            <span className="max-w-[45%] shrink truncate text-caption text-subtle" data-request-settled>
               {q.status === 'answered' ? answeredLine(q) : t('chat.credential.cancelled')}
             </span>
             <button className="shrink-0 rounded p-1 text-faint transition hover:text-primary" aria-label={t('common.close')} onClick={onClose}>
@@ -159,7 +159,7 @@ function RequestRow({ group, title, onClose }: { group: T.Question[]; title?: st
         )}
       </div>
       {waiting && open && (
-        <div className="border-t border-line px-3 pb-3">
+        <div className="border-t border-line-faint px-3 pb-3">
           <CredentialCard question={q} group={group} bare />
         </div>
       )}
@@ -171,14 +171,14 @@ function RequestRow({ group, title, onClose }: { group: T.Question[]; title?: st
 // need a GitHub account".
 function requestSummary(t: Translate, group: readonly T.Question[]) {
   const q = group[0];
-  const agents = <span className="font-mono text-[12px] text-primary">{formatList(group.map((x) => x.agent))}</span>;
+  const agents = <span className="font-mono text-caption text-primary">{formatList(group.map((x) => x.agent))}</span>;
   const count = group.length;
   if (q.kind === RequestConnector) {
     const req = connectorRequest(q);
-    return t.rich('chat.request.connector', { agents, count, name: <span className="font-mono text-[12px] text-secondary">{req?.preset?.label ?? req?.name ?? '?'}</span> });
+    return t.rich('chat.request.connector', { agents, count, name: <span className="font-mono text-caption text-secondary">{req?.preset?.label ?? req?.name ?? '?'}</span> });
   }
-  if (q.kind === A.CredentialSecret) return t.rich('chat.request.secret', { agents, count, name: <span className="font-mono text-[12px] text-secondary">${q.secretName}</span> });
-  if (q.kind === A.CredentialIOSPorts) return t.rich('chat.request.iosPorts', { agents, count, ports: <span className="font-mono text-[12px] text-secondary">{(q.ports ?? []).join(', ')}</span> });
+  if (q.kind === A.CredentialSecret) return t.rich('chat.request.secret', { agents, count, name: <span className="font-mono text-caption text-secondary">${q.secretName}</span> });
+  if (q.kind === A.CredentialIOSPorts) return t.rich('chat.request.iosPorts', { agents, count, ports: <span className="font-mono text-caption text-secondary">{(q.ports ?? []).join(', ')}</span> });
   return t.rich('chat.request.github', { agents, count });
 }
 
@@ -204,7 +204,7 @@ function CredentialAnswer({ question, group }: { question: T.Question; group: re
         <SecretForm question={question} busy={answer.isPending} onGive={(value) => answer.mutate({ value })} />
       ) : question.kind === A.CredentialIOSPorts ? (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
-          <p className="text-[12px] leading-relaxed text-faint">{t('chat.credential.iosPortsHint')}</p>
+          <p className="text-caption leading-relaxed text-faint">{t('chat.credential.iosPortsHint')}</p>
           <Button size="sm" variant="primary" className="justify-self-end" disabled={answer.isPending} onClick={() => answer.mutate({ allow: true })} data-credential-allow>
             {answer.isPending ? <LoaderCircle className="animate-spin" /> : <Check />}
             {t('chat.credential.allow')}
@@ -225,7 +225,7 @@ function CredentialAnswer({ question, group }: { question: T.Question; group: re
           <Input
             autoFocus
             aria-label={t('chat.connector.whyRefuse')}
-            className="h-7 min-w-0 flex-1 text-[13px]"
+            className="h-7 min-w-0 flex-1 text-ui"
             placeholder={t('chat.connector.whyPlaceholder')}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -243,7 +243,7 @@ function CredentialAnswer({ question, group }: { question: T.Question; group: re
           {t('chat.connector.refuse')}
         </Button>
       )}
-      {answer.error && <p className="break-words text-[12px] text-rose-300">{errorMessage(answer.error)}</p>}
+      {answer.error && <p className="break-words text-caption text-rose-300">{errorMessage(answer.error)}</p>}
     </div>
   );
 }
@@ -265,20 +265,20 @@ function SecretForm({ question, busy, onGive }: { question: T.Question; busy: bo
         <Input
           readOnly
           aria-label={t('chat.credential.secretName')}
-          className="h-7 w-[42%] min-w-0 font-mono text-[12px] text-subtle"
+          className="h-7 w-[42%] min-w-0 font-mono text-caption text-subtle"
           value={question.secretName ?? ''}
         />
         <Input
           type="password"
           autoComplete="off"
           aria-label={t('chat.credential.valueOf', { name: question.secretName ?? '' })}
-          className="h-7 min-w-0 flex-1 font-mono text-[12px]"
+          className="h-7 min-w-0 flex-1 font-mono text-caption"
           placeholder={t('chat.credential.value')}
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
       </div>
-      <p className="text-[12px] leading-relaxed text-faint">{t('chat.credential.secretHint')}</p>
+      <p className="text-caption leading-relaxed text-faint">{t('chat.credential.secretHint')}</p>
       <Button type="submit" size="sm" variant="primary" className="justify-self-end" disabled={!value || busy}>
         {busy ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
         {t('chat.connector.saveAndGive')}
@@ -324,9 +324,9 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
                   'hover:border-line-strong hover:bg-surface-raised disabled:opacity-50',
                 )}
               >
-                <span className="min-w-0 shrink truncate font-mono text-[12px] text-secondary">{acc.name}</span>
-                {acc.login && <span className="min-w-0 truncate text-[12px] text-subtle">{acc.login}</span>}
-                <span className="ml-auto shrink-0 text-[12px] text-faint">{t('chat.credential.give')}</span>
+                <span className="min-w-0 shrink truncate font-mono text-caption text-secondary">{acc.name}</span>
+                {acc.login && <span className="min-w-0 truncate text-caption text-subtle">{acc.login}</span>}
+                <span className="ml-auto shrink-0 text-caption text-faint">{t('chat.credential.give')}</span>
               </button>
             </li>
           ))}
@@ -344,7 +344,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
             <Input
               autoFocus
               aria-label={t('chat.credential.accountName')}
-              className="h-7 w-[38%] min-w-0 font-mono text-[12px]"
+              className="h-7 w-[38%] min-w-0 font-mono text-caption"
               placeholder={t('chat.credential.namePlaceholder')}
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -353,7 +353,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
               type="password"
               autoComplete="off"
               aria-label={t('chat.credential.githubToken')}
-              className="h-7 min-w-0 flex-1 font-mono text-[12px]"
+              className="h-7 min-w-0 flex-1 font-mono text-caption"
               placeholder={t('chat.credential.tokenPlaceholder')}
               value={token}
               onChange={(event) => setToken(event.target.value)}
@@ -368,7 +368,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
               {t('chat.credential.logInAndGive')}
             </Button>
           </div>
-          {login.error && <p className="break-words text-[12px] text-rose-300">{errorMessage(login.error)}</p>}
+          {login.error && <p className="break-words text-caption text-rose-300">{errorMessage(login.error)}</p>}
         </form>
       ) : (
         <Button size="sm" variant="ghost" className="justify-self-start" onClick={() => setAdding(true)}>
@@ -376,7 +376,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
           {t('chat.credential.logInAnother')}
         </Button>
       )}
-      <p className="text-[12px] leading-relaxed text-faint">{t('chat.credential.githubHint')}</p>
+      <p className="text-caption leading-relaxed text-faint">{t('chat.credential.githubHint')}</p>
     </div>
   );
 }

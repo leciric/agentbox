@@ -222,7 +222,7 @@ function Segmented<Id extends string>({
   onChange: (id: Id) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-line bg-surface-faint p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg bg-surface p-0.5">
       {options.map((o) => (
         <button
           key={o.id}
@@ -233,7 +233,7 @@ function Segmented<Id extends string>({
           onClick={() => onChange(o.id)}
           className={cn(
             'rounded-md px-2.5 py-1 text-caption font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-            o.id === value ? 'bg-surface-strong text-title shadow-sm' : 'text-muted hover:text-primary',
+            o.id === value ? 'bg-surface-strong text-title' : 'text-muted hover:text-primary',
           )}
         >
           {o.label}
@@ -246,7 +246,7 @@ function Segmented<Id extends string>({
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warning' | 'danger' }) {
   return (
     <div className="min-w-0 px-4 py-3">
-      <div className="truncate text-caption font-medium uppercase tracking-wider text-subtle">{label}</div>
+      <div className="truncate text-caption font-medium text-subtle">{label}</div>
       <div
         className={cn(
           'mt-1 truncate font-mono text-heading font-semibold tabular-nums text-title',
@@ -308,7 +308,7 @@ function Table({ headers, numeric = [], children }: { headers: string[]; numeric
   return (
     <div className="min-w-0 overflow-x-auto">
       <table className="w-full text-left text-caption">
-        <thead className="border-b border-line-faint text-caption uppercase tracking-wider text-subtle">
+        <thead className="border-b border-line-faint text-caption text-subtle">
           <tr>
             {headers.map((h, i) => (
               <th key={h} className={cn('whitespace-nowrap px-3 py-2 first:pl-4 last:pr-4 font-medium', numeric.includes(i) && 'text-right')}>
@@ -378,7 +378,7 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: T.Trace
         {shown.map((s, i) => (
           <tr key={`${s.id ?? ''}:${s.start}:${i}`} className="group">
             <Cell name>
-              {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-caption uppercase text-subtle">{t('diagnostics.source.app')}</span>}
+              {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-caption text-subtle">{t('diagnostics.source.app')}</span>}
               {breakable(s.name)}
             </Cell>
             {errors ? (

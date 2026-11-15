@@ -288,7 +288,10 @@ type Server struct {
 	archivedPRChecked map[string]time.Time
 	// pastChanges is what past agents' kept branches changed, by where they
 	// were measured (work.go).
-	pastChanges  map[pastChangesKey]*api.AgentChanges
+	pastChanges map[pastChangesKey]*api.AgentChanges
+	// branchTips is each repository's branches as last read, for the Work
+	// page (work.go's tipsOf).
+	branchTips   map[string]tipsRead
 	nudged       map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
 	outcomes     map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
 	outcomesRead map[string]bool         // projects whose outcomes have been read from their events since the daemon started
@@ -441,6 +444,9 @@ type Server struct {
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
+	// shared is the agents' and lead chats' shared memory ceilings
+	// (sharedmemory.go).
+	shared *sharedCgroups
 	// wakes makes one start of each stopped machine for a message at a time
 	// (wake.go, wakeLock).
 	wakes keyedMutex
@@ -538,6 +544,7 @@ func New(cfg Config) (*Server, error) {
 		oomSeen:          map[string]agent.MemoryCounts{},
 		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
+		shared:           newSharedCgroups(),
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},

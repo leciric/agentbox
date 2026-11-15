@@ -284,7 +284,7 @@ function AppWizard({ secret: initial, projects, onClose }: { secret?: T.MCPPairi
         {step === 3 && secret && (
           <div className="grid min-w-0 gap-4">
             <CopyField label={t('settings.apps.wizard.urlLabel')} value={secret.url} className="break-all font-mono text-caption" />
-            <CopyField label={t('settings.apps.wizard.codeLabel')} value={secret.code} className="font-mono text-2xl font-semibold tracking-widest" hint={t('settings.apps.wizard.codeHint')} />
+            <CopyField label={t('settings.apps.wizard.codeLabel')} value={secret.code} className="font-mono text-2xl font-semibold" hint={t('settings.apps.wizard.codeHint')} />
             {secret.token && (
               <CopyField label={t('settings.apps.wizard.tokenLabel')} value={secret.token} className="break-all font-mono text-caption" hint={t('settings.apps.wizard.tokenHint')} />
             )}

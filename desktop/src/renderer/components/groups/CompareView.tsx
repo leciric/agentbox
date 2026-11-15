@@ -117,7 +117,7 @@ export function CompareView({ id, onSelect }: { id: string; onSelect: (view: Vie
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto" data-compare={g.id}>
-      <div className="flex flex-col gap-3 border-b border-line px-5 py-4">
+      <div className="flex flex-col gap-3 border-b border-line-faint px-5 py-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Split className="size-5 shrink-0 text-brand-300" />
           <h1 className="min-w-0 truncate text-heading font-semibold text-title">{g.title}</h1>
@@ -280,12 +280,12 @@ function MemberColumn({
 
   return (
     <div
-      className={cn('flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface', st === 'kept' ? 'border-brand-400/60 shadow-[0_0_0_3px_rgb(139_92_246/0.15)]' : recommended ? 'border-brand-400/40' : 'border-line-strong', st === 'retired' && 'opacity-70')}
+      className={cn('flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface', st === 'kept' ? 'border-brand-400/60' : recommended ? 'border-brand-400/40' : 'border-line-strong', st === 'retired' && 'opacity-70')}
       data-compare-member={m.label}
       data-compare-agent={m.agent}
       data-compare-st={st}
     >
-      <div className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2 border-b border-line-faint px-3 py-2.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-strong font-mono text-ui font-semibold text-title">{m.label}</span>
         <AIIcon ai={m.ai} className="size-4 shrink-0 text-subtle" />
         <span className="grid min-w-0 flex-1">
@@ -331,7 +331,7 @@ function MemberColumn({
         )}
       </div>
       {shots.length > (rec ? 0 : 1) && (
-        <div className="flex gap-1.5 border-b border-line p-2">
+        <div className="flex gap-1.5 border-b border-line-faint p-2">
           {(rec ? shots : shots.slice(1)).map((s) => (
             <button key={s.id} type="button" title={s.name} onClick={() => onShot(s)} className="h-11 w-16 shrink-0 overflow-hidden rounded-md border border-line-strong bg-black hover:border-line-heavy" data-compare-shot>
               <img src={mediaUrl(s)} alt={s.name} draggable={false} className="size-full object-cover object-top" />
@@ -397,11 +397,11 @@ function MemberColumn({
         </Stat>
       </dl>
       {m.reportSummary && (
-        <p className="line-clamp-5 border-t border-line px-3 py-2.5 text-caption leading-relaxed text-secondary" title={m.reportSummary} data-compare-report>
+        <p className="line-clamp-5 border-t border-line-faint px-3 py-2.5 text-caption leading-relaxed text-secondary" title={m.reportSummary} data-compare-report>
           {m.reportSummary.replace(/[*_`#>]/g, '')}
         </p>
       )}
-      <div className="mt-auto flex items-center gap-2 border-t border-line p-2.5">
+      <div className="mt-auto flex items-center gap-2 border-t border-line-faint p-2.5">
         <Button size="sm" variant="ghost" disabled={!m.ref} onClick={onOpen} data-compare-open={m.label}>
           <MessageSquare />
           {t('group.member.open')}

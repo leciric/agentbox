@@ -334,9 +334,7 @@ pub(super) fn switch_box() -> Div {
         .flex_none()
         .p(px(2.))
         .rounded_lg()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::surface_faint())
+        .bg(theme::surface())
 }
 
 /// switch_item is one of a switch's buttons: h-7 gap-1.5 rounded-md 11.5px
@@ -349,12 +347,12 @@ pub(super) fn switch_item(id: &'static str, icon: &str, on: bool) -> Stateful<Di
         .h(px(28.))
         .gap_1p5()
         .rounded_md()
-        .text_size(px(11.5))
+        .text_size(theme::text::MICRO)
         .line_height(px(17.25))
         .font_weight(FontWeight::MEDIUM)
         .when(on, |el| {
             el.bg(theme::layered(&[
-                theme::sunken(),
+                theme::rail(),
                 theme::surface_faint(),
                 theme::surface_raised(),
             ]))
@@ -1182,7 +1180,7 @@ impl AppView {
                         .gap_2()
                         .items_center()
                         .border_b_1()
-                        .border_color(theme::line())
+                        .border_color(theme::line_faint())
                         .bg(theme::surface())
                         .child(
                             div()
@@ -1340,9 +1338,9 @@ impl AppView {
                 .w(px(width))
                 .flex_none()
                 .h_full()
-                .bg(theme::sunken())
+                .bg(theme::rail())
                 .border_l_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .child(header)
                 .child(div().flex_1().min_h_0().child(body))
                 .into_any_element();
@@ -1380,9 +1378,9 @@ impl AppView {
             .w(px(width))
             .flex_none()
             .h_full()
-            .bg(theme::sunken())
+            .bg(theme::rail())
             .border_l_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(header)
             .child(div().flex_1().min_h_0().min_w_0().overflow_hidden().child(
                 crate::motion::fade_in(div().size_full().child(body), body_key),
@@ -1403,7 +1401,6 @@ impl AppView {
             .overflow_hidden()
             .border_b_1()
             .border_color(theme::line_faint())
-            .bg(theme::rail())
     }
 
     fn lead_header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1528,9 +1525,7 @@ impl AppView {
             .overflow_hidden()
             .p(px(2.))
             .rounded_lg()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::surface_faint())
+            .bg(theme::surface())
             .children(shown.into_iter().map(|v| {
                 let on = v == view;
                 let r = r.to_string();
@@ -1545,28 +1540,11 @@ impl AppView {
                     .when(on, |el| {
                         el.px_2p5()
                             .bg(theme::layered(&[
-                                theme::sunken(),
+                                theme::rail(),
                                 theme::surface_faint(),
                                 theme::surface_raised(),
                             ]))
                             .text_color(theme::title())
-                            // Tailwind v4's shadow-sm.
-                            .shadow(vec![
-                                BoxShadow {
-                                    color: black().opacity(0.1),
-                                    offset: point(px(0.), px(1.)),
-                                    blur_radius: px(3.),
-                                    spread_radius: px(0.),
-                                    inset: false,
-                                },
-                                BoxShadow {
-                                    color: black().opacity(0.1),
-                                    offset: point(px(0.), px(1.)),
-                                    blur_radius: px(2.),
-                                    spread_radius: px(-1.),
-                                    inset: false,
-                                },
-                            ])
                     })
                     .when(!on, |el| {
                         el.w(px(28.))
@@ -1581,7 +1559,7 @@ impl AppView {
                             }))
                     })
                     .rounded_md()
-                    .text_size(px(11.5))
+                    .text_size(theme::text::MICRO)
                     .font_weight(FontWeight::MEDIUM)
                     .relative()
                     .child(crate::icons::ic(v.glyph()).size(px(14.)))
@@ -1690,7 +1668,7 @@ impl AppView {
                 .px_2()
                 .gap_1p5()
                 .rounded_md()
-                .text_size(px(12.))
+                .text_size(theme::text::CAPTION)
                 .text_color(theme::muted())
                 .when(folds, |el| {
                     el.cursor_pointer()
@@ -1790,7 +1768,7 @@ impl AppView {
                         .py_1p5()
                         .gap_1p5()
                         .rounded_lg()
-                        .text_size(px(12.))
+                        .text_size(theme::text::CAPTION)
                         .text_color(theme::subtle())
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
@@ -2049,7 +2027,7 @@ impl AppView {
                                     .min_w_0()
                                     .flex_1()
                                     .truncate()
-                                    .text_size(px(13.))
+                                    .text_size(theme::text::UI)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(if active {
                                         theme::title()
@@ -2059,7 +2037,8 @@ impl AppView {
                                         theme::primary()
                                     })
                                     .when(a.title.is_empty(), |el| {
-                                        el.font_family(theme::mono()).text_size(px(12.))
+                                        el.font_family(theme::mono())
+                                            .text_size(theme::text::CAPTION)
                                     })
                                     .child(title),
                             )
@@ -2067,7 +2046,7 @@ impl AppView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_size(px(12.))
+                                        .text_size(theme::text::CAPTION)
                                         .text_color(theme::faint())
                                         .child(format!("#{n}")),
                                 )
@@ -2076,7 +2055,7 @@ impl AppView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_size(px(12.))
+                                        .text_size(theme::text::CAPTION)
                                         .text_color(theme::faint())
                                         .child(super::sidebar::ago(w)),
                                 )
@@ -2086,7 +2065,7 @@ impl AppView {
                         h_flex()
                             .min_w_0()
                             .gap_1()
-                            .text_size(px(12.))
+                            .text_size(theme::text::CAPTION)
                             .line_height(px(16.))
                             .text_color(r.color)
                             .when(matches!(r.st, St::Needs | St::Error), |el| {
@@ -2111,7 +2090,7 @@ impl AppView {
                                     .gap_1p5()
                                     .overflow_hidden()
                                     .whitespace_nowrap()
-                                    .text_size(px(11.))
+                                    .text_size(theme::text::MICRO)
                                     .line_height(px(16.))
                                     .text_color(theme::faint())
                                     .when_some(a.pr.as_ref().filter(|p| p.number > 0), |el, pr| {
@@ -2223,7 +2202,7 @@ impl AppView {
             .py_1p5()
             .bg(theme::card())
             .border_l_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .overflow_y_scroll()
             .child(
                 div()
@@ -2331,7 +2310,7 @@ impl AppView {
             .child(
                 div()
                     .size(px(48.))
-                    .rounded_2xl()
+                    .rounded(theme::radius::XXL)
                     .border_1()
                     .border_color(theme::line())
                     .bg(theme::ink())
@@ -2448,7 +2427,7 @@ impl AppView {
                         .bg(theme::error())
                         .text_color(theme::on_bright())
                         .text_xs()
-                        .font_weight(FontWeight::BOLD)
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child(crate::motion::pulse_soft(
                             div().size(px(5.)).rounded_full().bg(theme::on_bright()),
                             "panel-live-dot",
@@ -3184,7 +3163,7 @@ impl AppView {
                     .px_3()
                     .gap_2()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(
                         div()
                             .min_w_0()

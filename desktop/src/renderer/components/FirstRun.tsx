@@ -424,7 +424,7 @@ function Frame({
                       {done ? (
                         <CircleCheck className="size-4 shrink-0 text-emerald-400" />
                       ) : active ? (
-                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-500 text-[10px] font-semibold text-on-brand">
+                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-500 text-micro font-semibold text-on-brand">
                           {i + 1}
                         </span>
                       ) : (

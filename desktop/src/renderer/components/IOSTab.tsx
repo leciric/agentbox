@@ -50,7 +50,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
 
   return (
     <div className="flex h-full flex-col" data-ios-tab={agent.ref}>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line-faint px-3">
         <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400' : booting ? 'bg-amber-400' : 'bg-faint')} />
         <Select
           data-ios-device
@@ -109,7 +109,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
         ) : (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
-              <div className="relative flex h-24 w-12 items-center justify-center rounded-[14px] border border-line-vivid bg-gradient-to-b from-surface-raised to-surface-faint shadow-[0_20px_50px_-20px_rgb(139_92_246/0.6)]">
+              <div className="relative flex h-24 w-12 items-center justify-center rounded-[14px] border border-line-vivid bg-gradient-to-b from-surface-raised to-surface-faint">
                 <span className="absolute top-1.5 h-1 w-4 rounded-full bg-surface-vivid" />
                 {booting || status.isPending ? <LoaderCircle className="size-5 animate-spin text-brand-300" /> : <TabletSmartphone className="size-5 text-muted" />}
               </div>
@@ -145,7 +145,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
         )}
       </div>
 
-      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
+      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-faint px-4 text-xs text-subtle">
         <span className="truncate">{status.data?.xcode ? t('agent.ios.onTheMac', { xcode: status.data.xcode }) : ''}</span>
         <span className="ml-auto shrink-0 truncate">{!booted ? '' : control ? t('agent.android.controlOn') : t('agent.android.viewOnly')}</span>
       </div>

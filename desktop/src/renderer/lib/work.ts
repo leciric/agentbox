@@ -1,6 +1,7 @@
 // Work (components/WorkView.tsx): every piece of work agents did, live and
 // past, newest first, grouped by day, from GET /v1/work.
 import type * as T from '../../shared/api.ts';
+import { stackOrder } from './stacks.ts';
 
 // workKey is the start of every Work query's key: a verdict, a merge, a
 // destroy or a delete refreshes them all.
@@ -13,9 +14,11 @@ export const workFilters: readonly WorkFilter[] = ['', 'review', 'open', 'merged
 
 export const isWorkFilter = (s: string | undefined): s is WorkFilter => workFilters.includes((s ?? '') as WorkFilter);
 
-// workQuery is a page's query.
+// workQuery is a page's query. The list asks for what its rows show (brief):
+// a row's report is its status alone and it has no task, and the review reads
+// the report of the one it opens.
 export function workQuery(filter: WorkFilter, q: string, limit: number, cursor?: string): URLSearchParams {
-  const out = new URLSearchParams({ limit: String(limit) });
+  const out = new URLSearchParams({ limit: String(limit), brief: '1' });
   if (filter) out.set('filter', filter);
   if (q.trim()) out.set('q', q.trim());
   if (cursor) out.set('cursor', cursor);
@@ -64,4 +67,58 @@ export const awaitingReview = (item: T.ReviewItem) => !!item.fingerprint && !ite
 export function outcomeOf(w: T.WorkItem): string {
   if (w.report?.status) return w.report.status;
   return w.status === 'working' ? 'working' : '';
+}
+
+// WorkRow is a line of the list as it is drawn: a day's heading, or a piece
+// of work under it, depth down a stack of that day's work (stackOrder), first
+// when it is the day's first.
+export type WorkRow = { kind: 'day'; key: string; day: string } | { kind: 'work'; key: string; work: T.WorkItem; depth: number; first: boolean };
+
+const branchKey = (project: string, branch?: string) => (branch ? `${project}\n${branch}` : undefined);
+
+// workRows is the list's lines, in order: items, newest first, under their
+// days, each day's stacks together. One flat list, so only the lines in view
+// are drawn however many are loaded.
+export function workRows(items: readonly T.WorkItem[]): WorkRow[] {
+  const out: WorkRow[] = [];
+  for (const g of byDay(items)) {
+    out.push({ kind: 'day', key: `day:${g.day}`, day: g.day });
+    const stacked = stackOrder(
+      g.items,
+      (w) => `${w.item.project}\n${w.item.branch ?? ''}`,
+      (w) => branchKey(w.item.project, w.item.baseRef),
+    );
+    stacked.forEach(({ item: work, depth }, n) => out.push({ kind: 'work', key: work.item.ref, work, depth, first: n === 0 }));
+  }
+  return out;
+}
+
+// The loaded pages of a list, as the query keeps them.
+export type WorkPages = { pages: T.WorkPage[]; pageParams: unknown[] };
+
+// comesAfter is whether a sorts after b in the list: older, or of the same
+// moment and later by project and agent, the daemon's order.
+function comesAfter(a: T.WorkItem, b: T.WorkItem): boolean {
+  const at = Date.parse(a.at) - Date.parse(b.at);
+  if (at !== 0) return at < 0;
+  if (a.item.project !== b.item.project) return a.item.project > b.item.project;
+  return a.item.agent > b.item.agent;
+}
+
+// mergeHead puts a fresh first page (head) in front of the pages already
+// loaded, instead of reading every one of them again: what the minute's
+// refresh does. The later pages keep the work that still comes after the new
+// first page's last, so what moved into or out of the first page is neither
+// listed twice nor lost; a change further down waits for the event that
+// reports it, which reads the pages again.
+export function mergeHead(data: WorkPages | undefined, head: T.WorkPage): WorkPages | undefined {
+  if (!data || data.pages.length === 0) return data;
+  const last = head.items[head.items.length - 1];
+  if (data.pages.length === 1 || !head.next || !last) return { pages: [head], pageParams: data.pageParams.slice(0, 1) };
+  const fresh = new Set(head.items.map((w) => w.item.ref));
+  const rest = data.pages.slice(1).map((p) => {
+    const items = p.items.filter((w) => !fresh.has(w.item.ref) && comesAfter(w, last));
+    return items.length === p.items.length ? p : { ...p, items };
+  });
+  return { pages: [head, ...rest], pageParams: data.pageParams };
 }

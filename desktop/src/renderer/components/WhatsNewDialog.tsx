@@ -19,7 +19,7 @@ export function WhatsNewDialog({ open, onOpenChange, version }: { open: boolean;
         </DialogHeader>
         {marked.length > 0 && (
           <div className="rounded-lg border border-line bg-surface-faint px-3 py-2.5" data-whats-new-dots>
-            <p className="flex items-center gap-2 text-[13px] text-secondary">
+            <p className="flex items-center gap-2 text-ui text-secondary">
               <span className="size-2 shrink-0 rounded-full bg-brand-400" />
               {t('featureDots.whatsNew', { count: marked.length })}
             </p>
@@ -28,7 +28,7 @@ export function WhatsNewDialog({ open, onOpenChange, version }: { open: boolean;
                 <li key={f.id}>
                   <button
                     type="button"
-                    className="w-full rounded-md px-2 py-1 text-left text-[12.5px] text-tertiary hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+                    className="w-full rounded-md px-2 py-1 text-left text-caption text-tertiary hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
                     onClick={() => {
                       onOpenChange(false);
                       revealFeature(f);
@@ -36,7 +36,7 @@ export function WhatsNewDialog({ open, onOpenChange, version }: { open: boolean;
                     data-whats-new-dot={f.id}
                   >
                     {t(f.hint)}
-                    <span className="ml-1.5 font-mono text-[11px] text-faint">{f.version}</span>
+                    <span className="ml-1.5 font-mono text-micro text-faint">{f.version}</span>
                   </button>
                 </li>
               ))}

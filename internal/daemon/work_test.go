@@ -185,6 +185,14 @@ func TestWorkMeasuresPastChangesOncePerCommit(t *testing.T) {
 	testutil.Git(t, repo, "checkout", "-q", "agentbox/agent-07")
 	commit("two.txt")
 	testutil.Git(t, repo, "checkout", "-q", head)
+	// Its branches are taken as read for tipsTTL, so until then nothing has
+	// moved.
+	if got := files(); got != 1 || measured() != 1 {
+		t.Errorf("within tipsTTL: files = %d, measured %d; want what was read", got, measured())
+	}
+	d.srv.mu.Lock()
+	d.srv.branchTips[repo] = tipsRead{d.srv.branchTips[repo].tips, time.Now().Add(-tipsTTL)}
+	d.srv.mu.Unlock()
 	if got := files(); got != 2 || measured() != 2 {
 		t.Errorf("after the branch moved: files = %d, measured %d; want 2 and 2", got, measured())
 	}

@@ -7,7 +7,14 @@
 #   scripts/native-package.sh mac <version> <out>       a .app in a .dmg, arm64
 #
 # <version> is the nightly's (0.17.0-nightly.20261106.157). It expects
-# native/target/release/agentbox-native(.exe) to be built already.
+# native/target/release/agentbox-native(.exe) to be built already, with the
+# agentbox command-line tool of that version built in (scripts/native-cli.sh,
+# native/crates/app/src/cli.rs): $AGENTBOX_BUNDLED_CLI, and on a Mac and on
+# Windows $AGENTBOX_BUNDLED_CLI_LINUX, are the files the build was given. The
+# app keeps the daemon's copy current from it and restarts an older daemon
+# into its own version, so every file made here is unpacked again and asked
+# for the tool inside it (holds_cli): one without it would leave the app
+# unable to update its daemon.
 #
 # On a Mac, the .app is signed with scripts/mac-sign.sh: with
 # $MAC_SIGN_IDENTITY (a Developer ID Application identity in a keychain) the
@@ -55,6 +62,30 @@ stamped() {
     echo "$1 says \"$said\", not agentbox-native $version: build it with AGENTBOX_VERSION=$version" >&2
     exit 1
   }
+}
+
+# holds_cli checks that the app at $2, from the file called $1, has the
+# agentbox tool it was built with inside it, byte for byte, and on Linux that
+# the tool is this version's.
+holds_cli() {
+  local what=$1 app=$2 got
+  got=$(mktemp -d "$tmp/cli.XXXXXX")
+  "$app" --extract-cli "$got" || { echo "$what: agentbox-native has no agentbox built in" >&2; exit 1; }
+  local exe=agentbox
+  [ "$os" = windows ] && exe=agentbox.exe
+  cmp "$got/$exe" "${AGENTBOX_BUNDLED_CLI:?the agentbox the app was built with}" ||
+    { echo "$what: its agentbox isn't $AGENTBOX_BUNDLED_CLI" >&2; exit 1; }
+  if [ "$os" != linux ]; then
+    cmp "$got/agentbox-linux" "${AGENTBOX_BUNDLED_CLI_LINUX:?the Linux agentbox the app was built with}" ||
+      { echo "$what: its agentbox-linux isn't $AGENTBOX_BUNDLED_CLI_LINUX" >&2; exit 1; }
+  fi
+  if [ "$os" != windows ]; then
+    local said
+    said=$("$got/agentbox" --version)
+    [ "$said" = "agentbox version $version" ] ||
+      { echo "$what: its agentbox says \"$said\", not agentbox version $version" >&2; exit 1; }
+  fi
+  echo "$what: agentbox $version is inside ($(cd "$got" && ls | tr '\n' ' '))"
 }
 
 os=${1:?usage: $0 linux|windows|mac <version> <out>}
@@ -221,6 +252,25 @@ DESK
       ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run --no-appstream "$app" \
         "$out/agentbox-native-$version-linux-$node.AppImage"
     fi
+
+    # Every file, unpacked the way its install is.
+    look=$tmp/look
+    mkdir -p "$look/tar" "$look/deb"
+    tar -C "$look/tar" -xzf "$out/$name-linux-$uname.tar.gz"
+    holds_cli "$name-linux-$uname.tar.gz" "$look/tar/$name-linux-$uname/agentbox-native"
+    holds_cli "agentbox-native-$version-linux-$node" "$out/agentbox-native-$version-linux-$node"
+    dpkg-deb -x "$out/$name-$arch.deb" "$look/deb"
+    holds_cli "$name-$arch.deb" "$look/deb/usr/bin/agentbox-native"
+    if [ -f "$out/$name-x64.pacman" ]; then
+      mkdir -p "$look/pacman"
+      tar -C "$look/pacman" -I zstd -xf "$out/$name-x64.pacman"
+      holds_cli "$name-x64.pacman" "$look/pacman/usr/bin/agentbox-native"
+    fi
+    if [ -f "$out/agentbox-native-$version-linux-$node.AppImage" ]; then
+      mkdir -p "$look/appimage"
+      (cd "$look/appimage" && "$out/agentbox-native-$version-linux-$node.AppImage" --appimage-extract >/dev/null)
+      holds_cli "agentbox-native-$version-linux-$node.AppImage" "$look/appimage/squashfs-root/usr/bin/agentbox-native"
+    fi
     ;;
   windows)
     bin=$root/native/target/release/agentbox-native.exe
@@ -234,6 +284,9 @@ DESK
     sed 's/$/\r/' "$root/LICENSE" >"$dir/LICENSE.txt"
     # 7z is on GitHub's Windows runners; zip isn't.
     (cd "$tmp" && 7z a -tzip -bso0 "$out/$name-windows-x64.zip" "$(basename "$dir")")
+    7z x -bso0 -o"$tmp/look" "$out/$name-windows-x64.zip"
+    holds_cli "$name-windows-x64.zip" "$tmp/look/$name-windows-x64/agentbox-native.exe"
+    holds_cli "agentbox-native-$version-windows-x64.exe" "$out/agentbox-native-$version-windows-x64.exe"
     ;;
   mac)
     bin=$root/native/target/release/agentbox-native
@@ -282,6 +335,19 @@ EOF
     if [ -n "${MAC_SIGN_IDENTITY:-}" ]; then
       codesign --force --sign "$MAC_SIGN_IDENTITY" --timestamp "$dmg"
     fi
+    mkdir -p "$tmp/look/tar" "$tmp/look/dmg"
+    tar -C "$tmp/look/tar" -xzf "$out/agentbox-native-$version-mac-$arch.app.tar.gz"
+    holds_cli "agentbox-native-$version-mac-$arch.app.tar.gz" "$tmp/look/tar/$(basename "$app")/Contents/MacOS/agentbox-native"
+    hdiutil attach -quiet -nobrowse -readonly -mountpoint "$tmp/look/dmg" "$dmg"
+    (holds_cli "$name-mac-$arch.dmg" "$tmp/look/dmg/$(basename "$app")/Contents/MacOS/agentbox-native") || failed=1
+    hdiutil detach -quiet "$tmp/look/dmg"
+    [ -z "${failed:-}" ] || exit 1
+    # The tool the app writes out must still be signed, with the entitlement
+    # the vz driver needs (mac-sign.sh signed it before the app was built).
+    "$app/Contents/MacOS/agentbox-native" --extract-cli "$tmp/look/cli"
+    codesign --verify --strict "$tmp/look/cli/agentbox"
+    codesign -d --entitlements - --xml "$tmp/look/cli/agentbox" 2>/dev/null | grep -q com.apple.security.virtualization ||
+      { echo "the agentbox inside the app isn't signed with com.apple.security.virtualization" >&2; exit 1; }
     ;;
   *)
     echo "usage: $0 linux|windows|mac <version> <out>" >&2

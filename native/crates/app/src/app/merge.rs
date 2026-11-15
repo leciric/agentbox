@@ -223,7 +223,7 @@ pub fn confirm(
                     .max_w(relative(0.92))
                     .gap_4()
                     .p_6()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .bg(theme::card())
                     .border_1()
                     .border_color(theme::line())

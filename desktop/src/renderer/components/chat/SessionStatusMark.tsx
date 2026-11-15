@@ -21,7 +21,7 @@ export function SessionStatusMark({ session, unread, className }: { session: T.L
         aria-label={t('sessions.needsYou', { count: n })}
         title={t('sessions.needsYou', { count: n })}
         data-session-status="needsYou"
-        className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold tabular-nums leading-none text-black', className)}
+        className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-amber-400 px-1 text-micro font-semibold tabular-nums leading-none text-black', className)}
       >
         {n}
       </span>

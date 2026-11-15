@@ -117,7 +117,7 @@ function PagePreview({ project, page, onReveal }: { project: string; page: T.Art
         (event.currentTarget as HTMLElement | null)?.focus();
       }}
     >
-      <div className="flex items-start gap-3 border-b border-line px-5 py-4 pr-14">
+      <div className="flex items-start gap-3 border-b border-line-faint px-5 py-4 pr-14">
         <PageThumb project={project} page={a} eager className={cn('w-16 shrink-0 rounded-md ring-1 ring-line-strong', gone && 'opacity-50 grayscale')} />
         <div className="grid min-w-0 flex-1 gap-1">
           <DialogTitle className="truncate text-heading leading-snug">{a.title}</DialogTitle>

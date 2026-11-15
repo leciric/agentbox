@@ -857,7 +857,7 @@ impl AppView {
                         .py_2()
                         .gap_2()
                         .border_b_1()
-                        .border_color(theme::line())
+                        .border_color(theme::line_faint())
                         .child(
                             v_flex()
                                 .flex_1()
@@ -1292,7 +1292,7 @@ impl AppView {
             .pt_6()
             .pb_2p5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 v_flex()
                     .child(
@@ -1406,14 +1406,9 @@ impl AppView {
                     .grid_cols(cols)
                     .gap_3()
                     .children((0..6).map(|i| {
-                        div()
-                            .rounded_xl()
-                            .overflow_hidden()
-                            .child(crate::motion::skeleton(
-                                format!("media-skel-{i}"),
-                                col_w,
-                                col_w * 0.75,
-                            ))
+                        div().rounded(theme::radius::XL).overflow_hidden().child(
+                            crate::motion::skeleton(format!("media-skel-{i}"), col_w, col_w * 0.75),
+                        )
                     }))
                     .into_any_element()
             } else if f.loaded && entries.is_empty() {
@@ -1726,8 +1721,6 @@ impl AppView {
                             .px(px(7.))
                             .py(px(1.))
                             .rounded_full()
-                            .border_1()
-                            .border_color(theme::line_strong())
                             .bg(theme::media_shade(0.7))
                             .text_size(theme::text::CAPTION)
                             .font_weight(FontWeight::MEDIUM)
@@ -1915,7 +1908,7 @@ impl AppView {
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(12.))
+                        .text_size(theme::text::CAPTION)
                         .line_height(px(16.))
                         .text_color(theme::subtle())
                         .child(time_ago(&j.created_at)),
@@ -2018,7 +2011,7 @@ impl AppView {
                                     .text_color(theme::muted())
                                     .child(f.log.clone())
                             } else {
-                                el.text_size(px(14.))
+                                el.text_size(theme::text::BODY)
                                     .line_height(px(20.))
                                     .text_color(theme::subtle())
                                     .child(t("shell.jobs.pick"))
@@ -2135,15 +2128,7 @@ fn filter_chip(
         .cursor_pointer()
         .map(|el| {
             if on {
-                el.bg(theme::surface_strong())
-                    .text_color(theme::title())
-                    .shadow(vec![BoxShadow {
-                        color: gpui::white().opacity(0.06),
-                        offset: point(px(0.), px(1.)),
-                        blur_radius: px(0.),
-                        spread_radius: px(0.),
-                        inset: true,
-                    }])
+                el.bg(theme::surface_strong()).text_color(theme::title())
             } else {
                 el.text_color(theme::muted())
                     .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
@@ -2273,7 +2258,7 @@ fn page_card(
                 .h(width * 10. / 16.)
                 .overflow_hidden()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .bg(gpui::linear_gradient(
                     160.,
                     gpui::linear_color_stop(hsl(hue, 0.7, 0.97), 0.),
@@ -2298,7 +2283,7 @@ fn page_card(
                             .px(px(7.))
                             .py(px(1.))
                             .rounded_full()
-                            .border_1()
+                            .bg(theme::surface_raised())
                             .border_color(theme::sky(400).opacity(0.25))
                             .bg(theme::media_shade(0.6))
                             .text_size(theme::text::CAPTION)
@@ -2457,7 +2442,7 @@ fn card(
                         .min_w_0()
                         .child(
                             div()
-                                .text_size(px(14.))
+                                .text_size(theme::text::BODY)
                                 .line_height(px(20.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::primary())
@@ -2466,7 +2451,7 @@ fn card(
                         .when_some(description, |el, d| {
                             el.child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(theme::text::CAPTION)
                                     .line_height(px(16.))
                                     .text_color(theme::subtle())
                                     .child(d),
@@ -2491,43 +2476,31 @@ pub(super) enum Variant {
 }
 
 /// ui_badge is ui/badge.tsx's Badge: inline-flex gap-1.5 rounded-full px-2
-/// py-0.5 text-caption font-medium ring-1 ring-inset, its svg size-3.
+/// py-0.5 text-caption font-medium, its svg size-3. A tint and no ring.
 pub(super) fn ui_badge(variant: Variant, icon: Option<&str>, text: impl Into<SharedString>) -> Div {
-    let (fg, bg, ring) = match variant {
-        Variant::Default => (theme::tertiary(), theme::surface(), theme::line_strong()),
+    let (fg, bg) = match variant {
+        Variant::Default => (theme::tertiary(), theme::surface_raised()),
         Variant::Success => {
             let e = theme::emerald(400);
-            (theme::emerald(300), e.opacity(0.1), e.opacity(0.25))
+            (theme::emerald(300), e.opacity(0.1))
         }
         Variant::Warning => {
             let a = theme::amber(400);
-            (theme::amber(200), a.opacity(0.1), a.opacity(0.25))
+            (theme::amber(200), a.opacity(0.1))
         }
-        Variant::Danger => (
-            theme::rose(300),
-            theme::rose(400).opacity(0.1),
-            theme::rose(400).opacity(0.25),
-        ),
+        Variant::Danger => (theme::rose(300), theme::rose(400).opacity(0.1)),
         Variant::Info => {
             let s = theme::sky(400);
-            (theme::sky(300), s.opacity(0.1), s.opacity(0.25))
+            (theme::sky(300), s.opacity(0.1))
         }
-        Variant::Brand => (
-            theme::brand(300),
-            theme::brand(500).opacity(0.15),
-            theme::brand(400).opacity(0.3),
-        ),
+        Variant::Brand => (theme::brand(300), theme::brand(500).opacity(0.15)),
     };
-    // The ring is inset in Electron (it takes no room), a border here: the
-    // padding gives up its pixel.
     h_flex()
         .flex_none()
         .gap_1p5()
-        .px(px(7.))
-        .py(px(1.))
+        .px_2()
+        .py_0p5()
         .rounded_full()
-        .border_1()
-        .border_color(ring)
         .bg(bg)
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)

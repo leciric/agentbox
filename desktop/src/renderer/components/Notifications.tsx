@@ -31,7 +31,7 @@ export function NoticeToast({ notice, projectName, onOpen }: { notice: T.Notific
     <button
       onClick={onOpen}
       data-toast-notice={notice.kind}
-      className="flex w-[356px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl border border-line-strong bg-overlay p-3 text-left shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur transition hover:border-line-vivid"
+      className="flex w-[356px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl border border-line-strong bg-overlay p-3 text-left shadow-pop backdrop-blur transition hover:border-line-vivid"
     >
       <NoticeArt notice={notice} />
       <span className="min-w-0 flex-1">

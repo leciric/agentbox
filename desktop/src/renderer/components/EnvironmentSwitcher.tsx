@@ -267,7 +267,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               {pairing.qr.length > 0 && <QRCode rows={pairing.qr} size={148} />}
               <div className="grid min-w-0 gap-2">
                 <div className="text-caption text-subtle">{t('shell.env.code')}</div>
-                <div className="font-mono text-display font-semibold tracking-[0.08em] text-title" data-hub-pairing-code>
+                <div className="font-mono text-display font-semibold text-title" data-hub-pairing-code>
                   {pairing.code}
                 </div>
                 <p className="text-ui text-tertiary">{t('shell.env.pairHow')}</p>
@@ -394,7 +394,7 @@ function ApproveDeviceDialog({ hub, onClose }: { hub: string | null; onClose: ()
                 autoFocus
                 autoComplete="off"
                 spellCheck={false}
-                className="font-mono text-heading uppercase tracking-[0.08em]"
+                className="font-mono text-heading"
                 placeholder="BCDF-GHJK"
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
@@ -465,7 +465,7 @@ function DevicesDialog({ hub, onClose }: { hub: string | null; onClose: () => vo
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-ui text-primary">
                   <span className="truncate">{d.label}</span>
-                  {d.current && <span className="shrink-0 rounded-full border border-brand-400/40 px-1.5 text-caption text-brand-300">{t('shell.env.thisApp')}</span>}
+                  {d.current && <span className="shrink-0 rounded-full px-1.5 text-caption text-brand-300 bg-surface-raised">{t('shell.env.thisApp')}</span>}
                 </div>
                 <div className="truncate text-caption text-subtle">
                   {t('shell.env.deviceSeen', { connected: timeAgo(d.createdAt), seen: d.lastSeenAt ? timeAgo(d.lastSeenAt) : t('shell.env.never') })}

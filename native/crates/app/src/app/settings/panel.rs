@@ -201,7 +201,7 @@ impl AppView {
             .gap(px(6.))
             .border_b_1()
             .border_color(theme::line_faint())
-            .text_size(px(12.))
+            .text_size(theme::text::CAPTION)
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::secondary())
             .child(
@@ -438,7 +438,7 @@ impl AppView {
                 div().px_5().pt_3().pb_5().child(
                     div()
                         .size_10()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .overflow_hidden()
                         .flex()
                         .items_center()
@@ -531,7 +531,7 @@ impl AppView {
                                         .gap(px(6.))
                                         .px_1()
                                         .rounded_md()
-                                        .text_size(px(13.))
+                                        .text_size(theme::text::UI)
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(theme::primary())
                                         .cursor_pointer()

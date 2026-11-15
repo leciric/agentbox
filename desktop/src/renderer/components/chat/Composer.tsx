@@ -21,6 +21,7 @@ import {
   Moon,
   PencilLine,
   PencilRuler,
+  Mic,
   Paperclip,
   Play,
   Plug,
@@ -44,7 +45,8 @@ import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, requestSessionFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, draftAttachmentsLoaded, getDraft, getDraftAttachments, setDraft, setDraftAttachments } from '../../lib/drafts';
-import { formatTime, t as translate, useT } from '../../lib/i18n';
+import { formatTime, t as translate, useLanguage, useT } from '../../lib/i18n';
+import { useDictation } from '../../lib/useDictation';
 import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
 import { useReviewCardShown } from '../v2/ReviewV2';
@@ -102,6 +104,18 @@ export function Composer({
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const pendingCursor = useRef<number | null>(null);
+  // Speak to type, on the phone only: the speech lands in the text as it is
+  // heard, at the cursor, and is never sent by itself.
+  const dictation = useDictation({
+    language: useLanguage(),
+    current: () => ({ text: area.current?.value ?? '', start: area.current?.selectionStart ?? 0, end: area.current?.selectionEnd ?? 0 }),
+    onText: (next, at) => {
+      pendingCursor.current = at;
+      setText(next);
+    },
+    onRefused: () => toast.error(t('chat.composer.micDenied')),
+    onNoMic: () => toast.error(t('chat.composer.micMissing')),
+  });
   const session = thread?.session;
   const busy = !!session?.turnStartedAt;
   const requests = thread ? pendingPermissions(thread) : [];
@@ -169,6 +183,7 @@ export function Composer({
   const send = (message: { text: string; images: Pending[] }, to?: { to: string }) => {
     const { images, files } = uploads(message.images, !session?.noImages);
     const text = withPicks(message.text, message.images.filter(isElement));
+    dictation.stop();
     setText('');
     setImages([]);
     onSent();
@@ -439,6 +454,7 @@ export function Composer({
     }
     if (cacheCard) {
       setHeld({ text: text.trim(), images });
+      dictation.stop();
       setText('');
       setImages([]);
       return;
@@ -609,6 +625,7 @@ export function Composer({
             }
             if (text.trim() === '' && images.length === 0) return null;
             const draft = { text: text.trim(), images };
+            dictation.stop();
             setText('');
             setImages([]);
             return draft;
@@ -690,21 +707,21 @@ export function Composer({
         }}
         onDrop={onDrop}
         className={cn(
-          'relative z-10 rounded-[22px] border border-line-strong bg-composer/85 shadow-[0_24px_60px_-28px_var(--ab-shadow-deep),inset_0_1px_0_rgb(255_255_255/0.04)] backdrop-blur-xl transition-colors focus-within:border-line-vivid focus-within:ring-2 focus-within:ring-brand-400/60',
+          'relative z-10 rounded-2xl border border-line bg-composer shadow-[0_8px_24px_-12px_var(--ab-shadow-soft)] transition-colors focus-within:border-line-vivid',
           dragging && 'border-brand-400/80 bg-brand-500/5',
         )}
       >
         {dragging && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-ui font-medium text-primary">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl text-ui font-medium text-primary">
             <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{t('chat.composer.drop')}</span>
           </div>
         )}
         {commands.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
             {commands.map((item, i) => (
               <Fragment key={item.kind === 'skill' ? `skill:${item.skill.name}` : item.command.name}>
                 {(i === 0 || commands[i - 1].kind !== item.kind) && commands.some((c) => c.kind === 'skill') && (
-                  <p className={cn('px-3 pb-1 text-caption font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
+                  <p className={cn('px-3 pb-1 text-caption font-medium text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
                     {item.kind === 'skill' ? t('chat.composer.skills') : t('chat.composer.commandsGroup')}
                   </p>
                 )}
@@ -731,15 +748,15 @@ export function Composer({
           </div>
         )}
         {dollarItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
-            <p className="px-3 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
+            <p className="px-3 pb-1 pt-1.5 text-caption font-medium text-faint">{t('chat.composer.skills')}</p>
             {dollarItems.map((skill, i) => (
               <SkillOption key={skill.name} skill={skill} active={i === dollarHighlighted} onPick={() => pickSkill(skill)} onHover={() => setDollarHighlighted(i)} />
             ))}
           </div>
         )}
         {mentionItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
             <p className="px-3 pb-1 pt-1.5 text-caption text-subtle" data-mention-hint>
               {t('chat.composer.mentionHint')}
             </p>
@@ -856,6 +873,27 @@ export function Composer({
               </button>
             </span>
           </Tip>
+          {dictation.support !== 'off' && dictation.support !== 'missing' && (
+            <Tip label={dictation.support === 'insecure' ? t('chat.composer.micInsecure') : dictation.listening ? t('chat.composer.micStop') : t('chat.composer.micTip')}>
+              {/* The span takes the tap a disabled button won't, since a phone has no hover for the tip. */}
+              <span className="shrink-0" onClick={() => dictation.support === 'insecure' && toast(t('chat.composer.micInsecure'))}>
+                <button
+                  type="button"
+                  aria-label={dictation.listening ? t('chat.composer.micStop') : t('chat.composer.mic')}
+                  aria-pressed={dictation.listening}
+                  disabled={disabled || dictation.support === 'insecure'}
+                  onClick={dictation.toggle}
+                  className={cn(
+                    'flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent',
+                    dictation.support === 'insecure' && 'pointer-events-none',
+                    dictation.listening && 'animate-pulse bg-brand-500 text-on-brand ring-4 ring-brand-500/30 hover:bg-brand-600 hover:text-on-brand',
+                  )}
+                >
+                  <Mic className="size-4" />
+                </button>
+              </span>
+            </Tip>
+          )}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
@@ -1476,7 +1514,7 @@ function OptionChoices({
           <span className="grid">
             <span className="flex items-center gap-1.5 text-amber-200">
               {missing}
-              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
+              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('chat.options.offMenu')}</span>
             </span>
             <span className="text-caption text-subtle">{t('chat.options.offMenuHint')}</span>
           </span>
@@ -1517,7 +1555,7 @@ function OptionChoices({
 // doesn't have to carry "(recommended)" everywhere it appears.
 function RecommendedBadge() {
   const t = useT();
-  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('chat.options.recommended')}</span>;
+  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('chat.options.recommended')}</span>;
 }
 
 // ContextMeter shows how full the context window is, once that starts to matter:

@@ -1330,7 +1330,7 @@ impl Render for OfficeView {
                         .w(px(chat_width(w)))
                         .bg(theme::ink())
                         .border_l_1()
-                        .border_color(theme::line())
+                        .border_color(theme::line_faint())
                         .shadow_lg()
                         // The chat's own keys and clicks stay its own.
                         .occlude()
@@ -1343,7 +1343,7 @@ impl Render for OfficeView {
                                 .px_2()
                                 .justify_end()
                                 .border_b_1()
-                                .border_color(theme::line())
+                                .border_color(theme::line_faint())
                                 .child(
                                     tip(
                                         button("office-chat-close", crate::icons::of("✕")),
@@ -1380,7 +1380,7 @@ fn label_el(l: &Label) -> AnyElement {
             .items_center()
             .justify_center()
             .text_sm()
-            .font_weight(FontWeight::BOLD)
+            .font_weight(FontWeight::SEMIBOLD)
             .text_color(gpui::black())
             .child(l.text.clone())
             .into_any_element(),
@@ -1998,7 +1998,7 @@ impl OfficeView {
                     .mt_3()
                     .pt_3()
                     .border_t_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(h_flex().flex_wrap().gap_x_3().gap_y_1p5().children(
                         legend.into_iter().map(|(g, c, k)| {
                             h_flex()
@@ -2012,8 +2012,8 @@ impl OfficeView {
                                         .flex()
                                         .items_center()
                                         .justify_center()
-                                        .text_size(px(10.))
-                                        .font_weight(FontWeight::BOLD)
+                                        .text_size(theme::text::MICRO)
+                                        .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(gpui::black())
                                         .child(g),
                                 )

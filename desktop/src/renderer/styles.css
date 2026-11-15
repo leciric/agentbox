@@ -1,169 +1,48 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
-/* AgentBox's own look, and the only place its colours are written down.
-   Everything below reaches a colour through one of these, so the app can wear
-   another palette at runtime: when the daemon reports that this machine is
-   running an Omarchy theme, and the setting says to follow it, lib/theme.ts
-   sets these same properties on <html>, where an inline style wins over this
-   rule. Nothing else in the app knows a theme exists.
+/* AgentBox's look. Its values are in tokens.css, generated from
+   src/shared/design-tokens.json, which the native app's palette is generated
+   from too: change a colour, a size or a radius there, never here.
 
+   Everything below reaches a colour through one of those properties, so the
+   app can wear another palette at runtime: when the daemon reports that this
+   machine is running an Omarchy theme, and the setting says to follow it,
+   lib/theme.ts sets the same properties on <html>, where an inline style wins.
    Custom properties, rather than rewriting the @theme block, because Tailwind
    resolves @theme at build time: --color-brand-400 below is what every
-   bg-brand-400 in the app compiles to, and pointing it at a variable is what
-   makes the value changeable after the build.
+   bg-brand-400 compiles to, and pointing it at a variable is what makes the
+   value changeable after the build.
 
-   The same properties are what makes the app light or dark. :root is dark,
-   which is AgentBox's own look and its default; the block after it is light,
-   and applies when lib/theme.ts puts data-appearance="light" on <html>. That
-   is the one mechanism — there is no dark: variant anywhere in the app, and no
-   colour written as a zinc, slate or neutral utility. A component asks for the
-   role it wants (text-muted, bg-surface-raised, border-line) and gets the
-   value the current mode gives that role.
+   The same properties make the app light or dark. :root is dark, the default;
+   light applies when lib/theme.ts puts data-appearance="light" on <html>.
+   There is no dark: variant anywhere in the app, and no colour written as a
+   zinc, slate or neutral utility: a component asks for the role it wants
+   (text-muted, bg-surface-raised, border-line) and gets the mode's value.
 
-   Every role that is text is at least 4.5:1 against the window, the chat and
-   a raised surface in both modes (WCAG AA for body text), and keeps its place
-   in the order: title, primary, secondary, tertiary, muted, subtle, faint.
-   Ghost is the one exception, and is for what isn't read — a grip, a chevron,
-   a divider's dash. The brand's 100 to 400 and the status hues are text too:
-   the light block below darkens each to the same bar.
+   The direction is a quiet one, after macOS:
 
-   The brand's shades run 100 (the palest, for text on a brand tint) to 700
-   (a pressed brand button). 500 is the fill of a primary button, a hair deeper
-   than Tailwind's violet-500 so white on it reads 4.6:1 rather than 4.2:1, and
-   --ab-on-brand is the text on it, which lib/theme.ts turns dark under a
-   theme whose accent is pale. */
+   - The window (ink) is one neutral, and the conversation is the same colour:
+     content is not a card on a page. The chrome either side (rail) is a tint
+     of the window with the accent's wash showing faintly through it.
+   - Text runs title, primary, secondary, tertiary, muted, subtle, faint, each
+     at least 4.5:1 on the window, the chat and a raised surface in both modes.
+     Ghost is for what isn't read: a grip, a chevron, a divider's dash.
+   - Surfaces (faint to vivid) are tints of the opposite of the ink, for hover,
+     selection and controls. A selected row is a surface, not the accent.
+   - Lines (faint to heavy) are hairlines. Reach for line-faint between
+     regions and line around a control; a box is the exception.
+   - A panel is flat: one tint and a hairline, no gradient, and no shadow.
+     Only what floats casts one: shadow-pop under a menu or a popover,
+     shadow-modal under a dialog.
+   - The brand is the one accent: a primary button, a link, a focus ring.
+     500 is the button's fill (white on it reads 4.6:1); 100 to 400 are text.
+   - The status hues don't move with a theme, but light darkens each to stay
+     4.5:1 on white.
+   - Sunken, well, overlay, modal and scrim are depths: an input, a block of
+     code, a menu, a dialog and what dims behind it. The stage frames another
+     machine's screen and stays dark in both modes. */
 :root {
-  --ab-brand-100: #ede9fe;
-  --ab-brand-200: #ddd6fe;
-  --ab-brand-300: #c4b5fd;
-  --ab-brand-400: #a78bfa;
-  --ab-brand-500: #8455f0;
-  --ab-brand-600: #7c3aed;
-  --ab-brand-700: #6d28d9;
-  --ab-on-brand: #ffffff;
-  --ab-ink: #07070b;
-  /* The two washes across the top of the window, and the selection: an
-     accent's alpha forms, because a colour-mix of a runtime variable is the
-     only way to tint them with one. */
-  --ab-wash-near: rgb(139 92 246 / 0.13);
-  --ab-wash-far: rgb(56 189 248 / 0.07);
-  --ab-selection: rgb(139 92 246 / 0.35);
-  /* The brand's companion hues, which its gradients run through after the
-     accent: Tailwind's indigo-500, indigo-600 and sky-400 by default. A theme
-     gives one accent, so under a theme these become shades of it. */
-  --ab-brand-mid: #6366f1;
-  --ab-brand-deep: #4f46e5;
-  --ab-brand-far: #38bdf8;
-
-  /* Text, from the loudest to the quietest. Dark is Tailwind's zinc ramp read
-     downwards (50 to 400), then two greys of our own: the ramp's 500 and 600
-     were 4.2:1 and 2.6:1 on the window, and subtle and faint are the
-     timestamps, hints and placeholders, read all day. Now 6.2:1 and 5.3:1
-     (5.5:1 and 4.7:1 on a raised surface). Light reads the same ramp upwards,
-     so every role keeps its place in the order and only the direction of the
-     contrast changes. */
-  --ab-title: #fafafa;
-  --ab-primary: #f4f4f5;
-  --ab-secondary: #e4e4e7;
-  --ab-tertiary: #d4d4d8;
-  --ab-muted: #a1a1aa;
-  --ab-subtle: #8e8e97;
-  --ab-faint: #82828b;
-  --ab-ghost: #3f3f46;
-
-  /* Surfaces that sit on the window: a tint of the opposite of the ink, so a
-     panel lifts off the background in the dark and settles into it in the
-     light. Four steps, from the barest tint to a control that is clearly its
-     own thing. */
-  --ab-surface-faint: rgb(255 255 255 / 0.03);
-  --ab-surface: rgb(255 255 255 / 0.05);
-  --ab-surface-raised: rgb(255 255 255 / 0.065);
-  --ab-surface-strong: rgb(255 255 255 / 0.09);
-  --ab-surface-vivid: rgb(255 255 255 / 0.14);
-
-  /* Lines: borders, rings and dividers, in the same four steps plus a heavy
-     one for a control drawn over an image. Light needs more of them than dark
-     does — a 6% line reads on black and disappears on white — so these are
-     not the surface steps reused. */
-  --ab-line-faint: rgb(255 255 255 / 0.05);
-  --ab-line: rgb(255 255 255 / 0.065);
-  --ab-line-strong: rgb(255 255 255 / 0.1);
-  --ab-line-vivid: rgb(255 255 255 / 0.15);
-  --ab-line-heavy: rgb(255 255 255 / 0.25);
-
-  /* Layers that are not a tint of the ink but a depth against it: the chrome
-     down either side, a well an input or a block of code sits in, a deeper
-     well for a log, the menus and dialogs that float over everything, and the
-     scrim behind them. In the light these invert: a rail is lighter than the
-     page it is beside, not darker. */
-  --ab-rail: rgb(0 0 0 / 0.25);
-  --ab-sunken: rgb(0 0 0 / 0.3);
-  --ab-well: rgb(0 0 0 / 0.42);
-  --ab-overlay: rgb(24 24 27 / 0.95);
-  --ab-modal: rgb(9 9 11 / 0.95);
-  --ab-scrim: rgb(0 0 0 / 0.62);
-  --ab-gloss: rgb(255 255 255 / 0.25);
-  /* Three surfaces with a colour of their own rather than a tint of the ink,
-     because each is a room you sit inside rather than a card on a page: the
-     chat behind the conversation, the composer floating on it, and the stage a
-     terminal, a browser or an Android screen is framed in. */
-  --ab-chat: #09090d;
-  --ab-composer: #131318;
-  --ab-stage: #0a0a0f;
-  /* The banner on the composer's top edge, in its three tones. */
-  --ab-attached-warning: #1d1810;
-  --ab-attached-danger: #1f1014;
-  --ab-attached-neutral: #111116;
-  /* The .panel component: the gradient down a card and its edge. A panel at
-     rest casts nothing — it sits on the window, it doesn't float over it —
-     so this is a hairline of light along its top in the dark, and the
-     faintest contact shadow in the light, where a card on a pale window is
-     told apart by its edge rather than by its fill. What floats (menus,
-     dialogs) casts its own shadow, with --ab-shadow-deep. */
-  --ab-panel-top: rgb(255 255 255 / 0.035);
-  --ab-panel-bottom: rgb(255 255 255 / 0.015);
-  --ab-panel-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
-  /* What a thing that floats casts. Dark can afford near-black, because it is
-     already nearly black; light cannot, and a 90%-black drop shadow under a
-     menu on a white page is a bruise. Written as properties because these are
-     inside arbitrary shadow-[...] utilities, which have no colour of their
-     own to swap. */
-  --ab-shadow-deep: rgb(0 0 0 / 0.9);
-  --ab-shadow-soft: rgb(0 0 0 / 0.4);
-
-  /* A control painted the other way round from the window: the light button on
-     a dark app, and the dark one on a light app. */
-  --ab-inverted: #f4f4f5;
-  --ab-inverted-hover: #ffffff;
-  --ab-on-inverted: #18181b;
-  /* Text on a bright fill — an amber button, a brand one — which is the same
-     near-black whichever way round the window is. */
-  --ab-on-bright: #09090b;
-
-  /* The status hues. A status colour doesn't move with the theme (a running
-     agent is the same green under every wallpaper), but it does have to stay
-     legible, and a 300 that reads on black is invisible on white. So the light
-     mode below darkens each of these by about three steps of its ramp, and
-     every text-amber-300 in the app follows without being touched. */
-  --ab-emerald-200: #a7f3d0;
-  --ab-emerald-300: #6ee7b7;
-  --ab-emerald-400: #34d399;
-  --ab-amber-50: #fffbeb;
-  --ab-amber-100: #fef3c7;
-  --ab-amber-200: #fde68a;
-  --ab-amber-300: #fcd34d;
-  --ab-amber-400: #fbbf24;
-  --ab-rose-100: #ffe4e6;
-  --ab-rose-200: #fecdd3;
-  --ab-rose-300: #fda4af;
-  --ab-rose-400: #fb7185;
-  --ab-sky-50: #f0f9ff;
-  --ab-sky-200: #bae6fd;
-  --ab-sky-300: #7dd3fc;
-  --ab-sky-400: #38bdf8;
-  --ab-violet-300: #c4b5fd;
-  --ab-violet-400: #a78bfa;
-
   /* The terminal's palette, read by lib/terminals.ts rather than by a class:
      xterm.js is a canvas, and takes its colours as strings. */
   --ab-term-background: #0a0a0f;
@@ -180,99 +59,8 @@
   --ab-term-red: #fb7185;
 }
 
-/* Light. The app is the same app: every role keeps its meaning and only its
-   value changes, so a panel is still a step away from the window and muted
-   text is still quieter than primary. The window is near-white, surfaces are a
-   tint of near-black over it (a panel settles rather than lifts), and the rail,
-   the wells and the menus go the other way and become white. */
 :root[data-appearance="light"],
 [data-appearance-scope="light"] {
-  --ab-ink: #f4f4f6;
-  /* The brand as text on near-white: violet's 900 to 600, so text-brand-300
-     reads 6.5:1 here rather than 1.8:1. 500 stays the button's fill. */
-  --ab-brand-100: #4c1d95;
-  --ab-brand-200: #5b21b6;
-  --ab-brand-300: #6d28d9;
-  --ab-brand-400: #7c3aed;
-  --ab-brand-600: #6d28d9;
-  --ab-brand-700: #5b21b6;
-  --ab-wash-near: rgb(139 92 246 / 0.1);
-  --ab-wash-far: rgb(56 189 248 / 0.08);
-  --ab-selection: rgb(139 92 246 / 0.28);
-
-  --ab-title: #09090b;
-  --ab-primary: #18181b;
-  --ab-secondary: #27272a;
-  --ab-tertiary: #3f3f46;
-  --ab-muted: #52525b;
-  /* Subtle and faint are a step darker than the ramp: timestamps, hints,
-     placeholders and list headers are subtle or faint, and on near-white the
-     ramp's #71717a and #a1a1aa read too pale (4.4:1 and 2.3:1). These are
-     6.0:1 and 5.2:1 against the window. */
-  --ab-subtle: #5c5c65;
-  --ab-faint: #66666f;
-  --ab-ghost: #a1a1aa;
-
-  --ab-surface-faint: rgb(9 9 11 / 0.035);
-  --ab-surface: rgb(9 9 11 / 0.05);
-  --ab-surface-raised: rgb(9 9 11 / 0.07);
-  --ab-surface-strong: rgb(9 9 11 / 0.1);
-  --ab-surface-vivid: rgb(9 9 11 / 0.16);
-
-  --ab-line-faint: rgb(9 9 11 / 0.08);
-  --ab-line: rgb(9 9 11 / 0.11);
-  --ab-line-strong: rgb(9 9 11 / 0.16);
-  --ab-line-vivid: rgb(9 9 11 / 0.24);
-  --ab-line-heavy: rgb(9 9 11 / 0.38);
-
-  --ab-rail: rgb(255 255 255 / 0.58);
-  --ab-sunken: rgb(255 255 255 / 0.85);
-  --ab-well: rgb(255 255 255 / 0.7);
-  --ab-overlay: rgb(255 255 255 / 0.97);
-  --ab-modal: rgb(255 255 255 / 0.98);
-  --ab-scrim: rgb(9 9 11 / 0.4);
-  --ab-gloss: rgb(255 255 255 / 0.6);
-  --ab-chat: #fafafb;
-  --ab-composer: #ffffff;
-  /* The stage does not turn over: it frames another machine's screen — a
-     terminal, a browser, an Android emulator — and a pale mount around a dark
-     desktop is a worse frame than a dark one, in either mode. The terminal
-     inside it does turn over (--ab-term-* below). */
-  --ab-attached-warning: #fef6e7;
-  --ab-attached-danger: #fdeef0;
-  --ab-attached-neutral: #f4f4f6;
-  --ab-panel-top: rgb(255 255 255 / 0.85);
-  --ab-panel-bottom: rgb(255 255 255 / 0.6);
-  --ab-panel-shadow:
-    0 1px 0 rgb(255 255 255 / 0.9) inset,
-    0 1px 2px rgb(9 9 11 / 0.05);
-  --ab-shadow-deep: rgb(9 9 11 / 0.24);
-  --ab-shadow-soft: rgb(9 9 11 / 0.12);
-
-  --ab-inverted: #27272a;
-  --ab-inverted-hover: #18181b;
-  --ab-on-inverted: #fafafa;
-
-  /* Each at least 4.5:1 on the window: the 400s are text as well as dots. */
-  --ab-emerald-200: #065f46;
-  --ab-emerald-300: #047857;
-  --ab-emerald-400: #047857;
-  --ab-amber-50: #451a03;
-  --ab-amber-100: #78350f;
-  --ab-amber-200: #92400e;
-  --ab-amber-300: #b45309;
-  --ab-amber-400: #b45309;
-  --ab-rose-100: #881337;
-  --ab-rose-200: #9f1239;
-  --ab-rose-300: #be123c;
-  --ab-rose-400: #be123c;
-  --ab-sky-50: #082f49;
-  --ab-sky-200: #075985;
-  --ab-sky-300: #0369a1;
-  --ab-sky-400: #0369a1;
-  --ab-violet-300: #6d28d9;
-  --ab-violet-400: #7c3aed;
-
   --ab-term-background: #fbfbfd;
   --ab-term-foreground: #27272a;
   --ab-term-black: #d4d4d8;
@@ -394,7 +182,9 @@
 }
 
 @theme {
-  --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
+  /* The system's face where it is San Francisco, and Inter, the nearest to
+     it, everywhere else. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
 
   --color-brand-100: var(--ab-brand-100);
@@ -475,24 +265,21 @@
   --color-violet-300: var(--ab-violet-300);
   --color-violet-400: var(--ab-violet-400);
 
-  /* The type scale: five sizes, and nothing between them.
+  /* The type scale is tokens.css's: six sizes, and nothing between them.
 
-       text-caption  12px  labels, timestamps, badges, counts, kbd, metadata
+       text-micro    11px  metadata under a row, a count beside an icon
+       text-caption  12px  labels, timestamps, badges, counts, kbd
        text-ui       13px  dense controls: list rows, menus, tabs, small buttons
        text-body     14px  reading text, inputs, default buttons
        text-heading  16px  a panel's, a dialog's or a card's title
        text-display  20px  a page's title
 
-     None sets a line-height: each keeps what it sits in, like the text-[13px]
-     it replaces, and leading-* says otherwise. A label above a group is
-     text-caption font-medium text-muted, in sentence case — no uppercase, no
-     tracking. Tailwind's own text-xs/sm/base/xl are the same 12/14/16/20 and
-     still work; text-lg, text-2xl and any text-[Npx] are off the scale. */
-  --text-caption: 0.75rem;
-  --text-ui: 0.8125rem;
-  --text-body: 0.875rem;
-  --text-heading: 1rem;
-  --text-display: 1.25rem;
+     None sets a line-height: each keeps what it sits in, and leading-* says
+     otherwise. A label above a group is text-caption font-medium text-subtle,
+     in sentence case — no uppercase, no tracking. Two weights: medium for
+     what is a name or a control, semibold for a title. Tailwind's own
+     text-xs/sm/base/xl are the same 12/14/16/20; text-lg, text-2xl and any
+     text-[Npx] are off the scale. */
 
   --animate-fade-in: fade-in 160ms ease-out;
   --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -634,10 +421,10 @@
 }
 
 @layer components {
+  /* A panel at rest: one tint and a hairline. It casts nothing. */
   .panel {
     border: 1px solid var(--ab-line);
-    background: linear-gradient(180deg, var(--ab-panel-top), var(--ab-panel-bottom));
-    box-shadow: var(--ab-panel-shadow);
+    background: var(--ab-panel-top);
   }
 
   .brand-gradient {
@@ -1580,11 +1367,19 @@ html[data-blurred] .ab-monitor * {
 [data-session-color="lemon"] { --session: var(--ab-session-peach); }
 [data-session-color="lime"] { --session: var(--ab-session-mint); }
 
+/* A short rule under the tab's name, rather than a box around the tab. */
+.session-line,
+.session-line-quiet {
+  background-image: linear-gradient(var(--session-rule), var(--session-rule));
+  background-repeat: no-repeat;
+  background-position: 10px 100%;
+  background-size: calc(100% - 20px) 2px;
+}
 .session-line {
-  border-color: color-mix(in oklab, var(--session, transparent) var(--ab-session-line), transparent);
+  --session-rule: color-mix(in oklab, var(--session, transparent) var(--ab-session-line), transparent);
 }
 .session-line-quiet {
-  border-color: color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * 0.65), transparent);
+  --session-rule: color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * 0.65), transparent);
 }
 
 /* revealFeature's pulse on a feature's dot (components/FeatureDot.tsx), as

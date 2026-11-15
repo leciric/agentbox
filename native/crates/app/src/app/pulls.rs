@@ -477,7 +477,7 @@ pub(super) enum Tone {
 /// pill is Electron's Badge: a word in a ringed pill, tinted by its tone,
 /// with an icon before it when `icon` names one.
 pub(super) fn pill(text: impl Into<SharedString>, tone: Tone, icon: Option<&str>) -> Div {
-    let (bg, fg, ring) = match tone {
+    let (bg, fg, _ring) = match tone {
         Tone::Default => (theme::surface(), theme::tertiary(), theme::line_strong()),
         Tone::Success => (
             theme::emerald(400).opacity(0.1),
@@ -504,10 +504,8 @@ pub(super) fn pill(text: impl Into<SharedString>, tone: Tone, icon: Option<&str>
         .flex_none()
         .gap_1p5()
         .px_2()
-        .py(px(1.))
+        .py_0p5()
         .rounded_full()
-        .border_1()
-        .border_color(ring)
         .bg(bg)
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)
@@ -594,7 +592,7 @@ fn check_state(run: &PullCheck) -> (&'static str, Hsla, &'static str) {
 pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement {
     // PrChip's tone: its fill, text, ring and hover fill, and its icon.
     let hue = |h: Hsla, fg: Hsla, ring: f32| (h.opacity(0.1), fg, h.opacity(ring), h.opacity(0.2));
-    let ((bg, fg, ring, hover), icon) = match pr.state.as_str() {
+    let ((bg, fg, _ring, hover), icon) = match pr.state.as_str() {
         "merged" => (
             hue(theme::violet(400), theme::violet(300), 0.25),
             "git-merge",
@@ -653,8 +651,6 @@ pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement 
         .px_1p5()
         .rounded_full()
         .bg(bg)
-        .border_1()
-        .border_color(ring)
         .text_size(theme::text::CAPTION)
         .font_family(crate::theme::mono())
         .text_color(fg)
@@ -733,7 +729,7 @@ pub(super) fn notice(text: impl Into<SharedString>, color: Hsla) -> Div {
         .gap_2p5()
         .px(px(14.))
         .py(px(10.))
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(color.opacity(0.25))
         .bg(color.opacity(0.08))
@@ -787,17 +783,14 @@ pub(super) fn empty_state_with(icon: Option<&str>, title: String, body: String) 
                     el.child(
                         div()
                             .mb_2()
-                            .size(px(56.))
+                            .size(px(48.))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded(theme::radius::XXL)
-                            .border_1()
-                            .border_color(theme::line_strong())
-                            .bg(theme::overlay())
-                            .shadow(theme::glow(theme::brand(400), 1.2))
-                            .text_color(theme::brand(300))
-                            .child(crate::icons::ic(i).size(px(24.))),
+                            .rounded(theme::radius::XL)
+                            .bg(theme::surface_raised())
+                            .text_color(theme::muted())
+                            .child(crate::icons::ic(i).size(px(20.))),
                     )
                 })
                 .child(
@@ -1241,10 +1234,8 @@ impl AppView {
                     .pl_2()
                     .pr_1()
                     .rounded_full()
-                    .border_1()
-                    .border_color(c.opacity(0.45))
                     .bg(c.opacity(0.18))
-                    .text_size(px(11.))
+                    .text_size(theme::text::MICRO)
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(mix(c, theme::primary(), 0.4))
                     .when(!tip.is_empty(), |el| {
@@ -1291,7 +1282,7 @@ impl AppView {
                             } else {
                                 theme::line_strong()
                             })
-                            .text_size(px(11.))
+                            .text_size(theme::text::MICRO)
                             .text_color(if open {
                                 theme::primary()
                             } else {
@@ -1414,7 +1405,7 @@ impl AppView {
                                 .min_w_0()
                                 .child(
                                     div()
-                                        .text_size(px(12.5))
+                                        .text_size(theme::text::CAPTION)
                                         .text_color(theme::primary())
                                         .truncate()
                                         .child(l.name.clone()),
@@ -1422,7 +1413,7 @@ impl AppView {
                                 .when(!l.description.is_empty(), |el| {
                                     el.child(
                                         div()
-                                            .text_size(px(11.))
+                                            .text_size(theme::text::MICRO)
                                             .text_color(theme::subtle())
                                             .truncate()
                                             .child(l.description.clone()),
@@ -1436,7 +1427,7 @@ impl AppView {
             .id("label-picker")
             .mt_2()
             .w(px(288.))
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .bg(theme::overlay())
             .border_1()
             .border_color(theme::line_strong())
@@ -1459,7 +1450,7 @@ impl AppView {
                 div()
                     .p_2()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(Input::new(&self.pulls.search).small()),
             )
             .child(
@@ -1696,7 +1687,7 @@ impl AppView {
                     h_flex()
                         .gap_1p5()
                         .pr_1()
-                        .text_size(px(11.5))
+                        .text_size(theme::text::MICRO)
                         .text_color(theme::faint())
                         .when(refreshing, |el| el.child(crate::icons::spinner()))
                         .child(if refreshing {
@@ -2169,7 +2160,7 @@ impl AppView {
                                     )
                                     .child(
                                         v_flex()
-                                            .rounded_xl()
+                                            .rounded(theme::radius::XL)
                                             .border_1()
                                             .border_color(theme::line_faint())
                                             .overflow_hidden()
@@ -2186,7 +2177,7 @@ impl AppView {
                                                             el.border_t_1()
                                                                 .border_color(theme::line_faint())
                                                         })
-                                                        .text_size(px(12.5))
+                                                        .text_size(theme::text::CAPTION)
                                                         .child(
                                                             div()
                                                                 .flex_none()
@@ -2320,7 +2311,7 @@ impl AppView {
                     .flex_wrap()
                     .gap_x_2()
                     .gap_y_1p5()
-                    .text_size(px(12.5))
+                    .text_size(theme::text::CAPTION)
                     .text_color(theme::muted())
                     .child(state_badge(&pr.state, pr.draft))
                     .child(tv(
@@ -2375,11 +2366,9 @@ impl AppView {
                     .mt_1()
                     .self_start()
                     .gap(px(2.))
-                    .p_1()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::surface_faint())
+                    .p(px(2.))
+                    .rounded_lg()
+                    .bg(theme::surface())
                     .child(tab_el(
                         "pull-tab-description",
                         t("pulls.detail.tab.description"),
@@ -2401,7 +2390,7 @@ impl AppView {
                                     .px_1p5()
                                     .rounded_full()
                                     .bg(theme::surface_raised())
-                                    .text_size(px(11.))
+                                    .text_size(theme::text::MICRO)
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(theme::subtle())
                                     .child(n.to_string()),
@@ -2546,7 +2535,7 @@ impl AppView {
                 .px_1p5()
                 .rounded_full()
                 .bg(theme::surface_strong())
-                .text_size(px(10.5))
+                .text_size(theme::text::MICRO)
                 .line_height(px(15.75))
                 .text_color(theme::subtle())
                 .child(n)
@@ -2647,7 +2636,7 @@ impl AppView {
                                 .px_1p5()
                                 .rounded_full()
                                 .bg(theme::brand(500).opacity(0.15))
-                                .text_size(px(10.5))
+                                .text_size(theme::text::MICRO)
                                 .line_height(px(15.75))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(if theme::look() == theme::Look::Light {

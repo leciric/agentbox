@@ -157,7 +157,7 @@ impl AppView {
                             .text_center()
                             .text_size(theme::text::CAPTION)
                             .text_color(theme::faint())
-                            .child(t(&format!("notify.channel.{c}")).to_uppercase())
+                            .child(t(&format!("notify.channel.{c}")))
                     }),
                 );
                 let rows = prefs::NOTIFY_KINDS.iter().map(|k| {

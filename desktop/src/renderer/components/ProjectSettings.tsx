@@ -7,11 +7,14 @@ import { AgentModelAuto } from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
+import { drop } from '../lib/sidebar';
+import { useSections } from '../lib/useSections';
 import { formatTokens } from '../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage } from '../lib/utils';
 import { ModelByName } from './ModelByName';
 import { aiLabel } from './state';
+import { FolderIcon } from './v2/SidebarSections';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -49,6 +52,15 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           keywords: t('defaults.project.nameKeywords'),
           // Keyed on the saved name, so a save (or another client's) starts the draft over.
           render: () => <ProjectNameField key={name} project={project} />,
+        },
+        {
+          id: 'folder',
+          description: t('defaults.project.folderHelp'),
+          essential: true,
+          label: t('defaults.project.folder'),
+          keywords: t('defaults.project.folderKeywords'),
+          modified: project.section !== '',
+          render: () => <FolderPicker project={project} />,
         },
       ],
     },
@@ -369,6 +381,42 @@ export function ProjectSettings({ project }: { project: T.Project }) {
   );
 }
 
+// FolderPicker is which sidebar folder (a section, D79) holds the project, the
+// same move as dragging it there: it goes to the end of that folder, or of the
+// projects in none.
+function FolderPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const sec = useSections();
+  const folders = sec.sections.data ?? [];
+  const current = folders.find((f) => f.id === project.section);
+  return (
+    <SettingRow
+      label={t('defaults.project.folder')}
+      description={t('defaults.project.folderHelp')}
+      control={
+        <Select
+          id="project-folder"
+          aria-label={t('defaults.project.folder')}
+          value={current ? current.id : ''}
+          disabled={!sec.sections.data}
+          onChange={(id) => sec.apply(drop(sec.lists, { kind: 'project', name: project.name }, { kind: 'list', section: id || null }), project.name)}
+          data-project-folder
+        >
+          <SelectOption value="">{t('defaults.project.folderNone')}</SelectOption>
+          {folders.map((f) => (
+            <SelectOption key={f.id} value={f.id}>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderIcon color={f.color} className="size-3.5" />
+                <span className="truncate">{f.name}</span>
+              </span>
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
 // The permission modes a project can start its agents on, by kind: the one
 // name every tool's menu shares (state.ModeKinds).
 const modeKinds = ['standard', 'auto_review', 'full_access', 'plan'] as const;
@@ -679,7 +727,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
                     <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
@@ -700,7 +748,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
                       {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}

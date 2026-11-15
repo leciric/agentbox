@@ -22,6 +22,10 @@ type Process struct {
 	Wait func() error
 	// Stderr returns the end of what the process wrote to stderr.
 	Stderr func() string
+	// Killed, when set, says what killed the process once it has exited,
+	// when it wasn't its own doing ("killed: out of memory, …"); "" when
+	// nothing did. A turn it ends fails with that rather than a closed pipe.
+	Killed func() string
 
 	// Set for an adapter running somewhere the agent's paths don't reach —
 	// the Home chat's on the user's computer (package homehost): its sessions
@@ -216,3 +220,45 @@ func StartRemote(stdin io.WriteCloser, stdout io.ReadCloser, r Remote, stderr io
 		Stderr: stderr.(*tail).String,
 	}
 }
+
+// killedWait is how long a turn whose output closed waits for its adapter
+// to exit, to say what killed it.
+const killedWait = 3 * time.Second
+
+// killedWhy is what killed proc (Process.Killed), once it has exited; "" when
+// nothing did, or it hasn't exited within killedWait.
+func killedWhy(proc *Process) string {
+	if proc == nil || proc.Killed == nil {
+		return ""
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = proc.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(killedWait):
+		return ""
+	}
+	return proc.Killed()
+}
+
+// killedTurn is the error a turn fails with when its adapter's output closed
+// under it (err): "<tool> was killed: out of memory, …" when something killed
+// it, which is still acp.ErrClosed to errors.Is; err otherwise.
+func killedTurn(proc *Process, tool string, err error) error {
+	why := killedWhy(proc)
+	if why == "" {
+		return err
+	}
+	return &killedError{msg: tool + " was " + why, err: err}
+}
+
+type killedError struct {
+	msg string
+	err error
+}
+
+func (e *killedError) Error() string { return e.msg }
+func (e *killedError) Unwrap() error { return e.err }

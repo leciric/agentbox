@@ -29,7 +29,7 @@ export function Card({
     <section className={cn('panel rounded-2xl', className)}>
       <header className="flex items-center gap-3 px-5 pb-1 pt-4">
         {Icon && (
-          <span className="flex size-7 items-center justify-center rounded-lg bg-surface text-muted ring-1 ring-inset ring-line">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-surface text-muted">
             <Icon className="size-4" />
           </span>
         )}
@@ -71,7 +71,7 @@ export function Notice({ tone = 'danger', children, className }: { tone?: keyof 
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded-md border border-line-strong bg-surface-raised px-1.5 py-px font-mono text-caption text-tertiary shadow-[inset_0_-1px_0_rgb(255_255_255/0.06)]">
+    <kbd className="rounded-md border border-line-strong bg-surface-raised px-1.5 py-px font-mono text-caption text-tertiary">
       {children}
     </kbd>
   );
@@ -86,9 +86,8 @@ export function EmptyState({ icon: Icon, title, children, action }: { icon: Icon
     <div className="flex h-full items-center justify-center p-8">
       <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
         <div className="relative mb-2">
-          <div className="brand-gradient absolute inset-0 rounded-2xl opacity-30 blur-xl" />
-          <div className="relative flex size-14 items-center justify-center rounded-2xl border border-line-strong bg-overlay">
-            <Icon className="size-6 text-brand-300" />
+          <div className="relative flex size-12 items-center justify-center rounded-xl bg-surface-raised">
+            <Icon className="size-5 text-muted" />
           </div>
         </div>
         <h2 className="text-heading font-semibold text-title">{title}</h2>

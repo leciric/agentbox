@@ -92,7 +92,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
               onClick={() => setChosen(d.driver)}
               className={cn(
                 'grid gap-1 rounded-xl border border-line bg-surface-faint px-3 py-2.5 text-left transition hover:border-line-vivid hover:bg-surface disabled:opacity-60',
-                chosen === d.driver && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+                chosen === d.driver && 'border-brand-400/50 bg-brand-500/10',
               )}
             >
               <span className="flex flex-wrap items-center gap-2 text-ui font-medium text-primary">

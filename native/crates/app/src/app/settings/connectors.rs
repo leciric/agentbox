@@ -626,7 +626,7 @@ impl AppView {
                 .gap_1p5()
                 .px_3()
                 .py_2p5()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(if on {
                     theme::brand(400).opacity(0.6)
@@ -921,7 +921,7 @@ impl AppView {
             .gap_1p5()
             .px_3()
             .py_2p5()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line_faint())
             .bg(theme::surface_faint())

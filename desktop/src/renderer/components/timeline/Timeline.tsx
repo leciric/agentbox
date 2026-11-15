@@ -314,7 +314,7 @@ function Scrubber({ track, x, onX, tall, labels }: { track: Track; x: number; on
           <span className="absolute -left-1 -top-1 size-2.5 rounded-full bg-title" />
         </div>
         {hovered && hover !== null && (
-          <div className="pointer-events-none absolute bottom-full z-20 mb-1.5 max-w-[240px] -translate-x-1/2 truncate rounded-md border border-line bg-overlay px-2 py-1 text-caption text-secondary shadow-md" style={{ left: `clamp(60px, ${pct(hover)}, calc(100% - 60px))` }}>
+          <div className="pointer-events-none absolute bottom-full z-20 mb-1.5 max-w-[240px] -translate-x-1/2 truncate rounded-md border border-line bg-overlay px-2 py-1 text-caption text-secondary shadow-pop" style={{ left: `clamp(60px, ${pct(hover)}, calc(100% - 60px))` }}>
             {clockTime(clockAt(track, hover))} · {title(hovered.step)}
           </div>
         )}

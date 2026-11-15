@@ -213,7 +213,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
       <button
         type="button"
         onClick={open}
-        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-caption font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+        className="shrink-0 rounded-full bg-surface px-1.5 py-px text-caption font-medium tabular-nums text-secondary transition hover:bg-surface-strong hover:text-title"
         data-v2-review-button={project}
       >
         {t('v2.review.toReview', { count })}

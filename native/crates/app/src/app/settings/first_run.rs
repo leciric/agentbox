@@ -383,7 +383,7 @@ impl AppView {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(10.))
+                                .text_size(theme::text::MICRO)
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .map(|el| {
                                     if done {
@@ -559,7 +559,7 @@ impl AppView {
                         .flex_1()
                         .gap_0p5()
                         .p_3p5()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .border_1()
                         .cursor_pointer()
                         .map(|el| {
@@ -653,7 +653,7 @@ impl AppView {
                 let rows = checks.iter().map(|c| {
                     v_flex()
                         .p_3()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .border_1()
                         .border_color(theme::line())
                         .bg(theme::ink())

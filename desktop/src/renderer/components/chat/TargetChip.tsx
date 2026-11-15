@@ -35,7 +35,7 @@ export function TargetChip({ targets, target, once, onChoose }: { targets: Targe
       key={agent?.name ?? ''}
       onSelect={() => onChoose(agent?.name)}
       className={cn(
-        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised',
+        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-ui text-secondary outline-none data-[highlighted]:bg-surface-raised',
         (agent?.name ?? undefined) === target && 'text-primary',
       )}
       data-target-option={agent?.name ?? 'lead'}
@@ -52,7 +52,7 @@ export function TargetChip({ targets, target, once, onChoose }: { targets: Targe
           <button
             type="button"
             className={cn(
-              'flex h-8 max-w-44 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] transition',
+              'flex h-8 max-w-44 shrink-0 items-center gap-1 rounded-full px-2.5 text-caption transition',
               target ? 'bg-brand-500/15 text-brand-200 ring-1 ring-brand-400/40 hover:bg-brand-500/25' : 'text-subtle hover:bg-surface-raised hover:text-primary',
               once && 'italic',
             )}
@@ -82,7 +82,7 @@ export function TargetChip({ targets, target, once, onChoose }: { targets: Targe
             {targets.others.map(item)}
           </>
         )}
-        <div className="border-t border-line px-2.5 pb-1 pt-2 text-[11px] leading-relaxed text-faint">{hint}</div>
+        <div className="border-t border-line-faint px-2.5 pb-1 pt-2 text-micro leading-relaxed text-faint">{hint}</div>
       </MenuContent>
     </Menu>
   );

@@ -294,7 +294,7 @@ impl TerminalView {
                 };
                 let mut f = base.clone();
                 if cell.flags.contains(Flags::BOLD) {
-                    f.weight = FontWeight::BOLD;
+                    f.weight = FontWeight::SEMIBOLD;
                 }
                 if cell.flags.contains(Flags::ITALIC) {
                     f.style = FontStyle::Italic;

@@ -47,7 +47,7 @@ export function FinishedCards({ item, latest }: { item: T.ChatItem; latest: Map<
         <button
           type="button"
           onClick={() => setShowMerged((v) => !v)}
-          className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title"
+          className="flex min-w-0 items-center gap-1.5 px-1 text-left text-caption text-subtle hover:text-title"
           data-finished-merged-toggle
         >
           <GitMerge className="size-3.5 shrink-0" />
@@ -222,7 +222,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-line p-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-t border-line-faint p-2.5">
         <div className="flex min-w-0 flex-1 gap-1.5">
           {shots.map((s) => (
             <button

@@ -1595,8 +1595,8 @@ function dragBridge(queryClient: QueryClient, delay: number): void {
   const inner = bridge.request;
   const createdAt = new Date().toISOString();
   let sections: T.Section[] = [
-    { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
-    { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
+    { id: 'work', name: 'Work', position: 1, collapsed: false, color: 'sky', description: 'Paid work', createdAt },
+    { id: 'side', name: 'Side projects', position: 2, collapsed: false, color: '', description: '', createdAt },
   ];
   const groups: [string, string[]][] = [
     ['work', [PROJECT, 'agentbox-landing', 'agentbox-hub']],
@@ -1756,7 +1756,7 @@ if (phoneMode === 'frame') {
             onClick={() => publishOne(queryClient)}
             data-dev-publish
             style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 60 }}
-            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-md hover:text-title"
+            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-pop hover:text-title"
           >
             Publish a page
           </button>

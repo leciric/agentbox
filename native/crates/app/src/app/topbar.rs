@@ -68,8 +68,6 @@ pub(super) fn chip(id: &'static str, color: Hsla) -> Stateful<Div> {
         .px_2p5()
         .py_0p5()
         .rounded_full()
-        .border_1()
-        .border_color(color.opacity(0.3))
         .bg(color.opacity(0.1))
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
@@ -268,7 +266,7 @@ impl AppView {
             .px(px(20.))
             .py_2()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             // Below lg (xl with the panel beside the page), the sidebar is a
             // drawer this opens (TopBar's data-open-nav: -ml-1 p-2, size-5).
             .when(!self.sidebar_docked(), |el| {
@@ -394,21 +392,19 @@ impl AppView {
     /// search_button is the palette's way in for the pointer (TopBar's
     /// SearchButton), its shortcut on it.
     fn search_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        // TopBar's SearchButton: py-1 pl-2.5 pr-1.5, its ring inset (here a
-        // border inside the padding).
+        // TopBar's SearchButton: py-1 pl-2.5 pr-1.5 on a soft fill, no ring.
         h_flex()
             .id("top-search")
             .flex_none()
             .gap_2()
             .rounded_full()
-            .py(px(3.))
-            .pl(px(9.))
-            .pr(px(5.))
-            .border_1()
-            .border_color(theme::line())
+            .py_1()
+            .pl_2p5()
+            .pr_1p5()
+            .bg(theme::surface_raised())
             .text_color(theme::muted())
             .cursor_pointer()
-            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_search(window, cx)))
             .child(crate::icons::ic("search").size(px(14.)))

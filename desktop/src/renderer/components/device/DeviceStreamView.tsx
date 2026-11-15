@@ -144,7 +144,7 @@ export const DeviceStreamView = forwardRef<DeviceStreamHandle, Props>(function D
     <div ref={box} className="absolute inset-0 flex items-center justify-center gap-2">
       <div
         className={cn(
-          'relative shrink-0 overflow-hidden rounded-[26px] bg-black shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] ring-1 ring-line-strong transition-[box-shadow]',
+          'relative shrink-0 overflow-hidden rounded-[26px] bg-black shadow-modal ring-1 ring-line-strong transition-[box-shadow]',
           control && playing && 'ring-2 ring-brand-400/60',
         )}
         style={{ width: size.width, height: size.height }}
@@ -181,7 +181,7 @@ export const DeviceStreamView = forwardRef<DeviceStreamHandle, Props>(function D
         )}
       </div>
       {buttons.length > 0 && (
-        <div className="flex shrink-0 flex-col gap-1 rounded-full border border-line bg-well p-1">
+        <div className="flex shrink-0 flex-col gap-1 rounded-full bg-well p-1">
           {buttons.map((button) => {
             const Icon = buttonIcons[button];
             return (

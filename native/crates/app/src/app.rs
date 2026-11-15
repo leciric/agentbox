@@ -40,6 +40,7 @@ mod settings;
 mod sidebar;
 mod sidebar_actions;
 mod sidebar_dialogs;
+mod stale;
 mod topbar;
 mod tour;
 mod usage;
@@ -74,6 +75,8 @@ pub struct AppView {
     connected: bool,
     /// The daemon's connection, and its start (connection.rs).
     conn: connection::Conn,
+    /// A daemon older than this app, and its restart (stale.rs).
+    stale: stale::StaleDaemon,
     /// The top bar's chips (topbar.rs).
     topbar: topbar::TopBar,
     /// The welcome tour and What's new (tour.rs).
@@ -195,6 +198,7 @@ impl AppView {
             error: None,
             connected: false,
             conn: Default::default(),
+            stale: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
             meters: Default::default(),
@@ -1023,12 +1027,19 @@ impl AppView {
                             .flex_1()
                             .min_h_0()
                             .when(!history, |el| el.mt(px(-1.)))
-                            .rounded_2xl()
-                            .border_1()
-                            .border_color(if home {
-                                gpui::transparent_black()
-                            } else {
-                                theme::line()
+                            // No box around the conversation: Home's has
+                            // nothing, a project's a hairline under its tabs.
+                            .when(home, |el| {
+                                el.rounded(theme::radius::XXL)
+                                    .border_1()
+                                    .border_color(gpui::transparent_black())
+                            })
+                            .when(!home, |el| {
+                                el.rounded_b(theme::radius::XXL)
+                                    .border_t_1()
+                                    .border_color(theme::line_faint())
+                                    .px(px(1.))
+                                    .pb(px(1.))
                             })
                             .overflow_hidden()
                             .when(!no_session && !history, |el| {
@@ -1104,11 +1115,9 @@ impl AppView {
                     .child(
                         h_flex()
                             .gap_0p5()
-                            .p_1()
-                            .rounded_xl()
-                            .border_1()
-                            .border_color(theme::line())
-                            .bg(theme::surface_faint())
+                            .p(px(2.))
+                            .rounded_lg()
+                            .bg(theme::surface())
                             .child(tab(0, "messages-square", t("project.view.tab.chat"), cx))
                             .child(tab(1, "activity", t("chat.home.tab.status"), cx))
                             .child(tab(2, "brain", t("chat.home.tab.memory"), cx)),
@@ -1391,6 +1400,10 @@ impl Render for AppView {
                                     .when(!self.connected && self.conn.answered, |el| {
                                         el.child(self.render_offline_notice())
                                     })
+                                    .when_some(
+                                        self.render_stale_notice(cx).filter(|_| self.connected),
+                                        |el, notice| el.child(notice),
+                                    )
                                     .when(
                                         !self.settings
                                             && self.work.is_none()

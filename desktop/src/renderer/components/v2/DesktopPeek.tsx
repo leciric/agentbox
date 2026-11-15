@@ -91,7 +91,7 @@ export function DesktopPeek({ agent, desk, className, caption = true }: { agent:
             {last.isPending ? t('common.loading') : t('desk.nothing')}
           </div>
         )}
-        {up && <span className="absolute left-1 top-1 rounded bg-rose-500/90 px-1 text-caption font-bold tracking-wider text-white">{t('panel.live')}</span>}
+        {up && <span className="absolute left-1 top-1 rounded bg-rose-500/90 px-1 text-caption font-semibold text-white">{t('panel.live')}</span>}
       </div>
       {caption && (
         <span className="flex min-w-0 items-center gap-1.5 text-caption text-secondary">

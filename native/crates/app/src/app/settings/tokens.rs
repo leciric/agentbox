@@ -251,17 +251,17 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .flex_basis(px(150.))
         .min_w_0()
         .p_3()
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(theme::line_faint())
         .bg(theme::surface_faint())
-        // Stat's label: text-caption uppercase tracking-wider (0.05em).
+        // Stat's label: text-caption text-subtle.
         .child(
             theme::tracked_words(
-                &label.to_uppercase(),
+                &label,
                 theme::text::CAPTION,
                 FontWeight::NORMAL,
-                0.6,
+                0.,
                 px(18.),
             )
             .text_color(theme::subtle()),
@@ -438,20 +438,18 @@ impl AppView {
         let tabs = h_flex().child(
             h_flex()
                 .gap(px(2.))
-                .p_1()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::surface_faint())
+                .p(px(2.))
+                .rounded_lg()
+                .bg(theme::surface())
                 .children(PERIODS.iter().map(|p| {
                     let on = *p == period;
                     let pick = pick.clone();
                     let p: &'static str = p;
                     h_flex()
                         .id(SharedString::from(format!("tokens-period-{p}")))
-                        .h_8()
+                        .h_7()
                         .px_3()
-                        .rounded_lg()
+                        .rounded_md()
                         .text_size(theme::text::UI)
                         .font_weight(FontWeight::MEDIUM)
                         .when(on, |el| {
@@ -737,7 +735,7 @@ impl AppView {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted())
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .child(div().flex_1().min_w_0().child(t("vm.tokens.when")))
                 .child(cell(t("vm.tokens.tokens"), 80., true, false))
                 .child(cell(t("vm.tokens.cacheRead"), 90., true, false))
@@ -779,7 +777,7 @@ impl AppView {
                         .id("tokens-table")
                         .max_h(px(288.))
                         .overflow_y_scroll()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .border_1()
                         .border_color(theme::line_faint())
                         .child(header)
@@ -1085,7 +1083,7 @@ impl AppView {
         )
         .child(
             v_flex()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line_faint())
                 .overflow_hidden()
@@ -1163,7 +1161,7 @@ impl AppView {
                             .py_1()
                             .gap_2()
                             .border_t_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_faint())
                             .text_color(theme::muted())
                             .child(div().w(px(72.)).flex_none().child(time_ago(&turn.at)))
                             .child(div().w(px(96.)).flex_none().child(kind_label(&turn.kind)))

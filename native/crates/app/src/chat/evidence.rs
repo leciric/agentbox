@@ -309,7 +309,7 @@ impl ChatView {
                 .px_3()
                 .pb_2()
                 .pt_8()
-                .text_size(px(12.))
+                .text_size(theme::text::CAPTION)
                 .line_height(px(18.))
                 .text_color(white())
                 .bg(linear_gradient(
@@ -408,7 +408,7 @@ impl ChatView {
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(12.))
+                            .text_size(theme::text::CAPTION)
                             .text_color(theme::subtle())
                             .child(tv("evidence.finished", &[("agent", name.into())])),
                     ),
@@ -451,7 +451,7 @@ impl ChatView {
                     h_flex()
                         .min_w_0()
                         .gap_1p5()
-                        .text_size(px(12.))
+                        .text_size(theme::text::CAPTION)
                         .text_color(theme::secondary())
                         .child(
                             crate::icons::ic("file-text")
@@ -467,7 +467,7 @@ impl ChatView {
                     .flex_wrap()
                     .gap_x(px(10.))
                     .gap_y_1()
-                    .text_size(px(12.))
+                    .text_size(theme::text::CAPTION)
                     .line_height(px(18.))
                     .text_color(theme::subtle())
                     .children(pr_line)
@@ -513,7 +513,7 @@ impl ChatView {
                     }),
             );
         v_flex()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line_strong())
             .bg(theme::surface())
@@ -531,7 +531,7 @@ impl ChatView {
                     .p_2p5()
                     .gap_2()
                     .border_t_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(
                         h_flex()
                             .flex_1()
@@ -567,7 +567,7 @@ impl ChatView {
                                         .rounded_md()
                                         .border_1()
                                         .border_color(theme::line())
-                                        .text_size(px(12.))
+                                        .text_size(theme::text::CAPTION)
                                         .text_color(theme::subtle())
                                         .cursor_pointer()
                                         .on_click(open.clone())

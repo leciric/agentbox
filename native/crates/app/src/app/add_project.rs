@@ -1019,7 +1019,7 @@ pub(super) fn form_modal(
                 card.w(px(580.))
                     .max_w(relative(0.94))
                     .max_h(relative(0.9))
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .bg(theme::card())
                     .border_1()
                     .border_color(theme::line())
@@ -1062,7 +1062,7 @@ pub(super) fn form_modal(
                             .py_4()
                             .gap_2()
                             .border_t_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_faint())
                             .children(left)
                             .child(div().flex_1())
                             .child(controls::button_at(

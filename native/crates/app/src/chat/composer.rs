@@ -1011,7 +1011,7 @@ impl ChatView {
                     .max_w(relative(0.85))
                     .px_3()
                     .py_2()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .bg(theme::surface_raised())
                     .border_1()
                     .border_color(theme::error().opacity(0.4))
@@ -1110,7 +1110,7 @@ impl ChatView {
                 .px(px(10.))
                 .gap_1()
                 .rounded(gpui_component::button::ButtonRounded::Size(px(999.)))
-                .text_size(px(12.))
+                .text_size(theme::text::CAPTION)
                 .text_color(if current.is_some() {
                     theme::brand(200)
                 } else {
@@ -1121,7 +1121,7 @@ impl ChatView {
                     h_flex()
                         .min_w_0()
                         .gap_1()
-                        .text_size(px(12.))
+                        .text_size(theme::text::CAPTION)
                         .line_height(px(18.))
                         .child(
                             div()
@@ -1500,7 +1500,7 @@ impl ChatView {
                 .gap_y(px(6.))
                 .px_3()
                 .py_2()
-                .rounded_t_xl()
+                .rounded_t(theme::radius::XL)
                 .border_1()
                 .border_b_0()
                 .border_color(theme::line_strong())
@@ -1536,7 +1536,7 @@ impl ChatView {
                                 h_flex()
                                     .flex_none()
                                     .gap_1()
-                                    .text_size(px(12.))
+                                    .text_size(theme::text::CAPTION)
                                     .text_color(theme::muted())
                                     .child(crate::icons::ic("moon").size(px(14.)))
                                     .child(tv("v2.card.asleep", &[("state", (&state).into())])),
@@ -1550,7 +1550,7 @@ impl ChatView {
                         .flex_wrap()
                         .gap_x(px(10.))
                         .gap_y_1()
-                        .text_size(px(12.))
+                        .text_size(theme::text::CAPTION)
                         .line_height(px(18.))
                         .text_color(theme::subtle())
                         .children(made.into_iter().map(|(icon, text)| {
@@ -1636,7 +1636,7 @@ impl ChatView {
                 .gap_2()
                 .px_3()
                 .py(px(6.))
-                .rounded_t_xl()
+                .rounded_t(theme::radius::XL)
                 .border_1()
                 .border_b_0()
                 .border_color(theme::line_strong())
@@ -1724,7 +1724,7 @@ impl ChatView {
                                     .px(px(10.))
                                     .rounded_md()
                                     .bg(theme::brand(500).opacity(0.9))
-                                    .text_size(px(12.))
+                                    .text_size(theme::text::CAPTION)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(white())
                                     .cursor_pointer()
@@ -1807,7 +1807,7 @@ impl ChatView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .text_size(px(12.))
+                            .text_size(theme::text::CAPTION)
                             .line_height(px(18.))
                             .child(
                                 crate::icons::ic("shield-alert")
@@ -1844,7 +1844,7 @@ impl ChatView {
                         el.child(
                             div()
                                 .mt_0p5()
-                                .text_size(px(12.))
+                                .text_size(theme::text::CAPTION)
                                 .text_color(theme::muted())
                                 .child(detail.clone()),
                         )
@@ -1857,7 +1857,7 @@ impl ChatView {
                                     .mt_1()
                                     .max_h(px(80.))
                                     .overflow_hidden()
-                                    .text_size(px(12.))
+                                    .text_size(theme::text::CAPTION)
                                     .font_family(theme::mono())
                                     .text_color(theme::muted())
                                     .child(detail.clone()),
@@ -2049,7 +2049,7 @@ impl ChatView {
             .id("tasks")
             .w_full()
             .gap_2()
-            .text_size(px(12.))
+            .text_size(theme::text::CAPTION)
             .line_height(px(18.))
             .cursor_pointer()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -2177,7 +2177,7 @@ impl ChatView {
                 .px_3()
                 .py_2p5()
                 .gap_2()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::surface_raised())
@@ -2220,7 +2220,7 @@ impl ChatView {
                 .px_3()
                 .py_2p5()
                 .gap_2()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::surface_raised())
@@ -2414,7 +2414,7 @@ impl ChatView {
                                     .gap_2()
                                     .px_2()
                                     .pr_3()
-                                    .rounded_xl()
+                                    .rounded(theme::radius::XL)
                                     .border_1()
                                     .border_color(theme::line())
                                     .bg(theme::card())
@@ -2511,12 +2511,12 @@ impl ChatView {
                     .child(
                         v_flex()
                             .id("composer")
-                            .rounded(px(22.))
+                            .rounded(theme::radius::XXL)
                             .border_1()
                             .border_color(if focused {
                                 theme::line_vivid()
                             } else {
-                                theme::line_strong()
+                                theme::line()
                             })
                             .bg(theme::composer())
                             .shadow(theme::shadow_composer(focused))

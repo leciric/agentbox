@@ -171,11 +171,11 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
         return (
           <section key={group} className="pt-1.5" data-list-group={group}>
             {folds ? (
-              <button type="button" aria-expanded={open} onClick={() => rail.setShowFinished(!open)} className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-[12px] text-muted hover:bg-surface hover:text-primary" data-list-group-toggle>
+              <button type="button" aria-expanded={open} onClick={() => rail.setShowFinished(!open)} className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-caption text-muted hover:bg-surface hover:text-primary" data-list-group-toggle>
                 {head}
               </button>
             ) : (
-              <h3 className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-[12px] font-normal text-muted">{head}</h3>
+              <h3 className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-caption font-normal text-muted">{head}</h3>
             )}
             {open && <div className="flex flex-col gap-px">{rows.map(row)}</div>}
           </section>
@@ -192,7 +192,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
         return (
           rows.length > 0 && (
             <div key={sn.id} className="pt-2" data-session-color={color} data-list-session={sn.id}>
-              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-medium text-secondary">
+              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-caption font-medium text-secondary">
                 <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--session)' }} />
                 <span className="min-w-0 truncate">{sn.topic}</span>
                 <SessionStatusMark session={sn} unread={sn.id !== shown?.id && isUnread(sn, seenSessions[sn.ref])} />
@@ -208,7 +208,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
         return (
           rows.length > 0 && (
             <div className="pt-2" data-list-session="">
-              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-medium text-secondary">
+              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-caption font-medium text-secondary">
                 <span className="min-w-0 truncate">{t('panel.session.other')}</span>
                 <span className="tabular-nums font-normal text-faint">{rows.reduce((n, g) => n + g.rows.length, 0)}</span>
               </div>
@@ -223,7 +223,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
         <button
           type="button"
           onClick={() => onSelect({ kind: 'work', project })}
-          className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] text-subtle transition hover:bg-surface hover:text-primary"
+          className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-caption text-subtle transition hover:bg-surface hover:text-primary"
           data-list-past
         >
           <Archive className="size-3.5 shrink-0" />
@@ -276,7 +276,7 @@ function SlotPreview({ children, preview }: { children: ReactNode; preview: Reac
     <TooltipPrimitive.Root delayDuration={350}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content side="left" align="start" sideOffset={14} collisionPadding={8} className="z-[60] w-[480px] max-w-[calc(100vw-16px)] animate-fade-in overflow-hidden rounded-lg border border-line-strong bg-terminal shadow-2xl" data-list-preview>
+        <TooltipPrimitive.Content side="left" align="start" sideOffset={14} collisionPadding={8} className="z-[60] w-[480px] max-w-[calc(100vw-16px)] animate-fade-in overflow-hidden rounded-lg border border-line-strong bg-terminal shadow-pop" data-list-preview>
           {preview}
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
@@ -350,7 +350,7 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
         {screen === 'desktop' ? <SlotPreview preview={<LiveDesktop agent={agent} />}>{monitor}</SlotPreview> : monitor}
         <span className="flex min-w-0 flex-1 flex-col self-stretch">
           <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
-            <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[12px]')}>{title}</span>
+            <span className={cn('min-w-0 flex-1 truncate text-ui font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-caption')}>{title}</span>
             <FrozenBadge agent={agent} />
             {agent.goal && (
               <span className="relative z-10 flex">
@@ -358,21 +358,21 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
               </span>
             )}
             {number && (
-              <span className="shrink-0 text-[12px] tabular-nums text-faint" data-list-number>
+              <span className="shrink-0 text-caption tabular-nums text-faint" data-list-number>
                 #{number}
               </span>
             )}
             {when && (
-              <span className="shrink-0 text-[12px] tabular-nums text-faint" title={timeAgo(when)}>
+              <span className="shrink-0 text-caption tabular-nums text-faint" title={timeAgo(when)}>
                 {shortAgo(t, when)}
               </span>
             )}
           </span>
-          <span className={cn('flex min-w-0 items-center gap-1 text-[12px] leading-4', now.tone === 'needs' ? stTone('needs') : now.tone === 'error' ? stTone('error') : stTone(st))} data-list-now>
+          <span className={cn('flex min-w-0 items-center gap-1 text-caption leading-4', now.tone === 'needs' ? stTone('needs') : now.tone === 'error' ? stTone('error') : stTone(st))} data-list-now>
             {st === 'needs' && awaitsApproval(agent) && <ShieldAlert className="size-3 shrink-0" />}
             <span className="min-w-0 truncate">{reason}</span>
           </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[11px] leading-4 text-faint empty:hidden" data-list-meta>
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-micro leading-4 text-faint empty:hidden" data-list-meta>
             {pr && (
               <span className="relative z-10 flex">
                 <PrChip pr={pr} dataAttr="data-list-pr" />

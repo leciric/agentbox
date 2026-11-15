@@ -200,8 +200,8 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
                 aria-checked={filter === f}
                 onClick={() => setFilter(f)}
                 className={cn(
-                  'rounded-[10px] px-3 py-1.5 text-ui font-medium transition-colors',
-                  filter === f ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-primary',
+                  'rounded-xl px-3 py-1.5 text-ui font-medium transition-colors',
+                  filter === f ? 'bg-surface-raised text-title' : 'text-subtle hover:text-primary',
                 )}
               >
                 {t(`skills.filter.${f}`)}
@@ -397,7 +397,7 @@ function SkillDialog({
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[86vh] max-w-6xl flex-col gap-0 overflow-hidden p-0" data-skill-dialog={name ?? 'new'}>
-        <div className="relative flex shrink-0 items-start gap-4 border-b border-line px-6 py-5 pr-14">
+        <div className="relative flex shrink-0 items-start gap-4 border-b border-line-faint px-6 py-5 pr-14">
           <div aria-hidden className="pointer-events-none absolute -left-10 -top-20 size-56 rounded-full blur-3xl" style={{ background: `hsl(${skillHue(name ?? (skillNameOf(newName) || 'new-skill'))} 80% 55% / 0.14)` }} />
           <SkillTile name={name ?? (skillNameOf(newName) || 'new-skill')} size="lg" dim={!creating && !on} />
           <div className="relative min-w-0 flex-1">
@@ -466,7 +466,7 @@ function SkillDialog({
             )}
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2">
               <div className="flex min-h-0 flex-col border-line-faint md:border-r">
-                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium uppercase tracking-wide text-faint">
+                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium text-faint">
                   <Code2 className="size-3.5" /> SKILL.md
                 </div>
                 <textarea
@@ -479,7 +479,7 @@ function SkillDialog({
                 />
               </div>
               <div className="hidden min-h-0 flex-col md:flex">
-                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium uppercase tracking-wide text-faint">
+                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium text-faint">
                   <Eye className="size-3.5" /> {t('skills.preview')}
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
@@ -487,7 +487,7 @@ function SkillDialog({
                 </div>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
+            <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-6 py-3">
               {save.error ? (
                 <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
                   <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(save.error)}</span>
@@ -508,7 +508,7 @@ function SkillDialog({
         ) : (
           <div className="flex min-h-0 flex-1">
             <nav aria-label={t('skills.filesLabel')} className="hidden w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line-faint bg-sunken/40 p-3 md:flex">
-              <p className="px-2 pb-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('skills.files', { count: detail.data?.files.length ?? 0 })}</p>
+              <p className="px-2 pb-1.5 text-caption font-medium text-faint">{t('skills.files', { count: detail.data?.files.length ?? 0 })}</p>
               {detail.data?.files.map((f) => (
                 <button
                   key={f.path}
@@ -588,7 +588,7 @@ function SkillPreview({ content }: { content: string }) {
     <div className="grid gap-5">
       {(description || rest.length > 0) && (
         <div className="rounded-2xl border border-line bg-surface p-4">
-          <p className="mb-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('skills.whenToUse')}</p>
+          <p className="mb-1.5 text-caption font-medium text-faint">{t('skills.whenToUse')}</p>
           <p className={cn('text-body leading-relaxed', description ? 'text-primary' : 'italic text-rose-300')}>{description || t('skills.noDescription')}</p>
           {rest.length > 0 && (
             <dl className="mt-3 flex flex-wrap gap-1.5">
@@ -721,7 +721,7 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
               const Icon = originIcons[origin] ?? Folder;
               return (
                 <section key={key} className="mb-5 last:mb-0">
-                  <h4 className="mb-2 flex items-center gap-2 text-caption font-medium uppercase tracking-wide text-faint">
+                  <h4 className="mb-2 flex items-center gap-2 text-caption font-medium text-faint">
                     <Icon className="size-3.5" /> {originLabel(origin, list[0].plugin)} <span className="tabular-nums">· {list.length}</span>
                   </h4>
                   <ul className="grid gap-1.5">
@@ -790,7 +790,7 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
             })}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
+        <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-6 py-3">
           {run.error ? (
             <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
               <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(run.error)}</span>

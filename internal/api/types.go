@@ -242,8 +242,15 @@ type Section struct {
 	Position int `json:"position"`
 	// Collapsed is whether the user folded it away. The daemon remembers it,
 	// so the sidebar looks the same from another machine.
-	Collapsed bool      `json:"collapsed"`
-	CreatedAt time.Time `json:"createdAt"`
+	Collapsed bool `json:"collapsed"`
+	// Color is the section's colour, by name: rose, sky, mint, lilac or
+	// peach, the palette of a chat session's colours. "" is none, which is
+	// what a section has until the user picks one.
+	Color string `json:"color"`
+	// Description is a line about the section, "" for none: the sidebar's
+	// tooltip for it, at most 200 characters.
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // AddSectionRequest makes an empty section at the end of the list.
@@ -251,11 +258,14 @@ type AddSectionRequest struct {
 	Name string `json:"name"`
 }
 
-// UpdateSectionRequest renames a section or folds it away; a nil field stays
-// as it is.
+// UpdateSectionRequest renames a section, folds it away, colours it or
+// describes it; a nil field stays as it is, and an empty Color or Description
+// takes it off.
 type UpdateSectionRequest struct {
-	Name      *string `json:"name,omitempty"`
-	Collapsed *bool   `json:"collapsed,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Collapsed   *bool   `json:"collapsed,omitempty"`
+	Color       *string `json:"color,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // ProjectLayout is the whole of how the projects are organised: the sections
@@ -2728,6 +2738,8 @@ const (
 // WorkPage is a page of GET /v1/work, newest first, after ?cursor=. Total is
 // how many the filter and the search keep; Counts is how many each filter
 // keeps under the search, by filter, "" being all.
+// With ?brief=1 an item is what a list's row shows: no Task, and of its
+// Report only the Status, whoever opens one reading the rest.
 type WorkPage struct {
 	Items  []WorkItem     `json:"items"`
 	Next   string         `json:"next,omitempty"`

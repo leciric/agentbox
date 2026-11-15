@@ -16,7 +16,7 @@ export function ContextMenuContent({ className, ...props }: ComponentProps<typeo
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         className={cn(
-          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur',
+          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur',
           className,
         )}
         {...props}
@@ -64,7 +64,7 @@ export function ContextMenuMore({ label, icon: Icon = Ellipsis, children }: { la
       <ContextMenuPrimitive.Portal>
         <ContextMenuPrimitive.SubContent
           sideOffset={4}
-          className="z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur"
+          className="z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur"
         >
           {children}
         </ContextMenuPrimitive.SubContent>

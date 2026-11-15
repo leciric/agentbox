@@ -358,7 +358,7 @@ export function ChatTab({
 
       {(win || !atEnd) && (
         <button
-          className="absolute left-1/2 z-20 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-caption text-tertiary shadow-lg backdrop-blur-xl transition hover:text-title"
+          className="absolute left-1/2 z-20 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-full bg-overlay px-3 py-1.5 text-caption text-tertiary shadow-pop backdrop-blur-xl transition hover:text-title"
           style={{ bottom: composerHeight + 18 }}
           onClick={scrollToEnd}
           data-chat-to-end={win ? 'latest' : 'end'}
@@ -373,7 +373,7 @@ export function ChatTab({
       <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 has-[[role=listbox]]:z-40 md:px-6 md:pb-5">
         <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
           {readOnly ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-lg backdrop-blur-xl" data-chat-read-only>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-pop backdrop-blur-xl" data-chat-read-only>
               {/* Delete is quiet and at the other end from Continue, so a
                   slip of the mouse doesn't lose an agent's history. */}
               <Button size="sm" variant="ghost" className="shrink-0 text-subtle hover:text-rose-300" onClick={readOnly.onDelete} data-past-delete>
@@ -400,6 +400,7 @@ export function ChatTab({
               {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
               <PageStack agent={agent} />
               <Composer
+                key={agent.ref}
                 agent={agent}
                 thread={thread.data}
                 disabled={!takesMessages(agent)}

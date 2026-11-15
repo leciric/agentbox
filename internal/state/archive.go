@@ -201,8 +201,9 @@ func (s *Store) ArchivedAgents(ctx context.Context, q ArchivedQuery) ([]Archived
 	case PRNone:
 		where = append(where, "pr_number = 0")
 	case PROpen, PRClosed, PRMerged:
-		where = append(where, "pr_number > 0 AND pr_state = ?")
-		args = append(args, q.PRState)
+		// Written out, not bound: one of three constants, and what lets the
+		// open ones be read from their own index (archived_agents_open_prs).
+		where = append(where, "pr_number > 0 AND pr_state = '"+q.PRState+"'")
 	default:
 		return nil, fmt.Errorf("a pull request's state is %s, %s, %s or %s, not %q", PROpen, PRMerged, PRClosed, PRNone, q.PRState)
 	}

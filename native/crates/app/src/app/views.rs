@@ -404,7 +404,7 @@ impl AppView {
             .px_2()
             .py_1p5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 div()
                     .id("browser-reload")
@@ -478,7 +478,7 @@ impl AppView {
                 .px_2()
                 .py_1()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .children(ports.iter().map(|p| {
                     let on = p.port == current;
                     let port = p.port.clone();
@@ -905,7 +905,7 @@ impl AppView {
             .px_3()
             .gap_1p5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 h_flex()
                     .min_w_0()
@@ -913,8 +913,6 @@ impl AppView {
                     .px_3()
                     .gap_2()
                     .rounded_full()
-                    .border_1()
-                    .border_color(theme::line())
                     .bg(theme::ink())
                     .text_xs()
                     .text_color(if booted {
@@ -1126,7 +1124,7 @@ impl AppView {
             .px_4()
             .gap_3()
             .border_t_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .text_xs()
             .text_color(theme::muted())
             // The image's name gives way last and is whole on hover; in a

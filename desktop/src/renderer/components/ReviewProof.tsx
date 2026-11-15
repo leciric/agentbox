@@ -440,7 +440,7 @@ function Thumb({ shown }: { shown: Shown }) {
         {(['before', 'after'] as const).map((side) => (
           <span key={side} className="relative block min-w-0 overflow-hidden bg-black">
             <Still item={shown.pair[side]} />
-            <span className="absolute bottom-1 left-1 rounded bg-black/75 px-1 text-[10px] font-medium leading-4 text-white">{t(side === 'before' ? 'review.compare.before' : 'review.compare.after')}</span>
+            <span className="absolute bottom-1 left-1 rounded bg-black/75 px-1 text-micro font-medium leading-4 text-white">{t(side === 'before' ? 'review.compare.before' : 'review.compare.after')}</span>
           </span>
         ))}
       </span>

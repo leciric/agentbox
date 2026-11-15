@@ -486,7 +486,7 @@ function createWindow(): void {
   win = new BrowserWindow({
     ...windowOptions(),
     title: 'AgentBox',
-    backgroundColor: '#07070b',
+    backgroundColor: '#0e0e10',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),

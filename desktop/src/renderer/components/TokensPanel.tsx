@@ -190,7 +190,7 @@ function Headline({ report }: { report: T.TokenReport }) {
 export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="min-w-0 rounded-xl border border-line-faint bg-surface-faint p-3">
-      <div className="text-caption uppercase tracking-wider text-subtle">{label}</div>
+      <div className="text-caption text-subtle">{label}</div>
       <div className="mt-1 text-xl font-semibold tracking-tight text-title">{value}</div>
       {hint && <div className="mt-0.5 line-clamp-2 text-caption leading-snug text-faint">{hint}</div>}
     </div>
@@ -272,7 +272,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
         <div className="max-h-72 overflow-auto rounded-xl border border-line-faint">
           <table className="w-full text-caption">
             <thead className="sticky top-0 bg-surface">
-              <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
+              <tr className="whitespace-nowrap border-b border-line-faint text-left text-caption text-subtle">
                 <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.when')}</th>
                 <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.tokens')}</th>
                 <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
@@ -377,7 +377,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
       <div className="overflow-x-auto rounded-xl border border-line-faint">
         <table className="w-full min-w-[38rem] text-caption">
           <thead>
-            <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
+            <tr className="whitespace-nowrap border-b border-line-faint text-left text-caption text-subtle">
               <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.agent')}</th>
               <th className="px-2 py-1.5 font-medium">{t('vm.tokens.tokens')}</th>
               <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
@@ -492,7 +492,7 @@ export function ModelBreakdown({ models }: { models: T.ModelTokens[] }) {
   const total = models.reduce((sum, m) => sum + m.total, 0);
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-caption font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.byModel')}</div>
+      <div className="mb-1.5 text-caption font-medium text-subtle">{t('vm.tokens.byModel')}</div>
       <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
         {models.map((m) => (
           <li key={m.model || 'unnamed'} className="min-w-0">
@@ -522,14 +522,14 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
   });
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-caption font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.lastTurns')}</div>
+      <div className="mb-1.5 text-caption font-medium text-subtle">{t('vm.tokens.lastTurns')}</div>
       {turns.error && <Notice>{errorMessage(turns.error)}</Notice>}
       {turns.data && turns.data.length === 0 && <p className="text-caption text-subtle">{t('vm.tokens.noneInStretch')}</p>}
       {turns.data && turns.data.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-line-faint bg-surface">
           <table className="w-full text-caption">
             <thead>
-              <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
+              <tr className="whitespace-nowrap border-b border-line-faint text-left text-caption text-subtle">
                 <th className="py-1 pl-2.5 pr-2 font-medium">{t('vm.tokens.when')}</th>
                 <th className="px-2 py-1 font-medium">{t('vm.tokens.kind')}</th>
                 <th className="px-2 py-1 font-medium">{t('vm.tokens.model')}</th>

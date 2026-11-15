@@ -96,8 +96,9 @@ pub(super) fn which(name: &str) -> Option<PathBuf> {
 
 /// agentbox_cli is the command-line tool to start the daemon with: on
 /// Windows the one the relay runs from (agentbox_api::relay::agentbox_bin,
-/// the Electron app's managed copy first), else the one on PATH or where the
-/// Electron app and the installers put it (find_cli).
+/// the managed copy first), else the managed copy this app and the Electron
+/// app keep current (cli.rs), else the one on PATH or where the installers
+/// put it (find_cli).
 fn agentbox_cli() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -110,6 +111,11 @@ fn agentbox_cli() -> Option<PathBuf> {
         if bin.is_file() {
             return Some(bin);
         }
+    }
+    if std::env::var_os("AGENTBOX_BIN").is_none_or(|b| b.is_empty())
+        && let Some(managed) = crate::cli::managed()
+    {
+        return Some(managed);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     find_cli(
@@ -478,10 +484,16 @@ impl AppView {
                     self.on_first_answer(window, cx);
                 }
                 self.connected = true;
+                // A daemon older than this app is restarted into its
+                // version, once it runs no jobs (stale.rs).
+                if let Some(daemon) = self.conn.version.clone() {
+                    self.stale_look(&daemon, cx);
+                }
             }
             Err(e) => {
                 self.connected = false;
                 self.conn.error = Some(e);
+                self.stale_down();
                 self.maybe_start_daemon(cx);
                 self.poll_start();
                 self.read_vm_status(cx);
@@ -541,6 +553,15 @@ impl AppView {
             }
         })
         .detach();
+    }
+
+    /// start_daemon_again starts the daemon once more, after the app stopped
+    /// a stale one itself (stale.rs).
+    pub(super) fn start_daemon_again(&mut self, cx: &mut Context<Self>) {
+        if self.conn.run.is_none() {
+            self.conn.tried = false;
+            self.maybe_start_daemon(cx);
+        }
     }
 
     /// poll_start takes what the start has said since the last look.

@@ -19,11 +19,11 @@ export function DialogContent({ className, children, onOpenAutoFocus, onCloseAut
   const focus = useFocusReturn({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim" />
       <DialogPrimitive.Content
         aria-describedby={undefined}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 grid max-h-[88vh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 animate-pop-in gap-5 overflow-y-auto rounded-2xl border border-line-strong bg-modal p-6 shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none',
+          'fixed left-1/2 top-1/2 z-50 grid max-h-[88vh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 animate-pop-in gap-5 overflow-y-auto rounded-2xl border border-line-strong bg-modal p-6 shadow-modal focus:outline-none',
           className,
         )}
         {...props}
@@ -51,7 +51,7 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
 export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('sticky -bottom-6 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-line bg-modal px-6 py-4', className)}
+      className={cn('sticky -bottom-6 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-line-faint bg-modal px-6 py-4', className)}
       {...props}
     />
   );

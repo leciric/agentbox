@@ -669,7 +669,15 @@ export function buildFixtures(): FixtureData {
   ];
 
   const sections: T.Section[] = [
-    { id: 's1', name: 'A section name that is also much too long for this narrow column of pixels', position: 0, collapsed: false, createdAt: new Date().toISOString() },
+    {
+      id: 's1',
+      name: 'A section name that is also much too long for this narrow column of pixels',
+      position: 0,
+      collapsed: false,
+      color: 'lilac',
+      description: 'A description written as one long unbroken line, https://example.com/a/very/long/path/that/never/breaks/anywhere/at/all, to test the tooltip and the menu',
+      createdAt: new Date().toISOString(),
+    },
   ];
 
   return { agents, events, questions, fleet, projects, sections };

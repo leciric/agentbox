@@ -2139,6 +2139,53 @@
     "height": 900
   },
   {
+    "id": "window-v2-sections-menu-dark",
+    "description": "sections with Work's menu open: its name and description on top, then Edit folder, Colour, Collapse and Delete — dark",
+    "query": "app=project&pins=storefront&sections=1&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-v2-section=work] [aria-haspopup=menu]"
+  },
+  {
+    "id": "window-v2-sections-menu-light",
+    "description": "the same menu — light",
+    "query": "app=project&pins=storefront&sections=1&theme=light",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-v2-section=work] [aria-haspopup=menu]"
+  },
+  {
+    "id": "window-v2-sections-colour-dark",
+    "description": "Work's menu with Colour open: no colour, then rose, sky (ticked), mint, lilac and peach — dark",
+    "query": "app=project&pins=storefront&sections=1&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": ["[data-v2-section=work] [aria-haspopup=menu]", "[data-v2-section-colour-menu]"]
+  },
+  {
+    "id": "window-v2-sections-edit-dark",
+    "description": "Work's Edit folder dialog: its name, its description and its colour — dark",
+    "query": "app=project&pins=storefront&sections=1&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": ["[data-v2-section=work] [aria-haspopup=menu]", "[data-v2-edit-section-item]"]
+  },
+  {
+    "id": "window-v2-sections-tooltip-light",
+    "description": "the pointer on Work's name: its description as the tooltip — light",
+    "query": "app=project&pins=storefront&sections=1&theme=light",
+    "width": 1280,
+    "height": 900,
+    "hover": "[data-v2-section=work] [data-v2-section-toggle]"
+  },
+  {
+    "id": "window-v2-sections-settings-dark",
+    "description": "sections with the project's Settings open in the panel: Folder, under its name, says Work — dark",
+    "query": "app=project&pins=storefront&sections=1&panel=settings&section=general&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "window-v2-sections-hidden-dark",
     "description": "sections with dotfiles (in Side projects) hidden: it shows under Hidden, not in its section — dark",
     "query": "app=project&sections=1&hidden=dotfiles&theme=dark",

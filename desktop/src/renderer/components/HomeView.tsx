@@ -91,8 +91,8 @@ export function HomeView({
             onClick={() => onSelect({ kind: 'settings' })}
           >
             <TriangleAlert className="size-4 text-amber-300" />
-            <span className="text-[13px] text-amber-50">{t('shell.home.setupPending')}</span>
-            <span className="ml-auto flex items-center gap-1 text-[13px] font-medium text-amber-200">
+            <span className="text-ui text-amber-50">{t('shell.home.setupPending')}</span>
+            <span className="ml-auto flex items-center gap-1 text-ui font-medium text-amber-200">
               {t('shell.home.openSettings')} <ArrowRight className="size-3.5" />
             </span>
           </button>
@@ -160,14 +160,14 @@ export function HomeView({
               </div>
             ))}
           {(jobs.data ?? []).slice(0, 6).map((job) => (
-            <div key={job.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
+            <div key={job.id} className="flex items-center gap-3 px-4 py-2.5 text-ui">
               <JobStatusBadge status={job.status} />
               <span className="text-secondary">{job.kind}</span>
               <span className="truncate text-subtle">{job.target}</span>
               <span className="ml-auto text-xs text-subtle">{timeAgo(job.createdAt)}</span>
             </div>
           ))}
-          {jobs.data?.length === 0 && <div className="px-4 py-6 text-center text-[13px] text-subtle">{t('shell.home.noJobs')}</div>}
+          {jobs.data?.length === 0 && <div className="px-4 py-6 text-center text-ui text-subtle">{t('shell.home.noJobs')}</div>}
         </Panel>
       </div>
     </div>
@@ -188,7 +188,7 @@ const pillDot: Record<StatusTone, string> = {
 
 function StatusPill({ item }: { item: { text: string; tone: StatusTone } }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary" data-status-pill={item.tone}>
+    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary" data-status-pill={item.tone}>
       <span className={cn('size-1.5 shrink-0 rounded-full', pillDot[item.tone])} />
       {item.text}
     </span>
@@ -273,7 +273,7 @@ function MoreButton({ count, label, ...props }: ComponentProps<'button'> & { cou
       type="button"
       aria-label={label}
       title={label}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary transition hover:bg-surface-raised"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary transition hover:bg-surface-raised"
       {...props}
     >
       +{formatNumber(count)}
@@ -315,13 +315,13 @@ function StallBanner({ usage, agents, onSelect, className }: { usage: T.Usage; a
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-rose-400/25 bg-rose-400/[0.07] px-4 py-3', className)} data-stall-banner>
       <TriangleAlert className="size-4 shrink-0 text-rose-300" />
-      <span className="min-w-0 flex-1 text-[13px] text-primary">
+      <span className="min-w-0 flex-1 text-ui text-primary">
         {t.rich('shell.home.stallBanner', { b: (c) => <span className="font-medium">{c}</span>, causes: formatList(causes) })}
       </span>
       {heaviest && heaviest.diskRead + heaviest.diskWrite > 0 && (
-        <button className="flex shrink-0 items-center gap-1 text-[13px] font-medium text-rose-200 transition hover:text-rose-100" onClick={() => onSelect({ kind: 'agent', ref: heaviest.ref })}>
+        <button className="flex shrink-0 items-center gap-1 text-ui font-medium text-rose-200 transition hover:text-rose-100" onClick={() => onSelect({ kind: 'agent', ref: heaviest.ref })}>
           <span className="max-w-72 truncate">{t('shell.home.busiest', { agent: heaviestAgent?.title || heaviest.ref })}</span>
-          <span className="font-mono text-[12px] tabular-nums">{humanRate(heaviest.diskRead + heaviest.diskWrite)}</span>
+          <span className="font-mono text-caption tabular-nums">{humanRate(heaviest.diskRead + heaviest.diskWrite)}</span>
           <ArrowRight className="size-3.5" />
         </button>
       )}
@@ -414,7 +414,7 @@ function Feature({ icon: Icon, title, children }: { icon: ComponentType<{ classN
         <Icon className="size-4" />
       </span>
       <div className="mt-3 text-sm font-semibold text-primary">{title}</div>
-      <p className="mt-1 text-[13px] leading-relaxed text-subtle">{children}</p>
+      <p className="mt-1 text-ui leading-relaxed text-subtle">{children}</p>
     </Panel>
   );
 }
