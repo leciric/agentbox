@@ -1,5 +1,5 @@
 // The order of UI v2's sidebar (components/v2/SidebarV2.tsx): the projects the
-// user pinned first, in the order they dragged them; then the rest by name,
+// user pinned first, in the order they dragged them; then the rest in the order the user dragged them (new ones last, by name),
 // which activity never reorders. With "Group idle projects and sort by
 // activity" on (groupIdle.ts), the rest with something going on come next,
 // most recent first, and at the bottom, folded, the Idle list of those with
@@ -28,6 +28,10 @@ export type OrderInput = {
   // Projects with an unsent draft in a lead's composer (lib/drafts.ts): they
   // count as active, so they stay out of the Idle list.
   drafts?: ReadonlySet<string>;
+  // The projects in no section, in the order the user dragged them (the
+  // daemon's ProjectLayout.Loose): with groupIdle off, the rest follow it,
+  // and a project not in it (a new one) goes at the end, by name.
+  manual?: readonly string[];
 };
 
 export type Ordered = { pinned: T.Project[]; rest: T.Project[]; idle: T.Project[] };
@@ -41,12 +45,19 @@ export const recentOf = (p: T.Project, activity: ReadonlyMap<string, T.ProjectAc
 // same. A pin overrides the order and keeps its place idle or not; a pin of a project
 // that's gone is skipped.
 export function orderProjects(input: OrderInput): Ordered {
-  const { projects, pins, activity, active, label, groupIdle, drafts } = input;
+  const { projects, pins, activity, active, label, groupIdle, drafts, manual } = input;
   const byName = new Map(projects.map((p) => [p.name, p]));
   const pinned = pins.flatMap((name) => byName.get(name) ?? []);
   const pinnedSet = new Set(pinned.map((p) => p.name));
   const byName2 = (a: T.Project, b: T.Project) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name);
-  if (!groupIdle) return { pinned, rest: projects.filter((p) => !pinnedSet.has(p.name)).sort(byName2), idle: [] };
+  if (!groupIdle) {
+    // Dragging the rest reorders them only here. With groupIdle on they sort
+    // by activity (below), which a manual order doesn't change: a drag
+    // within that list has no drop line and moves nothing.
+    const at = new Map((manual ?? []).map((name, i) => [name, i]));
+    const byManual = (a: T.Project, b: T.Project) => (at.get(a.name) ?? Infinity) - (at.get(b.name) ?? Infinity) || byName2(a, b);
+    return { pinned, rest: projects.filter((p) => !pinnedSet.has(p.name)).sort(byManual), idle: [] };
+  }
   const rest: T.Project[] = [];
   const idle: T.Project[] = [];
   for (const p of projects) {

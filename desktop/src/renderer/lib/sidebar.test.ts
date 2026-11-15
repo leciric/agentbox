@@ -322,3 +322,12 @@ test('stepTarget steps over the projects shown, and drop lands it among them all
   assert.equal(stepTarget(shown, 'y', 1), null);
   assert.equal(stepTarget([{ section: null, projects: [project('x')] }], 'x', -1), null);
 });
+
+test('stepTarget with a manual order steps among the projects in no section', () => {
+  const mk = (n: string) => ({ name: n }) as T.Project;
+  const shown: SidebarList[] = [{ section: null, projects: [mk('a'), mk('b'), mk('c')] }];
+  assert.deepEqual(stepTarget(shown, 'b', 1, true), { kind: 'project', name: 'c', edge: 'after' });
+  assert.deepEqual(stepTarget(shown, 'b', -1, true), { kind: 'project', name: 'a', edge: 'before' });
+  assert.equal(stepTarget(shown, 'c', 1, true), null);
+  assert.equal(stepTarget(shown, 'b', 1), null);
+});
