@@ -161,7 +161,7 @@ export function PageStack({ agent }: { agent: T.Agent }) {
             aria-label={t('pages.stack.dismiss')}
             data-stack-dismiss
             onClick={() => markSeen(unseen)}
-            className="pointer-events-auto absolute -right-2 -top-2 z-20 flex size-6 animate-fade-in items-center justify-center rounded-full border border-line-strong bg-overlay text-subtle shadow-md transition hover:text-primary"
+            className="pointer-events-auto absolute -right-2 -top-2 z-20 flex size-6 animate-fade-in items-center justify-center rounded-full border border-line-strong bg-overlay text-subtle shadow-pop transition hover:text-primary"
             style={{ top: -8 }}
           >
             <X className="size-3.5" />
@@ -208,7 +208,7 @@ function MoreList({
           className={cn(
             'pointer-events-auto absolute z-10 flex items-center justify-center rounded-full font-semibold tabular-nums transition-all duration-300',
             fanned
-              ? 'h-8 border border-line-strong bg-composer/90 px-3 text-caption text-secondary shadow-md backdrop-blur-xl hover:border-line-vivid hover:text-title'
+              ? 'h-8 border border-line-strong bg-composer/90 px-3 text-caption text-secondary shadow-pop backdrop-blur-xl hover:border-line-vivid hover:text-title'
               : 'h-[22px] min-w-[26px] bg-brand-500 px-1.5 text-caption text-white shadow',
           )}
           style={style}

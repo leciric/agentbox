@@ -159,9 +159,9 @@ export function SessionTabs({
                       if (e.key === 'Delete') onClose(s.id);
                     }}
                     className={cn(
-                      'flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-7 text-ui transition-colors',
-                      color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
-                      on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
+                      'mb-1.5 flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md pl-2.5 pr-7 text-ui transition-colors',
+                      color && (on ? 'session-line' : 'session-line-quiet'),
+                      on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface hover:text-secondary',
                       dragging === s.id && 'cursor-grabbing opacity-50',
                       gapBefore && 'shadow-[inset_2px_0_0_var(--color-brand-400)]',
                       gapAfter && 'shadow-[inset_-2px_0_0_var(--color-brand-400)]',
@@ -186,7 +186,7 @@ export function SessionTabs({
                       e.stopPropagation();
                       onClose(s.id);
                     }}
-                    className={cn('absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100')}
+                    className={cn('absolute right-1.5 top-1 flex size-5 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100')}
                   >
                     <X className="size-3" />
                   </button>

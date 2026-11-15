@@ -169,7 +169,7 @@ impl ChatView {
                 .px_4()
                 .py_1p5()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .bg(theme::card())
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                     if ev.keystroke.key == "escape" {

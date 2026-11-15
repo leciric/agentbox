@@ -83,11 +83,11 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
         <DialogPrimitive.Content
           {...focusReturn}
           aria-describedby={undefined}
-          className="fixed left-1/2 top-[18vh] z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none"
+          className="fixed left-1/2 top-[18vh] z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-modal focus:outline-none"
           data-new-task
         >
           <DialogPrimitive.Title className="sr-only">{t('v2.newTask.title')}</DialogPrimitive.Title>
-          <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
+          <div className="flex items-center gap-2.5 border-b border-line-faint px-4 py-3">
             <Search className="size-4 shrink-0 text-faint" />
             <input
               autoFocus
@@ -128,7 +128,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
             ))}
             {targets.length === 0 && <div className="px-3 py-4 text-ui text-subtle">{t('v2.newTask.none')}</div>}
           </div>
-          <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-caption text-faint">
+          <div className="flex items-center gap-3 border-t border-line-faint px-4 py-2 text-caption text-faint">
             <span>{t('v2.newTask.hintMove')}</span>
             <span>{t('v2.newTask.hintOpen')}</span>
             <span>{query ? t('v2.newTask.hintAltDigit') : t('v2.newTask.hintDigit')}</span>

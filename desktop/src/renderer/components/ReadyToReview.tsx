@@ -132,7 +132,7 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex min-w-0 items-baseline gap-2">
             <span className={cn('truncate text-ui font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
-            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-caption font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
+            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-caption font-medium leading-4 text-white">{t('review.new')}</span>}
             <span className="ml-auto shrink-0 text-caption text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
           </span>
           <span className="flex min-w-0 items-center gap-1.5 text-caption text-muted">
@@ -619,7 +619,7 @@ function ReviewCarousel({
           {/* Media, the diff or the details: one at a time, the one on screen
               underlined, so the way back to the media is always in sight (D
               and I go to theirs and back, as does Esc). */}
-          <div className="flex min-w-0 items-center gap-x-4 border-b border-line px-5 sm:pl-[3.25rem]" inert={help}>
+          <div className="flex min-w-0 items-center gap-x-4 border-b border-line-faint px-5 sm:pl-[3.25rem]" inert={help}>
             <div role="tablist" aria-label={t('review.panes')} className="flex min-w-0 items-center gap-x-5 overflow-x-auto [scrollbar-width:none]" data-review-panes>
               <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
                 <Images />
@@ -761,7 +761,7 @@ function ReviewCarousel({
           {/* The verdicts, Merge last and loudest. Narrow, they wrap rather
               than drop their labels: icons alone left Request changes and
               Merge to guess (UX test, finding 8). */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2.5" inert={help} data-review-actions>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line-faint bg-modal px-4 py-2.5" inert={help} data-review-actions>
             <Button size="sm" variant="ghost" className="max-md:hidden" onClick={() => setHelp(true)} aria-label={t('review.keys.title')} data-review-keys>
               <Keyboard />
               <Hint k="?" />
@@ -904,7 +904,7 @@ function ReportStrip({ report, inert, className }: { report: T.AgentReport; iner
   const [open, setOpen] = useState(false);
   const remaining = report.remainingIssues ?? [];
   return (
-    <section className={cn('grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5', className)} inert={inert} data-review-report={report.status}>
+    <section className={cn('grid min-w-0 gap-1.5 border-b border-line-faint bg-surface-faint px-5 py-2.5', className)} inert={inert} data-review-report={report.status}>
       <div className="flex min-w-0 items-start gap-2.5">
         <span className="mt-0.5 shrink-0 text-caption font-medium text-muted">{t('review.report')}</span>
         <OutcomeBadge outcome={report.status} />
@@ -1036,7 +1036,7 @@ function CaseRail({ item, report, inert }: { item: T.ReviewItem; report?: T.Agen
   const t = useT();
   const remaining = report?.remainingIssues ?? [];
   return (
-    <aside aria-label={t('review.case')} className="grid w-[340px] shrink-0 content-start gap-6 overflow-y-auto border-l border-line px-5 py-4 max-lg:hidden" inert={inert} data-review-case>
+    <aside aria-label={t('review.case')} className="grid w-[340px] shrink-0 content-start gap-6 overflow-y-auto border-l border-line-faint px-5 py-4 max-lg:hidden" inert={inert} data-review-case>
       <section className="min-w-0" data-review-summary>
         <h3 className="mb-1.5 text-caption font-medium text-muted">{t('review.summary')}</h3>
         {item.summary || report?.summary ? <Markdown text={item.summary || report?.summary || ''} className="text-body [overflow-wrap:anywhere]" /> : <p className="text-body text-subtle">{t('review.noSummary')}</p>}
@@ -1083,7 +1083,7 @@ function KeysHelp({ onClose }: { onClose: () => void }) {
   );
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6" onClick={onClose} data-review-keys-help>
-      <div role="dialog" aria-modal aria-labelledby="review-keys-title" className="grid w-full max-w-md gap-4 rounded-2xl border border-line-strong bg-modal p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal aria-labelledby="review-keys-title" className="grid w-full max-w-md gap-4 rounded-2xl border border-line-strong bg-modal p-5 shadow-pop" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <Keyboard className="size-4 text-subtle" />
           <h2 id="review-keys-title" className="flex-1 text-body font-semibold text-title">

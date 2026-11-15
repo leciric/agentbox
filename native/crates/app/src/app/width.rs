@@ -350,7 +350,7 @@ impl AppView {
                         .w(px(width))
                         .bg(theme::modal())
                         .border_l_1()
-                        .border_color(theme::line())
+                        .border_color(theme::line_faint())
                         .shadow(theme::shadow_drawer())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {

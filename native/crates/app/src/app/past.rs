@@ -271,7 +271,7 @@ impl AppView {
                 .py_2p5()
                 .gap_3()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .child(
                     v_flex()
                         .min_w_0()
@@ -431,7 +431,7 @@ impl AppView {
             .pr_1p5()
             .gap_1()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 super::panel::icon_button("past-back", "←", t("panel.back")).on_click(cx.listener(
                     |this, _: &ClickEvent, w, cx| {

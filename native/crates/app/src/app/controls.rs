@@ -101,8 +101,6 @@ fn segments(
         .p(px(2.))
         .gap(px(2.))
         .rounded_lg()
-        .border_1()
-        .border_color(theme::line())
         .bg(theme::surface())
         .children(options.into_iter().map(|(value, label)| {
             let on = current == Some(value.as_ref());
@@ -144,8 +142,8 @@ fn segments(
 }
 
 /// choices is Settings' radiogroup (SettingsView.tsx's Appearance, Language,
-/// update channel and pages-stack pickers): rounded-xl border-line bg-rail
-/// p-0.5, each choice h-8 rounded-[10px] px-3 text-ui font-medium with a
+/// update channel and pages-stack pickers): rounded-lg bg-surface
+/// p-0.5, each choice h-7 rounded-md px-3 text-ui font-medium with a
 /// 15px icon, the picked one on surface-strong.
 pub fn choices(
     id: &str,
@@ -160,19 +158,17 @@ pub fn choices(
                 .flex_wrap()
                 .w_auto()
                 .p(px(2.))
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::rail())
+                .rounded_lg()
+                .bg(theme::surface())
                 .children(options.into_iter().map(|(value, label, icon)| {
                     let on = current == Some(value.as_ref());
                     let pick = on_pick.clone();
                     h_flex()
                         .id(SharedString::from(format!("{id}-{value}")))
-                        .h_8()
+                        .h_7()
                         .gap(px(6.))
                         .px_3()
-                        .rounded(px(10.))
+                        .rounded_md()
                         .text_size(theme::text::UI)
                         .font_weight(FontWeight::MEDIUM)
                         .when(on, |el| {
@@ -649,7 +645,7 @@ pub fn chip_select(
         .items_center()
         .gap_1p5()
         .rounded_full()
-        .border_1()
+        .bg(theme::surface_raised())
         .px_2p5()
         .py_1()
         .text_size(theme::text::CAPTION)

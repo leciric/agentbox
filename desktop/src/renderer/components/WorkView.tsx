@@ -216,7 +216,7 @@ function WorkList({
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {/* Filters of one list, not tabs with panels of their own: a group of
             toggle buttons, the one on pressed. */}
-        <div role="group" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-ui" data-work-filters>
+        <div role="group" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg bg-surface p-0.5 text-ui" data-work-filters>
           {workFilters.map((f) => (
             <button
               key={f || 'all'}
@@ -272,7 +272,7 @@ function WorkList({
                   style={{ transform: `translateY(${line.start - virtual.options.scrollMargin}px)` }}
                 >
                   {row.kind === 'day' ? (
-                    <h2 className="border-b border-line-faint bg-surface-faint px-4 py-1.5 text-caption font-semibold uppercase tracking-wide text-subtle" data-work-day={row.day}>
+                    <h2 className="border-b border-line-faint bg-surface-faint px-4 py-1.5 text-caption font-medium text-subtle" data-work-day={row.day}>
                       {dayLabel(row.day, new Date(now), language, words)}
                     </h2>
                   ) : (

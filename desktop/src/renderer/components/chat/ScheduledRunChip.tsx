@@ -25,7 +25,7 @@ export function ScheduledRunChip({ item, project }: { item: T.ChatItem; project?
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span
           className={cn(
-            'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-caption font-medium',
+            'inline-flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-caption font-medium bg-surface-raised',
             run.late ? 'border-amber-500/30 bg-amber-500/[0.08] text-amber-200' : 'border-sky-500/30 bg-sky-500/[0.08] text-sky-200',
           )}
           data-scheduled-chip

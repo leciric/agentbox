@@ -577,7 +577,7 @@ impl AppView {
             .h_full()
             .bg(theme::rail())
             .border_r_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(self.sidebar_head(cx))
             .child(
                 div()
@@ -612,7 +612,7 @@ impl AppView {
                                     .child(
                                         div()
                                             .flex_1()
-                                            .text_size(px(13.))
+                                            .text_size(theme::text::UI)
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme::secondary())
                                             .child(t("v2.sidebar.newTask")),
@@ -854,7 +854,7 @@ impl AppView {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .text_size(px(13.))
+                                    .text_size(theme::text::UI)
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .text_color(theme::title())
@@ -873,7 +873,7 @@ impl AppView {
                     )
                     .child(
                         div()
-                            .text_size(px(11.5))
+                            .text_size(theme::text::MICRO)
                             .text_color(theme::subtle())
                             .truncate()
                             .child(line),
@@ -979,7 +979,7 @@ impl AppView {
                     .rounded_full()
                     .bg(theme::amber(400).opacity(0.15))
                     .text_color(theme::amber(300))
-                    .text_size(px(11.))
+                    .text_size(theme::text::MICRO)
                     .font_weight(FontWeight::MEDIUM)
                     .child(tv("v2.attention.needs", &[("count", needs.into())]))
                     .into_any_element(),
@@ -989,7 +989,7 @@ impl AppView {
                 div()
                     .ml_auto()
                     .flex_none()
-                    .text_size(px(11.))
+                    .text_size(theme::text::MICRO)
                     .text_color(theme::faint())
                     .child(w)
                     .into_any_element()
@@ -1091,7 +1091,7 @@ impl AppView {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .text_size(px(13.))
+                                    .text_size(theme::text::UI)
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .text_color(theme::title())
@@ -1133,7 +1133,7 @@ impl AppView {
                                 div()
                                     .min_w_0()
                                     .flex_1()
-                                    .text_size(px(11.5))
+                                    .text_size(theme::text::MICRO)
                                     .truncate()
                                     .text_color(if question.is_some() && needs > 0 {
                                         theme::secondary()
@@ -1226,8 +1226,6 @@ pub(super) fn review_chip(
         .px(px(6.))
         .py(px(1.))
         .rounded_full()
-        .border_1()
-        .border_color(theme::line_strong())
         .bg(theme::surface())
         .text_size(theme::text::CAPTION)
         .line_height(px(18.))

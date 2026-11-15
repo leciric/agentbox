@@ -67,7 +67,7 @@ function PageToast({ project, projectName, page, onOpen }: { project: string; pr
     <button
       onClick={onOpen}
       data-toast-page={page.id}
-      className="flex w-[356px] max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-line-strong bg-overlay p-2.5 text-left shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur transition hover:border-line-vivid"
+      className="flex w-[356px] max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-line-strong bg-overlay p-2.5 text-left shadow-pop backdrop-blur transition hover:border-line-vivid"
     >
       <PageThumb project={project} page={page} eager className="w-[88px] shrink-0 animate-page-drop rounded-lg ring-1 ring-black/10" />
       <span className="min-w-0 flex-1">

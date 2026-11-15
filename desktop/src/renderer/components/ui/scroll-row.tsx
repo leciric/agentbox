@@ -49,7 +49,7 @@ export function ScrollRow({ className, children, active, ...props }: ComponentPr
   }, [active]);
   const by = (sign: number) => row.current?.scrollBy({ left: sign * Math.max(120, (row.current?.clientWidth ?? 0) * 0.7), behavior: 'smooth' });
   const fade = edges.start && edges.end ? 'linear-gradient(to right, transparent, black 3rem, black calc(100% - 3rem), transparent)' : edges.start ? 'linear-gradient(to right, transparent, black 3rem)' : edges.end ? 'linear-gradient(to right, black calc(100% - 3rem), transparent)' : undefined;
-  const chevron = 'absolute top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-modal text-subtle shadow-sm transition hover:text-title';
+  const chevron = 'absolute top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-modal text-subtle transition hover:text-title';
   return (
     <div className="relative min-w-0" data-scroll-row={edges.start || edges.end ? [edges.start && 'start', edges.end && 'end'].filter(Boolean).join(' ') : undefined}>
       <nav ref={row} {...props} data-scrolls-sideways className={cn('overflow-x-auto [scrollbar-width:none]', className)} style={{ maskImage: fade, ...props.style }}>

@@ -119,7 +119,7 @@ export function palette(theme: T.Theme | undefined): Record<string, string> | nu
   // The shades text is set in run towards the text's own end — paler on a
   // dark window, deeper on a light one — and then as far again as legibility
   // needs. Styles.css's own window stands in when the theme gives none.
-  const behind = ground ?? (light ? ([0xf4, 0xf4, 0xf6] as Rgb) : ([0x07, 0x07, 0x0b] as Rgb));
+  const behind = ground ?? (light ? ([0xff, 0xff, 0xff] as Rgb) : ([0x0e, 0x0e, 0x10] as Rgb));
   const text = light ? black : white;
   const shade = (amount: number) => hex(readable(mix(accent, text, amount), behind, text));
 
@@ -135,8 +135,8 @@ export function palette(theme: T.Theme | undefined): Record<string, string> | nu
     // the near-black of a bright fill reads better.
     '--ab-on-brand': contrast(white, accent) >= 4.5 || contrast(white, accent) >= contrast(nearBlack, accent) ? '#ffffff' : hex(nearBlack),
     ...(ink ? { '--ab-ink': ink } : {}),
-    '--ab-wash-near': alpha(accent, light ? 0.12 : 0.16),
-    '--ab-wash-far': alpha(mix(accent, light ? black : white, 0.3), light ? 0.08 : 0.07),
+    '--ab-wash-near': alpha(accent, light ? 0.06 : 0.08),
+    '--ab-wash-far': alpha(mix(accent, light ? black : white, 0.3), light ? 0.04 : 0.035),
     '--ab-selection': alpha(accent, light ? 0.28 : 0.35),
     // The companion hues AgentBox's gradients run through — its wordmark, its
     // primary button, the tiles. A theme names one accent, and a gradient

@@ -83,12 +83,12 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line-faint px-3">
         {/* What the desktop has on it, not a way to drive it: a page is opened
             on the desktop itself, with Take control, like any other window. */}
         <span
           className={cn(
-            'flex h-8 min-w-0 max-w-[45%] shrink items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-ui',
+            'flex h-8 min-w-0 max-w-[45%] shrink items-center gap-2 rounded-full bg-well px-3 text-ui',
             browserUp ? 'text-secondary' : 'text-subtle',
           )}
           aria-label={t('agent.browser.browser')}
@@ -118,7 +118,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             <Tip label={t('agent.browser.recordTip')}>
               <MenuTrigger asChild>
                 <Button size="sm" disabled={!desktopUp || record.isPending}>
-                  {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
+                  {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500" />}
                   {t('agent.browser.record')}
                 </Button>
               </MenuTrigger>
@@ -228,7 +228,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         {pointer && connected && <div className={cn('pointer-events-none absolute inset-0 rounded-b-2xl ring-2 ring-inset', picker.picking ? 'ring-brand-400/80' : 'ring-brand-400/40')} />}
       </div>
 
-      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
+      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-faint px-4 text-xs text-subtle">
         {isRecording && (
           <span className="shrink-0 text-rose-300">
             {recording.data?.input === 'desktop' ? t('agent.browser.recordingInput') : t('agent.browser.recording')}

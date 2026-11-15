@@ -33,7 +33,7 @@ export function JobsView() {
               key={job.id}
               className={cn(
                 'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-ui transition hover:bg-surface',
-                job.id === selected && 'bg-surface-raised shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]',
+                job.id === selected && 'bg-surface-raised',
               )}
               onClick={() => setSelected(job.id)}
             >

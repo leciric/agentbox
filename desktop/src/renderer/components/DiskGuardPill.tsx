@@ -29,7 +29,7 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
         <button
           type="button"
           className={cn(
-            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition',
+            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition bg-surface-raised',
             full
               ? 'bg-rose-400/10 text-rose-200 ring-rose-400/30 hover:bg-rose-400/15'
               : 'bg-amber-400/10 text-amber-200 ring-amber-400/25 hover:bg-amber-400/15',
@@ -55,7 +55,7 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
               <span className="font-mono text-caption text-muted">{disk.data.paused.join(', ')}</span>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
+          <div className="flex items-center justify-between gap-3 border-t border-line-faint pt-2.5">
             <span className="text-caption text-faint">{t('shell.diskPill.nothingStopped')}</span>
             <button
               type="button"

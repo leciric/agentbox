@@ -1374,7 +1374,7 @@ impl ReviewView {
             .pr_5()
             .gap_5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 tab(
                     "proof",
@@ -1451,7 +1451,7 @@ impl ReviewView {
                 .py_2p5()
                 .gap_1p5()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .bg(theme::surface_faint())
                 .child(
                     h_flex()
@@ -1572,7 +1572,7 @@ impl ReviewView {
             .flex()
             .items_center()
             .justify_center()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line_strong())
             .bg(theme::pitch())
@@ -1595,7 +1595,7 @@ impl ReviewView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line_strong())
                 .bg(theme::pitch())
@@ -1832,7 +1832,7 @@ impl ReviewView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line_strong())
                 .bg(theme::pitch())
@@ -1960,7 +1960,7 @@ impl ReviewView {
                     .flex_1()
                     .min_h_0()
                     .relative()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .border_1()
                     .border_color(theme::line_strong())
                     .overflow_hidden()
@@ -2510,7 +2510,7 @@ impl ReviewView {
                         .gap_2()
                         .px_6()
                         .py(px(56.))
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .border_1()
                         .border_color(theme::line())
                         .bg(theme::surface_faint())
@@ -2634,7 +2634,7 @@ impl ReviewView {
                                 .gap_2()
                                 .px_4()
                                 .py_2()
-                                .rounded_xl()
+                                .rounded(theme::radius::XL)
                                 .border_1()
                                 .border_color(theme::line())
                                 .text_size(theme::text::UI)
@@ -2660,7 +2660,7 @@ impl ReviewView {
             .mb_3()
             .p_3()
             .gap_2()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line_strong())
             .bg(theme::well())
@@ -2740,7 +2740,7 @@ impl ReviewView {
                 .px_4()
                 .py_2()
                 .border_t_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .text_size(theme::text::CAPTION)
                 .child(div().flex_none().text_color(color).child(
                     crate::icons::ic(if failed { "triangle-alert" } else { "clock" }).size(px(14.)),
@@ -2817,7 +2817,7 @@ impl ReviewView {
             .px_4()
             .py_2p5()
             .border_t_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .bg(theme::modal())
             .map(|el| {
                 if !self.awaiting() {

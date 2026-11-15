@@ -13,7 +13,7 @@ export function MenuContent({ className, align = 'end', ...props }: ComponentPro
         align={align}
         sideOffset={6}
         className={cn(
-          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur',
+          'z-50 min-w-52 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur',
           className,
         )}
         {...props}
@@ -66,7 +66,7 @@ export function MenuSub({ icon: Icon, label, value, children, className, ...rest
       <MenuPrimitive.Portal>
         <MenuPrimitive.SubContent
           sideOffset={4}
-          className={cn('z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur', className)}
+          className={cn('z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur', className)}
         >
           {children}
         </MenuPrimitive.SubContent>

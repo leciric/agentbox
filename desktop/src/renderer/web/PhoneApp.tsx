@@ -380,13 +380,13 @@ function ChatSections({ chats, first, here, onOpen }: { chats: Chats; first?: st
     <>
       {urgent.length > 0 && (
         <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-needs-you>
-          <h2 className="px-2 pb-1 text-caption font-semibold uppercase tracking-[0.12em] text-amber-300">{t('web.phone.needsYou')}</h2>
+          <h2 className="px-2 pb-1 text-caption font-medium text-amber-300">{t('web.phone.needsYou')}</h2>
           {urgent.map((r) => row(r, projectLabel(r.project)))}
         </section>
       )}
       {groups.map(({ project, rows }) => (
         <section key={project.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-project={project.name}>
-          <h2 className="px-2 pb-1 text-caption font-semibold uppercase tracking-[0.12em] text-subtle">{projectLabel(project)}</h2>
+          <h2 className="px-2 pb-1 text-caption font-medium text-subtle">{projectLabel(project)}</h2>
           {rows.filter((r) => !urgent.includes(r)).map((r) => row(r))}
         </section>
       ))}

@@ -138,7 +138,7 @@ impl AppView {
                             .px_1()
                             .rounded_full()
                             .bg(gpui::rgb(0xfbbf24))
-                            .text_size(px(10.))
+                            .text_size(theme::text::MICRO)
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(gpui::black())
                             .flex()

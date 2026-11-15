@@ -644,7 +644,7 @@ function SetupWizard({
             aria-label={t("settings.setup.steps")}
             className="md:sticky md:top-0 md:self-start"
           >
-            <p className="px-2 pb-2 text-caption uppercase tracking-wider text-faint">
+            <p className="px-2 pb-2 text-caption text-faint">
               {t("settings.setup.progress", { done: doneCount, total: steps.length })}
             </p>
             <ol className="grid gap-0.5">
@@ -2155,7 +2155,7 @@ function UpdateChannel() {
       details={t("settings.channel.details")}
     >
       <div
-        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
+        className="inline-flex w-fit rounded-lg bg-surface p-0.5"
         role="radiogroup"
         aria-label={t("settings.entry.update-channel.label")}
         data-update-channel={current}
@@ -2169,9 +2169,9 @@ function UpdateChannel() {
             disabled={set.isPending || update.data === undefined || !!update.data.blocked}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
-                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                ? "bg-surface-strong text-title"
                 : "text-muted hover:text-primary",
             )}
           >
@@ -2582,7 +2582,7 @@ function PagesStackSetting() {
   return (
     <SettingRow label={t("settings.entry.pages-stack.label")} description={t("settings.pagesStack.description")}>
       <div
-        className="inline-flex w-fit flex-wrap rounded-xl border border-line bg-rail p-0.5"
+        className="inline-flex w-fit flex-wrap rounded-lg bg-surface p-0.5"
         role="radiogroup"
         aria-label={t("settings.entry.pages-stack.label")}
         data-pages-stack-choice
@@ -2595,9 +2595,9 @@ function PagesStackSetting() {
             data-pages-stack={m}
             onClick={() => setPageStackMode(m)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
               mode === m
-                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                ? "bg-surface-strong text-title"
                 : "text-muted hover:text-primary",
             )}
           >
@@ -2814,7 +2814,7 @@ function LanguageSetting() {
   return (
     <SettingRow label={t("common.language")} description={t("common.languageDescription")}>
       <div
-        className="inline-flex w-fit flex-wrap rounded-xl border border-line bg-rail p-0.5"
+        className="inline-flex w-fit flex-wrap rounded-lg bg-surface p-0.5"
         role="radiogroup"
         aria-label={t("common.language")}
         data-language-choice
@@ -2829,9 +2829,9 @@ function LanguageSetting() {
             disabled={set.isPending || settings.data === undefined}
             onClick={() => set.mutate(tag)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === tag
-                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                ? "bg-surface-strong text-title"
                 : "text-muted hover:text-primary",
             )}
           >
@@ -2891,7 +2891,7 @@ function Appearance() {
       details={t("settings.appearance.details")}
     >
       <div
-        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
+        className="inline-flex w-fit rounded-lg bg-surface p-0.5"
         role="radiogroup"
         aria-label={t("settings.entry.appearance.label")}
         data-appearance-choice
@@ -2905,9 +2905,9 @@ function Appearance() {
             disabled={set.isPending || theme.data === undefined}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
-                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                ? "bg-surface-strong text-title"
                 : "text-muted hover:text-primary",
             )}
           >
@@ -3803,7 +3803,7 @@ function GitHubLogin({
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <span
-                  className="select-all rounded-lg border border-line-strong bg-well px-3 py-1.5 font-mono text-2xl font-semibold tracking-[0.15em] text-primary"
+                  className="select-all rounded-lg border border-line-strong bg-well px-3 py-1.5 font-mono text-2xl font-semibold text-primary"
                   data-github-code
                 >
                   {code}
@@ -4485,7 +4485,7 @@ function SetupChecklist({
               data-status={step.status}
               data-next-step={isNext || undefined}
               className={cn(
-                "border-b border-line last:border-b-0",
+                "border-b border-line-faint last:border-b-0",
                 isNext && "border-l-[3px] border-l-amber-400 bg-surface-raised",
               )}
             >
@@ -4513,7 +4513,7 @@ function SetupChecklist({
                   {isNext ? t("settings.checklist.next", { step: step.title }) : step.title}
                 </span>
                 {isNext ? (
-                  <span className="shrink-0 text-caption font-semibold uppercase tracking-wider text-amber-300">
+                  <span className="shrink-0 text-caption font-medium text-amber-300">
                     {t("settings.checklist.nextBadge")}
                   </span>
                 ) : after ? (

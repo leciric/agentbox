@@ -123,7 +123,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   const current = pickSession(list, chosen);
   const color = sessionColor(list, current);
   const box = (content: ReactNode) => (
-    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border', card ? 'border-line' : 'border-transparent')}>
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-transparent', card && 'border-t-line-faint rounded-t-none')}>
       {content}
     </div>
   );

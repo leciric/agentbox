@@ -206,7 +206,7 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
             </>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-t border-line-faint pt-4">
           <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,.ico" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
           <Button size="sm" disabled={busy} onClick={() => file.current?.click()} data-icon-upload>
             <ImageUp />

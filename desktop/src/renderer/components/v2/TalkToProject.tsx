@@ -52,7 +52,7 @@ export function TalkToProject({ project, leadRef, anchor, open: controlled, onOp
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line px-2.5 text-caption text-subtle transition hover:border-line-heavy hover:bg-surface hover:text-primary data-[state=open]:border-line-heavy data-[state=open]:text-title"
+          className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-caption text-subtle transition hover:bg-surface hover:text-primary data-[state=open]:border-line-heavy data-[state=open]:text-title bg-surface-raised"
           data-v2-talk
         >
           <ArrowLeftRight className="size-3.5" />

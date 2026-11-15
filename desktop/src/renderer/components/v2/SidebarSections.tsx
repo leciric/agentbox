@@ -116,7 +116,7 @@ export function SectionHeader({
       {withTip(
       <button
         data-v2-section-toggle
-        className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-caption font-semibold uppercase tracking-[0.06em] text-muted hover:text-primary"
+        className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-caption font-medium text-subtle hover:text-primary"
         aria-expanded={!section.collapsed}
         onClick={onToggle}
         onKeyDown={(e) => {

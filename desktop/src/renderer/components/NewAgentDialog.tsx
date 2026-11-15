@@ -340,7 +340,7 @@ export function NewAgentDialog({
                     onClick={() => set('ai', tool.ai)}
                     className={cn(
                       'flex items-center gap-2.5 rounded-xl border border-line bg-surface-faint px-3 py-2.5 text-left transition hover:border-line-vivid hover:bg-surface',
-                      form.ai === tool.ai && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+                      form.ai === tool.ai && 'border-brand-400/50 bg-brand-500/10',
                     )}
                   >
                     <AIIcon ai={tool.ai} className={cn('size-4 text-subtle', form.ai === tool.ai && 'text-brand-300')} />
@@ -368,7 +368,7 @@ export function NewAgentDialog({
                       onClick={() => form.ai !== 'cursor' && set('iface', option.value)}
                       className={cn(
                         'flex items-center gap-2.5 rounded-xl border border-line bg-surface-faint px-3 py-2.5 text-left transition hover:border-line-vivid hover:bg-surface',
-                        iface === option.value && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+                        iface === option.value && 'border-brand-400/50 bg-brand-500/10',
                         form.ai === 'cursor' && option.value === 'cli' && 'cursor-not-allowed opacity-50 hover:border-line hover:bg-surface-faint',
                       )}
                     >

@@ -728,7 +728,7 @@ function SearchGroup({ title, count, children }: { title: string; count: number;
   if (count === 0) return null;
   return (
     <div className="grid gap-2">
-      <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">
+      <h3 className="px-1 text-caption font-medium text-subtle">
         {title} <span className="tabular-nums text-faint">{count}</span>
       </h3>
       <div className="grid gap-2">{children}</div>
@@ -891,7 +891,7 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
-        <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.tab.reports')}</h3>
+        <h3 className="px-1 text-caption font-medium text-subtle">{t('memory.tab.reports')}</h3>
         {reports.error && <Notice>{errorMessage(reports.error)}</Notice>}
         {reports.isPending && <p className="px-1 text-ui text-subtle">{t('common.loading')}</p>}
         {!reports.isPending && (reports.data?.length ?? 0) === 0 && (
@@ -910,7 +910,7 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
       </div>
 
       <div className="grid gap-2">
-        <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.report.artifacts')}</h3>
+        <h3 className="px-1 text-caption font-medium text-subtle">{t('memory.report.artifacts')}</h3>
         {artifacts.error && <Notice>{errorMessage(artifacts.error)}</Notice>}
         {!artifacts.isPending && (artifacts.data?.length ?? 0) === 0 && <p className="px-1 text-ui text-subtle">{t('memory.report.noArtifacts')}</p>}
         <div className="grid gap-2">
@@ -945,7 +945,7 @@ function ReportList({ label, items, tone }: { label: string; items?: string[]; t
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-2">
-      <p className="flex items-center gap-1.5 text-caption uppercase tracking-[0.07em] text-faint">
+      <p className="flex items-center gap-1.5 text-caption text-faint">
         {tone === 'amber' && <TriangleAlert className="size-3 text-amber-400/80" />}
         {label}
       </p>
@@ -1182,7 +1182,7 @@ function ConsolidationPassesCard({ project }: { project: string }) {
             <div className="overflow-x-auto rounded-xl border border-line-faint">
               <table className="w-full text-caption">
                 <thead>
-                  <tr className="border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
+                  <tr className="border-b border-line-faint text-left text-caption text-subtle">
                     <th className="py-1.5 pl-3 pr-2 font-medium">{t('memory.context.col.pass')}</th>
                     <th className="px-2 py-1.5 font-medium">{t('memory.context.col.when')}</th>
                     <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.read')}</th>

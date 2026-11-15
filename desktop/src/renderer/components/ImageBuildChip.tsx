@@ -55,7 +55,7 @@ export function ImageBuildChip({ onSelect }: { onSelect: (view: View) => void })
         <button
           type="button"
           className={cn(
-            'flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition',
+            'flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition bg-surface-raised',
             failed
               ? 'bg-rose-400/10 text-rose-200 ring-rose-400/30 hover:bg-rose-400/15'
               : 'bg-sky-400/10 text-sky-200 ring-sky-400/25 hover:bg-sky-400/15',
@@ -93,7 +93,7 @@ export function ImageBuildChip({ onSelect }: { onSelect: (view: View) => void })
           </div>
           <JobProgress key={data.job} jobId={data.job} header={false} logClassName="h-56" />
           {retry.error && <Notice>{errorMessage(retry.error)}</Notice>}
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
+          <div className="flex items-center justify-between gap-3 border-t border-line-faint pt-2.5">
             <button
               type="button"
               className="rounded-md px-2 py-1 text-caption font-medium text-brand-300 transition hover:bg-surface-raised"

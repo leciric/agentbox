@@ -156,7 +156,7 @@ export function FindBar({
   };
   return (
     <div
-      className="z-30 shrink-0 border-b border-line bg-overlay shadow-sm backdrop-blur-xl"
+      className="z-30 shrink-0 border-b border-line-faint bg-overlay backdrop-blur-xl"
       role="search"
       data-chat-find
       // Escape closes the bar from any of its controls, not only the input;
@@ -270,10 +270,10 @@ function HitList({ hits, current, more, who, onPick }: { hits: T.ChatSearchHit[]
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-2 md:px-6">
       <div ref={box} className="max-h-[min(300px,38vh)] overflow-y-auto overscroll-contain rounded-xl border border-line bg-modal" data-chat-find-list>
-        <div className="sticky top-0 z-10 border-b border-line bg-modal px-3 py-1.5 text-caption text-subtle">{t('chat.find.messages', { n: more ? `${hits.length}+` : String(hits.length) })}</div>
+        <div className="sticky top-0 z-10 border-b border-line-faint bg-modal px-3 py-1.5 text-caption text-subtle">{t('chat.find.messages', { n: more ? `${hits.length}+` : String(hits.length) })}</div>
         {hitsByDay(hits).map((group) => (
           <div key={group.day}>
-            <h3 className="px-3 pb-0.5 pt-2 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{dayLabel(group.day)}</h3>
+            <h3 className="px-3 pb-0.5 pt-2 text-caption font-medium text-subtle">{dayLabel(group.day)}</h3>
             {group.hits.map((hit) => {
               const on = hit.id === current;
               const mine = hit.kind === 'user' || hit.kind === 'aside';

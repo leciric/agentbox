@@ -133,7 +133,7 @@ export function MediaView({ agent, project, onSelect, heading, onAskLead }: { ag
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-media-view={scope}>
-      <div className={cn('flex shrink-0 flex-col gap-2 border-b border-line px-4 py-2.5', heading && 'px-4 pt-6 md:px-8')}>
+      <div className={cn('flex shrink-0 flex-col gap-2 border-b border-line-faint px-4 py-2.5', heading && 'px-4 pt-6 md:px-8')}>
         {heading && (
           <div>
             <h1 className="text-display font-semibold text-title">{t('shell.nav.media')}</h1>
@@ -381,7 +381,7 @@ function PageCard({ project, page, label, now, dim }: { project: string; page: T
       className="group block w-full overflow-hidden rounded-xl border border-line bg-surface-faint text-left transition duration-200 [contain-intrinsic-size:auto_220px] [content-visibility:auto] hover:-translate-y-0.5 hover:border-line-vivid hover:bg-surface disabled:opacity-40 disabled:hover:translate-y-0"
     >
       <span className="relative block">
-        <PageThumb project={project} page={page} className="border-b border-line" />
+        <PageThumb project={project} page={page} className="border-b border-line-faint" />
         <span className="absolute left-2 top-2">
           <Badge variant="info" className="bg-black/60 backdrop-blur [:root[data-appearance=light]_&]:text-white">
             <PageIcon />

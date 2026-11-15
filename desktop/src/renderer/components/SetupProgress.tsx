@@ -24,8 +24,8 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 export function BackgroundWork({ machine, onMachineDetails }: { machine: MachineState; onMachineDetails?: () => void }) {
   const t = useT();
   return (
-    <section aria-label={t('firstRun.bg.title')} className="mt-4 grid gap-2.5 border-t border-line pt-3" data-first-run-background>
-      <h3 className="px-2 text-caption font-medium uppercase tracking-wide text-faint">{t('firstRun.bg.title')}</h3>
+    <section aria-label={t('firstRun.bg.title')} className="mt-4 grid gap-2.5 border-t border-line-faint pt-3" data-first-run-background>
+      <h3 className="px-2 text-caption font-medium text-faint">{t('firstRun.bg.title')}</h3>
       <MachineRow machine={machine} onDetails={onMachineDetails} />
       <ImageRow connected={machine.kind === 'ready'} />
     </section>
@@ -206,7 +206,7 @@ export function MachineChip({ machine }: { machine: MachineState }) {
         <button
           type="button"
           className={cn(
-            'flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition',
+            'flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition bg-surface-raised',
             failed ? 'bg-rose-400/10 text-rose-200 ring-rose-400/30 hover:bg-rose-400/15' : 'bg-sky-400/10 text-sky-200 ring-sky-400/25 hover:bg-sky-400/15',
           )}
           aria-label={label}
@@ -228,7 +228,7 @@ export function MachineChip({ machine }: { machine: MachineState }) {
             ? machine.error && <span className="break-words font-mono text-caption text-rose-200/80">{machine.error}</span>
             : machine.line && <span className="truncate font-mono text-caption text-muted" title={machine.line}>{machine.line}</span>}
           {failed && (
-            <div className="flex justify-end border-t border-line pt-2.5">
+            <div className="flex justify-end border-t border-line-faint pt-2.5">
               <Button size="sm" variant="primary" onClick={() => void retryMachine()}>
                 <RefreshCw />
                 {t('firstRun.bg.retry')}

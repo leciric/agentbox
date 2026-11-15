@@ -397,7 +397,7 @@ function RichDialog({ kind, code, network, onClose }: { kind: RichKind; code: st
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex h-[86vh] w-[calc(100vw-3rem)] max-w-[1180px] flex-col gap-0 overflow-hidden p-0" data-rich-dialog={kind}>
-        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3 pr-14">
+        <div className="flex flex-wrap items-center gap-3 border-b border-line-faint px-5 py-3 pr-14">
           <DialogTitle className="mr-auto text-sm font-semibold text-primary">{t(`chat.rich.${kind}`)}</DialogTitle>
           {kind === 'html' && <ZoomControls zoom={zoom} onZoom={setZoom} />}
           <Publish kind={kind} code={code} />

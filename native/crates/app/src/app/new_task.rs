@@ -233,20 +233,14 @@ impl AppView {
                             .border_1()
                             .border_color(theme::line_strong())
                             .bg(theme::modal())
-                            .shadow(vec![BoxShadow {
-                                color: theme::shadow_deep(),
-                                offset: point(px(0.), px(40.)),
-                                blur_radius: px(120.),
-                                spread_radius: px(-30.),
-                                inset: false,
-                            }])
+                            .shadow(theme::shadow_modal())
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(
                                 h_flex()
                                     .items_center()
                                     .gap(px(10.))
                                     .border_b_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_faint())
                                     .px_4()
                                     .py_3()
                                     .child(
@@ -300,7 +294,7 @@ impl AppView {
                                     .items_center()
                                     .gap_3()
                                     .border_t_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_faint())
                                     .px_4()
                                     .py_2()
                                     .text_size(theme::text::CAPTION)

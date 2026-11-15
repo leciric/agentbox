@@ -61,7 +61,7 @@ export function AgentMonitor({ ai, screen, pace = 3.2, paused, tiny, label, desk
     );
   } else if (tiny) {
     content = (
-      <span className="flex items-baseline text-[10px] font-semibold leading-none tabular-nums">
+      <span className="flex items-baseline text-micro font-semibold leading-none tabular-nums">
         <span className="ab-monitor-label">{label}</span>
         {screen === 'working' && <span className="ab-monitor-cursor ml-px inline-block h-[7px] w-[2px] bg-[var(--ab-term-foreground)]" />}
       </span>
@@ -123,7 +123,7 @@ export function AgentMonitor({ ai, screen, pace = 3.2, paused, tiny, label, desk
         >
           {content}
           {screen === 'idle' && (
-            <span className={cn('ab-monitor-z pointer-events-none absolute font-bold leading-none text-muted', tiny ? 'right-px top-0 text-[8px]' : 'right-2 top-1 text-[13px]')}>z</span>
+            <span className={cn('ab-monitor-z pointer-events-none absolute font-semibold leading-none text-muted', tiny ? 'right-px top-0 text-[8px]' : 'right-2 top-1 text-ui')}>z</span>
           )}
           {screen === 'desktop' && !tiny && (
             <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded bg-sunken/85">
@@ -133,7 +133,7 @@ export function AgentMonitor({ ai, screen, pace = 3.2, paused, tiny, label, desk
           {screen === 'desktop' && <span className={cn('absolute rounded-full bg-emerald-400', tiny ? 'bottom-px right-px size-1' : 'left-1 top-1 size-1.5')} />}
         </span>
         {screen === 'needs' && (
-          <span className={cn('ab-monitor-ask absolute flex items-center justify-center rounded-full border border-amber-400/70 bg-sunken font-bold leading-none text-amber-300 shadow-sm', tiny ? '-right-1 -top-1 size-3 text-[8px]' : '-right-1.5 -top-2 size-5 text-[12px]')}>
+          <span className={cn('ab-monitor-ask absolute flex items-center justify-center rounded-full border border-amber-400/70 bg-sunken font-semibold leading-none text-amber-300', tiny ? '-right-1 -top-1 size-3 text-[8px]' : '-right-1.5 -top-2 size-5 text-caption')}>
             ?
           </span>
         )}

@@ -146,7 +146,7 @@ impl AppView {
                 .when(open, |el| {
                     el.child(
                         v_flex()
-                            .rounded_xl()
+                            .rounded(theme::radius::XL)
                             .border_1()
                             .border_color(theme::line())
                             .overflow_hidden()
@@ -157,7 +157,7 @@ impl AppView {
                                     .px_3()
                                     .py_1p5()
                                     .border_t_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_faint())
                                     .bg(theme::surface_faint())
                                     .text_size(theme::text::UI)
                                     .child(

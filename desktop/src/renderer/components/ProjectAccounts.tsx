@@ -229,7 +229,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               onClick={() => toggle(account.name)}
               className={cn(
                 'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-ui text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
-                on && 'border-transparent bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
+                on && 'border-transparent bg-surface-strong text-title',
               )}
             >
               {on ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />}

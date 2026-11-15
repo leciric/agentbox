@@ -213,7 +213,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
         <aside
           style={{ width: narrow ? listStrip : box.width }}
           aria-label={t('panel.label')}
-          className="relative flex h-full shrink-0 border-l border-line bg-sunken"
+          className="relative flex h-full shrink-0 border-l border-line-faint bg-rail"
           data-right-panel={narrow ? 'strip' : 'beside'}
         >
           {!narrow && !(list && state.listFolded) && <WidthHandle width={box.width} which={list ? 'list' : lead ? 'lead' : 'agent'} />}
@@ -226,7 +226,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
           <aside
             style={{ width: drawerWidth }}
             aria-label={t('panel.label')}
-            className="fixed inset-y-0 right-0 z-50 flex h-full animate-fade-in border-l border-line bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]"
+            className="fixed inset-y-0 right-0 z-50 flex h-full animate-fade-in border-l border-line-faint bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]"
             onKeyDown={(event) => {
               if (event.key === 'Escape') setPanelOpen(chat, false);
             }}
@@ -347,7 +347,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   if (!whose && !over && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-view={preview ? 'preview' : (view ?? listTarget)} data-panel-whose={ref}>
-      <div ref={fit.row} className={cn('flex h-11 shrink-0 items-center overflow-hidden border-b border-line-faint bg-rail pl-2 pr-1.5', fit.named ? 'gap-1.5' : 'gap-1')}>
+      <div ref={fit.row} className={cn('flex h-11 shrink-0 items-center overflow-hidden border-b border-line-faint pl-2 pr-1.5', fit.named ? 'gap-1.5' : 'gap-1')}>
         {(whose || over) && !home && (
           <Tip label={t('panel.back')}>
             <Button
@@ -370,7 +370,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
           </Tip>
         )}
         {preview ? (
-          <span className="min-w-0 truncate pl-1 text-[12.5px] font-semibold text-title" data-panel-preview-title>
+          <span className="min-w-0 truncate pl-1 text-caption font-semibold text-title" data-panel-preview-title>
             {titleOf(preview.kind, preview.code, t(`chat.rich.${preview.kind}`))}
           </span>
         ) : home ? (
@@ -380,8 +380,8 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
         ) : (
           !panel.wide && (
             <span className="flex min-w-0 items-center gap-2 pl-1.5">
-              <span className="text-[12px] text-muted">{t('agent.rail.agents')}</span>
-              {agents.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{agents.length}</span>}
+              <span className="text-caption text-muted">{t('agent.rail.agents')}</span>
+              {agents.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-micro tabular-nums text-subtle">{agents.length}</span>}
             </span>
           )
         )}
@@ -454,7 +454,7 @@ function WhoseTitle({ project, chat, whose, roomy, onSelect }: { project: string
         data-panel-whose-title={here ? 'here' : 'other'}
       >
         <StatusDot whose={whose} />
-        {!here && <span className="min-w-0 truncate text-[13px] font-semibold text-title">{title}</span>}
+        {!here && <span className="min-w-0 truncate text-ui font-semibold text-title">{title}</span>}
       </button>
     </Tip>
   );
@@ -498,7 +498,7 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
   };
   return (
     <>
-    <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
+    <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg bg-surface p-0.5" data-panel-lead-switch={tab}>
       {leadTabs.filter((v) => (v !== 'pulls' || pullsTab) && !hidden.includes(v as PanelView)).map((v) => {
         const { icon: Icon, label, on, tip } = tabs[v];
         const named = on;
@@ -511,16 +511,16 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
             aria-checked={on}
             aria-label={tip ?? label}
             onClick={() => setLeadTab(project, v)}
-            className={cn('relative flex h-7 min-w-0 items-center gap-1.5 rounded-md text-[11.5px] font-medium transition-colors', named ? 'px-2.5' : 'shrink-0 px-2', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
+            className={cn('relative flex h-7 min-w-0 items-center gap-1.5 rounded-md text-micro font-medium transition-colors', named ? 'px-2.5' : 'shrink-0 px-2', on ? 'bg-surface-raised text-title' : 'text-subtle hover:text-title')}
             data-panel-lead-tab={v}
           >
             {dot && <FeatureDot dot={dot} />}
             <Icon className="size-3.5 shrink-0" />
             {named && <span className="truncate">{label}</span>}
-            {v === 'agents' && count > 0 && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle">{count}</span>}
-            {v === 'pulls' && open > 0 && (named || !ready) && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle" data-panel-pulls-open={open}>{open}</span>}
+            {v === 'agents' && count > 0 && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-micro tabular-nums text-subtle">{count}</span>}
+            {v === 'pulls' && open > 0 && (named || !ready) && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-micro tabular-nums text-subtle" data-panel-pulls-open={open}>{open}</span>}
             {v === 'pulls' && ready > 0 && (
-              <span className="shrink-0 rounded-full bg-brand-500/15 px-1.5 text-[10.5px] font-medium tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-panel-pulls-ready={ready}>
+              <span className="shrink-0 rounded-full bg-brand-500/15 px-1.5 text-micro font-medium tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-panel-pulls-ready={ready}>
                 {named ? t('v2.header.ready', { count: ready }) : ready}
               </span>
             )}
@@ -607,7 +607,7 @@ function ProjectButtons({ project, chat, wide, onSelect }: { project: string; ch
 function ViewSwitch({ chat, whose, views, view, named, booted }: { chat: string; whose: Whose; views: PanelView[]; view: PanelView | undefined; named: boolean; booted: boolean }) {
   const t = useT();
   return (
-    <div role="radiogroup" aria-label={t('panel.switch')} className="flex shrink-0 items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-switch={named ? 'named' : 'icons'}>
+    <div role="radiogroup" aria-label={t('panel.switch')} className="flex shrink-0 items-center rounded-lg bg-surface p-0.5" data-panel-switch={named ? 'named' : 'icons'}>
       {views.map((v) => {
         const Icon = viewIcon[v];
         const on = view === v;
@@ -621,7 +621,7 @@ function ViewSwitch({ chat, whose, views, view, named, booted }: { chat: string;
             aria-checked={on}
             aria-label={label}
             onClick={() => setView(chat, whoseRef(whose), v)}
-            className={cn('relative flex h-7 shrink-0 items-center gap-1.5 rounded-md text-[11.5px] font-medium transition-colors', shown ? 'px-2.5' : 'w-7 justify-center', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
+            className={cn('relative flex h-7 shrink-0 items-center gap-1.5 rounded-md text-micro font-medium transition-colors', shown ? 'px-2.5' : 'w-7 justify-center', on ? 'bg-surface-raised text-title' : 'text-subtle hover:text-title')}
             data-panel-switch-view={v}
           >
             <Icon className="size-3.5 shrink-0" />
@@ -736,7 +736,7 @@ function ViewTitle({ view, after }: { view: PanelView; after?: ReactNode }) {
   const t = useT();
   const Icon = viewIcon[view];
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line-faint px-3 text-[12px] font-medium text-secondary" data-panel-view-title={view}>
+    <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line-faint px-3 text-caption font-medium text-secondary" data-panel-view-title={view}>
       <Icon className="size-3.5 text-subtle" />
       {t(viewLabel[view])}
       {after}
@@ -765,7 +765,7 @@ function Stopped({ agent, view }: { agent: T.Agent; view: PanelView }) {
         <Power className="size-5 text-muted" />
       </span>
       <p className="text-[13.5px] font-semibold text-title">{t(paused ? 'panel.paused.title' : 'panel.stopped.title', { name: agent.title || agent.name })}</p>
-      <p className="max-w-[320px] text-[12px] leading-relaxed text-subtle">{t('panel.stopped.body', { view: t(viewLabel[view]).toLowerCase() })}</p>
+      <p className="max-w-[320px] text-caption leading-relaxed text-subtle">{t('panel.stopped.body', { view: t(viewLabel[view]).toLowerCase() })}</p>
       <Button variant="primary" disabled={wake.isPending} onClick={() => wake.mutate()} data-panel-wake>
         {wake.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
         {t(paused ? 'panel.stopped.resume' : 'panel.stopped.start')}
@@ -828,12 +828,12 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
       <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
         {/* Live only while it is: with the desktop off, the screen says so. */}
         {live && (
-          <span className="flex shrink-0 items-center gap-1 rounded bg-rose-500/90 px-1.5 py-px text-[10px] font-bold tracking-wider text-white" data-panel-live>
+          <span className="flex shrink-0 items-center gap-1 rounded bg-rose-500/90 px-1.5 py-px text-micro font-semibold text-white" data-panel-live>
             <span className="size-1.5 animate-pulse rounded-full bg-white" />
             {t('panel.live')}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle">{picker.picking ? t('pick.footer') : page?.title || page?.url || ''}</span>
+        <span className="min-w-0 flex-1 truncate text-micro text-subtle">{picker.picking ? t('pick.footer') : page?.title || page?.url || ''}</span>
         <PickButton compact picking={picker.picking} disabled={!live || (!standIn && status.data?.running !== true)} onToggle={picker.toggle} />
         <Tip label={t('agent.browser.screenshotTip')}>
           <Button size="icon-sm" variant="ghost" aria-label={t('agent.browser.screenshot')} disabled={!connected || shot.isPending} onClick={() => shot.mutate()}>
@@ -843,7 +843,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
         <Tip label={isRecording ? t('agent.browser.stopRecording') : t('agent.browser.recordTip')}>
           <Button size="sm" variant="ghost" className={cn('h-7 px-2', isRecording && 'bg-rose-500/15 text-rose-100')} aria-label={isRecording ? t('agent.browser.stopRecording') : t('agent.browser.record')} disabled={!connected || record.isPending} onClick={() => record.mutate()}>
             {isRecording ? <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" /> : <span className="size-2.5 rounded-full bg-rose-500" />}
-            {isRecording && <span className="font-mono text-[11px] tabular-nums">{clock(elapsed)}</span>}
+            {isRecording && <span className="font-mono text-micro tabular-nums">{clock(elapsed)}</span>}
           </Button>
         </Tip>
         <Tip label={t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')}>
@@ -858,7 +858,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
           </label>
         </Tip>
       </div>
-      {error && <p className="px-3 pb-2 text-[11.5px] text-rose-300">{errorMessage(error)}</p>}
+      {error && <p className="px-3 pb-2 text-micro text-rose-300">{errorMessage(error)}</p>}
       <div className="px-3">
         <div ref={screen.ref} className={cn('relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-line bg-stage', pointer && connected && 'ring-2 ring-brand-400/50', picker.picking && 'ring-brand-400/90')} data-panel-screen>
           {standIn ? (
@@ -872,7 +872,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
               {!desktopUp && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-4 text-center">
                   <Monitor className="size-6 text-faint" />
-                  <p className="text-[12px] text-subtle">{t('panel.desktop.off', { name: agent.name })}</p>
+                  <p className="text-caption text-subtle">{t('panel.desktop.off', { name: agent.name })}</p>
                   <Button size="sm" variant="primary" disabled={start.isPending || status.isPending} onClick={() => start.mutate()} data-panel-start-desktop>
                     {start.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
                     {t('agent.browser.startDesktop')}
@@ -880,7 +880,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
                 </div>
               )}
               {desktopUp && !connected && (
-                <div className="absolute inset-0 flex items-center justify-center text-[12px] text-subtle">
+                <div className="absolute inset-0 flex items-center justify-center text-caption text-subtle">
                   <LoaderCircle className="mr-2 size-4 animate-spin" />
                   {t('agent.browser.connecting')}
                 </div>
@@ -912,13 +912,13 @@ function CaptureStrip({ project, name, onOpen }: { project: string; name: string
   return (
     <div className="flex min-h-40 flex-1 flex-col px-3 pb-3 pt-3" data-panel-captures>
       <div className="mb-1.5 flex items-center gap-2">
-        <h4 className="text-[12px] font-normal text-muted">{t('panel.desktop.latest')}</h4>
-        <button type="button" onClick={() => onOpen()} className="ml-auto text-[12px] text-subtle hover:text-title" data-panel-all-evidence>
+        <h4 className="text-caption font-normal text-muted">{t('panel.desktop.latest')}</h4>
+        <button type="button" onClick={() => onOpen()} className="ml-auto text-caption text-subtle hover:text-title" data-panel-all-evidence>
           {t('panel.desktop.all')} →
         </button>
       </div>
       {items.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line px-3 py-3 text-center text-[12px] text-faint" data-panel-captures-empty>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line px-3 py-3 text-center text-caption text-faint" data-panel-captures-empty>
           <Images className="size-5" />
           {media.isPending ? t('common.loading') : t('panel.desktop.none')}
         </div>
@@ -928,7 +928,7 @@ function CaptureStrip({ project, name, onOpen }: { project: string; name: string
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="group min-w-0 text-left" title={item.name} data-panel-capture={item.id}>
               <Thumb item={item} className="aspect-[16/10] w-full rounded-md border border-line transition group-hover:border-brand-500/60" />
-              <span className="mt-1 block truncate text-[12px] text-subtle">
+              <span className="mt-1 block truncate text-caption text-subtle">
                 {item.kind === 'recording' && item.meta?.duration ? `${clock(item.meta.duration)} · ` : ''}
                 {timeAgo(item.createdAt)}
               </span>
@@ -983,12 +983,12 @@ function Evidence({ project, whose, focus, onSelect }: { project: string; whose:
   const index = viewing.findIndex((i) => i.id === openId);
   const label = (item: T.MediaItem) => (whose.kind === 'lead' ? (item.agentName ?? '') : '');
 
-  if (media.isPending) return <p className="p-4 text-[12px] text-subtle">{t('common.loading')}</p>;
+  if (media.isPending) return <p className="p-4 text-caption text-subtle">{t('common.loading')}</p>;
   if (items.length === 0 && myPages.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center" data-panel-evidence-empty>
         <Images className="size-7 text-faint" />
-        <p className="max-w-[300px] text-[12.5px] text-subtle">{whose.kind === 'lead' ? t('panel.evidence.emptyRepo') : t('panel.evidence.empty', { name })}</p>
+        <p className="max-w-[300px] text-caption text-subtle">{whose.kind === 'lead' ? t('panel.evidence.emptyRepo') : t('panel.evidence.empty', { name })}</p>
         {/* Asks the lead, in its chat, to have this agent (or the agents) record their work: a draft, not sent. */}
         <Button
           size="sm"
@@ -1011,13 +1011,13 @@ function Evidence({ project, whose, focus, onSelect }: { project: string; whose:
       {featured && <Featured item={featured} agentRef={whose.kind === 'lead' ? undefined : own} label={label(featured)} />}
       {captures.length > 0 && (
         <section className="mt-4" data-panel-evidence-captures>
-          <h4 className="mb-1.5 text-[12px] font-normal text-muted">{t('panel.evidence.captures')}</h4>
+          <h4 className="mb-1.5 text-caption font-normal text-muted">{t('panel.evidence.captures')}</h4>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2">
             {captures.map((item) => (
               <button key={item.id} type="button" onClick={() => (item.kind === 'recording' ? setChosen(item.id) : setOpenId(item.id))} className="group min-w-0 text-left" title={item.name} data-panel-evidence-item={item.id}>
                 <Thumb item={item} className="aspect-[16/10] w-full rounded-md border border-line transition group-hover:border-brand-500/60" />
-                <span className="mt-1 block truncate text-[11px] text-secondary">{item.name}</span>
-                <span className="block truncate text-[10.5px] text-faint">{[label(item), timeAgo(item.createdAt)].filter(Boolean).join(' · ')}</span>
+                <span className="mt-1 block truncate text-micro text-secondary">{item.name}</span>
+                <span className="block truncate text-micro text-faint">{[label(item), timeAgo(item.createdAt)].filter(Boolean).join(' · ')}</span>
               </button>
             ))}
           </div>
@@ -1025,15 +1025,15 @@ function Evidence({ project, whose, focus, onSelect }: { project: string; whose:
       )}
       {rest.length > 0 && (
         <section className="mt-4" data-panel-evidence-pages>
-          <h4 className="mb-1.5 text-[12px] font-normal text-muted">{t('panel.evidence.pagesReports')}</h4>
+          <h4 className="mb-1.5 text-caption font-normal text-muted">{t('panel.evidence.pagesReports')}</h4>
           <div className="grid gap-1">
             {rest.map((r) =>
               'page' in r && r.page ? (
                 <button key={`p:${r.page.id}`} type="button" onClick={() => openPage(project, r.page)} className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left hover:bg-surface" data-panel-evidence-page={r.page.id}>
                   <PageThumb project={project} page={r.page} className="h-10 w-16 shrink-0 rounded border border-line" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12.5px] text-title">{r.page.title}</span>
-                    <span className="block truncate text-[11px] text-subtle">
+                    <span className="block truncate text-caption text-title">{r.page.title}</span>
+                    <span className="block truncate text-micro text-subtle">
                       {t('panel.evidence.page')} · {timeAgo(r.at)}
                     </span>
                   </span>
@@ -1072,8 +1072,8 @@ function ReportRow({ item, label, onOpen }: { item: T.MediaItem; label: string; 
         <Icon className="size-4 text-subtle" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] text-title">{item.name}</span>
-        <span className="block truncate text-[11px] text-subtle">{[info.one, label, timeAgo(item.createdAt)].filter(Boolean).join(' · ')}</span>
+        <span className="block truncate text-caption text-title">{item.name}</span>
+        <span className="block truncate text-micro text-subtle">{[info.one, label, timeAgo(item.createdAt)].filter(Boolean).join(' · ')}</span>
       </span>
     </button>
   );
@@ -1088,7 +1088,7 @@ function Featured({ item, agentRef, label }: { item: T.MediaItem; agentRef?: str
   const chapters = timeline.data ? chaptersOf(item, timeline.data.steps) : [];
   return (
     <section data-panel-featured={item.id}>
-      <div className="mb-1.5 flex min-w-0 items-center gap-1.5 text-[11.5px]">
+      <div className="mb-1.5 flex min-w-0 items-center gap-1.5 text-micro">
         {item.kind === 'recording' ? <Film className="size-3.5 shrink-0 text-subtle" /> : <ImageIcon className="size-3.5 shrink-0 text-subtle" />}
         <span className="min-w-0 truncate font-medium text-secondary">{item.name}</span>
         <span className="shrink-0 text-faint">{[label, item.meta?.duration ? clock(item.meta.duration) : '', timeAgo(item.createdAt)].filter(Boolean).join(' · ')}</span>
@@ -1102,7 +1102,7 @@ function Featured({ item, agentRef, label }: { item: T.MediaItem; agentRef?: str
       </div>
       {chapters.length > 0 && (
         <div className="mt-2" data-panel-chapters>
-          <h4 className="mb-1 text-[12px] font-normal text-muted">{t('panel.evidence.chapters')}</h4>
+          <h4 className="mb-1 text-caption font-normal text-muted">{t('panel.evidence.chapters')}</h4>
           <ol className="grid gap-px">
             {chapters.map((c, i) => (
               <li key={i}>
@@ -1113,9 +1113,9 @@ function Featured({ item, agentRef, label }: { item: T.MediaItem; agentRef?: str
                     video.current.currentTime = c.at;
                     void video.current.play();
                   }}
-                  className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] hover:bg-surface"
+                  className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-caption hover:bg-surface"
                 >
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-brand-300">{clock(c.at)}</span>
+                  <span className="shrink-0 font-mono text-micro tabular-nums text-brand-300">{clock(c.at)}</span>
                   <span className="min-w-0 truncate text-secondary">{c.title}</span>
                 </button>
               </li>
@@ -1134,7 +1134,7 @@ function Files({ project, whose, width }: { project: string; whose: Whose; width
   if (whose.kind === 'past') {
     return (
       <>
-        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-line-faint bg-surface-faint px-3 text-[11.5px] text-subtle" data-panel-readonly>
+        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-line-faint bg-surface-faint px-3 text-micro text-subtle" data-panel-readonly>
           <GitBranch className="size-3 shrink-0" />
           <span className="min-w-0 truncate">{t('panel.files.readOnly', { branch: whose.past.branch })}</span>
         </div>

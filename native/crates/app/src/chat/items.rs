@@ -85,7 +85,7 @@ fn card(tint: Hsla) -> Div {
         .gap_1()
         .px_3p5()
         .py_2p5()
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(tint.opacity(0.3))
         .bg(tint.opacity(0.06))
@@ -216,7 +216,7 @@ impl ChatView {
                     .pb_2()
                     .pt_1()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(
                         h_flex()
                             .id(SharedString::from(format!("fold-{turn}")))
@@ -251,7 +251,7 @@ impl ChatView {
                     .pb_2()
                     .pt_1()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     // Timeline's working: h-6 px-1 text-sm text-subtle.
                     .child(
                         h_flex()
@@ -351,7 +351,7 @@ impl ChatView {
                 v_flex()
                     .mb_3()
                     .w_full()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .border_1()
                     .border_color(theme::line())
                     .child(
@@ -390,7 +390,7 @@ impl ChatView {
                                 .text_xs()
                                 .font_family(theme::mono())
                                 .border_t_1()
-                                .border_color(theme::line())
+                                .border_color(theme::line_faint())
                                 .child(
                                     div()
                                         .flex_1()
@@ -437,12 +437,12 @@ impl ChatView {
                             .h_6()
                             .px_1p5()
                             .rounded(gpui_component::button::ButtonRounded::Size(px(6.)))
-                            .text_size(px(12.))
+                            .text_size(theme::text::CAPTION)
                             .text_color(theme::faint())
                             .child(
                                 h_flex()
                                     .gap_1()
-                                    .text_size(px(12.))
+                                    .text_size(theme::text::CAPTION)
                                     .line_height(px(18.))
                                     .child(tv("chat.turn.label", &[("n", n.into())]))
                                     .child(crate::icons::ic("ellipsis").size(px(14.))),
@@ -644,7 +644,7 @@ impl ChatView {
                     div()
                         .max_w(relative(0.85))
                         .when(one_line, |el| el.text_right())
-                        .rounded_2xl()
+                        .rounded(theme::radius::XXL)
                         .bg(theme::surface_raised())
                         .px_3p5()
                         .py_2p5()
@@ -698,7 +698,7 @@ impl ChatView {
         div()
             .id(SharedString::from(format!("img-{item}-{}", im.id)))
             .size_24()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .overflow_hidden()
             .border_1()
             .border_color(theme::line())
@@ -740,7 +740,7 @@ impl ChatView {
             .gap_2()
             .px_1p5()
             .pr_3()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line())
             .bg(theme::card())
@@ -901,7 +901,7 @@ impl ChatView {
                 .mt_0p5()
                 .pl_2p5()
                 .border_l_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .children(items.iter().map(|it| self.render_entry(it, view)))
         };
         if live && rows::is_active(last) {
@@ -1149,7 +1149,7 @@ impl ChatView {
             .pb_2()
             .child(
                 v_flex()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .border_1()
                     .border_color(theme::line())
                     .bg(theme::card())
@@ -1161,7 +1161,7 @@ impl ChatView {
                             .px_2()
                             .py_1p5()
                             .cursor_pointer()
-                            .rounded_xl()
+                            .rounded(theme::radius::XL)
                             .hover(|el| el.bg(theme::surface_raised()))
                             .active(|s| s.bg(theme::surface_strong()))
                             .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&id, cx)))
@@ -1219,7 +1219,7 @@ impl ChatView {
                                 .mb_2()
                                 .pt_1p5()
                                 .border_t_1()
-                                .border_color(theme::line())
+                                .border_color(theme::line_faint())
                                 .when(!sub.task.is_empty(), |el| {
                                     el.child(
                                         div()
@@ -1235,7 +1235,7 @@ impl ChatView {
                                         .ml_3()
                                         .pl_2p5()
                                         .border_l_1()
-                                        .border_color(theme::line())
+                                        .border_color(theme::line_faint())
                                         .when(kids.is_empty(), |el| {
                                             el.child(
                                                 div()
@@ -1374,8 +1374,6 @@ impl ChatView {
                                 .px_2p5()
                                 .py_0p5()
                                 .rounded_full()
-                                .border_1()
-                                .border_color(tint.opacity(0.3))
                                 .bg(tint.opacity(0.08))
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
@@ -1470,7 +1468,7 @@ impl ChatView {
                     .w_full()
                     .px_3p5()
                     .py_2p5()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .border_1()
                     .border_color(theme::line())
                     .bg(theme::card())

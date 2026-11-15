@@ -97,7 +97,7 @@ function Hero({ recap }: { recap: T.Recap }) {
       <div className="pointer-events-none absolute -bottom-48 -left-24 size-[30rem] rounded-full bg-[radial-gradient(closest-side,rgb(79_70_229/0.35),transparent)]" />
       <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-end">
         <div className="min-w-0">
-          <div className="text-caption font-bold uppercase tracking-[0.18em] text-[#c4b5fd]">{t('recap.title')}</div>
+          <div className="text-caption font-medium text-[#c4b5fd]">{t('recap.title')}</div>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-3">
             <span className="bg-gradient-to-b from-white to-[#c4b5fd] bg-clip-text text-7xl font-extrabold tracking-[-0.04em] text-transparent tabular-nums md:text-8xl">{duration(recap.workSeconds)}</span>
             <span className="text-heading font-semibold">{t('recap.card.agentWork')}</span>
@@ -139,13 +139,13 @@ function Spent({ recap }: { recap: T.Recap }) {
     <div className="mt-5 min-w-0" title={t('recap.spendHint')} data-recap-spend={spend}>
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <Wallet className="size-5 shrink-0 self-center text-[#a78bfa]" />
-        <span className="text-4xl font-bold tracking-tight tabular-nums">
+        <span className="text-4xl font-semibold tracking-tight tabular-nums">
           {spend === 'estimated' || spend === 'partly' ? '≈ ' : ''}
           {usd(recap.costUsd)}
         </span>
         <span className="text-heading font-semibold">{t('recap.spent')}</span>
         {(spend === 'estimated' || spend === 'partly') && (
-          <span className="rounded-full border border-[#fde68a]/30 bg-[#fde68a]/10 px-2 py-0.5 text-caption font-semibold text-[#fde68a]">
+          <span className="rounded-full border-[#fde68a]/30 bg-[#fde68a]/10 px-2 py-0.5 text-caption font-semibold text-[#fde68a]">
             {t(spend === 'estimated' ? 'recap.spendEstimated' : 'recap.spendPartly')}
           </span>
         )}
@@ -162,7 +162,7 @@ function Stat({ icon: Icon, label, value, sub, title }: { icon: ComponentType<{ 
         <Icon className="size-3.5 shrink-0 text-[#a78bfa]" />
         <span className="truncate">{label}</span>
       </div>
-      <div className="mt-1 truncate text-display font-bold tracking-tight tabular-nums">{value}</div>
+      <div className="mt-1 truncate text-display font-semibold tracking-tight tabular-nums">{value}</div>
       <div className="truncate text-caption text-[#8f8ab0]">{sub}</div>
     </div>
   );
@@ -352,7 +352,7 @@ function Share({ recap }: { recap: T.Recap }) {
                 role="radio"
                 aria-checked={format === f}
                 onClick={() => setFormat(f)}
-                className={cn('rounded-md px-3 py-1 text-ui font-medium', format === f ? 'bg-surface-strong text-primary shadow-sm' : 'text-muted hover:text-primary')}
+                className={cn('rounded-md px-3 py-1 text-ui font-medium', format === f ? 'bg-surface-strong text-primary' : 'text-muted hover:text-primary')}
               >
                 {t(f === 'landscape' ? 'recap.share.landscape' : 'recap.share.square')}
               </button>

@@ -116,7 +116,7 @@ export interface PageTheme {
 // each taken from one of the app's (styles.css) or, for one the app doesn't
 // set, from these defaults.
 const PAGE_VARIABLES: { name: string; from?: string; dark: string; light: string }[] = [
-  { name: '--background', from: '--ab-chat', dark: '#09090d', light: '#ffffff' },
+  { name: '--background', from: '--ab-chat', dark: '#0e0e10', light: '#ffffff' },
   { name: '--foreground', from: '--ab-secondary', dark: '#e4e4e7', light: '#27272a' },
   { name: '--muted', from: '--ab-surface-raised', dark: 'rgb(255 255 255 / 0.065)', light: 'rgb(9 9 11 / 0.07)' },
   { name: '--muted-foreground', from: '--ab-muted', dark: '#a1a1aa', light: '#52525b' },

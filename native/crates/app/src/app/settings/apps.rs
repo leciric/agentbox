@@ -144,7 +144,7 @@ fn option(
         .gap_2p5()
         .px_4()
         .py_3()
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(if picked {
             theme::brand(500).opacity(0.6)
@@ -199,7 +199,7 @@ fn numbered(n: usize, lit: bool) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(11.))
+        .text_size(theme::text::MICRO)
         .font_weight(FontWeight::SEMIBOLD)
         .when(lit, |el| {
             el.bg(theme::brand(500)).text_color(theme::on_brand())
@@ -582,7 +582,7 @@ impl AppView {
             .gap_3()
             .px_3()
             .py_2p5()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .border_1()
             .border_color(theme::line())
             .child(

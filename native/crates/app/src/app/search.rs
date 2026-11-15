@@ -1421,7 +1421,7 @@ impl AppView {
             .px_2p5()
             .py_1()
             .rounded_full()
-            .border_1()
+            .bg(theme::surface_raised())
             .text_size(theme::text::CAPTION)
             .cursor_pointer()
             .when(on, |el| {
@@ -1542,7 +1542,7 @@ impl AppView {
             .px_3()
             .py_2()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .children(chips)
             .child(div().flex_1())
             .child(past)
@@ -1588,7 +1588,7 @@ impl AppView {
             .px_3()
             .py_2()
             .gap_3()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .cursor_pointer()
             .when(on, |el| el.bg(theme::surface_raised()))
             .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
@@ -1662,7 +1662,7 @@ impl AppView {
             .py_2()
             .gap_3()
             .items_start()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .cursor_pointer()
             .when(on, |el| el.bg(theme::surface_raised()))
             .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
@@ -1905,7 +1905,7 @@ impl AppView {
                                                     .max_w(relative(0.92))
                                                     .px_3()
                                                     .py_2()
-                                                    .rounded_xl()
+                                                    .rounded(theme::radius::XL)
                                                     .text_color(theme::primary())
                                                     .when(mine, |el| el.bg(theme::surface_raised()))
                                                     .when(here, |el| {
@@ -2151,7 +2151,7 @@ impl AppView {
                         .px_3()
                         .py_2()
                         .gap_3()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .cursor_pointer()
                         .when(on, |el| el.bg(theme::surface_raised()))
                         .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
@@ -2293,16 +2293,15 @@ impl AppView {
                                 .pt_2()
                                 .pb_1()
                                 .text_size(theme::text::CAPTION)
-                                .font_weight(FontWeight::SEMIBOLD)
+                                .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::subtle())
                                 .child(tracked(
                                     &t(if g == 1 {
                                         "palette.group.settings"
                                     } else {
                                         "palette.group.actions"
-                                    })
-                                    .to_uppercase(),
-                                    0.96,
+                                    }),
+                                    0.,
                                 ))
                                 .into_any_element(),
                         );
@@ -2336,7 +2335,7 @@ impl AppView {
                 .px_2p5()
                 .py_1()
                 .rounded_full()
-                .border_1()
+                .bg(theme::surface_raised())
                 .border_color(theme::brand(400).opacity(0.4))
                 .bg(theme::brand(400).opacity(0.15))
                 .text_size(theme::text::CAPTION)
@@ -2412,13 +2411,7 @@ impl AppView {
                             .bg(theme::modal())
                             .border_1()
                             .border_color(theme::line_strong())
-                            .shadow(vec![BoxShadow {
-                                color: theme::shadow_deep(),
-                                offset: point(px(0.), px(40.)),
-                                blur_radius: px(120.),
-                                spread_radius: px(-30.),
-                                inset: false,
-                            }])
+                            .shadow(theme::shadow_modal())
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(
                                 h_flex()
@@ -2427,7 +2420,7 @@ impl AppView {
                                     .gap_3()
                                     .px_4()
                                     .border_b_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_faint())
                                     .child(if querying {
                                         // The query is out with the daemon: the icon turns.
                                         div()
@@ -2505,7 +2498,7 @@ impl AppView {
                                     .gap_x_4()
                                     .gap_y_1()
                                     .border_t_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_faint())
                                     .text_size(theme::text::CAPTION)
                                     .text_color(theme::subtle())
                                     .children(keys.into_iter().map(key_hint)),
@@ -2558,7 +2551,7 @@ fn aside(
         .flex_none()
         .h_full()
         .border_l_1()
-        .border_color(theme::line())
+        .border_color(theme::line_faint())
         .bg(theme::surface_faint())
         .child(
             h_flex()
@@ -2568,7 +2561,7 @@ fn aside(
                 .px_4()
                 .py_2p5()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .text_size(theme::text::CAPTION)
                 .text_color(theme::subtle())
                 .child(
@@ -2602,7 +2595,7 @@ fn aside(
                 .px_4()
                 .py_2p5()
                 .border_t_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .child(foot),
         )
         .into_any_element()

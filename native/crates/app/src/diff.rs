@@ -793,7 +793,7 @@ pub fn table_with(
         .overflow_x_scroll()
         .bg(theme::ink())
         .border_t_1()
-        .border_color(theme::line())
+        .border_color(theme::line_faint())
         .child(
             v_flex()
                 .flex_none()
@@ -820,7 +820,7 @@ impl DiffView {
                 .px_3()
                 .py_2()
                 .border_t_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
                 .text_xs()
                 .text_color(color)
                 .child(text)
@@ -1011,7 +1011,7 @@ impl Render for DiffView {
             .px_4()
             .py_2()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 div()
                     .text_xs()
@@ -1071,7 +1071,7 @@ impl Render for DiffView {
                             .py_2()
                             .overflow_y_scroll()
                             .border_r_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_faint())
                             .children(self.render_tree(&tree, 0, cx)),
                     )
                     .child(

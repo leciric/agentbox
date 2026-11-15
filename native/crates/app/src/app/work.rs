@@ -755,7 +755,7 @@ impl WorkView {
             .min_w_0()
             .border_l_1()
             .border_r_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .bg(theme::panel_top())
             .overflow_hidden()
             .when(open, |el| el.border_t_1().rounded_t(theme::radius::XXL))
@@ -835,11 +835,11 @@ impl WorkView {
                         .border_b_1()
                         .border_color(theme::line_faint())
                         .bg(theme::surface_faint())
-                        // text-caption font-semibold uppercase tracking-wide text-subtle
+                        // text-caption font-medium text-subtle
                         .text_size(theme::text::CAPTION)
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::subtle())
-                        .child(day_label(day).to_uppercase()),
+                        .child(day_label(day)),
                 ),
             )
             .into_any_element(),
@@ -962,7 +962,7 @@ impl WorkView {
                                     .h(px(36.))
                                     .px_3()
                                     .gap_1p5()
-                                    .rounded_xl()
+                                    .rounded(theme::radius::XL)
                                     .border_1()
                                     .border_color(theme::brand(500).opacity(0.3))
                                     .bg(gpui::linear_gradient(
@@ -1143,7 +1143,7 @@ pub(super) enum Tone {
 /// tag is Electron's Badge: a caption pill, its tone's tint, text and inset
 /// ring (bg-emerald-400/10 text-emerald-300 ring-emerald-400/25 and so on).
 pub(super) fn tag(text: impl Into<SharedString>, tone: Tone) -> AnyElement {
-    let (bg, fg, ring) = match tone {
+    let (bg, fg, _ring) = match tone {
         Tone::Plain => (theme::surface(), theme::tertiary(), theme::line_strong()),
         Tone::Success => (
             theme::emerald(400).opacity(0.1),
@@ -1175,10 +1175,8 @@ pub(super) fn tag(text: impl Into<SharedString>, tone: Tone) -> AnyElement {
         .flex_none()
         .gap_1p5()
         .px_2()
-        .py(px(1.))
+        .py_0p5()
         .rounded_full()
-        .border_1()
-        .border_color(ring)
         .bg(bg)
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)

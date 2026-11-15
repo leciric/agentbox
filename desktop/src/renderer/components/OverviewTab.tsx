@@ -122,7 +122,7 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
                 </Tip>
               </Row>
               <div className="mt-4">
-                <div className="mb-2 flex items-center gap-1.5 text-caption uppercase tracking-wider text-subtle">
+                <div className="mb-2 flex items-center gap-1.5 text-caption text-subtle">
                   <FileDiff className="size-3.5" />
                   {t('agent.overview.changesSince', { ref: agent.baseRef })}
                 </div>
@@ -222,7 +222,7 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
   });
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <span className="inline-flex rounded-lg border border-line bg-rail p-0.5" role="radiogroup" aria-label={t('agent.overview.interface')}>
+      <span className="inline-flex rounded-lg bg-surface p-0.5" role="radiogroup" aria-label={t('agent.overview.interface')}>
         {[
           ['chat', t('agent.tab.chat')],
           ['cli', t('agent.tab.terminal')],
@@ -247,7 +247,7 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
 function Metric({ label, value, detail, fraction, hint }: { label: string; value: string; detail?: ReactNode; fraction?: number; hint?: string }) {
   return (
     <div className="min-w-0 rounded-xl border border-line-faint bg-surface-faint p-3" title={hint}>
-      <div className="text-caption uppercase tracking-wider text-subtle">{label}</div>
+      <div className="text-caption text-subtle">{label}</div>
       <div className="mt-1 font-mono text-heading tabular-nums text-primary">{value}</div>
       {detail && <div className="mt-1 font-mono text-caption tabular-nums text-subtle">{detail}</div>}
       {fraction !== undefined && (

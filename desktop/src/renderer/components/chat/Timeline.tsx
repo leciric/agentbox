@@ -140,14 +140,14 @@ const TimelineRow = memo(
       case 'fold':
         if (row.empty)
           return (
-            <div className="mb-3 border-b border-line pb-2 pt-1">
+            <div className="mb-3 border-b border-line-faint pb-2 pt-1">
               <span className="px-1 text-sm tabular-nums text-subtle" data-chat-fold-empty>
                 {row.label}
               </span>
             </div>
           );
         return (
-          <div className="mb-3 border-b border-line pb-2 pt-1">
+          <div className="mb-3 border-b border-line-faint pb-2 pt-1">
             <button
               className="flex items-center gap-1 rounded-md px-1 text-sm tabular-nums text-subtle transition-colors hover:text-tertiary"
               aria-expanded={row.open}
@@ -161,7 +161,7 @@ const TimelineRow = memo(
         );
       case 'working':
         return (
-          <div className="mb-3 border-b border-line pb-2 pt-1" data-chat-working>
+          <div className="mb-3 border-b border-line-faint pb-2 pt-1" data-chat-working>
             <div className="flex h-6 items-baseline px-1 text-sm tabular-nums text-subtle">
               {t.rich('chat.timeline.working', { elapsed: <Elapsed since={row.since} /> })}
               {row.stalledSince && (
@@ -454,7 +454,7 @@ function ToldMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
   return (
     <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item="told" data-chat-to={to} data-chat-id={item.id}>
       <Tip label={t('chat.target.toldTip', { name: to })}>
-        <button className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium text-brand-300 transition hover:bg-brand-500/15" onClick={() => chooseTarget(chatRef, to)} data-chat-told-tag>
+        <button className="flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium text-brand-300 transition hover:bg-brand-500/15" onClick={() => chooseTarget(chatRef, to)} data-chat-told-tag>
           <ArrowRight className="size-3" />
           {to}
         </button>
@@ -477,7 +477,7 @@ function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
       {!!item.files?.length && <SentFiles chatRef={chatRef} files={item.files} />}
       {split.picks.length > 0 && <SentPicks chatRef={chatRef} picks={split.picks} images={images} />}
       {split.text && (
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
+        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary" data-chat-text>
           <Mentions text={split.text} />
         </div>
       )}

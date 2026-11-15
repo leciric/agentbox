@@ -53,7 +53,7 @@ export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: stri
               {openFile === file.path && (
                 <div className="mx-3 mb-2 overflow-hidden rounded-lg border border-line-faint bg-sunken">
                   {file.diffs.map((diff, i) => (
-                    <DiffView key={i} diff={diff} className={cn(i > 0 && 'border-t border-line')} />
+                    <DiffView key={i} diff={diff} className={cn(i > 0 && 'border-t border-line-faint')} />
                   ))}
                 </div>
               )}

@@ -240,7 +240,7 @@ export function FilterChip({
       onClick={onClick}
       className={cn(
         'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-ui text-muted transition hover:bg-surface hover:text-primary',
-        active && 'bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
+        active && 'bg-surface-strong text-title',
       )}
     >
       {Icon && <Icon className="size-3.5" />}
@@ -552,7 +552,7 @@ export function MediaViewer({
       <DialogContent className="max-w-[min(1240px,calc(100vw-4rem))] gap-0 overflow-hidden p-0" onOpenAutoFocus={(event) => event.preventDefault()}>
         {item && (
           <>
-            <div className="flex items-center gap-3 border-b border-line px-5 py-3 pr-14">
+            <div className="flex items-center gap-3 border-b border-line-faint px-5 py-3 pr-14">
               <Badge variant={kindVariant[item.kind]}>{kindInfo(item.kind).one}</Badge>
               <DialogTitle className="truncate text-heading">{item.name}</DialogTitle>
               <span className="shrink-0 text-xs text-subtle">
@@ -607,7 +607,7 @@ export function MediaViewer({
               <ViewerBody item={item} />
             </div>
             {(item.meta.url || item.meta.width || item.meta.tests) && (
-              <div className="flex items-center gap-3 border-t border-line px-5 py-2 text-xs text-subtle">
+              <div className="flex items-center gap-3 border-t border-line-faint px-5 py-2 text-xs text-subtle">
                 {item.meta.url && <span className="truncate font-mono">{item.meta.url}</span>}
                 {item.meta.width ? (
                   <span className="shrink-0 tabular-nums">

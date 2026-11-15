@@ -27,7 +27,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
   const projectName = projectLabel(project, projects.data);
   const variant = !pr || pr.draft ? 'default' : (prVariant[pr.state] ?? 'default');
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line bg-surface-faint px-5 py-2 text-ui" data-viewer-links>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line-faint bg-surface-faint px-5 py-2 text-ui" data-viewer-links>
       <button
         className="flex min-w-0 max-w-[30%] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-muted transition hover:bg-surface-raised hover:text-primary"
         onClick={() => onSelect({ kind: 'project', project })}

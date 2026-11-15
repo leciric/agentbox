@@ -101,161 +101,9 @@ const fn a(rgb: u32, alpha: f32) -> u32 {
     (rgb << 8) | ((alpha * 255.0 + 0.5) as u32 & 0xff)
 }
 
-/// DARK is AgentBox's own look, and the default.
-pub const DARK: Palette = Palette {
-    look: Look::Dark,
-    brand: [
-        op(0xede9fe),
-        op(0xddd6fe),
-        op(0xc4b5fd),
-        op(0xa78bfa),
-        op(0x8455f0),
-        op(0x7c3aed),
-        op(0x6d28d9),
-    ],
-    on_brand: op(0xffffff),
-    ink: op(0x07070b),
-    wash_near: a(0x8b5cf6, 0.13),
-    wash_far: a(0x38bdf8, 0.07),
-    selection: a(0x8b5cf6, 0.35),
-    brand_mid: op(0x6366f1),
-    brand_deep: op(0x4f46e5),
-    brand_far: op(0x38bdf8),
-
-    title: op(0xfafafa),
-    primary: op(0xf4f4f5),
-    secondary: op(0xe4e4e7),
-    tertiary: op(0xd4d4d8),
-    muted: op(0xa1a1aa),
-    subtle: op(0x8e8e97),
-    faint: op(0x82828b),
-    ghost: op(0x3f3f46),
-
-    surface_faint: a(0xffffff, 0.03),
-    surface: a(0xffffff, 0.05),
-    surface_raised: a(0xffffff, 0.065),
-    surface_strong: a(0xffffff, 0.09),
-    surface_vivid: a(0xffffff, 0.14),
-
-    line_faint: a(0xffffff, 0.05),
-    line: a(0xffffff, 0.065),
-    line_strong: a(0xffffff, 0.1),
-    line_vivid: a(0xffffff, 0.15),
-    line_heavy: a(0xffffff, 0.25),
-
-    rail: a(0x000000, 0.25),
-    sunken: a(0x000000, 0.3),
-    well: a(0x000000, 0.42),
-    overlay: a(0x18181b, 0.95),
-    modal: a(0x09090b, 0.95),
-    scrim: a(0x000000, 0.62),
-    gloss: a(0xffffff, 0.25),
-
-    chat: op(0x09090d),
-    composer: op(0x131318),
-    stage: op(0x0a0a0f),
-    attached_warning: op(0x1d1810),
-    attached_danger: op(0x1f1014),
-    attached_neutral: op(0x111116),
-    panel_top: a(0xffffff, 0.035),
-    panel_bottom: a(0xffffff, 0.015),
-    panel_edge: a(0xffffff, 0.04),
-    shadow_deep: a(0x000000, 0.9),
-    shadow_soft: a(0x000000, 0.4),
-
-    inverted: op(0xf4f4f5),
-    inverted_hover: op(0xffffff),
-    on_inverted: op(0x18181b),
-    on_bright: op(0x09090b),
-
-    emerald: [op(0xa7f3d0), op(0x6ee7b7), op(0x34d399)],
-    amber: [
-        op(0xfffbeb),
-        op(0xfef3c7),
-        op(0xfde68a),
-        op(0xfcd34d),
-        op(0xfbbf24),
-    ],
-    rose: [op(0xffe4e6), op(0xfecdd3), op(0xfda4af), op(0xfb7185)],
-    sky: [op(0xf0f9ff), op(0xbae6fd), op(0x7dd3fc), op(0x38bdf8)],
-    violet: [op(0xc4b5fd), op(0xa78bfa)],
-};
-
-/// LIGHT is styles.css's light block: the text ramp turned over and every
-/// status hue darkened to stay 4.5:1 on a pale window.
-pub const LIGHT: Palette = Palette {
-    look: Look::Light,
-    brand: [
-        op(0x4c1d95),
-        op(0x5b21b6),
-        op(0x6d28d9),
-        op(0x7c3aed),
-        op(0x8455f0),
-        op(0x6d28d9),
-        op(0x5b21b6),
-    ],
-    ink: op(0xf4f4f6),
-    wash_near: a(0x8b5cf6, 0.10),
-    wash_far: a(0x38bdf8, 0.08),
-    selection: a(0x8b5cf6, 0.28),
-
-    title: op(0x09090b),
-    primary: op(0x18181b),
-    secondary: op(0x27272a),
-    tertiary: op(0x3f3f46),
-    muted: op(0x52525b),
-    subtle: op(0x5c5c65),
-    faint: op(0x66666f),
-    ghost: op(0xa1a1aa),
-
-    surface_faint: a(0x09090b, 0.035),
-    surface: a(0x09090b, 0.05),
-    surface_raised: a(0x09090b, 0.07),
-    surface_strong: a(0x09090b, 0.1),
-    surface_vivid: a(0x09090b, 0.16),
-
-    line_faint: a(0x09090b, 0.08),
-    line: a(0x09090b, 0.11),
-    line_strong: a(0x09090b, 0.16),
-    line_vivid: a(0x09090b, 0.24),
-    line_heavy: a(0x09090b, 0.38),
-
-    rail: a(0xffffff, 0.58),
-    sunken: a(0xffffff, 0.85),
-    well: a(0xffffff, 0.7),
-    overlay: a(0xffffff, 0.97),
-    modal: a(0xffffff, 0.98),
-    scrim: a(0x09090b, 0.4),
-    gloss: a(0xffffff, 0.6),
-
-    chat: op(0xfafafb),
-    composer: op(0xffffff),
-    attached_warning: op(0xfef6e7),
-    attached_danger: op(0xfdeef0),
-    attached_neutral: op(0xf4f4f6),
-    panel_top: a(0xffffff, 0.85),
-    panel_bottom: a(0xffffff, 0.6),
-    panel_edge: a(0xffffff, 0.9),
-    shadow_deep: a(0x09090b, 0.24),
-    shadow_soft: a(0x09090b, 0.12),
-
-    inverted: op(0x27272a),
-    inverted_hover: op(0x18181b),
-    on_inverted: op(0xfafafa),
-
-    emerald: [op(0x065f46), op(0x047857), op(0x047857)],
-    amber: [
-        op(0x451a03),
-        op(0x78350f),
-        op(0x92400e),
-        op(0xb45309),
-        op(0xb45309),
-    ],
-    rose: [op(0x881337), op(0x9f1239), op(0xbe123c), op(0xbe123c)],
-    sky: [op(0x082f49), op(0x075985), op(0x0369a1), op(0x0369a1)],
-    violet: [op(0x6d28d9), op(0x7c3aed)],
-    ..DARK
-};
+mod tokens;
+#[allow(unused_imports)]
+pub use tokens::{DARK, LIGHT, radius, space, text};
 
 /// DRACULA is AgentBox's dark with Dracula's backgrounds, text and hues; its
 /// accent and window come through `apply` like a followed theme's.
@@ -349,9 +197,9 @@ pub fn palette_of(theme: &agentbox_api::Theme) -> Palette {
     let ground = parse_hex(&theme.background)
         .map(|b| Rgb::from(b).mix(if light { WHITE } else { BLACK }, 0.35));
     let behind = ground.unwrap_or(if light {
-        Rgb(0xf4, 0xf4, 0xf6)
+        Rgb(0xff, 0xff, 0xff)
     } else {
-        Rgb(0x07, 0x07, 0x0b)
+        Rgb(0x0e, 0x0e, 0x10)
     });
     let text = if light { BLACK } else { WHITE };
     let shade = |amount: f32| op(accent.mix(text, amount).readable(behind, text).hex());
@@ -372,10 +220,10 @@ pub fn palette_of(theme: &agentbox_api::Theme) -> Palette {
             op(NEAR_BLACK.hex())
         },
         ink: ground.map(|g| op(g.hex())).unwrap_or(base.ink),
-        wash_near: a(accent.hex(), if light { 0.12 } else { 0.16 }),
+        wash_near: a(accent.hex(), if light { 0.06 } else { 0.08 }),
         wash_far: a(
             accent.mix(if light { BLACK } else { WHITE }, 0.3).hex(),
-            if light { 0.08 } else { 0.07 },
+            if light { 0.04 } else { 0.035 },
         ),
         selection: a(accent.hex(), if light { 0.28 } else { 0.35 }),
         brand_mid: op(accent.mix(BLACK, 0.28).hex()),
@@ -772,56 +620,39 @@ pub fn linear_panel() -> gpui::Background {
 }
 
 // ── Elevation ─────────────────────────────────────────────────────────────
-/// shadow_card is a resting card's lift: a hairline of light along its top
-/// edge (the `.panel` inset) and a soft drop.
+/// layers turns one of tokens.rs's elevations into the shadows it is in the
+/// look worn now.
+fn layers(of: &[tokens::Layer]) -> Vec<BoxShadow> {
+    let p = worn();
+    of.iter()
+        .map(|l| BoxShadow {
+            color: c(if l.deep { p.shadow_deep } else { p.shadow_soft }).opacity(l.strength),
+            offset: point(px(l.x), px(l.y)),
+            blur_radius: px(l.blur),
+            spread_radius: px(l.spread),
+            inset: false,
+        })
+        .collect()
+}
+/// shadow_card is a resting card's: nothing. A panel sits on the window, told
+/// apart by its hairline, and only what floats casts a shadow.
 pub fn shadow_card() -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: c(worn().shadow_soft).opacity(0.35),
-        offset: point(px(0.), px(1.)),
-        blur_radius: px(2.),
-        spread_radius: px(0.),
-        inset: false,
-    }]
+    Vec::new()
 }
 /// shadow_pop is a menu's or popover's: close and soft.
 pub fn shadow_pop() -> Vec<BoxShadow> {
-    vec![
-        BoxShadow {
-            color: c(worn().shadow_soft),
-            offset: point(px(0.), px(8.)),
-            blur_radius: px(24.),
-            spread_radius: px(-4.),
-            inset: false,
-        },
-        BoxShadow {
-            color: c(worn().shadow_soft).opacity(0.5),
-            offset: point(px(0.), px(1.)),
-            blur_radius: px(3.),
-            spread_radius: px(0.),
-            inset: false,
-        },
-    ]
+    layers(tokens::POP)
 }
-/// shadow_composer is the composer's: a long soft drop under it, and the
-/// brand's ring around it while it has the focus.
-pub fn shadow_composer(focused: bool) -> Vec<BoxShadow> {
-    let mut v = vec![BoxShadow {
-        color: c(worn().shadow_deep),
-        offset: point(px(0.), px(24.)),
-        blur_radius: px(60.),
-        spread_radius: px(-28.),
+/// shadow_composer is the composer's: a close soft drop, so it floats a
+/// little over the conversation. Its border says it has the focus, not a ring.
+pub fn shadow_composer(_focused: bool) -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: c(worn().shadow_soft),
+        offset: point(px(0.), px(8.)),
+        blur_radius: px(24.),
+        spread_radius: px(-12.),
         inset: false,
-    }];
-    if focused {
-        v.push(BoxShadow {
-            color: brand(400).opacity(0.6),
-            offset: point(px(0.), px(0.)),
-            blur_radius: px(0.),
-            spread_radius: px(2.),
-            inset: false,
-        });
-    }
-    v
+    }]
 }
 /// shadow_drawer is a drawer's, cast over what it slides across:
 /// Electron's -20px 0 60px -20px shadow-deep.
@@ -841,13 +672,7 @@ pub fn shadow_deep() -> Hsla {
 
 /// shadow_modal is a dialog's: deep, so it reads above the scrim.
 pub fn shadow_modal() -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: c(worn().shadow_deep).opacity(0.6),
-        offset: point(px(0.), px(24.)),
-        blur_radius: px(64.),
-        spread_radius: px(-12.),
-        inset: false,
-    }]
+    layers(tokens::MODAL)
 }
 /// glow is a ring of a hue around something that wants a look: the focus
 /// ring's colour at a soft spread.
@@ -870,7 +695,7 @@ pub fn kbd(keys: impl Into<SharedString>) -> gpui::Div {
         .rounded(radius::MD)
         .bg(surface_raised())
         .font_family(MONO_FACE)
-        .text_size(px(10.5))
+        .text_size(text::MICRO)
         .text_color(subtle())
         .child(keys.into())
 }
@@ -935,30 +760,6 @@ pub fn logo(size: Pixels) -> gpui::Div {
                 .size(size * (18. / 32.))
                 .text_color(gpui::white()),
         )
-}
-
-// ── Radii and type ────────────────────────────────────────────────────────
-/// The radii Electron's Tailwind uses: rounded (4), -md (6), -lg (8), -xl (12),
-/// -2xl (16).
-pub mod radius {
-    use gpui::{Pixels, px};
-    pub const SM: Pixels = px(4.);
-    pub const MD: Pixels = px(6.);
-    pub const LG: Pixels = px(8.);
-    pub const XL: Pixels = px(12.);
-    pub const XXL: Pixels = px(16.);
-}
-
-/// The type scale, five sizes and nothing between: caption (labels,
-/// timestamps, badges), ui (dense controls), body (reading text, inputs),
-/// heading (a panel's or dialog's title), display (a page's title).
-pub mod text {
-    use gpui::{Pixels, px};
-    pub const CAPTION: Pixels = px(12.);
-    pub const UI: Pixels = px(13.);
-    pub const BODY: Pixels = px(14.);
-    pub const HEADING: Pixels = px(16.);
-    pub const DISPLAY: Pixels = px(20.);
 }
 
 // ── Fonts ─────────────────────────────────────────────────────────────────
@@ -1396,18 +1197,59 @@ mod tests {
     }
 
     #[test]
-    fn own_looks_are_styles_css() {
+    fn own_looks_are_the_tokens() {
         let dark = palette_of(&agentbox_api::Theme::default());
         assert_eq!(dark, DARK);
         assert_eq!(DARK.brand[4], 0x8455f0ff);
-        assert_eq!(DARK.line, 0xffffff11, "6.5% white");
         assert_eq!(LIGHT.primary, 0x18181bff);
-        assert_eq!(LIGHT.chat, 0xfafafbff);
+        assert_eq!(DARK.chat, DARK.ink, "the conversation is the window");
+        assert_eq!(LIGHT.chat, LIGHT.ink);
         assert_eq!(DRACULA.chat, 0x282a36ff);
         assert_eq!(
             DRACULA.ink, DARK.ink,
             "Dracula's window comes from its theme"
         );
+    }
+
+    /// tokens.rs is generated from the JSON the Electron app's tokens.css is
+    /// generated from: a JSON changed without `node desktop/scripts/tokens.mjs`
+    /// fails here.
+    #[test]
+    fn tokens_are_generated_from_the_shared_json() {
+        let source = include_str!("../../../../desktop/src/shared/design-tokens.json");
+        let mut h: u32 = 0x811c9dc5;
+        for b in source.bytes() {
+            h ^= b as u32;
+            h = h.wrapping_mul(0x01000193);
+        }
+        assert_eq!(
+            h,
+            tokens::SOURCE_HASH,
+            "design-tokens.json changed: run node desktop/scripts/tokens.mjs"
+        );
+    }
+
+    /// Every text role reads 4.5:1 on the window, the chat and the composer,
+    /// in both of the app's own looks.
+    #[test]
+    fn text_reads_on_every_ground() {
+        for p in [DARK, LIGHT] {
+            for ground in [p.ink, p.chat, p.composer] {
+                let ground = Rgb::from(ground >> 8);
+                for text in [
+                    p.title,
+                    p.primary,
+                    p.secondary,
+                    p.tertiary,
+                    p.muted,
+                    p.subtle,
+                    p.faint,
+                ] {
+                    let c = Rgb::from(text >> 8).contrast(ground);
+                    assert!(c >= 4.5, "{:?}: {text:#x} is {c:.2}:1", p.look);
+                }
+            }
+        }
     }
 
     /// A followed theme's ramp is lib/theme.ts's: its 500 is the accent, its

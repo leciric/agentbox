@@ -211,7 +211,7 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
     return (
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised"
+        className="flex items-center gap-1.5 rounded-full bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised"
         onClick={stopping ? free.show : undefined}
         disabled={!stopping}
         aria-label={label}
@@ -229,7 +229,7 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
       <Tip label={label}>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200 ring-1 ring-inset ring-emerald-400/30 transition hover:bg-emerald-400/15"
+          className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/15"
           onClick={free.startBack}
           aria-label={label}
           data-free-mode="start"
@@ -325,7 +325,7 @@ export function FreeResourcesDialog({
                 {targets.map((target) => (
                   <li key={target.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-ui">
                     <span className="min-w-0 truncate text-secondary">{target.label}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ring-1 ring-inset', doingTone[target.doing])}>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-caption font-medium bg-surface-raised', doingTone[target.doing])}>
                       {t(doingText[target.doing])}
                     </span>
                   </li>
@@ -398,7 +398,7 @@ function FreeProgress({ run, agents, onHide }: { run: FreeRun; agents: T.Agent[]
       </ul>
       {/* The VM's step stays in view below the list, however long it is. */}
       {run.vmBefore && (
-        <ul className="-mt-3 border-t border-line pt-2">
+        <ul className="-mt-3 border-t border-line-faint pt-2">
           <Step done={false} pending={run.phase !== 'vm'} label={t('vm.agentboxVM')} detail={run.phase === 'vm' ? t('vm.free.turningOff') : t('vm.free.afterAgents')} />
         </ul>
       )}
@@ -492,7 +492,7 @@ function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; on
 function Stat({ id, label, value, detail }: { id: string; label: string; value: string; detail: string }) {
   return (
     <div className="grid gap-0.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3.5 py-3" data-stat={id}>
-      <span className="text-caption font-medium uppercase tracking-wider text-emerald-300">{label}</span>
+      <span className="text-caption font-medium text-emerald-300">{label}</span>
       <span className="font-mono text-xl font-semibold tabular-nums text-emerald-200">{value}</span>
       <span className="text-caption text-muted">{detail}</span>
     </div>
@@ -574,7 +574,7 @@ export function VMActions({ free, style }: { free: FreeResources; style: 'shutDo
   const off = free.mode === 'start' || vm?.state === 'off';
   if (!vm && free.mode === 'idle') return null;
   return (
-    <div className="grid gap-2 border-t border-line pt-3">
+    <div className="grid gap-2 border-t border-line-faint pt-3">
       <div className="flex flex-wrap items-center gap-2">
         {busy || free.mode === 'busy' ? (
           <Button size="sm" disabled>

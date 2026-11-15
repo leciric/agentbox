@@ -99,7 +99,7 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
             .py_1()
             .truncate()
             .border_r_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .when(num, |el| el.text_right().font_family(theme::mono()))
             .when(head, |el| {
                 el.font_weight(FontWeight::SEMIBOLD)
@@ -119,7 +119,7 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
                     h_flex()
                         .bg(theme::surface_raised())
                         .border_b_1()
-                        .border_color(theme::line())
+                        .border_color(theme::line_faint())
                         .children((0..cols).map(|c| {
                             cell(header.get(c).cloned().unwrap_or_default(), widths[c], true)
                         })),

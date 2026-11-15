@@ -273,7 +273,7 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 border-t border-line px-4 py-3">
+        <div className="flex items-center gap-2 border-t border-line-faint px-4 py-3">
           {/* The release notes never open over a tour: the last step of a What's new tour offers them. */}
           {last && whatsNew && onReleaseNotes && (
             <Button
@@ -372,7 +372,7 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
         <div className="font-medium text-title">shop-web</div>
         <div className="truncate text-caption text-subtle">{t('tour.ex.leadLine')}</div>
       </div>
-      <div className="ml-3 grid gap-0.5 border-l border-line pl-2">
+      <div className="ml-3 grid gap-0.5 border-l border-line-faint pl-2">
         <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="working" /><span className="font-mono text-caption">fix-login-redirect</span><span className="ml-auto text-caption text-subtle">{t('tour.ex.working')}</span></div>
         <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="needs" /><span className="font-mono text-caption">checkout-tests</span><span className="ml-auto text-caption text-amber-300">{t('tour.ex.needsYou')}</span></div>
       </div>
@@ -575,7 +575,7 @@ export function TourButtons() {
     startTour(id);
   };
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4" data-sheet-tours>
+    <div className="flex flex-wrap items-center gap-2 border-t border-line-faint pt-4" data-sheet-tours>
       <Button size="sm" variant="secondary" onClick={() => play(welcomeTour.id)} data-sheet-tour>
         <CircleHelp />
         {t('tour.help.take')}

@@ -17,7 +17,7 @@ export function NotificationKinds() {
   const prefs = usePrefs();
   return (
     <div className="grid gap-3 px-5 py-4" data-notify-kinds>
-      <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-end gap-3 text-caption uppercase tracking-wider text-faint">
+      <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-end gap-3 text-caption text-faint">
         <span />
         {channels.map((c) => (
           <span key={c} className="text-center">

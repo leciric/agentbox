@@ -57,6 +57,14 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   desktop app is a key in `en-US.ts` and `pt-BR.ts`, shown with `useT()`/`t()` from
   `renderer/lib/i18n.tsx`; `i18n.test.ts` and the typecheck fail when pt-BR lacks a key. A language
   is a catalog file plus a line in `languages.ts`. The CLI, the brief and the chats stay in English.
+- **The look is one set of tokens for both apps**:
+  [`desktop/src/shared/design-tokens.json`](desktop/src/shared/design-tokens.json) holds the colours
+  (dark and light), type scale, spacing, radii and elevation. `node desktop/scripts/tokens.mjs`
+  writes `desktop/src/renderer/tokens.css` and `native/crates/app/src/theme/tokens.rs` from it;
+  a test in each app fails when they are stale. Don't write a colour, a `text-[Npx]` or a shadow
+  recipe in a component: ask for a role (`styles.css` says what each is for). Panels are flat with
+  a hairline, regions are separated by `border-line-faint`, labels are sentence case, and only
+  menus (`shadow-pop`) and dialogs (`shadow-modal`) cast a shadow.
 - **Migrations are appended, never edited**: `migrations` in
   [`internal/state/state.go`](internal/state/state.go), tracked with `PRAGMA user_version`.
 - **Decisions and features are explained in their pull request**: context, what was decided and
