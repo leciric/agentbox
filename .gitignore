@@ -18,3 +18,4 @@ node_modules
 # scripts/record/ still writes its own output here.
 /docs/implementation/evidence/
 /native/parity-out/
+/agentbox.exe
