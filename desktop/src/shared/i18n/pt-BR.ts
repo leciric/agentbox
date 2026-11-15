@@ -420,6 +420,7 @@ export const ptBR: Messages = {
   'shell.sidebar.newSectionName': 'Nome da nova pasta',
   'shell.sidebar.sectionName': 'Nome da pasta',
   'shell.sidebar.editSection': 'Editar pasta…',
+  'shell.sidebar.renameTitle': 'Renomear {name}',
   'shell.sidebar.editTitle': 'Editar {name}',
   'shell.sidebar.sectionDescription': 'Descrição',
   'shell.sidebar.sectionDescriptionHint': 'Opcional: aparece ao apontar para a pasta',

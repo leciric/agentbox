@@ -579,8 +579,13 @@ func importSection(ctx context.Context, tx execer, project string, s sectionEntr
 		if !slices.Contains(state.SectionColors, color) {
 			color = ""
 		}
+		// Likewise a description that is too long or has a line break.
+		desc, derr := state.ValidSectionDescription(sec.Description)
+		if derr != nil {
+			desc = ""
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO project_sections (id, name, position, collapsed, color, description, created_at)
-			VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM project_sections), ?, ?, ?, ?)`, id, sec.Name, sec.Collapsed, color, sec.Description, sec.CreatedAt); err != nil {
+			VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM project_sections), ?, ?, ?, ?)`, id, sec.Name, sec.Collapsed, color, desc, sec.CreatedAt); err != nil {
 			return err
 		}
 	case err != nil:

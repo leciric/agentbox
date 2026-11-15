@@ -419,6 +419,7 @@ export const enUS = {
   'shell.sidebar.newSectionName': 'New folder name',
   'shell.sidebar.sectionName': 'Folder name',
   'shell.sidebar.editSection': 'Edit folder…',
+  'shell.sidebar.renameTitle': 'Rename {name}',
   'shell.sidebar.editTitle': 'Edit {name}',
   'shell.sidebar.sectionDescription': 'Description',
   'shell.sidebar.sectionDescriptionHint': 'Optional: shown when you point at the folder',

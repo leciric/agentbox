@@ -410,3 +410,23 @@ func TestSameRemote(t *testing.T) {
 		t.Error("different repositories matched")
 	}
 }
+
+func TestImportDropsInvalidSectionDescription(t *testing.T) {
+	ctx := context.Background()
+	root, _, _ := newRepo(t)
+	src := newInstance(t)
+	seed(t, src, root)
+	if _, err := src.Store.DB().ExecContext(ctx, `UPDATE project_sections SET description = 'one'||char(10)||'two' WHERE id = 'sec1'`); err != nil {
+		t.Fatal(err)
+	}
+	path := export(t, src, everything(false))
+	dst := newInstance(t)
+	importAll(t, dst, path, "")
+	sec, err := dst.Store.Section(ctx, "sec1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sec.Description != "" || sec.Color != "mint" {
+		t.Errorf("section = %+v; want the invalid description dropped and the colour kept", sec)
+	}
+}

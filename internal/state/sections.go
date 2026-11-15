@@ -431,6 +431,10 @@ func sectionDescription(d string) (string, error) {
 	return d, nil
 }
 
+// ValidSectionDescription is sectionDescription for callers outside the store
+// (an import), which drop a description that isn't valid instead of failing.
+func ValidSectionDescription(d string) (string, error) { return sectionDescription(d) }
+
 // newSectionID is a short id with a prefix that says what it names, the way
 // package memory makes one.
 func newSectionID() string {
