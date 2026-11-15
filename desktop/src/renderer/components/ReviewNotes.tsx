@@ -111,7 +111,7 @@ export function NoteBox({ title, initial = '', saveLabel, onSave, onCancel }: { 
     void onSave(text).finally(() => setSaving(false));
   };
   return (
-    <div className="grid max-w-2xl gap-2 rounded-lg border border-brand-400/40 bg-modal p-2.5 font-sans shadow-sm" data-review-note-box>
+    <div className="grid max-w-2xl gap-2 rounded-lg border border-brand-400/40 bg-modal p-2.5 font-sans" data-review-note-box>
       <div className="text-caption text-muted">{title}</div>
       <textarea
         autoFocus
@@ -223,7 +223,7 @@ export function NotesList({ notes }: { notes: T.ReviewNote[] }) {
     <div className="grid max-h-[38vh] gap-2 overflow-y-auto" data-review-notes-list>
       {draft.length > 0 && (
         <>
-          <div className="text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.notes.toSend', { count: draft.length })}</div>
+          <div className="text-caption font-medium text-subtle">{t('review.notes.toSend', { count: draft.length })}</div>
           {draft.map((n) => (
             <NoteCard key={n.id} note={n} withPath quote />
           ))}
@@ -231,7 +231,7 @@ export function NotesList({ notes }: { notes: T.ReviewNote[] }) {
       )}
       {earlier.length > 0 && (
         <details className="group" data-review-notes-earlier>
-          <summary className="cursor-pointer text-caption font-semibold uppercase tracking-wide text-subtle">
+          <summary className="cursor-pointer text-caption font-medium text-subtle">
             {t('review.notes.earlier', { list: counts })}
           </summary>
           <div className="mt-2 grid gap-2">

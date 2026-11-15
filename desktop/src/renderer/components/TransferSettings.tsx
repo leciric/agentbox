@@ -27,7 +27,7 @@ type ProjectPick = { on: boolean; kinds: Set<string>; bundle: boolean };
 
 function Check({ checked, onChange, disabled, children, testId }: { checked: boolean; onChange: (on: boolean) => void; disabled?: boolean; children: ReactNode; testId?: string }) {
   return (
-    <label className={cn('inline-flex min-w-0 items-center gap-2 text-[12.5px] text-secondary', disabled && 'opacity-50')} data-transfer-check={testId}>
+    <label className={cn('inline-flex min-w-0 items-center gap-2 text-caption text-secondary', disabled && 'opacity-50')} data-transfer-check={testId}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="min-w-0 break-words">{children}</span>
     </label>
@@ -52,7 +52,7 @@ function PathField({ value, onChange, onPick, placeholder, id }: { value: string
   const desktop = !('web' in window.agentbox);
   return (
     <div className="flex min-w-0 gap-2">
-      <Input id={id} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1 font-mono text-[12.5px]" />
+      <Input id={id} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1 font-mono text-caption" />
       {desktop && (
         <Button
           size="sm"
@@ -159,7 +159,7 @@ export function ExportSettings() {
                     ))}
                   </div>
                   {pick.kinds.has('repository') && (
-                    <div className="grid min-w-0 gap-1 pl-6 text-[12px] text-subtle" role="radiogroup" aria-label={kindLabel('repository')}>
+                    <div className="grid min-w-0 gap-1 pl-6 text-caption text-subtle" role="radiogroup" aria-label={kindLabel('repository')}>
                       <label className="flex min-w-0 items-start gap-2">
                         <input type="radio" checked={!pick.bundle} onChange={() => setPick(p, { bundle: false })} />
                         <span className="min-w-0 break-all">
@@ -180,7 +180,7 @@ export function ExportSettings() {
         })}
 
         <div className="grid min-w-0 gap-1.5">
-          <div className="text-[12px] font-medium text-tertiary">{t('transfer.logins.title')}</div>
+          <div className="text-caption font-medium text-tertiary">{t('transfer.logins.title')}</div>
           <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-x-4 gap-y-1.5">
             {(preview.data?.logins ?? []).map((l) => (
               <Check
@@ -231,11 +231,11 @@ export function ExportSettings() {
             {t('transfer.export.start')}
           </Button>
           {notYet ? (
-            <span className="text-[12px] text-subtle" data-transfer-not-yet>
+            <span className="text-caption text-subtle" data-transfer-not-yet>
               {notYet}
             </span>
           ) : (
-            <span className="text-[12px] text-subtle" data-transfer-total>
+            <span className="text-caption text-subtle" data-transfer-total>
               {t('transfer.export.total', { size: formatBytes(total) })}
             </span>
           )}
@@ -382,7 +382,7 @@ export function ImportSettings() {
                       </div>
                       {!p.exists && pick.kinds.has('repository') && (
                         <div className="grid min-w-0 gap-1.5 pl-6">
-                          <div className="text-[12px] text-subtle break-all">
+                          <div className="text-caption text-subtle break-all">
                             {t(`transfer.plan.${p.plan || 'none'}` as Parameters<typeof t>[0])}
                             {p.remote && ` — ${p.remote}`}
                             {p.bundled && ` · ${t('transfer.import.bundled')}`}
@@ -404,7 +404,7 @@ export function ImportSettings() {
             })}
             {contents.logins.length > 0 && (
               <div className="grid min-w-0 gap-1.5">
-                <div className="text-[12px] font-medium text-tertiary">{t('transfer.logins.title')}</div>
+                <div className="text-caption font-medium text-tertiary">{t('transfer.logins.title')}</div>
                 <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-x-4 gap-y-1.5">
                   {contents.logins.map((l) => (
                     <Check
@@ -459,12 +459,12 @@ function ImportReportView({ report }: { report: T.InstanceImportReport }) {
   const t = useT();
   return (
     <div className="grid min-w-0 gap-2 rounded-xl border border-line bg-surface p-3" data-transfer-report>
-      <div className="text-[13px] font-medium text-primary">
+      <div className="text-ui font-medium text-primary">
         {t('transfer.report.summary', { added: report.added, skipped: report.skipped, conflicted: report.conflicted })}
       </div>
       {report.projectsAdded.length > 0 && <SettingNote>{t('transfer.report.newProjects', { names: report.projectsAdded.join(', ') })}</SettingNote>}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[28rem] text-left text-[12px]">
+        <table className="w-full min-w-[28rem] text-left text-caption">
           <thead className="text-tertiary">
             <tr>
               <th className="py-1 pr-3 font-medium">{t('transfer.report.part')}</th>
@@ -475,7 +475,7 @@ function ImportReportView({ report }: { report: T.InstanceImportReport }) {
           </thead>
           <tbody className="text-secondary">
             {report.entries.map((e) => (
-              <tr key={e.id} className="border-t border-line align-top">
+              <tr key={e.id} className="border-t border-line-faint align-top">
                 <td className="py-1 pr-3">
                   <div className="font-mono">{e.id}</div>
                   {e.notes?.map((n, i) => (

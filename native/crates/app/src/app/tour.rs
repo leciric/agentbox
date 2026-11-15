@@ -251,7 +251,7 @@ impl AppView {
             .max_w(relative(0.92))
             .gap_3()
             .p_5()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .bg(theme::card())
             .border_1()
             .border_color(theme::accent().opacity(0.5))
@@ -406,7 +406,7 @@ impl AppView {
                             .top(t_)
                             .w(h.size.width)
                             .h(h.size.height)
-                            .rounded_xl()
+                            .rounded(theme::radius::XL)
                             .border_2()
                             .border_color(theme::accent().opacity(0.7)),
                     );
@@ -444,7 +444,7 @@ impl AppView {
                     .max_h(relative(0.85))
                     .gap_4()
                     .p_5()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .bg(theme::card())
                     .border_1()
                     .border_color(theme::line())

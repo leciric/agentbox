@@ -269,7 +269,7 @@ fn zzz(key: &str, size: f32, right: f32, top: f32, scale: f32) -> AnyElement {
         .absolute()
         .text_size(px(size))
         .line_height(px(size))
-        .font_weight(FontWeight::BOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::muted())
         .child("z");
     motion::few(
@@ -341,7 +341,7 @@ fn ask(seen: bool, key: &str, size: f32, text: f32, right: f32, top: f32) -> Any
             .shadow_sm()
             .text_size(px(text * scale))
             .line_height(px(text * scale))
-            .font_weight(FontWeight::BOLD)
+            .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme::amber(300))
             .child("?")
             .into_any_element()
@@ -567,7 +567,7 @@ pub(super) fn tiny_monitor(
                 .child(
                     h_flex()
                         .items_end()
-                        .text_size(px(10.))
+                        .text_size(theme::text::MICRO)
                         .line_height(px(10.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(label)

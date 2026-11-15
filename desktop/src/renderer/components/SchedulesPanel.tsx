@@ -163,7 +163,7 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
 
       {history.length > 0 && (
         <section className="grid min-w-0 gap-2" data-schedule-runs>
-          <h3 className="text-caption font-medium uppercase tracking-wide text-faint">{t('schedules.history.recent')}</h3>
+          <h3 className="text-caption font-medium text-faint">{t('schedules.history.recent')}</h3>
           <RunList
             runs={history.slice(0, 20)}
             titled

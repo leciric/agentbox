@@ -124,7 +124,7 @@ export function GroupCard({ item }: { item: T.ChatItem }) {
           <ArrowRight />
         </Button>
       </div>
-      <div className="flex flex-wrap gap-1.5 border-t border-line px-3.5 py-2.5">
+      <div className="flex flex-wrap gap-1.5 border-t border-line-faint px-3.5 py-2.5">
         {g.members.map((m) => (
           <span key={m.label} className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-strong px-2 py-1 text-caption text-secondary">
             <span className="font-mono font-semibold text-title">{m.label}</span>

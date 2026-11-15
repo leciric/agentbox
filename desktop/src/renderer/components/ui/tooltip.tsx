@@ -26,7 +26,7 @@ export function Tip({
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className={cn('z-[60] max-w-xs animate-fade-in rounded-lg border border-line-strong bg-overlay px-2.5 py-1.5 text-xs text-secondary shadow-xl backdrop-blur', className)}
+          className={cn('z-[60] max-w-xs animate-fade-in rounded-lg border border-line-strong bg-overlay px-2.5 py-1.5 text-xs text-secondary shadow-pop backdrop-blur', className)}
         >
           {label}
         </TooltipPrimitive.Content>

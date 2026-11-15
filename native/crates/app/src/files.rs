@@ -546,7 +546,7 @@ impl FileBrowser {
             .px_2()
             .py_1p5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 div()
                     .text_xs()
@@ -699,7 +699,7 @@ impl FileBrowser {
                     .px_2()
                     .py_1()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .text_xs()
                     .text_color(theme::muted())
                     .child(
@@ -871,7 +871,7 @@ impl FileBrowser {
             .px_2()
             .gap_1p5()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 div()
                     .min_w_0()
@@ -1099,7 +1099,7 @@ impl Render for FileBrowser {
                     .px_2()
                     .gap_1p5()
                     .border_b_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_faint())
                     .child(
                         chip(
                             "files-changes",

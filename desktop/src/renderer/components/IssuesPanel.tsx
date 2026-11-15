@@ -120,7 +120,7 @@ export function IssuesPanel({ project, onSelect, onOpenAccount }: { project: str
             <span className="block text-caption text-subtle">
               {t.rich(data.pickUpIssues ? 'issues.pickupOn' : 'issues.pickupOff', {
                 label: (
-                  <span className="inline-flex h-[18px] items-center rounded-full border px-1.5 align-middle text-caption font-medium leading-none" style={labelStyle('0e8a16')}>
+                  <span className="inline-flex h-[18px] items-center rounded-full px-1.5 align-middle text-caption font-medium leading-none bg-surface-raised" style={labelStyle('0e8a16')}>
                     {data.label}
                   </span>
                 ),
@@ -211,7 +211,7 @@ function IssueRow({ issue, handing, onHand, onOpenAgent }: { issue: T.Issue; han
           {issue.labels && issue.labels.length > 0 && (
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
               {issue.labels.map((l) => (
-                <span key={l.name} className="inline-flex h-5 max-w-48 items-center rounded-full border px-2 text-caption font-medium leading-none" style={labelStyle(l.color)} title={l.description}>
+                <span key={l.name} className="inline-flex h-5 max-w-48 items-center rounded-full px-2 text-caption font-medium leading-none bg-surface-raised" style={labelStyle(l.color)} title={l.description}>
                   <span className="truncate">{l.name}</span>
                 </span>
               ))}

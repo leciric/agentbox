@@ -138,7 +138,7 @@ export function PdfView({ data, name, fallback }: { data: string; name: string; 
       </div>
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto bg-sunken p-4">
         {!doc && <div className="skeleton mx-auto aspect-[1/1.414] w-full max-w-md rounded" />}
-        <canvas ref={canvas} className={cn('mx-auto block bg-white shadow-lg ring-1 ring-line-strong', !doc && 'hidden')} aria-label={t('files.pdf.pageOf', { name, page })} role="img" />
+        <canvas ref={canvas} className={cn('mx-auto block bg-white shadow-pop ring-1 ring-line-strong', !doc && 'hidden')} aria-label={t('files.pdf.pageOf', { name, page })} role="img" />
       </div>
     </div>
   );

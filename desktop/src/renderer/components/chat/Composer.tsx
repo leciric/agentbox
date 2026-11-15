@@ -690,21 +690,21 @@ export function Composer({
         }}
         onDrop={onDrop}
         className={cn(
-          'relative z-10 rounded-[22px] border border-line-strong bg-composer/85 shadow-[0_24px_60px_-28px_var(--ab-shadow-deep),inset_0_1px_0_rgb(255_255_255/0.04)] backdrop-blur-xl transition-colors focus-within:border-line-vivid focus-within:ring-2 focus-within:ring-brand-400/60',
+          'relative z-10 rounded-2xl border border-line bg-composer shadow-[0_8px_24px_-12px_var(--ab-shadow-soft)] transition-colors focus-within:border-line-vivid',
           dragging && 'border-brand-400/80 bg-brand-500/5',
         )}
       >
         {dragging && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-ui font-medium text-primary">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl text-ui font-medium text-primary">
             <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{t('chat.composer.drop')}</span>
           </div>
         )}
         {commands.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
             {commands.map((item, i) => (
               <Fragment key={item.kind === 'skill' ? `skill:${item.skill.name}` : item.command.name}>
                 {(i === 0 || commands[i - 1].kind !== item.kind) && commands.some((c) => c.kind === 'skill') && (
-                  <p className={cn('px-3 pb-1 text-caption font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
+                  <p className={cn('px-3 pb-1 text-caption font-medium text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
                     {item.kind === 'skill' ? t('chat.composer.skills') : t('chat.composer.commandsGroup')}
                   </p>
                 )}
@@ -731,15 +731,15 @@ export function Composer({
           </div>
         )}
         {dollarItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
-            <p className="px-3 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
+            <p className="px-3 pb-1 pt-1.5 text-caption font-medium text-faint">{t('chat.composer.skills')}</p>
             {dollarItems.map((skill, i) => (
               <SkillOption key={skill.name} skill={skill} active={i === dollarHighlighted} onPick={() => pickSkill(skill)} onHover={() => setDollarHighlighted(i)} />
             ))}
           </div>
         )}
         {mentionItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-pop backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
             <p className="px-3 pb-1 pt-1.5 text-caption text-subtle" data-mention-hint>
               {t('chat.composer.mentionHint')}
             </p>
@@ -1476,7 +1476,7 @@ function OptionChoices({
           <span className="grid">
             <span className="flex items-center gap-1.5 text-amber-200">
               {missing}
-              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
+              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('chat.options.offMenu')}</span>
             </span>
             <span className="text-caption text-subtle">{t('chat.options.offMenuHint')}</span>
           </span>
@@ -1517,7 +1517,7 @@ function OptionChoices({
 // doesn't have to carry "(recommended)" everywhere it appears.
 function RecommendedBadge() {
   const t = useT();
-  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('chat.options.recommended')}</span>;
+  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('chat.options.recommended')}</span>;
 }
 
 // ContextMeter shows how full the context window is, once that starts to matter:

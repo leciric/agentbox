@@ -388,8 +388,7 @@ impl AppView {
                         .px_2p5()
                         .py_0p5()
                         .rounded_full()
-                        .border_1()
-                        .border_color(theme::line())
+                        .bg(theme::surface_raised())
                         .text_xs()
                         .text_color(theme::faint())
                         .child(if codex {
@@ -421,12 +420,10 @@ impl AppView {
             .id("claude-meter")
             .flex_none()
             .gap_1p5()
-            .pl(px(7.))
-            .pr(px(9.))
-            .py(px(3.))
+            .pl_2()
+            .pr_2p5()
+            .py_1()
             .rounded_full()
-            .border_1()
-            .border_color(ring.opacity(if worst == 2 { 0.4 } else { 0.3 }))
             .bg(ring.opacity(0.1))
             .hover(move |s| s.bg(ring.opacity(0.15)))
             .cursor_pointer()
@@ -546,7 +543,7 @@ impl AppView {
                                 .gap_1()
                                 .pt_2p5()
                                 .border_t_1()
-                                .border_color(theme::line())
+                                .border_color(theme::line_faint())
                                 .text_xs()
                                 .child(
                                     div()
@@ -700,7 +697,7 @@ impl AppView {
                             .gap_3()
                             .pt_2p5()
                             .border_t_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_faint())
                             .text_xs()
                             .child(
                                 div()
@@ -775,7 +772,7 @@ impl AppView {
             .px_2p5()
             .py_0p5()
             .rounded_full()
-            .border_1()
+            .bg(theme::surface_raised())
             .border_color(if kind == "running" {
                 theme::line()
             } else {

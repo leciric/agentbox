@@ -84,10 +84,10 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line-faint px-3">
         <span
           className={cn(
-            'flex h-8 min-w-0 items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-ui',
+            'flex h-8 min-w-0 items-center gap-2 rounded-full bg-well px-3 text-ui',
             booted ? 'text-secondary' : 'text-subtle',
           )}
           aria-label={t('agent.android.device')}
@@ -112,7 +112,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
         ) : (
           <Tip label={isRecording ? t('agent.android.browserRecording') : t('agent.android.recordTip')}>
             <Button size="sm" aria-label={compact ? t('agent.browser.record') : undefined} disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
-              {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
+              {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500" />}
               {!compact && t('agent.browser.record')}
             </Button>
           </Tip>
@@ -172,7 +172,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
         {!booted && (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
-              <div className="relative flex h-24 w-12 items-center justify-center rounded-[14px] border border-line-vivid bg-gradient-to-b from-surface-raised to-surface-faint shadow-[0_20px_50px_-20px_rgb(139_92_246/0.6)]">
+              <div className="relative flex h-24 w-12 items-center justify-center rounded-[14px] border border-line-vivid bg-gradient-to-b from-surface-raised to-surface-faint">
                 <span className="absolute top-1.5 h-1 w-3 rounded-full bg-surface-vivid" />
                 {starting ? <LoaderCircle className="size-5 animate-spin text-brand-300" /> : <Smartphone className="size-5 text-muted" />}
               </div>
@@ -221,7 +221,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
         )}
       </div>
 
-      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
+      <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line-faint px-4 text-xs text-subtle">
         <span className="truncate font-mono text-caption">{booted ? status.data?.image : ''}</span>
         {booted && (
           <Tip

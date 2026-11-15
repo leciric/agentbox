@@ -203,7 +203,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   return (
     <div className="@container h-full">
       <div className="flex h-full min-h-0 flex-col @3xl:flex-row">
-        <aside className="flex shrink-0 flex-col gap-3 border-b border-line px-3 pb-3 pt-4 @3xl:w-60 @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:pb-6 @3xl:pt-7">
+        <aside className="flex shrink-0 flex-col gap-3 border-b border-line-faint px-3 pb-3 pt-4 @3xl:w-60 @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:pb-6 @3xl:pt-7">
           <button
             type="button"
             data-settings-back
@@ -286,7 +286,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
               aria-expanded={showAdvanced}
               disabled={searching}
               onClick={() => setAdvancedOpen((o) => !o)}
-              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:hover:bg-transparent @3xl:mt-3 @3xl:py-[7px]"
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-ui text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:hover:bg-transparent @3xl:mt-3 @3xl:py-[7px]"
             >
               <ChevronRight className={cn('size-4 shrink-0 text-subtle transition-transform', showAdvanced && 'rotate-90')} />
               {t('settings.page.advanced')}
@@ -342,7 +342,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
 }
 
 function NavLabel({ className, children }: { className?: string; children: ReactNode }) {
-  return <span data-heading className={cn('hidden px-2.5 pb-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
+  return <span data-heading className={cn('hidden px-2.5 pb-1 text-caption font-medium text-subtle @3xl:block', className)}>{children}</span>;
 }
 
 // SectionView draws one section, every setting in it: under Advanced, a
@@ -409,12 +409,12 @@ function AdvancedSections({
                 <Icon className="size-4 shrink-0 text-subtle" />
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-baseline gap-2">
-                    {section.scope === 'project' && <span className="shrink-0 text-[12px] text-subtle">{t('settings.page.project')}</span>}
-                    <span className="min-w-0 truncate text-[13px] font-medium text-primary">{section.title}</span>
+                    {section.scope === 'project' && <span className="shrink-0 text-caption text-subtle">{t('settings.page.project')}</span>}
+                    <span className="min-w-0 truncate text-ui font-medium text-primary">{section.title}</span>
                   </span>
-                  <span className="block truncate text-[12px] text-subtle">{section.description}</span>
+                  <span className="block truncate text-caption text-subtle">{section.description}</span>
                 </span>
-                <span className="shrink-0 text-[11.5px] tabular-nums text-subtle">
+                <span className="shrink-0 text-micro tabular-nums text-subtle">
                   {t(changed > 0 ? 'settings.page.advancedCountChanged' : 'settings.page.advancedCount', { count: countEntries(section), changed })}
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-subtle transition group-hover:translate-x-0.5" />
@@ -434,7 +434,7 @@ function AdvancedToggle({ open, onToggle, children }: { open: boolean; onToggle:
       type="button"
       aria-expanded={open}
       onClick={onToggle}
-      className="flex w-fit items-center gap-1.5 rounded-md px-1 text-[13px] font-semibold text-primary transition hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+      className="flex w-fit items-center gap-1.5 rounded-md px-1 text-ui font-semibold text-primary transition hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
     >
       <ChevronRight className={cn('size-4 text-subtle transition-transform', open && 'rotate-90')} />
       {t('settings.page.advanced')}

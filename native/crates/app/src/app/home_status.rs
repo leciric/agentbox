@@ -145,14 +145,20 @@ fn avatar(a: &Agent, asking: bool, cx: &mut App) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(border)
-        .child(div().absolute().inset_0().rounded_xl().bg(linear_gradient(
-            135.,
-            linear_color_stop(from, 0.),
-            linear_color_stop(from.opacity(0.), if sleeping { 0.5 } else { 0.85 }),
-        )))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .rounded(theme::radius::XL)
+                .bg(linear_gradient(
+                    135.,
+                    linear_color_stop(from, 0.),
+                    linear_color_stop(from.opacity(0.), if sleeping { 0.5 } else { 0.85 }),
+                )),
+        )
         .child(
             div()
                 .when(sleeping, |el| el.opacity(0.45))
@@ -331,8 +337,6 @@ fn pill(text: String, tone: Tone) -> AnyElement {
         .gap(px(6.))
         .whitespace_nowrap()
         .rounded_full()
-        .border_1()
-        .border_color(theme::line())
         .bg(theme::surface_faint())
         .px(px(10.))
         .py_1()
@@ -730,7 +734,7 @@ impl AppView {
                                     div()
                                         .flex_none()
                                         .size_10()
-                                        .rounded_xl()
+                                        .rounded(theme::radius::XL)
                                         .overflow_hidden()
                                         .child(bar(format!("fleet-skel-{i}-a"), 1., 40.)),
                                 )

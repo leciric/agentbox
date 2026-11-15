@@ -169,7 +169,7 @@ pub(super) fn check(
         .id(id)
         .gap_2()
         .items_start()
-        .text_size(px(12.5))
+        .text_size(theme::text::CAPTION)
         .text_color(theme::secondary())
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
@@ -194,7 +194,7 @@ pub(super) fn check(
                 .items_center()
                 .justify_center()
                 .text_color(theme::on_brand())
-                .text_size(px(10.))
+                .text_size(theme::text::MICRO)
                 .when(on, |el| el.child(crate::icons::of("✓"))),
         )
         .child(div().flex_1().min_w_0().child(label))
@@ -244,7 +244,7 @@ pub(super) fn title(text: impl Into<SharedString>) -> AnyElement {
 /// colour a caller names (muted is the default one; the status colours and
 /// the accent are warning, danger, success and brand).
 pub(crate) fn badge(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
-    let (fg, bg, ring) = if color == theme::muted() || color == theme::faint() {
+    let (fg, bg, _ring) = if color == theme::muted() || color == theme::faint() {
         (theme::tertiary(), theme::surface(), theme::line_strong())
     } else if color == theme::starting() {
         let a = theme::amber(400);
@@ -272,8 +272,6 @@ pub(crate) fn badge(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
         .px_2()
         .py_0p5()
         .rounded_full()
-        .border_1()
-        .border_color(ring)
         .bg(bg)
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)

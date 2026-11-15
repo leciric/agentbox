@@ -107,7 +107,7 @@ export function TopBar({
     // In a narrow window the controls wrap onto a second row rather than
     // run off the edge: the breadcrumb takes what's left of the first, and
     // gives way to them only below 8rem.
-    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line-faint px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
       {onOpenNav && (
         <button
           aria-label={t('shell.top.openMenu')}
@@ -163,7 +163,7 @@ export function TopBar({
         {onSearch && <SearchButton onClick={onSearch} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
-            className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/15"
+            className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 transition hover:bg-amber-400/15"
             // Setup's next step, not whichever section Settings was left at.
             onClick={() => openSettingsSection('setup')}
           >
@@ -202,7 +202,7 @@ function SearchButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flex items-center gap-2 rounded-full py-1 pl-2.5 pr-2.5 text-muted ring-1 ring-inset ring-line transition hover:bg-surface-raised hover:text-primary md:pr-1.5"
+      className="flex items-center gap-2 rounded-full py-1 pl-2.5 pr-2.5 bg-surface-raised text-muted transition hover:bg-surface-strong hover:text-primary md:pr-1.5"
       aria-label={t('search.open')}
       title={t('search.open')}
       data-search-button
@@ -239,7 +239,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   if ((!account || !five) && (noLimits(pick.tool) || codex)) {
     return (
       <span
-        className="hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-caption text-faint ring-1 ring-inset ring-line sm:flex"
+        className="hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-caption text-faint sm:flex bg-surface-raised"
         title={t('shell.top.noLimitsHint', { tool: toolName(pick.tool) })}
         data-usage-quiet={pick.tool}
       >
@@ -260,7 +260,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
         <button
           type="button"
           className={cn(
-            'hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 ring-1 ring-inset transition sm:flex',
+            'hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 transition sm:flex bg-surface-raised',
             tone === 'high' ? 'bg-rose-400/10 ring-rose-400/40 hover:bg-rose-400/15' : codex ? 'bg-surface-raised ring-line hover:bg-surface-strong' : 'bg-claude/10 ring-claude/30 hover:bg-claude/15',
           )}
           aria-label={t(codex ? 'shell.top.codexLabel' : 'shell.top.claudeLabel', {
@@ -358,7 +358,7 @@ function OtherAccounts({ limits, shown, clock }: { limits: T.ClaudeLimit[]; show
   const others = limits.filter((l) => l.account !== shown);
   if (others.length === 0) return null;
   return (
-    <div className="grid gap-1 border-t border-line pt-2.5 text-caption">
+    <div className="grid gap-1 border-t border-line-faint pt-2.5 text-caption">
       <span className="font-medium text-secondary">{t('shell.top.otherAccounts')}</span>
       {others.map((l) => (
         <span key={l.account} className="flex min-w-0 items-center justify-between gap-3 text-muted">

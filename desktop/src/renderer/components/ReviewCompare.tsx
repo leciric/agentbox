@@ -288,7 +288,7 @@ function Picture({ item, overlay }: { item: T.MediaItem; overlay?: string }) {
 function Divider({ x }: { x: number }) {
   return (
     <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]" style={{ left: x }} data-review-divider>
-      <span className="absolute left-1/2 top-1/2 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-white text-[11px] text-black shadow">⇔</span>
+      <span className="absolute left-1/2 top-1/2 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-white text-micro text-black shadow">⇔</span>
     </div>
   );
 }

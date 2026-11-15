@@ -109,7 +109,7 @@ pub(super) fn step_mark(status: &str) -> AnyElement {
         .justify_center()
         .bg(color.opacity(0.15))
         .text_xs()
-        .font_weight(FontWeight::BOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(color)
         .child(crate::icons::of(mark))
         .into_any_element()
@@ -374,7 +374,7 @@ impl AppView {
                 el.child(
                     v_flex()
                         .p(px(14.))
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .bg(theme::well())
                         .border_1()
                         .border_color(theme::line())
@@ -408,7 +408,7 @@ impl AppView {
             .pl(px(14.))
             .pr_1p5()
             .py_1p5()
-            .rounded_xl()
+            .rounded(theme::radius::XL)
             .bg(theme::well())
             .border_1()
             .border_color(theme::line_strong())
@@ -683,7 +683,7 @@ impl AppView {
             .child(
                 v_flex()
                     .overflow_hidden()
-                    .rounded_xl()
+                    .rounded(theme::radius::XL)
                     .border_1()
                     .border_color(theme::line())
                     .bg(theme::surface().opacity(0.4))
@@ -699,7 +699,9 @@ impl AppView {
                         let has_body = body.is_some();
                         v_flex()
                             .id(SharedString::from(format!("setup-step-{}", c.id)))
-                            .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
+                            .when(i > 0, |el| {
+                                el.border_t_1().border_color(theme::line_faint())
+                            })
                             .when(is_next, |el| {
                                 el.border_l(px(3.))
                                     .border_color(theme::amber(400))

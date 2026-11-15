@@ -143,7 +143,7 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
+        <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-6 py-3">
           {run.error ? (
             <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
               <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(run.error)}</span>

@@ -137,7 +137,7 @@ export function PullRequestsPanel({
   return (
     <div className="flex flex-col gap-3">
       {data.github && (
-        <p className="flex flex-wrap items-center gap-x-1.5 px-1 text-[12px] text-subtle" data-pulls-account={data.githubAccount}>
+        <p className="flex flex-wrap items-center gap-x-1.5 px-1 text-caption text-subtle" data-pulls-account={data.githubAccount}>
           <span className="font-mono text-muted">{data.github}</span>
           {data.githubAccount && (
             <>
@@ -201,7 +201,7 @@ export function PullRequestsPanel({
                 </Tip>
               </>
             )}
-            <span className="ml-auto flex items-center gap-1.5 pr-1 text-[11.5px] text-faint" data-pulls-age data-refreshing={refreshing || undefined}>
+            <span className="ml-auto flex items-center gap-1.5 pr-1 text-micro text-faint" data-pulls-age data-refreshing={refreshing || undefined}>
               {refreshing ? (
                 <>
                   <LoaderCircle className="size-3 animate-spin" />
@@ -226,7 +226,7 @@ export function PullRequestsPanel({
           </div>
 
           {visible.length === 0 ? (
-            <p className="px-1 text-[13px] text-subtle">{t('memory.pulls.noMatch')}</p>
+            <p className="px-1 text-ui text-subtle">{t('memory.pulls.noMatch')}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {/* A pull request stacked on another's branch comes right after it, indented: the chain reads top down, merging from the top. */}
@@ -388,7 +388,7 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
           if (merging) merge.mutate({ number: merging.number, method });
         }}
       >
-        <label className="grid gap-1.5 text-[13px] text-tertiary">
+        <label className="grid gap-1.5 text-ui text-tertiary">
           {t('memory.pulls.method')}
           <Select value={method} onChange={setMethod}>
             {offered.map((m) => (
@@ -514,11 +514,11 @@ function PullRequestRow({
         <GitPullRequest className="mt-0.5 size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
           {/* The title comes first: two lines of it before anything beside it gives way. */}
-          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-start gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300" title={pr.title}>
+          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-start gap-1.5 text-body font-medium text-primary hover:text-brand-300" title={pr.title}>
             <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{pr.title}</span>
             <ExternalLink data-external className="mt-[3px] size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
           </a>
-          <p className="truncate font-mono text-[12px] text-subtle">
+          <p className="truncate font-mono text-caption text-subtle">
             #{pr.number} · {pr.headBranch} → {pr.baseBranch}
           </p>
           <PullRequestLabels project={project} labels={labels} onToggle={onToggleLabel} />
@@ -548,7 +548,7 @@ function PullRequestRow({
           {pr.review === 'changes_requested' && <Badge variant={checksVariants.pending}>{t('memory.pulls.changesRequested')}</Badge>}
         </div>
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-muted">
         {pr.author && (
           <span className="flex max-w-40 min-w-0 items-center gap-1.5" title={pr.author}>
             {pr.authorAvatar ? (
@@ -618,7 +618,7 @@ function PullRequestLabels({ project, labels, onToggle }: { project: string; lab
             type="button"
             aria-label={labels.length ? t('memory.pulls.labels.edit') : t('memory.pulls.labels.add')}
             className={cn(
-              'flex h-5 items-center gap-1 rounded-full border border-dashed border-line-strong px-1.5 text-[11px] text-subtle transition hover:border-line-vivid hover:text-primary',
+              'flex h-5 items-center gap-1 rounded-full border border-dashed border-line-strong px-1.5 text-micro text-subtle transition hover:border-line-vivid hover:text-primary',
               open && 'border-line-vivid text-primary',
             )}
             data-labels-edit
@@ -638,7 +638,7 @@ function PullRequestLabels({ project, labels, onToggle }: { project: string; lab
 function LabelPill({ label, onRemove }: { label: T.Label; onRemove: () => void }) {
   const pill = (
     <span
-      className="group inline-flex h-5 max-w-48 items-center rounded-full border px-2 text-[11px] font-medium leading-none"
+      className="group inline-flex h-5 max-w-48 items-center rounded-full px-2 text-micro font-medium leading-none bg-surface-raised"
       style={labelStyle(label.color)}
       data-label={label.name}
     >
@@ -661,7 +661,7 @@ function LabelPicker({ project, applied, onToggle }: { project: string; applied:
   const has = (l: T.Label) => applied.some((a) => a.name === l.name);
   return (
     <div className="grid" data-label-picker>
-      <div className="border-b border-line p-2">
+      <div className="border-b border-line-faint p-2">
         <input
           autoFocus
           value={query}
@@ -670,19 +670,19 @@ function LabelPicker({ project, applied, onToggle }: { project: string; applied:
             if (e.key === 'Enter' && shown[0]) onToggle(shown[0], !has(shown[0]));
           }}
           placeholder={t('memory.pulls.labels.search')}
-          className="h-8 w-full rounded-md border border-line-strong bg-sunken px-2.5 text-[12.5px] text-primary placeholder:text-faint focus-visible:border-brand-400/60 focus-visible:outline-none"
+          className="h-8 w-full rounded-md border border-line-strong bg-sunken px-2.5 text-caption text-primary placeholder:text-faint focus-visible:border-brand-400/60 focus-visible:outline-none"
         />
       </div>
       <div className="max-h-72 overflow-y-auto p-1">
         {all.isPending ? (
-          <p className="flex items-center gap-2 px-2 py-2 text-[12px] text-subtle">
+          <p className="flex items-center gap-2 px-2 py-2 text-caption text-subtle">
             <LoaderCircle className="size-3.5 animate-spin" />
             {t('memory.pulls.labels.loading')}
           </p>
         ) : all.error ? (
-          <p className="px-2 py-2 text-[12px] text-rose-300">{t('memory.pulls.labels.unavailable', { error: errorMessage(all.error) })}</p>
+          <p className="px-2 py-2 text-caption text-rose-300">{t('memory.pulls.labels.unavailable', { error: errorMessage(all.error) })}</p>
         ) : shown.length === 0 ? (
-          <p className="px-2 py-2 text-[12px] text-subtle">{all.data?.labels.length ? t('memory.pulls.labels.noMatch') : t('memory.pulls.labels.none')}</p>
+          <p className="px-2 py-2 text-caption text-subtle">{all.data?.labels.length ? t('memory.pulls.labels.noMatch') : t('memory.pulls.labels.none')}</p>
         ) : (
           shown.map((l) => {
             const on = has(l);
@@ -698,8 +698,8 @@ function LabelPicker({ project, applied, onToggle }: { project: string; applied:
                 <Check className={cn('mt-0.5 size-3.5 shrink-0 text-brand-300', !on && 'invisible')} />
                 <span className="mt-[3px] size-2.5 shrink-0 rounded-full" style={{ backgroundColor: labelHex(l.color) }} />
                 <span className="grid min-w-0">
-                  <span className="truncate text-[12.5px] text-primary">{l.name}</span>
-                  {l.description && <span className="truncate text-[11px] text-subtle">{l.description}</span>}
+                  <span className="truncate text-caption text-primary">{l.name}</span>
+                  {l.description && <span className="truncate text-micro text-subtle">{l.description}</span>}
                 </span>
               </button>
             );

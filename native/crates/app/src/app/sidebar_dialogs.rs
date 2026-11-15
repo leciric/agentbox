@@ -1149,7 +1149,7 @@ impl AppView {
             .items_center()
             .gap_2()
             .border_t_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .pt_4()
             .child(tour_button(0, t("tour.help.take"), true))
             .child(
@@ -1189,13 +1189,7 @@ impl AppView {
                         .border_1()
                         .border_color(theme::line_strong())
                         .bg(theme::modal())
-                        .shadow(vec![BoxShadow {
-                            color: theme::shadow_deep(),
-                            offset: point(px(0.), px(40.)),
-                            blur_radius: px(120.),
-                            spread_radius: px(-30.),
-                            inset: false,
-                        }])
+                        .shadow(theme::shadow_modal())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div()

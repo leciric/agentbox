@@ -616,7 +616,7 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
           <div className={cn(PANEL, 'pointer-events-auto flex w-full min-h-0 flex-col')}>
             {/* The list over its tabs: the tabs stay where they are as it opens. */}
             {trayOpen && (
-              <div className="max-h-[min(22rem,calc(100vh-12rem))] min-h-0 overflow-y-auto border-b border-line px-1.5 pb-1 pt-1.5" role="tabpanel">
+              <div className="max-h-[min(22rem,calc(100vh-12rem))] min-h-0 overflow-y-auto border-b border-line-faint px-1.5 pb-1 pt-1.5" role="tabpanel">
                 {listed.length === 0 && <div className="px-2 py-3 text-ui text-muted">{listKind === 'needs' ? t('office.board.needsEmpty') : listKind === 'review' ? t('office.board.reviewEmpty') : t('office.tray.noneWorking')}</div>}
                 {listed.map((i) => (
                   <WalkRow
@@ -711,7 +711,7 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
           aria-label={chatTitle}
           data-office-chat={chat ?? ''}
         >
-          <header className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2">
+          <header className="flex min-w-0 items-center gap-2 border-b border-line-faint px-3 py-2">
             <span className={cn('size-2 shrink-0 rounded-full', toneDot[chatTone], chatTone === 'needs' && 'animate-pulse')} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-ui font-semibold text-primary">{chatTitle}</div>
@@ -791,10 +791,10 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
                 ))}
               </div>
               {help && (
-                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-line pt-3" data-office-legend>
+                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-line-faint pt-3" data-office-legend>
                   {LEGEND.map(([glyph, color, key]) => (
                     <span key={key} className="flex items-center gap-1.5">
-                      <span className="grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold leading-none text-white" style={{ background: color }}>
+                      <span className="grid size-4 shrink-0 place-items-center rounded-full text-micro font-semibold leading-none text-white" style={{ background: color }}>
                         {glyph}
                       </span>
                       {t(key)}
@@ -853,7 +853,7 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
 }
 
 // One look for everything over the room, the app's own floating panel.
-const PANEL = 'rounded-xl border border-line-strong bg-overlay shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur';
+const PANEL = 'rounded-xl border border-line-strong bg-overlay shadow-pop backdrop-blur';
 
 // The controls, as keys and what they do: in a room, and over the campus. A
 // key is a message's (a word, translated) or the key's own name.
@@ -875,7 +875,7 @@ const KEYS_CAMPUS: [(Message | `=${string}`)[], Message][] = [
 ];
 
 function Kbd({ children, onBrand }: { children: ReactNode; onBrand?: boolean }) {
-  return <kbd className={cn('rounded-md border px-1.5 py-px font-mono text-[10.5px] leading-4', onBrand ? 'border-white/25 bg-white/15 text-on-brand' : 'border-line-strong bg-surface-strong text-secondary')}>{children}</kbd>;
+  return <kbd className={cn('rounded-md border px-1.5 py-px font-mono text-micro leading-4', onBrand ? 'border-white/25 bg-white/15 text-on-brand' : 'border-line-strong bg-surface-strong text-secondary')}>{children}</kbd>;
 }
 
 function BarButton({ children, className, ...props }: React.ComponentProps<'button'>) {
@@ -918,7 +918,7 @@ function RowTitle({ item }: { item: BoardItem }) {
   return (
     <span className="flex min-w-0 items-baseline gap-1.5">
       <span className="truncate text-ui font-medium text-primary">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
-      {named && <span className="shrink-0 font-mono text-[10.5px] text-muted">{name}</span>}
+      {named && <span className="shrink-0 font-mono text-micro text-muted">{name}</span>}
     </span>
   );
 }
@@ -970,7 +970,7 @@ function DeskCard({
 }) {
   return (
     <div className={cn(PANEL, 'pointer-events-auto absolute right-3 top-16 z-20 w-[min(21rem,calc(100%-1.5rem))] p-4')} data-office-desk={tone}>
-      <div className="flex items-center gap-2 text-caption font-semibold uppercase tracking-[0.06em]">
+      <div className="flex items-center gap-2 text-caption font-medium">
         <span className={cn('size-2 rounded-full', toneDot[tone], tone === 'needs' && 'animate-pulse')} />
         <span className="text-secondary">{toneLabel}</span>
         <span className="ml-auto truncate font-normal normal-case tracking-normal text-muted">{project}</span>

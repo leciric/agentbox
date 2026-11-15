@@ -507,7 +507,7 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
             disabled={scopes.isPending}
             onClick={() => void toggle(scope, !has(scope))}
             className={cn(
-              'rounded-full border px-2.5 py-0.5 text-caption transition-colors disabled:opacity-60',
+              'rounded-full px-2.5 py-0.5 text-caption transition-colors disabled:opacity-60 bg-surface-raised',
               has(scope) ? 'border-brand-400/50 bg-brand-500/15 text-primary' : 'border-line text-subtle line-through decoration-faint hover:text-secondary',
             )}
           >

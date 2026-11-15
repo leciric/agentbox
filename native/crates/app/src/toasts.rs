@@ -190,7 +190,7 @@ impl Render for Toasts {
                             .flex_none()
                             .w(px(14.))
                             .text_sm()
-                            .font_weight(FontWeight::BOLD)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color)
                             .child(crate::icons::of(mark)),
                     )

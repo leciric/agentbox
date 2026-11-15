@@ -29,7 +29,7 @@ export function GoalChip({ goal, ai, compact, className }: { goal: T.AgentGoal; 
   return (
     <Tip label={<GoalDetails goal={goal} ai={ai} />}>
       <span
-        className={cn('inline-flex min-w-0 shrink items-center gap-1 rounded-full border px-1.5 py-px text-caption font-medium', s.className, className)}
+        className={cn('inline-flex min-w-0 shrink items-center gap-1 rounded-full px-1.5 py-px text-caption font-medium bg-surface-raised', s.className, className)}
         data-goal-chip={goal.status}
         aria-label={`${t(s.label)}: ${goal.objective}`}
       >

@@ -235,7 +235,7 @@ struct Metric {
 fn metric(m: Metric) -> AnyElement {
     v_flex()
         .id(SharedString::from(format!("resource-{}", m.id)))
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(theme::line())
         .bg(theme::surface_faint())

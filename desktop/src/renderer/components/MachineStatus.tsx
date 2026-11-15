@@ -123,7 +123,7 @@ function Bubble({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn('flex min-w-0 items-center gap-2 rounded-full border py-1 pl-2.5 pr-2.5 transition hover:bg-surface-raised', toneRing[status.tone])}
+          className={cn('flex min-w-0 items-center gap-2 rounded-full py-1 pl-2.5 pr-2.5 transition hover:bg-surface-strong bg-surface-raised', toneRing[status.tone])}
           aria-label={sentence}
           data-machine={status.kind}
           data-connection={connection.state}
@@ -417,14 +417,14 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
       ) : query.isError ? (
         <span className="py-1 text-caption text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
       ) : (
-        <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto border-t border-line pt-2.5 pr-1">
+        <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto border-t border-line-faint pt-2.5 pr-1">
           <MemoryBreakdown usage={query.data} />
           {[...query.data.agents]
             .sort((a, b) => b.memory - a.memory)
             .map((a) => (
               <AgentUsageRow key={a.ref} agentRef={a.ref} title={a.title} state={a.state} onSelect={onSelect} value={humanBytes(a.memory)} />
             ))}
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-caption text-muted">
+          <div className="flex items-center justify-between gap-3 border-t border-line-faint pt-1.5 text-caption text-muted">
             <span>{t('shell.machine.everythingElse')}</span>
             <span className="font-mono tabular-nums text-faint">{humanBytes(query.data.otherUsed)}</span>
           </div>
@@ -454,7 +454,7 @@ function MemoryBreakdown({ usage }: { usage: T.MemoryUsage }) {
   ];
   return (
     <div className="grid gap-1.5" data-memory-breakdown>
-      <span className="text-caption font-medium uppercase tracking-wide text-faint">{t('shell.machine.memoryGoes')}</span>
+      <span className="text-caption font-medium text-faint">{t('shell.machine.memoryGoes')}</span>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-strong">
         {rows.map((r) => (
           <div key={r.key} className={r.swatch} style={{ width: `${(Math.max(r.bytes, 0) / usage.used) * 100}%` }} />
@@ -467,7 +467,7 @@ function MemoryBreakdown({ usage }: { usage: T.MemoryUsage }) {
           <span className="font-mono tabular-nums text-faint">{humanBytes(r.bytes)}</span>
         </div>
       ))}
-      <div className="flex items-center gap-2 border-t border-line pt-1.5 text-caption text-muted" title={t('shell.machine.memoryGoesCacheTip')} data-breakdown="cache">
+      <div className="flex items-center gap-2 border-t border-line-faint pt-1.5 text-caption text-muted" title={t('shell.machine.memoryGoesCacheTip')} data-breakdown="cache">
         <span className="min-w-0 flex-1 truncate">+ {t('shell.machine.memoryGoesCache')}</span>
         <span className="font-mono tabular-nums text-faint">{humanBytes(usage.fileCache)}</span>
       </div>
@@ -553,7 +553,7 @@ function VMDiskBreakdown({
             : t.rich('shell.top.poolInUse', { used: <span className="font-mono tabular-nums text-secondary">{humanBytes(host.poolUsed)}</span> })}
         </span>
       )}
-      <div className="grid gap-1 border-t border-line pt-2.5">
+      <div className="grid gap-1 border-t border-line-faint pt-2.5">
         <span className="text-caption font-medium text-secondary">{t('shell.top.onYourComputer')}</span>
         {disk.hostFree !== undefined && disk.hostFree > 0 && <DiskRow label={t('shell.top.freeOnDisk')} bytes={disk.hostFree} />}
         {home.isPending || home.isFetching ? (
@@ -572,7 +572,7 @@ function VMDiskBreakdown({
           </span>
         )}
       </div>
-      <div className="grid gap-2 border-t border-line pt-2.5">
+      <div className="grid gap-2 border-t border-line-faint pt-2.5">
         <span className="text-caption font-medium text-secondary">{t('shell.top.inPool')}</span>
         <DiskUsageCategories query={pool} kinds={['machines', 'bases']} />
       </div>
@@ -624,7 +624,7 @@ function DiskUsageCategories({ query, kinds }: { query: ReturnType<typeof useQue
               <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
             </div>
             {cat.items && cat.items.length > 0 && (
-              <div className="grid gap-0.5 border-l border-line pl-2.5">
+              <div className="grid gap-0.5 border-l border-line-faint pl-2.5">
                 {cat.items.map((item) => (
                   <div key={item.label} className="flex items-center justify-between gap-3 text-caption text-muted">
                     <span className="min-w-0 truncate">{diskItemLabel(item)}</span>
@@ -636,7 +636,7 @@ function DiskUsageCategories({ query, kinds }: { query: ReturnType<typeof useQue
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between border-t border-line pt-2 text-caption font-medium text-primary">
+      <div className="flex items-center justify-between border-t border-line-faint pt-2 text-caption font-medium text-primary">
         <span>{t('shell.imageDownloads.total')}</span>
         <span className="font-mono tabular-nums">{humanBytes(total)}</span>
       </div>
@@ -673,7 +673,7 @@ function CPUPanel({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View
               value={`${formatNumber(a.cpu, { maximumFractionDigits: 0 })}%`}
             />
           ))}
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-caption text-muted">
+          <div className="flex items-center justify-between gap-3 border-t border-line-faint pt-1.5 text-caption text-muted">
             <span>{t('shell.top.hostItself')}</span>
             <span className="font-mono tabular-nums text-faint">{formatNumber(query.data.otherCPU, { maximumFractionDigits: 0 })}%</span>
           </div>

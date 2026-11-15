@@ -97,7 +97,7 @@ export function SearchModal({ onOpen, palette }: { onOpen: (target: SearchTarget
           {...focusReturn}
           onEscapeKeyDown={(event) => back.current?.() && event.preventDefault()}
           aria-describedby={undefined}
-          className="fixed left-1/2 top-[8vh] z-50 flex h-[80vh] w-[calc(100vw-2rem)] max-w-6xl -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none"
+          className="fixed left-1/2 top-[8vh] z-50 flex h-[80vh] w-[calc(100vw-2rem)] max-w-6xl -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-modal focus:outline-none"
           data-search-modal
         >
           <DialogPrimitive.Title className="sr-only">{t('search.title')}</DialogPrimitive.Title>
@@ -304,12 +304,12 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
 
   return (
     <>
-      <div className="flex items-center gap-3 border-b border-line px-4">
+      <div className="flex items-center gap-3 border-b border-line-faint px-4">
         {pending && asked !== '' && !picking ? <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" /> : <SearchIcon className="size-4 shrink-0 text-subtle" />}
         {picking && (
           <button
             type="button"
-            className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-brand-400/40 bg-brand-400/15 px-2.5 py-1 text-caption text-brand-200"
+            className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-full bg-brand-400/15 px-2.5 py-1 text-caption text-brand-200"
             onClick={() => back.current?.()}
             data-palette-picking={picking.id}
           >
@@ -352,7 +352,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
       </div>
 
       {!picking && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-3 py-2" data-search-filters>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line-faint px-3 py-2" data-search-filters>
           <Chip on={kind === ''} onClick={() => setKind('')} data-search-kind="">
             {t('search.all')}
             {(groups.length > 0 || typed) && <Count>{`${total}${capped ? '+' : ''}`}</Count>}
@@ -455,7 +455,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
                     <div key={rowKey(row)}>
                       {header &&
                         (row.kind === 'command' ? (
-                          <div className="px-3 pb-1 pt-2 text-caption font-semibold uppercase tracking-[0.08em] text-subtle" data-palette-group={row.command.group}>
+                          <div className="px-3 pb-1 pt-2 text-caption font-medium text-subtle" data-palette-group={row.command.group}>
                             {t(row.command.group === 'actions' ? 'palette.group.actions' : 'palette.group.settings')}
                           </div>
                         ) : (
@@ -505,7 +505,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
         {!picking && currentCommand && <CommandPreview command={currentCommand} forWhom={actionFor(currentCommand)} onRun={(other) => run(currentCommand, other)} />}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-caption text-subtle">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line-faint px-4 py-2 text-caption text-subtle">
         <span className="flex items-center gap-1.5">
           <kbd className="rounded border border-line px-1 font-mono">↑</kbd>
           <kbd className="rounded border border-line px-1 font-mono">↓</kbd>
@@ -587,8 +587,8 @@ function CommandPreview({ command, forWhom, onRun }: { command: PaletteCommand; 
   const t = useT();
   const action = command.group === 'actions' ? command : undefined;
   return (
-    <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-palette-preview={command.id}>
-      <div className="flex items-center gap-1.5 border-b border-line px-4 py-2.5 text-caption text-subtle">
+    <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line-faint bg-surface-faint md:flex" data-palette-preview={command.id}>
+      <div className="flex items-center gap-1.5 border-b border-line-faint px-4 py-2.5 text-caption text-subtle">
         {action ? <Zap className="size-3.5 shrink-0" /> : <SlidersHorizontal className="size-3.5 shrink-0" />}
         <span className="truncate">{action ? t('palette.group.actions') : (command.where ?? t('palette.group.settings'))}</span>
       </div>
@@ -605,7 +605,7 @@ function CommandPreview({ command, forWhom, onRun }: { command: PaletteCommand; 
           </p>
         )}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line-faint px-4 py-2.5">
         <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onRun(false)} data-palette-run>
           {action ? t('palette.run') : t('palette.openSetting')}
           <kbd className="font-mono text-caption opacity-80">↵</kbd>
@@ -678,8 +678,8 @@ function Preview({
   const { kind, hit } = item;
   const k = kindOf(kind);
   return (
-    <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-search-preview={kind}>
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 text-caption text-subtle">
+    <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line-faint bg-surface-faint md:flex" data-search-preview={kind}>
+      <div className="flex items-center justify-between gap-3 border-b border-line-faint px-4 py-2.5 text-caption text-subtle">
         <span className="flex min-w-0 items-center gap-1.5">
           <k.icon className="size-3.5 shrink-0" />
           <span className="truncate">{where.join(' · ') || t(k.label)}</span>
@@ -728,7 +728,7 @@ function Preview({
           </div>
         )}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line-faint px-4 py-2.5">
         <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
           {kind === T.SearchChats || kind === T.SearchSessions ? t('search.openInChat') : t('search.open.item')}
           <kbd className="font-mono text-caption opacity-80">↵</kbd>
@@ -830,7 +830,7 @@ function ReportPreview({ report, query }: { report: T.AgentReport; query: string
           lines &&
           lines.length > 0 && (
             <div key={label} className="grid gap-1">
-              <h4 className="text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t(label)}</h4>
+              <h4 className="text-caption font-medium text-subtle">{t(label)}</h4>
               <ul className="grid list-disc gap-1 pl-4 text-muted">
                 {lines.map((line) => (
                   <li key={line}>
@@ -852,7 +852,7 @@ function Chip({ on, onClick, children, ...rest }: { on: boolean; onClick: () => 
       aria-pressed={on}
       onClick={onClick}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-caption transition-colors bg-surface-raised',
         on ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
       )}
       {...rest}
@@ -876,7 +876,7 @@ function Pick({ icon: Icon, value, onChange, label, options }: { icon: LucideIco
           type="button"
           aria-label={label}
           className={cn(
-            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
+            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-caption transition-colors bg-surface-raised',
             value ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
           )}
         >

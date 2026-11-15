@@ -1020,7 +1020,7 @@ impl AppView {
                                                 .gap_2p5()
                                                 .px(px(14.))
                                                 .py_2p5()
-                                                .rounded_xl()
+                                                .rounded(theme::radius::XL)
                                                 .border_1()
                                                 .border_color(theme::rose(400).opacity(0.25))
                                                 .bg(theme::rose(400).opacity(0.08))
@@ -1170,9 +1170,9 @@ impl AppView {
                 .mt_4()
                 .pb_1()
                 .text_size(theme::text::CAPTION)
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::subtle())
-                .child(text.to_uppercase())
+                .child(text)
                 .into_any_element()
         };
 
@@ -1364,7 +1364,7 @@ impl AppView {
             .flex_none()
             .h_full()
             .border_r_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(nav)
             .child(super::controls::scrollbar(&page.nav_scroll, gutter))
             .into_any_element()
@@ -1392,7 +1392,7 @@ impl AppView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded_xl()
+                            .rounded(theme::radius::XL)
                             .border_1()
                             .border_color(theme::line_strong())
                             .bg(theme::overlay())
@@ -1649,7 +1649,7 @@ impl AppView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_size(px(11.5))
+                                        .text_size(theme::text::MICRO)
                                         .text_color(theme::subtle())
                                         .child(if changed > 0 {
                                             tv(
@@ -1984,7 +1984,7 @@ impl AppView {
                         .gap(px(10.))
                         .px_2p5()
                         .py_2()
-                        .rounded_xl()
+                        .rounded(theme::radius::XL)
                         .border_1()
                         .border_color(theme::line())
                         .bg(theme::surface_faint())

@@ -63,7 +63,7 @@ export function StorageUsage({ inVM }: { inVM: boolean }) {
                     </span>
                   </summary>
                   {cat.items && cat.items.length > 0 && (
-                    <div className="mt-1 grid gap-0.5 border-l border-line pl-2.5">
+                    <div className="mt-1 grid gap-0.5 border-l border-line-faint pl-2.5">
                       {cat.items.map((item) => (
                         <div key={item.label} className="flex items-center justify-between gap-3 text-caption text-muted">
                           <span className="min-w-0 truncate">{diskItemLabel(item)}</span>
@@ -74,7 +74,7 @@ export function StorageUsage({ inVM }: { inVM: boolean }) {
                   )}
                 </details>
               ))}
-            <div className="flex items-center justify-between border-t border-line pt-2 text-ui font-medium text-primary">
+            <div className="flex items-center justify-between border-t border-line-faint pt-2 text-ui font-medium text-primary">
               <span>{t('storage.total')}</span>
               <span className="font-mono tabular-nums">{humanBytes(usage.data.total)}</span>
             </div>

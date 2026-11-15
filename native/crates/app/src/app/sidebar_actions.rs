@@ -306,8 +306,6 @@ impl AppView {
                         .px_1()
                         .rounded_full()
                         .bg(theme::surface_raised())
-                        .border_1()
-                        .border_color(theme::line())
                         .flex()
                         .items_center()
                         .justify_center()
@@ -352,7 +350,7 @@ impl AppView {
                             .border_1()
                             .border_color(theme::line())
                             .bg(theme::surface_faint())
-                            .text_size(px(12.5))
+                            .text_size(theme::text::CAPTION)
                             .child(
                                 div()
                                     .flex_none()
@@ -387,8 +385,6 @@ impl AppView {
                                 .px_2()
                                 .py_0p5()
                                 .rounded_full()
-                                .border_1()
-                                .border_color(theme::line())
                                 .bg(theme::surface_raised())
                                 .text_xs()
                                 .text_color(theme::muted())
@@ -457,7 +453,7 @@ impl AppView {
                 .px_2()
                 .py_0p5()
                 .rounded_full()
-                .border_1()
+                .bg(theme::surface_raised())
                 .border_color(if on { theme::muted() } else { theme::line() })
                 .when(on, |el| el.bg(theme::surface_strong()))
                 .text_xs()
@@ -1417,7 +1413,7 @@ impl AppView {
             .p_2()
             .gap_1()
             .border_t_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
             .child(
                 item("foot-settings", "⚙", t("common.settings"), settings).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(window, cx)),

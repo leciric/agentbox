@@ -222,7 +222,7 @@ function Edges({ rect, port }: { rect: Rect; port: Size }) {
 export function Label({ rect, children }: { rect: Rect; children: ReactNode }) {
   return (
     <span
-      className="pointer-events-none absolute rounded-md bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white shadow-sm"
+      className="pointer-events-none absolute rounded-md bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white"
       style={{ left: Math.max(8, rect.x + 8), top: Math.max(8, rect.y + 8) }}
     >
       {children}

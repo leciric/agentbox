@@ -1756,7 +1756,7 @@ if (phoneMode === 'frame') {
             onClick={() => publishOne(queryClient)}
             data-dev-publish
             style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 60 }}
-            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-md hover:text-title"
+            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-pop hover:text-title"
           >
             Publish a page
           </button>

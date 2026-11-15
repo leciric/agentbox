@@ -125,7 +125,7 @@ export function AgentContextMenu({
             <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
           </ContextMenuTrigger>
           <TooltipPrimitive.Portal>
-            <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
+            <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-pop backdrop-blur">
               <ErrorBoundary>
                 {/* The card leads with the agent's computer: its desktop, live or as last seen. */}
                 <div className="grid w-64 gap-3">

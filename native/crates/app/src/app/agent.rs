@@ -1040,7 +1040,7 @@ impl AppView {
             .border_1()
             .border_color(ring)
             .bg(fill)
-            .text_size(px(12.))
+            .text_size(theme::text::CAPTION)
             .line_height(px(18.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(fg)
@@ -1104,7 +1104,7 @@ impl AppView {
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::surface_faint())
-                .text_size(px(12.))
+                .text_size(theme::text::CAPTION)
                 .line_height(px(18.))
                 .font_family(theme::mono())
                 .text_color(theme::muted())
@@ -1526,7 +1526,7 @@ impl AppView {
                 .py_1p5()
                 .pl_1p5()
                 .pr_2()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::card())
@@ -1623,7 +1623,7 @@ impl AppView {
             v_flex()
                 .gap_3()
                 .p_4()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::card())
@@ -1871,7 +1871,7 @@ impl AppView {
             let body = v_flex()
                 .gap_3()
                 .p_3()
-                .rounded_xl()
+                .rounded(theme::radius::XL)
                 .border_1()
                 .border_color(theme::line())
                 .bg(theme::ink())
@@ -2424,14 +2424,20 @@ fn avatar(a: &FleetAgent, asking: bool, size: f32, cx: &mut App) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .rounded_xl()
+        .rounded(theme::radius::XL)
         .border_1()
         .border_color(border)
-        .child(div().absolute().inset_0().rounded_xl().bg(linear_gradient(
-            135.,
-            linear_color_stop(from, 0.),
-            linear_color_stop(to, if sleeping { 0.5 } else { 0.85 }),
-        )))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .rounded(theme::radius::XL)
+                .bg(linear_gradient(
+                    135.,
+                    linear_color_stop(from, 0.),
+                    linear_color_stop(to, if sleeping { 0.5 } else { 0.85 }),
+                )),
+        )
         .child(
             div()
                 .when(sleeping, |el| el.opacity(0.45))

@@ -679,7 +679,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-medium text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
                     <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
@@ -700,7 +700,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-medium text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
                       {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}

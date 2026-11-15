@@ -55,7 +55,7 @@ export function MergeWhenGreenNote({ item, className }: { item: T.ReviewItem; cl
       ? t('review.mergeWhenGreen.waiting', { number: mark.number, wait })
       : t('review.mergeWhenGreen.pending', { number: mark.number });
   return (
-    <div className={cn('flex min-w-0 items-center gap-2 border-t border-line px-4 py-2 text-caption', failed ? 'text-rose-300' : 'text-amber-200', className)} data-merge-when-green={failed ? 'failed' : 'pending'}>
+    <div className={cn('flex min-w-0 items-center gap-2 border-t border-line-faint px-4 py-2 text-caption', failed ? 'text-rose-300' : 'text-amber-200', className)} data-merge-when-green={failed ? 'failed' : 'pending'}>
       {failed ? <CircleAlert className="size-3.5 shrink-0" /> : <Clock className="size-3.5 shrink-0" />}
       <span className="min-w-0 flex-1 truncate" title={text} data-merge-when-green-waiting={mark.waiting}>
         {text}

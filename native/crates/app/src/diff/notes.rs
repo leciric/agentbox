@@ -654,9 +654,9 @@ impl DiffView {
         let heading = |s: String| {
             div()
                 .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::faint())
-                .child(s.to_uppercase())
+                .child(s)
         };
         let mut out = v_flex()
             .id("review-notes-list")

@@ -138,7 +138,7 @@ function ThoughtPreview({ text }: { text: string }) {
 
 function EntryList({ items, root }: { items: T.ChatItem[]; root: string }) {
   return (
-    <div className="ml-3 mt-0.5 border-l border-line pl-2.5">
+    <div className="ml-3 mt-0.5 border-l border-line-faint pl-2.5">
       {items.map((it) => (
         <Entry key={it.id} item={it} root={root} />
       ))}
@@ -283,7 +283,7 @@ export const SubagentCard = memo(
           {open && (
             <div className="mx-2 mb-2 border-t border-line-faint pt-1.5">
               {sub.task && <p className="mb-1.5 whitespace-pre-wrap break-words px-1 text-ui leading-relaxed text-subtle">{sub.task}</p>}
-              <div className="ml-3 border-l border-line pl-2.5">
+              <div className="ml-3 border-l border-line-faint pl-2.5">
                 {children.length === 0 && <p className="py-1 text-ui text-faint">{t('chat.subagent.nothingYet')}</p>}
                 {children.map((it) =>
                   it.kind === 'assistant' ? (

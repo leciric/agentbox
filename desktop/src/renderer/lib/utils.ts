@@ -6,7 +6,7 @@ import { formatNumber, formatTime, t } from '../../shared/i18n/index.ts';
 // tailwind-merge knows Tailwind's own sizes, not ours: told nothing, it reads
 // text-ui as a colour and drops it for the text-title after it. These are the
 // type scale in styles.css.
-const twMerge = extendTailwindMerge({ extend: { theme: { text: ['caption', 'ui', 'body', 'heading', 'display'] } } });
+const twMerge = extendTailwindMerge({ extend: { theme: { text: ['micro', 'caption', 'ui', 'body', 'heading', 'display'] } } });
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));

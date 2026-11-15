@@ -256,7 +256,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <button
           type="button"
           onClick={() => openWork({ filter: 'review' })}
-          className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[12px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+          className="ml-1.5 shrink-0 rounded-full bg-surface px-1.5 py-px text-caption font-medium tabular-nums text-secondary transition hover:bg-surface-strong hover:text-title"
           data-v2-review-all={toReview}
         >
           {t('v2.review.all', { count: toReview })}
@@ -409,7 +409,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const { top, dock } = sections({ ...lists, sections: sectionLists });
   const draggingOut = dnd.dragging?.kind === 'project' && inSection.has(dnd.dragging.name);
   const dropBox = (targeted: boolean) =>
-    cn('mx-2 mb-1 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11.5px] text-faint transition-colors', targeted && 'border-brand-400/60 bg-brand-400/10 text-brand-300');
+    cn('mx-2 mb-1 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-micro text-faint transition-colors', targeted && 'border-brand-400/60 bg-brand-400/10 text-brand-300');
   const section = (s: Slot) => {
     if (s === 'pinned')
       return (
@@ -514,7 +514,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               type="button"
               aria-expanded={idleOpen}
               onClick={() => setIdleOpened(!idleOpened)}
-              className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
+              className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-caption text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
               data-v2-idle-toggle
             >
               <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
@@ -533,7 +533,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           type="button"
           aria-expanded={hiddenOpen}
           onClick={() => setHiddenOpen(!kept.hiddenOpen)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-[11.5px] text-subtle hover:bg-surface hover:text-secondary"
+          className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-micro text-subtle hover:bg-surface hover:text-secondary"
           data-v2-hidden-toggle
         >
           <ChevronRight className={cn('size-3 shrink-0 transition-transform', hiddenOpen && 'rotate-90')} />
@@ -547,10 +547,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   };
 
   return (
-    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail" data-sidebar-v2>
+    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line-faint bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
-        <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+        <span className="text-body font-semibold tracking-tight text-title">AgentBox</span>
         {nightly && (
           <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
             <span className="nightly-badge inline-flex shrink-0 items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
@@ -580,13 +580,13 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         {office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
-          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
+          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-ui text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
             {t('shell.sidebar.addFirst')}
           </button>
         )}
         {loaded && top.map(section)}
-        {loaded && nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
+        {loaded && nothing && <div className="px-2.5 py-1.5 text-micro text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
         {/* Idle and Hidden dock at the bottom, just above the foot, the free space above them. */}
         {loaded && dock.length > 0 && (
           <div className="mt-auto pt-3" data-v2-dock>
@@ -622,7 +622,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           across every project, the one open highlighted, and the update check.
           Home, the chat and its Status tab, heads the list above; which
           AgentBox this window drives is under Settings → General. */}
-      <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
+      <div className="flex items-center gap-1 border-t border-line-faint p-2" data-v2-foot>
         {(
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
@@ -665,7 +665,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
-      <span data-heading className="text-[12px] text-muted">{children}</span>
+      <span data-heading className="text-caption text-muted">{children}</span>
       {extra}
     </div>
   );
@@ -695,7 +695,7 @@ function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters;
             onKeyDown={(e) => e.key === 'Escape' && filters.q && (e.stopPropagation(), onFilters({ ...filters, q: '' }))}
             placeholder={t('v2.filters.search')}
             aria-label={t('v2.filters.search')}
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-primary outline-none placeholder:text-faint"
+            className="min-w-0 flex-1 bg-transparent text-caption text-primary outline-none placeholder:text-faint"
             data-v2-search
           />
           {filters.q && (
@@ -717,7 +717,7 @@ function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters;
               data-v2-filter-button
             >
               <ListFilter className="size-4" />
-              {on > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-raised px-1 text-[9.5px] font-semibold text-title ring-1 ring-line-strong">{on}</span>}
+              {on > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-raised px-1 text-[9.5px] font-semibold text-title">{on}</span>}
             </button>
           </PopoverTrigger>
           </Tip>
@@ -746,7 +746,7 @@ function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters;
       {chips.length > 0 && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
           {chips.map((c) => (
-            <span key={c.key} className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-secondary" data-v2-chip={c.key}>
+            <span key={c.key} className="inline-flex max-w-full items-center gap-1 rounded-full bg-surface px-2 py-0.5 text-micro text-secondary" data-v2-chip={c.key}>
               {c.st && <StMark st={c.st} />}
               <span className="min-w-0 truncate">{c.label}</span>
               <button type="button" aria-label={t('v2.filters.remove', { name: c.label })} onClick={c.remove} className="-mr-0.5 text-faint hover:text-title">
@@ -754,7 +754,7 @@ function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters;
               </button>
             </span>
           ))}
-          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
+          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-micro text-subtle hover:text-title" data-v2-reset>
             {t('v2.filters.reset')}
           </button>
         </div>
@@ -766,7 +766,7 @@ function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters;
 function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <div className="pb-1.5 text-[12px] text-muted">{title}</div>
+      <div className="pb-1.5 text-caption text-muted">{title}</div>
       <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   );
@@ -778,7 +778,7 @@ function Chip({ on, onClick, data, children }: { on: boolean; onClick: () => voi
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={cn('inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px]', on ? 'border-line-heavy bg-surface-strong text-title' : 'border-line text-secondary hover:bg-surface')}
+      className={cn('inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-micro bg-surface-raised', on ? 'border-line-heavy bg-surface-strong text-title' : 'border-line text-secondary hover:bg-surface')}
       data-v2-chip-option={data}
     >
       {on && <Check className="size-3 text-secondary" />}
@@ -845,14 +845,14 @@ function NewTaskRow() {
     <button
       type="button"
       onClick={openNewTask}
-      className="group mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-secondary transition-colors hover:bg-surface hover:text-title"
+      className="group mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui font-medium text-secondary transition-colors hover:bg-surface hover:text-title"
       data-v2-new-task
     >
       <span className="flex size-6 shrink-0 items-center justify-center">
         <SquarePen className="size-4" />
       </span>
       <span className="flex-1">{t('v2.sidebar.newTask')}</span>
-      <kbd className="rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle">{shortcut('N')}</kbd>
+      <kbd className="rounded-md bg-surface-raised px-1.5 font-mono text-micro text-subtle">{shortcut('N')}</kbd>
     </button>
   );
 }
@@ -860,7 +860,7 @@ function NewTaskRow() {
 // CountBadge is how many need you, on a row that points at where they are.
 function CountBadge({ count }: { count: number }) {
   return (
-    <span className="min-w-4 shrink-0 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold tabular-nums leading-4 text-black" data-count-badge={count}>
+    <span className="min-w-4 shrink-0 rounded-full bg-amber-400 px-1 text-center text-micro font-semibold tabular-nums leading-4 text-black" data-count-badge={count}>
       {count > 99 ? '99+' : count}
     </span>
   );
@@ -875,8 +875,8 @@ function OfficeRow({ active, needs, onClick }: { active: boolean; needs: number;
         <Armchair className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-title">{t('office.title')}</span>
-        <span className="block truncate text-[11.5px] text-subtle">{t('office.hint.nav')}</span>
+        <span className="block truncate text-ui font-medium text-title">{t('office.title')}</span>
+        <span className="block truncate text-micro text-subtle">{t('office.hint.nav')}</span>
       </span>
       {needs > 0 && <CountBadge count={needs} />}
     </Lead>
@@ -896,11 +896,11 @@ function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) 
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-title">{t('shell.nav.home')}</span>
+          <span className="truncate text-ui font-medium text-title">{t('shell.nav.home')}</span>
           {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
-          {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
+          {chat.data?.last && <span className="ml-auto shrink-0 text-micro text-faint">{timeAgo(chat.data.last.at, now)}</span>}
         </span>
-        <span className="block truncate text-[11.5px] text-subtle">{line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.homeHint')}</span>
+        <span className="block truncate text-micro text-subtle">{line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.homeHint')}</span>
       </span>
     </Lead>
   );
@@ -1082,7 +1082,7 @@ function ProjectLead({
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13px] font-medium text-title">{name}</span>
+                <span className="truncate text-ui font-medium text-title">{name}</span>
                 {leadRunning && <LoaderCircle className={cn('size-3 shrink-0 animate-spin', working ? 'text-sky-400' : 'text-subtle')} />}
                 {drafted && (
                   <Tip label={t('v2.sidebar.draft')}>
@@ -1094,13 +1094,13 @@ function ProjectLead({
                     project open, the two share the line. */}
                 {attention.level ? (
                   <span
-                    className={cn('ml-auto shrink-0 whitespace-nowrap rounded-full px-1.5 py-px text-[11px] font-medium tabular-nums', !active && 'group-hover/lead:hidden', needs ? 'bg-amber-400/15 text-amber-300' : 'bg-brand-400/10 text-brand-300')}
+                    className={cn('ml-auto shrink-0 whitespace-nowrap rounded-full px-1.5 py-px text-micro font-medium tabular-nums', !active && 'group-hover/lead:hidden', needs ? 'bg-amber-400/15 text-amber-300' : 'bg-brand-400/10 text-brand-300')}
                     data-v2-attention={attention.level}
                   >
                     {t(needs ? 'v2.attention.needs' : 'v2.attention.finished', { count: attention.count })}
                   </span>
                 ) : (
-                  chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>
+                  chat.data?.last && <span className={cn('ml-auto shrink-0 text-micro text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>
                 )}
                 <Tip label={t('v2.sidebar.projectSettings')}>
                   <button
@@ -1120,11 +1120,11 @@ function ProjectLead({
               {/* "N to review" ends this line, not the name's: there it left the name a few letters. */}
               <span className="flex min-w-0 items-center gap-2">
                 {ask ? (
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary" data-v2-lead-line="ask" title={t('v2.attention.ask', ask)}>
+                  <span className="min-w-0 flex-1 truncate text-micro text-secondary" data-v2-lead-line="ask" title={t('v2.attention.ask', ask)}>
                     {t('v2.attention.ask', ask)}
                   </span>
                 ) : (
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-v2-lead-line>
+                  <span className="min-w-0 flex-1 truncate text-micro text-subtle" data-v2-lead-line>
                     {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
                   </span>
                 )}
@@ -1133,7 +1133,7 @@ function ProjectLead({
               {/* Its agents' permission requests wait in this chat too, as
                   cards: they are some of its asks, said in the same count. */}
               {anyCount && (
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] tabular-nums" data-v2-counts>
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption tabular-nums" data-v2-counts>
                   {countKeys.map(({ st, key }) =>
                     counts[st] ? (
                       <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st} data-v2-approvals={st === 'needs' && counts.approvals ? counts.approvals : undefined}>
@@ -1234,7 +1234,7 @@ function SnoozedRows({ sessions, onWake }: { sessions: T.LeadSession[]; onWake: 
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-subtle hover:bg-surface-raised hover:text-secondary"
+        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-micro text-subtle hover:bg-surface-raised hover:text-secondary"
         data-v2-snoozed-toggle
       >
         <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
@@ -1247,7 +1247,7 @@ function SnoozedRows({ sessions, onWake }: { sessions: T.LeadSession[]; onWake: 
             <button
               type="button"
               onClick={() => onWake(s)}
-              className="flex min-w-0 items-center gap-2 rounded-md py-0.5 pl-7 pr-2 text-left text-[11.5px] hover:bg-surface-raised"
+              className="flex min-w-0 items-center gap-2 rounded-md py-0.5 pl-7 pr-2 text-left text-micro hover:bg-surface-raised"
               data-v2-snoozed-session={s.id}
             >
               <span className="min-w-0 flex-1 truncate text-secondary">{s.topic}</span>

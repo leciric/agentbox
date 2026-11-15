@@ -193,7 +193,7 @@ export function ScheduleDialog({
                   <button
                     key={tpl.id}
                     type="button"
-                    className="rounded-full border border-line px-2.5 py-1 text-caption text-secondary transition hover:border-line-strong hover:bg-surface-raised"
+                    className="rounded-full px-2.5 py-1 text-caption text-secondary transition hover:bg-surface-strong bg-surface-raised"
                     onClick={() => setForm({ ...initial(undefined, tpl, t) })}
                     data-template={tpl.id}
                   >
@@ -219,7 +219,7 @@ export function ScheduleDialog({
                   type="button"
                   role="radio"
                   aria-checked={form.mode === m}
-                  className={cn('rounded-md px-2.5 py-1 text-ui transition', form.mode === m ? 'bg-surface-raised text-primary shadow-sm' : 'text-subtle hover:text-primary')}
+                  className={cn('rounded-md px-2.5 py-1 text-ui transition', form.mode === m ? 'bg-surface-raised text-primary' : 'text-subtle hover:text-primary')}
                   onClick={() => set('mode', m)}
                   data-schedule-mode={m}
                 >
