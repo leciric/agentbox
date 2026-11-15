@@ -400,6 +400,7 @@ export function ChatTab({
               {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
               <PageStack agent={agent} />
               <Composer
+                key={agent.ref}
                 agent={agent}
                 thread={thread.data}
                 disabled={!takesMessages(agent)}

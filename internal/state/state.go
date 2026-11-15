@@ -1658,6 +1658,12 @@ var migrations = []string{
 	`DROP INDEX archived_agents_by_time`,
 	`CREATE INDEX archived_agents_by_pr ON archived_agents (project, pr_state, pr_number)`,
 	`CREATE INDEX archived_agents_open_prs ON archived_agents (archived_at DESC, project, name) WHERE pr_state = 'open'`,
+	// project_sections.color is a sidebar section's colour, one of
+	// SectionColors, '' for none: what every section made before colours has.
+	`ALTER TABLE project_sections ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
+	// project_sections.description is a line about the section, '' for none:
+	// the sidebar shows it as the section's tooltip.
+	`ALTER TABLE project_sections ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

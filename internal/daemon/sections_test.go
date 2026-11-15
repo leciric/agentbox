@@ -109,12 +109,26 @@ func TestSectionsOrganiseTheProjectsList(t *testing.T) {
 	if _, err := d.client.UpdateSection(ctx, work.ID, api.UpdateSectionRequest{Name: &renamed}); err != nil {
 		t.Fatal(err)
 	}
+	// And a colour, which is checked against the palette.
+	sky := "sky"
+	if _, err := d.client.UpdateSection(ctx, work.ID, api.UpdateSectionRequest{Color: &sky}); err != nil {
+		t.Fatal(err)
+	}
+	bad := "chartreuse"
+	if _, err := d.client.UpdateSection(ctx, work.ID, api.UpdateSectionRequest{Color: &bad}); err == nil {
+		t.Error("a colour outside the palette was accepted")
+	}
+	// And a description, which leaves the rest alone.
+	desc := "Weekend things"
+	if sec, err := d.client.UpdateSection(ctx, work.ID, api.UpdateSectionRequest{Description: &desc}); err != nil || sec.Description != desc || sec.Color != sky {
+		t.Errorf("describing = %+v, %v; want the description and the colour kept", sec, err)
+	}
 	sections, err := d.client.Sections(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sections) != 2 || sections[0].ID != play.ID || sections[1].Name != renamed || !sections[1].Collapsed {
-		t.Errorf("Sections() = %+v, want Play first and a renamed, collapsed Work", sections)
+	if len(sections) != 2 || sections[0].ID != play.ID || sections[1].Name != renamed || !sections[1].Collapsed || sections[1].Color != sky || sections[1].Description != desc || sections[0].Color != "" {
+		t.Errorf("Sections() = %+v, want Play first with no colour and a renamed, collapsed, sky Work", sections)
 	}
 	if got, want := projectOrder(t, d), "Play/mangoes Side projects/apples Side projects/pears"; got != want {
 		t.Errorf("a rename moved something: %q, want %q", got, want)

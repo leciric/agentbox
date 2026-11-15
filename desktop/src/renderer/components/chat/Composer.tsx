@@ -21,6 +21,7 @@ import {
   Moon,
   PencilLine,
   PencilRuler,
+  Mic,
   Paperclip,
   Play,
   Plug,
@@ -44,7 +45,8 @@ import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, requestSessionFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, draftAttachmentsLoaded, getDraft, getDraftAttachments, setDraft, setDraftAttachments } from '../../lib/drafts';
-import { formatTime, t as translate, useT } from '../../lib/i18n';
+import { formatTime, t as translate, useLanguage, useT } from '../../lib/i18n';
+import { useDictation } from '../../lib/useDictation';
 import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
 import { useReviewCardShown } from '../v2/ReviewV2';
@@ -102,6 +104,18 @@ export function Composer({
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const pendingCursor = useRef<number | null>(null);
+  // Speak to type, on the phone only: the speech lands in the text as it is
+  // heard, at the cursor, and is never sent by itself.
+  const dictation = useDictation({
+    language: useLanguage(),
+    current: () => ({ text: area.current?.value ?? '', start: area.current?.selectionStart ?? 0, end: area.current?.selectionEnd ?? 0 }),
+    onText: (next, at) => {
+      pendingCursor.current = at;
+      setText(next);
+    },
+    onRefused: () => toast.error(t('chat.composer.micDenied')),
+    onNoMic: () => toast.error(t('chat.composer.micMissing')),
+  });
   const session = thread?.session;
   const busy = !!session?.turnStartedAt;
   const requests = thread ? pendingPermissions(thread) : [];
@@ -169,6 +183,7 @@ export function Composer({
   const send = (message: { text: string; images: Pending[] }, to?: { to: string }) => {
     const { images, files } = uploads(message.images, !session?.noImages);
     const text = withPicks(message.text, message.images.filter(isElement));
+    dictation.stop();
     setText('');
     setImages([]);
     onSent();
@@ -439,6 +454,7 @@ export function Composer({
     }
     if (cacheCard) {
       setHeld({ text: text.trim(), images });
+      dictation.stop();
       setText('');
       setImages([]);
       return;
@@ -609,6 +625,7 @@ export function Composer({
             }
             if (text.trim() === '' && images.length === 0) return null;
             const draft = { text: text.trim(), images };
+            dictation.stop();
             setText('');
             setImages([]);
             return draft;
@@ -856,6 +873,27 @@ export function Composer({
               </button>
             </span>
           </Tip>
+          {dictation.support !== 'off' && dictation.support !== 'missing' && (
+            <Tip label={dictation.support === 'insecure' ? t('chat.composer.micInsecure') : dictation.listening ? t('chat.composer.micStop') : t('chat.composer.micTip')}>
+              {/* The span takes the tap a disabled button won't, since a phone has no hover for the tip. */}
+              <span className="shrink-0" onClick={() => dictation.support === 'insecure' && toast(t('chat.composer.micInsecure'))}>
+                <button
+                  type="button"
+                  aria-label={dictation.listening ? t('chat.composer.micStop') : t('chat.composer.mic')}
+                  aria-pressed={dictation.listening}
+                  disabled={disabled || dictation.support === 'insecure'}
+                  onClick={dictation.toggle}
+                  className={cn(
+                    'flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent',
+                    dictation.support === 'insecure' && 'pointer-events-none',
+                    dictation.listening && 'animate-pulse bg-brand-500 text-on-brand ring-4 ring-brand-500/30 hover:bg-brand-600 hover:text-on-brand',
+                  )}
+                >
+                  <Mic className="size-4" />
+                </button>
+              </span>
+            </Tip>
+          )}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />

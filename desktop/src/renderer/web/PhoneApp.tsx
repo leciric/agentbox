@@ -43,6 +43,7 @@ import { cn, errorMessage } from '../lib/utils';
 import { reconnectNow } from './bridge';
 import { parseRoute, routeHash, type Route } from './route';
 import { PlainHTTPNote } from './PhonePair';
+import { PhoneMode } from '../lib/useDictation';
 import { seen } from './seen';
 
 // Nav is how a screen moves: open pushes a screen, so back (the arrow, or
@@ -173,6 +174,7 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
   return (
     // The page runs under the notch and the home bar (web.html's
     // viewport-fit=cover), and keeps clear of them itself.
+    <PhoneMode.Provider value>
     <div className="flex h-dvh flex-col pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]" data-phone-app>
       <ConnectionBar />
       {route.kind === 'list' ? (
@@ -197,6 +199,7 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
         }}
       />
     </div>
+    </PhoneMode.Provider>
   );
 }
 
