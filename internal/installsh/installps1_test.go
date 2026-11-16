@@ -85,7 +85,8 @@ func runPS(t *testing.T, shell string, m pc, env []string, args ...string) (stri
 	}
 	calls, _ := os.ReadFile(m.Calls)
 	// PowerShell wraps what it writes at the console's width.
-	return strings.Join(strings.Fields(string(out)), " "), code, string(calls)
+	// Add-Content ends its lines as the system does: \r\n on Windows.
+	return strings.Join(strings.Fields(string(out)), " "), code, strings.ReplaceAll(string(calls), "\r\n", "\n")
 }
 
 func TestPowerShellChecks(t *testing.T) {
