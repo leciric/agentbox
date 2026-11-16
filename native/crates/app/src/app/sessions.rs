@@ -935,6 +935,7 @@ impl AppView {
                 LeadSessionPatch {
                     topic,
                     pinned: None,
+                    group: None,
                 },
                 cx,
             );
@@ -1141,6 +1142,7 @@ impl AppView {
                                     LeadSessionPatch {
                                         topic: String::new(),
                                         pinned: Some(!pinned),
+                                        group: None,
                                     },
                                     cx,
                                 )
