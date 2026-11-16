@@ -17,10 +17,11 @@
 //! stop`): the app shows the command that brings it back rather than boot
 //! it behind the user's back. On a Mac, or a
 //! Linux machine in VM mode, `agentbox vm status --json` says whether the VM
-//! is there: one that isn't is set up with the command shown, which the
-//! user runs, since making the VM, the WSL distro or running host setup
-//! with sudo is the main process's work in Electron and has no place in a
-//! client of the socket.
+//! is there, and on Windows `agentbox wsl status --json` whether WSL and
+//! AgentBox's distro are: one that isn't is set up from the card
+//! machine_setup.rs draws, with the tool the app has built in, as Electron's
+//! main process does for its Setup. Host setup with sudo, and /dev/kvm,
+//! stay commands the user runs.
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,6 +32,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
+use super::machine_setup::{self, Need, Step};
 use crate::theme;
 
 /// What a start runs: `agentbox daemon start`, or `agentbox vm start` or
@@ -79,9 +81,65 @@ pub(super) struct Conn {
     pub start_error: Option<String>,
     pub start_fix: Option<&'static str>,
     tried: bool,
-    /// vm is what `agentbox vm status --json` said, while there's no daemon.
+    /// vm is what `agentbox vm status --json` said (on Windows, `agentbox wsl
+    /// status --json`), while there's no daemon.
     pub vm: Option<serde_json::Value>,
     vm_at: Option<Instant>,
+    /// setup is the app's own setup of the machine (machine_setup.rs).
+    pub setup: machine_setup::Setup,
+}
+
+impl Conn {
+    /// forget_vm_status has the machine's status asked again at the next
+    /// look, rather than five seconds after the last.
+    pub(super) fn forget_vm_status(&mut self) {
+        self.vm_at = None;
+    }
+
+    /// start_again lets the app start the daemon once more: its machine has
+    /// just been made.
+    pub(super) fn start_again(&mut self) {
+        if self.run.is_none() {
+            self.tried = false;
+            self.start_error = None;
+            self.start_fix = None;
+        }
+    }
+
+    /// need is what the machine lacks that the app can make: what the step
+    /// under way makes, else what the tool's status says, else what the step
+    /// that failed (or that Windows has to restart for) was making.
+    fn need(&self) -> Option<Need> {
+        let name = || {
+            self.vm
+                .as_ref()
+                .and_then(|v| v.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("AgentBox")
+                .to_string()
+        };
+        let of = |step: Step| match step {
+            Step::InstallWsl => Need::Wsl,
+            Step::InitWsl => Need::Distro {
+                exists: true,
+                name: name(),
+            },
+            Step::InitVm => Need::Vm,
+        };
+        if let Some((step, _)) = self.setup.running {
+            return Some(of(step));
+        }
+        let said = self
+            .vm
+            .as_ref()
+            .and_then(|v| machine_setup::need(cfg!(windows), v));
+        said.or_else(|| {
+            (self.setup.error.is_some() || self.setup.restart)
+                .then_some(self.setup.last)
+                .flatten()
+                .map(of)
+        })
+    }
 }
 
 /// which finds a command on PATH, as a shell would (hostsetup.ts's which).
@@ -99,7 +157,7 @@ pub(super) fn which(name: &str) -> Option<PathBuf> {
 /// the managed copy first), else the managed copy this app and the Electron
 /// app keep current (cli.rs), else the one on PATH or where the installers
 /// put it (find_cli).
-fn agentbox_cli() -> Option<PathBuf> {
+pub(super) fn agentbox_cli() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().ok();
@@ -344,12 +402,12 @@ fn start(bin: &std::path::Path, vm_power: bool, answered: bool, run: &Mutex<Star
 /// read_power is `agentbox vm power --json`, None when the tool fails or
 /// says something else.
 fn read_power(bin: &std::path::Path) -> Option<Power> {
-    let out = std::process::Command::new(bin)
-        .args(["vm", "power", "--json"])
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["vm", "power", "--json"])
         .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
+        .stderr(std::process::Stdio::null());
+    machine_setup::quiet(&mut cmd);
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -364,13 +422,14 @@ fn run_said(
     mut step: impl FnMut(String),
 ) -> Result<(), String> {
     use std::io::Read as _;
-    let mut child = std::process::Command::new(bin)
-        .args(args)
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{}: {e}", bin.display()))?;
+        .stderr(std::process::Stdio::piped());
+    // The app has no console on Windows: the tool mustn't open one.
+    machine_setup::quiet(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", bin.display()))?;
     let mut said = String::new();
     if let Some(mut err) = child.stderr.take() {
         let mut buf = [0u8; 512];
@@ -426,14 +485,6 @@ fn starting_text(what: Starting, took: Duration) -> String {
         ],
     );
     format!("{busy} {}", elapsed(took))
-}
-
-/// vm_missing is a VM `agentbox vm status --json` says isn't made yet: the
-/// Mac's (exists: false) or a Linux VM mode's (state "missing").
-fn vm_missing(v: &serde_json::Value) -> bool {
-    let str_of = |k: &str| v.get(k).and_then(|s| s.as_str());
-    v.get("exists").and_then(|e| e.as_bool()) == Some(false)
-        || (str_of("state") == Some("missing") && str_of("mode") != Some("host"))
 }
 
 impl AppView {
@@ -586,14 +637,13 @@ impl AppView {
         }
     }
 
-    /// read_vm_status asks the tool about AgentBox's VM, at most every five
-    /// seconds, on a Mac and on Linux; Windows' distro is the relay's.
+    /// read_vm_status asks the tool about AgentBox's VM, or on Windows about
+    /// WSL and AgentBox's distro, at most every five seconds.
     fn read_vm_status(&mut self, cx: &mut Context<Self>) {
-        if cfg!(windows)
-            || self
-                .conn
-                .vm_at
-                .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        if self
+            .conn
+            .vm_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
         {
             return;
         }
@@ -602,11 +652,12 @@ impl AppView {
         };
         self.conn.vm_at = Some(Instant::now());
         let task = cx.background_executor().spawn(async move {
-            std::process::Command::new(bin)
-                .args(["vm", "status", "--json"])
+            let mut cmd = std::process::Command::new(bin);
+            cmd.args(machine_setup::status_args(cfg!(windows)))
                 .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .output()
+                .stderr(std::process::Stdio::null());
+            machine_setup::quiet(&mut cmd);
+            cmd.output()
                 .ok()
                 .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
         });
@@ -684,7 +735,7 @@ impl AppView {
     /// doesn't answer: the start under way, the VM to make, or the error.
     pub(super) fn render_unreachable(&self, cx: &mut Context<Self>) -> AnyElement {
         let c = &self.conn;
-        let vm = c.vm.as_ref().filter(|v| vm_missing(v));
+        let need = c.need();
         let notice = |text: String, color: Hsla| {
             div()
                 .px_3()
@@ -698,48 +749,17 @@ impl AppView {
                 .child(text)
                 .into_any_element()
         };
-        let body: AnyElement = if let Some(v) = vm {
-            let mac = cfg!(target_os = "macos");
-            let problem = v
-                .get("problem")
-                .and_then(|p| p.as_str())
-                .filter(|p| !p.is_empty())
-                .map(str::to_string);
-            v_flex()
-                .gap_3()
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(t(if mac {
-                            "vm.setup.title"
-                        } else {
-                            "vm.run.setupTitle"
-                        })),
-                )
-                .when(mac, |el| {
-                    el.child(
-                        div()
-                            .text_sm()
-                            .text_color(theme::muted())
-                            .child(t("vm.setup.description")),
-                    )
-                })
-                .when_some(problem, |el, p| el.child(notice(p, theme::starting())))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme::muted())
-                        .child(t("native.setup.runIt")),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme::faint())
-                        .child(t("vm.setup.orTerminal")),
-                )
-                .child(self.command_box("vm-init", "agentbox vm init", cx))
-                .into_any_element()
+        let body: AnyElement = if let Some(need) = &need {
+            // Why there's no VM to use yet (/dev/kvm, Lima), in the tool's
+            // words; Windows' says only what the card does.
+            let problem =
+                c.vm.as_ref()
+                    .filter(|_| *need == Need::Vm)
+                    .and_then(|v| v.get("problem"))
+                    .and_then(|p| p.as_str())
+                    .filter(|p| !p.is_empty())
+                    .map(str::to_string);
+            self.render_machine_setup(need, problem, cx)
         } else if let Some((since, step)) = &c.starting {
             v_flex()
                 .gap_1()
@@ -854,9 +874,6 @@ mod tests {
         assert_eq!(last_line("one\n two \n\n"), "two");
         assert_eq!(last_line("starting\nerror: no\n"), "starting");
         assert_eq!(elapsed(Duration::from_secs(125)), "2:05");
-        assert!(vm_missing(&serde_json::json!({"exists": false})));
-        assert!(vm_missing(&serde_json::json!({"state": "missing"})));
-        assert!(!vm_missing(&serde_json::json!({"state": "running"})));
     }
 }
 

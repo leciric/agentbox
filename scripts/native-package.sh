@@ -115,15 +115,17 @@ AgentBox native app $version (experimental)
 
 A preview of AgentBox's desktop app rewritten in Rust with GPUI, the toolkit
 Zed is drawn with. It is a client of the same AgentBox daemon the Electron app
-uses: install AgentBox as usual, then start this instead of the AgentBox app.
-It may break.
+uses, with the agentbox tool built in: where AgentBox isn't set up yet it sets
+it up itself (its VM, or on Windows WSL and its distro), so it needs nothing
+else installed. It may break.
 
   agentbox-native                   against this computer's AgentBox
   agentbox-native --socket PATH     against another daemon's socket
 
 It can't yet: show an agent's iOS simulator; do what only the Electron app's
-main process does (resize the VM, restart it, host setup with sudo, install
-the command-line tool), for which it shows the command to run instead; or
+main process does (resize the VM, restart it, host setup with sudo, access
+to /dev/kvm, install the command-line tool), for which it shows the command
+to run instead; or
 hide to the tray (it minimises). On Wayland, HTML previews are a still
 picture. On Windows and macOS, agents' recordings don't play (no FFmpeg in these
 builds).

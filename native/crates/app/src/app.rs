@@ -21,6 +21,7 @@ pub(crate) mod controls;
 mod foot;
 mod home_status;
 mod issues;
+mod machine_setup;
 mod merge;
 mod new_agent;
 mod new_task;

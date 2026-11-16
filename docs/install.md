@@ -1,23 +1,29 @@
 # Installing AgentBox
 
-AgentBox is a desktop app with the `agentbox` command-line tool inside. On Linux, one command
-checks your computer and installs it:
+AgentBox is a desktop app with the `agentbox` command-line tool inside. One command checks your
+computer and installs it. On Linux and on a Mac:
 
 ```bash
 curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh
 ```
 
-Then open **AgentBox**. Its **Setup** does the rest the first time it runs: it makes AgentBox's VM,
-builds the machine your agents are copied from, and logs you in to Claude Code, Codex or OpenCode.
+On Windows, in PowerShell:
 
-On a Mac or Windows, download the app from the
-[downloads page](https://downloads.agentbox.linting.dev/index.html) instead
-(see [macOS and Windows](#macos-and-windows-alpha)).
+```powershell
+irm https://downloads.agentbox.linting.dev/install.ps1 | iex
+```
+
+Then open **AgentBox** (on a Mac and on Windows it opens by itself). Its **Setup** does the rest
+the first time it runs: it makes AgentBox's VM, or on Windows its WSL distro, installing WSL first
+when it's missing; gets the machine your agents are copied from; and logs you in to Claude Code,
+Codex or OpenCode.
+
+(See [macOS and Windows](#macos-and-windows-alpha) for what those two are and aren't yet.)
 
 ## What the install script does
 
 Before it downloads anything, it checks that this computer can run AgentBox, and lists everything
-that's missing at once, in plain words:
+that's missing at once, in plain words. On Linux:
 
 | Check | Needs | If it's missing |
 |---|---|---|
@@ -35,7 +41,28 @@ the package that fits your distribution:
 - **Anything else**, Fedora included: the AppImage, in `~/.local/bin/AgentBox.AppImage`, with an
   entry in your applications menu. No password.
 
-It runs only once it has downloaded completely: a connection cut half-way runs nothing.
+**On a Mac** it checks for macOS 13 or later, 8 GB of memory and 30 GB free, then downloads the
+`.zip` for your Mac (Apple silicon or Intel), checks it, and puts **AgentBox** in `/Applications`
+(or `~/Applications` when that one isn't yours to write to), replacing a copy that's there, and
+opens it. No password. A download made by `curl` isn't quarantined, so the app opens without the
+right-click **Open** a browser's download needs while the app isn't notarized. Quit AgentBox first
+when it's open: the script stops and says so.
+
+**On Windows**, `install.ps1` checks for 64-bit Windows 10 version 2004 or later (or Windows 11),
+8 GB of memory and 30 GB free on the drive with `%LOCALAPPDATA%`, where AgentBox keeps its WSL
+distro. WSL not being installed yet is fine, and it says so: Setup installs it. Then it downloads
+the installer, checks it, runs it silently for your user alone (no administrator), and opens
+AgentBox. Its options are environment variables when it's piped into `iex`, and parameters when
+it's run from a file:
+
+| Option | Piped | What |
+|---|---|---|
+| `-Check` | `$env:AGENTBOX_INSTALL_CHECK = 1` | Only the checks |
+| `-Native` | `$env:AGENTBOX_INSTALL_NATIVE = 1` | The [native app](#the-native-app-experimental) instead |
+| `-Channel nightly` | `$env:AGENTBOX_CHANNEL = 'nightly'` | The newest nightly |
+| `-NoOpen` | `$env:AGENTBOX_INSTALL_NO_OPEN = 1` | Don't open AgentBox afterwards |
+
+Each runs only once it has downloaded completely: a connection cut half-way runs nothing.
 
 | Option | What |
 |---|---|
@@ -43,7 +70,7 @@ It runs only once it has downloaded completely: a connection cut half-way runs n
 | `--appimage` | The AppImage, whatever your distribution |
 | `AGENTBOX_CHANNEL=nightly` | The newest nightly instead of the newest release |
 
-Options go after `sh -s --`:
+`install.sh`'s options go after `sh -s --`:
 
 ```bash
 curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh -s -- --check
@@ -197,7 +224,26 @@ just talk to them there. Both are newer than the Linux build and ship unsigned f
 right-click AgentBox in Applications and choose **Open** the first time; on Windows, the installer
 and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
-same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
+same [downloads](https://downloads.agentbox.linting.dev/index.html) page, or let
+[the install script](#installing-agentbox) do it, which needs neither exception.
+
+On Windows, Setup first needs WSL 2. When it isn't installed, or Windows' Virtual Machine Platform
+is off, Setup offers **Install WSL** (or **Turn it on**): one administrator prompt from Windows,
+then a window of WSL's own shows its progress. When Windows has to restart to finish, Setup says
+so, and carries on from the same place afterwards; when it doesn't, Setup goes straight on to
+making AgentBox's distro. From a terminal the same is `agentbox wsl install`, then `agentbox wsl
+init`. Only virtualization turned off in the firmware (BIOS/UEFI) is left for you to turn on.
+
+### The native app (experimental)
+
+A rewrite of the desktop app in Rust, beside the Electron one and for the same AgentBox. Nightlies
+have it for Linux, Apple silicon Macs and Windows, and releases for Windows:
+`AgentBox-Native-experimental-<version>-windows-x64-setup.exe` installs it for your user alone, in
+`%LOCALAPPDATA%\Programs\AgentBox Native`, with a Start menu entry and an uninstaller, asking for
+no administrator (`install.ps1 -Native` downloads and runs it). It has the `agentbox` tool built
+in, so it needs nothing else installed: where there's no AgentBox yet it offers **Install WSL**
+and **Set up the distro** on Windows, and **Set up the VM** on Linux and a Mac, and shows how each
+goes. It updates itself in place.
 
 The same memory rule holds there: AgentBox's VM never takes more than your computer's memory less
 the larger of 4 GiB and a quarter. On a Mac it's the most Settings and `agentbox vm resize` let you
