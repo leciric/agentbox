@@ -560,7 +560,6 @@ mod tests {
     #[cfg(unix)]
     mod runs {
         use super::super::*;
-        use std::os::unix::fs::PermissionsExt as _;
         use std::path::PathBuf;
 
         /// One at a time (connection.rs's tests say why).
@@ -578,15 +577,24 @@ mod tests {
             ));
             std::fs::create_dir_all(&dir).unwrap();
             let bin = dir.join("agentbox");
-            std::fs::write(
-                &bin,
-                format!(
-                    "#!/bin/sh\necho \"$*\" >> '{}/log'\n{body}\n",
-                    dir.display()
-                ),
-            )
-            .unwrap();
-            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // Written by a child, not by this process: a script this process
+            // has open for writing is inherited by whatever another test
+            // forks meanwhile, and its exec then fails with "Text file busy"
+            // (connection.rs's tests hold a lock of their own for the same
+            // reason, which these can't share with every test that forks).
+            let wrote = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    "printf '%s\n' \"$BODY\" > \"$OUT\" && chmod 755 \"$OUT\"",
+                ])
+                .env(
+                    "BODY",
+                    format!("#!/bin/sh\necho \"$*\" >> '{}/log'\n{body}", dir.display()),
+                )
+                .env("OUT", &bin)
+                .status()
+                .unwrap();
+            assert!(wrote.success());
             (dir, bin)
         }
 
