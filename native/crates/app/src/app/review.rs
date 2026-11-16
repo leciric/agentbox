@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use agentbox_api::{
-    Client, MediaItem, MergeAgentRequest, MergeAgentResult, MergePullRequestRequest, MergeWhenGreen, MergeWhenGreenRequest,
-    ProjectPullRequests, PullRequest, RequestChangesRequest, ReviewRequest, Settings, WorkItem,
+    Client, MediaItem, MergeAgentRequest, MergeAgentResult, MergePullRequestRequest,
+    MergeWhenGreen, MergeWhenGreenRequest, ProjectPullRequests, PullRequest, RequestChangesRequest,
+    ReviewRequest, Settings, WorkItem,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -1048,16 +1049,18 @@ impl ReviewView {
                         };
                         Toast::new(
                             Kind::Success,
-                            tv(key, &[("branch", (&m.branch).into()), ("into", (&m.into).into())]),
+                            tv(
+                                key,
+                                &[("branch", (&m.branch).into()), ("into", (&m.into).into())],
+                            ),
                         )
                         .show(cx);
                         this.advance(cx)
                     }
                     Err(e) => {
                         let msg = agentbox_api::client::message_of(&e);
-                        this.error = Some(
-                            tv("review.mergeHere.failed", &[("error", (&msg).into())]).into(),
-                        )
+                        this.error =
+                            Some(tv("review.mergeHere.failed", &[("error", (&msg).into())]).into())
                     }
                 }
                 cx.notify();
@@ -2955,35 +2958,35 @@ impl ReviewView {
                         "" | "HEAD" => "main".to_string(),
                         b => b.to_string(),
                     };
-                    el.child(
-                        controls::button(
-                            "review-merge-here",
-                            format!("⑂ {}", tv("review.mergeHere", &[("base", (&base).into())])),
-                            Btn::Primary,
-                            self.busy,
-                            cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
-                        ),
-                    )
+                    el.child(controls::button(
+                        "review-merge-here",
+                        format!("⑂ {}", tv("review.mergeHere", &[("base", (&base).into())])),
+                        Btn::Primary,
+                        self.busy,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
+                    ))
                 })
-                .when(!self.local_merge(), |el| el.child(merge::split(
-                    "review-merge",
-                    match self.pr() {
-                        Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
-                        None => t("review.noPullRequest"),
-                    },
-                    block.is_none().then(|| hint_on_brand("M")),
-                    &self.method(),
-                    &self.methods(),
-                    block.is_some() || self.busy,
-                    self.busy && self.merging,
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
-                    std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
-                        merge::remember(&this.item.item.project, m);
-                        this.method = Some(m.to_string());
-                        cx.notify();
-                    })),
-                    cx,
-                )))
+                .when(!self.local_merge(), |el| {
+                    el.child(merge::split(
+                        "review-merge",
+                        match self.pr() {
+                            Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
+                            None => t("review.noPullRequest"),
+                        },
+                        block.is_none().then(|| hint_on_brand("M")),
+                        &self.method(),
+                        &self.methods(),
+                        block.is_some() || self.busy,
+                        self.busy && self.merging,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
+                        std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
+                            merge::remember(&this.item.item.project, m);
+                            this.method = Some(m.to_string());
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                })
             })
             .into_any_element()
     }

@@ -240,7 +240,11 @@ impl Client {
                 let (msg, code, skipped) = serde_json::from_slice::<ApiError>(&bytes)
                     .map(|e| (e.error, e.code, e.skipped))
                     .unwrap_or_else(|_| {
-                        (String::from_utf8_lossy(&bytes).into_owned(), String::new(), Vec::new())
+                        (
+                            String::from_utf8_lossy(&bytes).into_owned(),
+                            String::new(),
+                            Vec::new(),
+                        )
                     });
                 return Err(DaemonError {
                     text: format!("{path}: {status}: {msg}"),

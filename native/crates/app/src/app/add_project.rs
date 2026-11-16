@@ -12,8 +12,7 @@ use agentbox_api::client::{code_of, skipped_of};
 use agentbox_api::{
     AddProjectRequest, AuthStatus, CloneProjectRequest, ERROR_BAD_REPO_URL, ERROR_FOLDER_EXISTS,
     ERROR_FOLDER_NOT_EMPTY, ERROR_NOT_A_REPOSITORY, Job, Project, Settings, SkippedPath,
-    ToolAccount, UpdateProjectRequest,
-    UpdateSettingsRequest,
+    ToolAccount, UpdateProjectRequest, UpdateSettingsRequest,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -1142,7 +1141,10 @@ fn skipped_text(skipped: &[SkippedPath]) -> String {
     }
     let mut text = format!("\n\n{}", plain(&t("project.add.skipped")));
     for s in skipped.iter().take(6) {
-        let reason = tv("project.add.skippedReason", &[("reason", s.reason.as_str().into())]);
+        let reason = tv(
+            "project.add.skippedReason",
+            &[("reason", s.reason.as_str().into())],
+        );
         text.push_str(&format!(
             "\n  {}  ·  {}, {}",
             s.path,

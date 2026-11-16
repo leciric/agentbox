@@ -172,7 +172,7 @@ func ignoredOf(root string, found []Skipped) (map[string]bool, error) {
 	out, err := outputIn(root, in.String(), "--git-dir="+gitDir, "--work-tree=.", "check-ignore", "--stdin", "-z")
 	// check-ignore exits 1 when nothing is ignored.
 	var exit *exec.ExitError
-	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
 		return nil, err
 	}
 	ignored := map[string]bool{}
