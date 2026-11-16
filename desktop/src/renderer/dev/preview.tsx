@@ -212,6 +212,8 @@
 //   &review=pairs           with ?app=, agent-15 holding before/after pairs to compare
 //   &review=big             with ?app=work, agent-41's pairs and screenshots at 1920×1080, 420×2000 and 3840×1080
 //   &review=aspect          with ?app=work, agent-41's phone (1080×1920, 1170×2532), square, 4:3 and 5760×1080 shots, a 4:3/16:9 pair, one unsized, a rotated recording
+//   ?concept=tabgroups&option=a|b|c  mocks: grouping the lead's session tabs
+//                           (dev/concepts/tabgroups.tsx)
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)
