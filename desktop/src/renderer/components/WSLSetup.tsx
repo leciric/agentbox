@@ -1,9 +1,11 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle, MonitorCog } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { LoaderCircle, MonitorCog, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { WSLStatus } from '../../preload';
 import { useT } from '../lib/i18n';
 import { startMachine, useMachineRun } from '../lib/machineRun';
+import { appendOutput, errorMessage } from '../lib/utils';
 import { CommandBox, SetupLog } from './SettingsView';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
@@ -28,8 +30,43 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
       void queryClient.invalidateQueries();
     });
 
-  // Installing WSL itself takes an administrator and, the first time, a
-  // restart: that stays the user's to do.
+  // WSL itself takes an administrator, where the distro doesn't: `agentbox wsl
+  // install` behind Windows' own prompt (main/hostsetup.ts's installWSL),
+  // which also turns the Virtual Machine Platform on. When Windows needs no
+  // restart for it the distro's setup starts by itself; when it does, the card
+  // says so, and it is the same card after the restart.
+  const [installLines, setInstallLines] = useState<string[]>([]);
+  const install = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.installWSL(),
+    onMutate: () => setInstallLines([]),
+    onSuccess: async ({ restart }) => {
+      await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
+      if (restart) return;
+      toast(t('vm.wsl.installed'), { description: t('vm.wsl.installedDescription') });
+      run();
+    },
+  });
+  useEffect(() => {
+    if (!install.isPending) return;
+    return window.agentbox.hostSetup.onOutput((text) => setInstallLines((prev) => appendOutput(prev, text)));
+  }, [install.isPending]);
+  const restart = install.data?.restart === true;
+  const installButton = (label: string) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="primary" disabled={install.isPending || restart} onClick={() => install.mutate()} data-wsl-install>
+        {install.isPending ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
+        {label}
+      </Button>
+      <span className="text-xs text-subtle">{install.isPending ? t('vm.wsl.installing') : t('vm.wsl.onePrompt')}</span>
+    </div>
+  );
+  const installResult = (
+    <>
+      {installLines.length > 0 && !restart && <SetupLog lines={installLines} label={t('vm.wsl.log')} />}
+      {restart && <Notice tone="warning">{t('vm.wsl.restart')}</Notice>}
+      {install.error && <Notice>{errorMessage(install.error)}</Notice>}
+    </>
+  );
   const noWSL = wsl.wsl === '';
   // WSL is there but can't start a WSL 2 VM: `agentbox wsl init` says so,
   // before downloading anything (hostwsl.ErrNoVirtualization).
@@ -53,6 +90,9 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
           <p className="text-ui text-muted">
             {t('vm.wsl.noWSL')}
           </p>
+          {installButton(t('vm.wsl.install'))}
+          {installResult}
+          <p className="text-ui text-muted">{t('vm.wsl.orPowerShell')}</p>
           <CommandBox command="wsl --install --no-distribution" />
         </div>
       ) : (
@@ -68,6 +108,9 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
       {noVirtualization ? (
         <div className="grid gap-2">
           <Notice>{t('vm.wsl.noVirtualization')}</Notice>
+          {installButton(t('vm.wsl.turnOn'))}
+          {installResult}
+          <p className="text-ui text-muted">{t('vm.wsl.orPowerShell')}</p>
           <CommandBox command="wsl --install --no-distribution" />
           <p className="text-ui text-muted">{t('vm.wsl.noVirtualizationDism')}</p>
           <CommandBox command="dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart" />

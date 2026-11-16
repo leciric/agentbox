@@ -93,8 +93,10 @@
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
-//                           make, or WSL to install first. The whole App, with
-//                           no daemon to reach, as a first launch shows it
+//                           make, or WSL to install first (Install WSL
+//                           installs it; &restart=1: Windows has to restart
+//                           to finish). The whole App, with no daemon to
+//                           reach, as a first launch shows it
 //   ?wsl=starting           Windows' first start after an update: the distro
 //                           set up, its daemon being started, 1:35 in, its
 //                           steps going by every few seconds (#433)
@@ -480,7 +482,26 @@ function windowsBeforeSetupBridge(): void {
     const timer = setInterval(() => fn(state()), 1_000);
     return () => clearInterval(timer);
   };
-  bridge.hostSetup = { status: async () => windowsBeforeSetup, ...machineRunBridge(windowsInit) };
+  const run = machineRunBridge(windowsInit);
+  bridge.hostSetup = {
+    status: async () => windowsBeforeSetup,
+    ...run,
+    // What `agentbox wsl install` says around Windows' administrator prompt.
+    // With &restart=1 Windows has to restart to finish; without, WSL is
+    // there afterwards and the card goes on to the distro.
+    installWSL: async () => {
+      run.say('> agentbox wsl install\n');
+      run.say('Installing WSL (wsl --install --no-distribution): Windows asks for an administrator, then shows its progress in a window of its own\n');
+      await new Promise((r) => setTimeout(r, 2_500));
+      if (params.get('restart')) {
+        run.say('WSL is installed, and Windows has to restart to finish: restart it, then open AgentBox again\n');
+        return { restart: true };
+      }
+      run.say('WSL is installed. Next: agentbox wsl init\n');
+      windowsBeforeSetup.wsl = { wsl: '2.4.13.0', name: 'AgentBox', user: '', exists: false, problem: "AgentBox's WSL distro isn't set up: run agentbox wsl init" };
+      return { restart: false };
+    },
+  };
 }
 
 // What `agentbox wsl init` and `agentbox vm init` print on their way, for
@@ -512,6 +533,7 @@ function machineRunBridge(output: string[]) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    say: (text: string) => listeners.forEach((fn) => fn(text)),
   };
 }
 
