@@ -322,13 +322,19 @@ func TestUpdateProjectAgentPRs(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
+	root := d.fixtureRepo(t, "hello-stack")
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.AgentPRs {
 		t.Error("a new project's agents push their own pull requests")
 	}
+	// With no remote there's nowhere to push at all, which the brief says.
+	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "**This project has no remote**") {
+		t.Errorf("no remote: the brief doesn't say so:\n%s", brief)
+	}
+	testutil.Git(t, root, "remote", "add", "origin", "https://github.com/acme/hello-stack.git")
 	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "Don't push.") {
 		t.Errorf("off: the brief doesn't tell the agent not to push:\n%s", brief)
 	}
