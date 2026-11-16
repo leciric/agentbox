@@ -1664,6 +1664,13 @@ var migrations = []string{
 	// project_sections.description is a line about the section, '' for none:
 	// the sidebar shows it as the section's tooltip.
 	`ALTER TABLE project_sections ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
+	// memories.source is where a memory came from: '' for AgentBox's own,
+	// 'repository' for one read from the project's checkout, a file under
+	// .agentbox/memories that a co-worker shared (internal/memory/repo.go);
+	// source_path is that file, relative to the checkout. Imported rows are
+	// rewritten from their files, and go when their file does.
+	`ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE memories ADD COLUMN source_path TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

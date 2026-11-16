@@ -3311,6 +3311,8 @@ export interface Memory {
   confirmations?: number;
   promotion?: string;
   promotionAt?: string;
+  source?: string;
+  sourcePath?: string;
 }
 
 export interface AddMemoryRequest {

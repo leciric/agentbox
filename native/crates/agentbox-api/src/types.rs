@@ -5515,6 +5515,10 @@ pub struct Memory {
     pub promotion: String,
     #[serde(rename = "promotionAt", skip_serializing_if = "is_empty")]
     pub promotion_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub source: String,
+    #[serde(rename = "sourcePath", skip_serializing_if = "is_empty")]
+    pub source_path: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
