@@ -10,6 +10,8 @@
 //!
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
+//! rewriting the file sends an update event, as a release the daemon's hourly
+//! check finds does (FAKE_CHANNEL=nightly for the nightly channel);
 //! FAKE_MOODS=1 holds the agents in one of every state their cards' monitors act out
 //! (working, asking, failed, ready, stopped), on each tool that has a character.
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
@@ -1088,21 +1090,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             json(StatusCode::OK, &fake_release().unwrap())
         }
         (&Method::GET, ["v1", "update"]) if fake_release().is_some() => {
-            let r = fake_release().unwrap();
-            json(
-                StatusCode::OK,
-                &UpdateStatus {
-                    current: std::env::var("FAKE_CURRENT").unwrap_or_else(|_| "0.17.0".into()),
-                    enabled: true,
-                    channel: "stable".into(),
-                    available: Some(UpdateAvailable {
-                        version: r.version,
-                        url: r.url,
-                    }),
-                    checked_at: Some(now()),
-                    ..Default::default()
-                },
-            )
+            json(StatusCode::OK, &fake_update().unwrap())
         }
         // The base image's state, which Settings → Setup shows: the real
         // daemon asks Incus for its snapshot, and has none here.
@@ -2190,6 +2178,45 @@ async fn upstream_pick_up(fake: Arc<Fake>) -> bool {
         .is_some_and(|p| p.pick_up_issues)
 }
 
+/// fake_update is the update check's status offering FAKE_RELEASE, on
+/// FAKE_CHANNEL (stable otherwise).
+fn fake_update() -> Option<UpdateStatus> {
+    let r = fake_release()?;
+    let current = std::env::var("FAKE_CURRENT").unwrap_or_else(|_| "0.17.0".into());
+    let channel = std::env::var("FAKE_CHANNEL").unwrap_or_else(|_| "stable".into());
+    Some(UpdateStatus {
+        nightly: current.contains("-nightly."),
+        current,
+        enabled: true,
+        channel,
+        available: Some(UpdateAvailable {
+            version: r.version,
+            url: r.url,
+        }),
+        checked_at: Some(now()),
+        ..Default::default()
+    })
+}
+
+/// watch_release tells the app when FAKE_RELEASE changes, with an update
+/// event, as the daemon does when its hourly check finds a new release.
+async fn watch_release(fake: Arc<Fake>) {
+    let Some(path) = std::env::var_os("FAKE_RELEASE") else {
+        return;
+    };
+    let mut last = std::fs::read(&path).ok();
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let now = std::fs::read(&path).ok();
+        if now != last {
+            last = now;
+            if let Some(status) = fake_update() {
+                fake.emit(EVENT_UPDATE, &status);
+            }
+        }
+    }
+}
+
 /// fake_release is the release FAKE_RELEASE names, if any.
 fn fake_release() -> Option<UpdateRelease> {
     let path = std::env::var_os("FAKE_RELEASE")?;
@@ -2292,6 +2319,7 @@ async fn main() -> Result<()> {
         tokio::spawn(resources::sample(fake.clone()));
     }
     tokio::spawn(panel::serve_preview());
+    tokio::spawn(watch_release(fake.clone()));
     loop {
         let (stream, _) = listener.accept().await?;
         let fake = fake.clone();

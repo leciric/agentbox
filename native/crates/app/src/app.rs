@@ -44,6 +44,7 @@ mod sidebar_dialogs;
 mod stale;
 mod topbar;
 mod tour;
+mod update_poll;
 mod usage;
 mod views;
 mod width;
@@ -78,6 +79,8 @@ pub struct AppView {
     conn: connection::Conn,
     /// A daemon older than this app, and its restart (stale.rs).
     stale: stale::StaleDaemon,
+    /// When the update status was last read (update_poll.rs).
+    update_poll: update_poll::UpdatePoll,
     /// The top bar's chips (topbar.rs).
     topbar: topbar::TopBar,
     /// The welcome tour and What's new (tour.rs).
@@ -200,6 +203,7 @@ impl AppView {
             connected: false,
             conn: Default::default(),
             stale: Default::default(),
+            update_poll: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
             meters: Default::default(),
@@ -297,6 +301,9 @@ impl AppView {
             }
             self.load_pulls(false, cx);
             self.reload_resources(cx);
+            // A release found while the stream was down came in an event
+            // this app never saw.
+            self.load_update(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -435,7 +442,7 @@ impl AppView {
             }
             agentbox_api::EVENT_REVIEW => self.reload_review(cx),
             agentbox_api::EVENT_THEME => self.load_theme(window, cx),
-            agentbox_api::EVENT_UPDATE => self.reload_update(cx),
+            agentbox_api::EVENT_UPDATE => self.on_update_event(ev.data, cx),
             agentbox_api::EVENT_NOTIFICATION => {
                 if let Ok(n) = serde_json::from_value::<agentbox_api::Notification>(ev.data) {
                     self.on_notification(n, cx);
