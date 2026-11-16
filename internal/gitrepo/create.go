@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // ErrNotEmpty is Create's answer for a folder that already has files in it
@@ -25,7 +24,8 @@ const InitialBranch = "main"
 //   - the top of a repository that has commits is opened as it is;
 //   - a folder with files in it, a repository or not, is refused with
 //     ErrNotEmpty unless commitFiles, which commits them all as the initial
-//     commit (.gitignore still applies);
+//     commit (.gitignore still applies, and what Heavy finds is left out
+//     too, in .git/info/exclude);
 //   - a folder inside another repository is refused: it would be a repository
 //     nested in that one, and adding that one is more likely what was meant.
 func Create(path string, commitFiles bool) (repo Repo, created bool, err error) {
@@ -110,17 +110,16 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 // could otherwise stop on a passphrase prompt nobody sees; and without an
 // identity in that config, it's AgentBox's rather than failing.
 func initialCommit(root string) error {
+	skipped, err := Heavy(root)
+	if err != nil {
+		return err
+	}
+	if err := exclude(root, skipped); err != nil {
+		return err
+	}
 	if _, err := run(root, "add", "--all"); err != nil {
 		return err
 	}
-	var env []string
-	for key, fallback := range map[string]string{"email": "agentbox@localhost", "name": "AgentBox"} {
-		upper := strings.ToUpper(key)
-		if configured, _ := run(root, "config", "user."+key); configured != "" || os.Getenv("GIT_AUTHOR_"+upper) != "" {
-			continue
-		}
-		env = append(env, "GIT_AUTHOR_"+upper+"="+fallback, "GIT_COMMITTER_"+upper+"="+fallback)
-	}
-	_, err := output(root, env, "-c", "commit.gpgsign=false", "commit", "--quiet", "--no-verify", "--allow-empty", "-m", "Initial commit")
+	_, err = output(root, identityEnv(root), "-c", "commit.gpgsign=false", "commit", "--quiet", "--no-verify", "--allow-empty", "-m", "Initial commit")
 	return err
 }

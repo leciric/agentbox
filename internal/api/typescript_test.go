@@ -18,7 +18,7 @@ import (
 const tsFile = "../../desktop/src/shared/api.ts"
 
 var tsTypes = []any{
-	Project{}, ProjectActivity{}, ProjectIcon{}, ProjectIconCandidate{}, SetProjectIconRequest{}, AddProjectRequest{}, CloneProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
+	Project{}, ProjectActivity{}, ProjectIcon{}, ProjectIconCandidate{}, SetProjectIconRequest{}, AddProjectRequest{}, SkippedPath{}, MergeAgentRequest{}, MergeAgentResult{}, CloneProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, SidebarLayout{}, Notes{}, NotesRequest{}, Settings{}, AgentPick{}, ToolAutoUpdate{}, UpdateSettingsRequest{}, Agent{}, WorktreeFiles{}, FileEntry{}, FileList{}, FileStatus{}, FileContent{}, SQLiteTable{}, SQLiteQuery{}, FilesChange{}, ArchivedAgent{}, DeleteArchivedRequest{}, DeleteArchivedResult{}, ContinueArchivedRequest{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
 	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
@@ -74,7 +74,7 @@ var tsConstants = [][2]string{
 	{"DoctorOK", DoctorOK}, {"DoctorWarn", DoctorWarn}, {"DoctorFail", DoctorFail}, {"DoctorAILogin", DoctorAILogin},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating}, {"SetupBuilding", SetupBuilding},
 	{"ImageBuildIdle", ImageBuildIdle}, {"ImageBuilding", ImageBuilding}, {"ImageBuildFailed", ImageBuildFailed},
-	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty}, {"ErrorFolderExists", ErrorFolderExists}, {"ErrorBadRepoURL", ErrorBadRepoURL},
+	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty}, {"ErrorNotARepository", ErrorNotARepository}, {"ErrorMergeConflict", ErrorMergeConflict}, {"ErrorFolderExists", ErrorFolderExists}, {"ErrorBadRepoURL", ErrorBadRepoURL},
 	{"ErrorPassphraseNeeded", ErrorPassphraseNeeded}, {"ErrorWrongPassphrase", ErrorWrongPassphrase}, {"ErrorNewerExport", ErrorNewerExport},
 	{"DefaultLanguage", DefaultLanguage},
 	{"PRStateOpen", PRStateOpen}, {"PRStateMerged", PRStateMerged}, {"PRStateClosed", PRStateClosed}, {"PRStateNone", PRStateNone},

@@ -1161,6 +1161,7 @@ func (s *Server) routes() http.Handler {
 		h("POST /v1/agents/{project}/{agent}/"+action, s.agentAction(action))
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
+	h("POST /v1/agents/{project}/{agent}/merge", s.mergeAgent)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
 	h("GET /v1/agents/{project}/{agent}/resources", s.agentResources)
 	h("GET /v1/stopped-machines", s.getStoppedMachines)
@@ -1344,10 +1345,18 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, gitrepo.ErrNotEmpty):
 		body.Code = api.ErrorFolderNotEmpty
+	case errors.Is(err, gitrepo.ErrNotARepo):
+		body.Code = api.ErrorNotARepository
+	case errors.Is(err, gitrepo.ErrMergeConflict):
+		body.Code = api.ErrorMergeConflict
+		status = http.StatusConflict
 	case errors.Is(err, agent.ErrCloneDestExists):
 		body.Code = api.ErrorFolderExists
 	case errors.As(err, new(badRepoURL)):
 		body.Code = api.ErrorBadRepoURL
+	}
+	if skipping := (skippingError{}); errors.As(err, &skipping) {
+		body.Skipped = toAPISkipped(skipping.skipped)
 	}
 	body.Code = cmp.Or(transferCode(err), body.Code)
 	_ = writeJSON(w, status, body)

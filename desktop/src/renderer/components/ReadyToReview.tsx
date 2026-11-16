@@ -362,7 +362,23 @@ function ReviewCarousel({
   const resolveAndGo = () => pr && !mergeDisabled && !resolve.isPending && settled() && resolve.mutate({ number: pr.number, method });
   // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
   // the review goes on to the next agent.
-  const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
+  // A project with no remote has no pull requests: its agent's branch is
+  // merged here, into the branch it started from (MergeAgentRequest).
+  const noRemote = !!projects.data?.find((p) => p.name === item.project)?.noRemote;
+  const localMerge = !pr && noRemote && !past;
+  const mergeHere = useMutation({
+    mutationFn: () => api.mergeAgent(item.ref),
+    onSuccess: (m) => {
+      toast.success(t(m.upToDate ? 'review.mergeHere.upToDate' : 'review.mergeHere.done', { branch: m.branch, into: m.into }));
+      void queryClient.invalidateQueries({ queryKey: ['diff', item.ref] });
+      markReviewed();
+    },
+    onError: (err) => toast.error(t('review.mergeHere.failed', { error: errorMessage(err) })),
+  });
+  const mergeAndGo = () => {
+    if (localMerge) return !mergeHere.isPending && settled() && mergeHere.mutate();
+    return pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
+  };
   // A merge can't be undone and M is one key, so from the keyboard it takes
   // two: the first arms it (the footer says so), a second within armMs merges.
   // A click on Merge is deliberate enough on its own.
@@ -373,7 +389,7 @@ function ReviewCarousel({
     return () => clearTimeout(id);
   }, [armed]);
   const mergeKey = () => {
-    if (!pr || mergeDisabled) return;
+    if (!localMerge && (!pr || mergeDisabled)) return;
     if (!armed) return setArmed(true);
     setArmed(false);
     mergeAndGo();
@@ -789,8 +805,15 @@ function ReviewCarousel({
                 {/* Why Merge can't, beside it, as the header's line says; narrow,
                     on a line of its own under the actions. */}
                 <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-muted', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
-                  {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
+                  {localMerge ? t('review.mergeHere.note') : armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
                 </span>
+                {localMerge ? (
+                  <Button size="sm" variant="primary" disabled={mergeHere.isPending} title={t('review.mergeHere.title', { base: item.baseRef || 'main' })} onClick={mergeAndGo} data-review-merge-here>
+                    {mergeHere.isPending ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                    <span>{t('review.mergeHere', { base: item.baseRef && item.baseRef !== 'HEAD' ? item.baseRef : 'main' })}</span>
+                    <Hint k="M" onPrimary />
+                  </Button>
+                ) : (
                 <div className="flex shrink-0 items-stretch" data-review-merge-split>
                   <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
                     {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
@@ -812,6 +835,7 @@ function ReviewCarousel({
                     </MenuContent>
                   </Menu>
                 </div>
+                )}
               </>
             ) : (
               <span className="ml-auto min-w-0 truncate text-caption text-subtle" data-review-looked>

@@ -149,6 +149,11 @@ type Project struct {
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
 	AgentPRs bool `json:"agentPRs"`
+	// NoRemote is whether its repository has no remote at all, such as one
+	// AgentBox made from a plain folder: nothing can be pushed, so there are
+	// no pull requests or CI, and an agent's branch lands with
+	// MergeAgentRequest instead. AgentPRs means nothing until it has one.
+	NoRemote bool `json:"noRemote"`
 	// PRWatch is whether the daemon watches this project's agents' pull
 	// requests: "" to follow Settings.PRWatch, "on" or "off" to override it.
 	PRWatch string `json:"prWatch"`
@@ -457,6 +462,45 @@ type AddProjectRequest struct {
 	// another repository is refused.
 	Create      bool `json:"create,omitempty"`
 	CommitFiles bool `json:"commitFiles,omitempty"`
+	// Init makes a Path that is a folder but not in a git repository one, as
+	// Create with CommitFiles would: git init on main, and its files as the
+	// initial commit, leaving out what its .gitignore does and the
+	// dependencies, caches, build output and large files no .gitignore does
+	// (Error.Skipped lists them, in .git/info/exclude from then on). Without
+	// it such a folder is refused with ErrorNotARepository, which says so.
+	Init bool `json:"init,omitempty"`
+}
+
+// SkippedPath is a folder or file a new repository's initial commit leaves
+// out although no .gitignore does: Path is relative to the folder, Bytes its
+// size on disk, and Reason one of "dependencies", "cache", "build-output" or
+// "large-file" (50 MB or more).
+type SkippedPath struct {
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	Reason string `json:"reason"`
+}
+
+// MergeAgentRequest is POST /v1/agents/{project}/{agent}/merge: the agent's
+// branch merged into the branch it started from (Into: the agent's base when
+// that's a local branch, the main checkout's otherwise), here on this machine,
+// with no remote involved. That's how a project with nowhere to push lands an
+// agent's work, and works for any project. Only what the agent committed is
+// merged, so an agent with uncommitted changes is refused; so is a merge that
+// conflicts (ErrorMergeConflict, nothing changed) and one into a branch checked
+// out with uncommitted changes of the user's.
+type MergeAgentRequest struct {
+	// Message is the merge commit's, when there is one; empty is git's usual.
+	Message string `json:"message,omitempty"`
+}
+
+// MergeAgentResult is what MergeAgentRequest did.
+type MergeAgentResult struct {
+	Branch      string `json:"branch"`      // the agent's
+	Into        string `json:"into"`        // the branch it merged into
+	Commit      string `json:"commit"`      // where Into is now
+	FastForward bool   `json:"fastForward"` // Into had nothing of its own: it moved to Branch
+	UpToDate    bool   `json:"upToDate"`    // Branch was already in Into: nothing changed
 }
 
 // CloneProjectRequest is POST /v1/projects/clone: a repository cloned from a
@@ -485,6 +529,9 @@ type HomeAddProjectRequest struct {
 	Path string `json:"path,omitempty"`
 	URL  string `json:"url,omitempty"`
 	Name string `json:"name,omitempty"`
+	// Init is AddProjectRequest.Init: a Path that isn't a git repository is
+	// made one, once the user has said so.
+	Init bool `json:"init,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.
@@ -3151,7 +3198,19 @@ type Error struct {
 	// Code, when there is one, says which refusal this is, for a client that
 	// offers a way past it rather than only showing the message.
 	Code string `json:"code,omitempty"`
+	// Skipped, with ErrorNotARepository and ErrorFolderNotEmpty, is what the
+	// initial commit the same request with Init (or CommitFiles) makes would
+	// leave out on top of the folder's .gitignore, biggest first.
+	Skipped []SkippedPath `json:"skipped,omitempty"`
 }
+
+// ErrorNotARepository is the Code of AddProjectRequest refusing a folder that
+// isn't a git repository: the same request with Init makes it one.
+const ErrorNotARepository = "not-a-repository"
+
+// ErrorMergeConflict is the Code of MergeAgentRequest refusing a merge whose
+// branches change the same lines; the message names the files.
+const ErrorMergeConflict = "merge-conflict"
 
 // ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
 // folder that has files in it: the same request with CommitFiles gets past it.

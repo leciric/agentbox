@@ -48,6 +48,9 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 	info.Android, info.IOS = android.IsProject(p.Root), iossim.IsProject(p.Root)
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
+		if has, err := repo.HasRemote(); err == nil {
+			info.NoRemote = !has
+		}
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
 			info.EnvFiles = files
 		}
@@ -126,6 +129,19 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) (state.Project, error) {
 	fail := func(err error) (state.Project, error) { return state.Project{}, err }
 	repo, err := gitrepo.Open(req.Path)
+	if errors.Is(err, gitrepo.ErrNotARepo) {
+		// A plain folder: made a repository only when asked, since its first
+		// commit takes in everything there; the refusal says what it would
+		// leave out, so the asking can too.
+		if !req.Init {
+			skipped, _ := gitrepo.Heavy(req.Path)
+			return fail(skippingError{fmt.Errorf("%w: adding it runs git init there and commits what's in it as the initial commit, on %s", err, gitrepo.InitialBranch), skipped})
+		}
+		if err := s.projectNameFree(ctx, cmp.Or(strings.TrimSpace(req.Name), filepath.Base(filepath.Clean(req.Path)))); err != nil {
+			return fail(err)
+		}
+		repo, _, err = gitrepo.Create(req.Path, true)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -213,6 +229,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		return err
 	}
 	repo, created, err := gitrepo.Create(path, req.CommitFiles)
+	if errors.Is(err, gitrepo.ErrNotEmpty) {
+		skipped, _ := gitrepo.Heavy(path)
+		return skippingError{err, skipped}
+	}
 	if err != nil {
 		return err
 	}
@@ -225,6 +245,23 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		return err
 	}
 	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// skippingError is a refusal to make a repository of a folder that says what
+// its initial commit would leave out, for Error.Skipped.
+type skippingError struct {
+	error
+	skipped []gitrepo.Skipped
+}
+
+func (e skippingError) Unwrap() error { return e.error }
+
+func toAPISkipped(skipped []gitrepo.Skipped) []api.SkippedPath {
+	var out []api.SkippedPath
+	for _, s := range skipped {
+		out = append(out, api.SkippedPath{Path: s.Path, Bytes: s.Bytes, Reason: s.Reason})
+	}
+	return out
 }
 
 // projectNameFree refuses a new project's name that another project already
@@ -717,6 +754,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Notes:       projectNotes,
 		Nesting:     p.Nesting,
 		AgentPRs:    p.AgentPRs,
+		NoRemote:    gitrepo.NoRemote(p.Root),
 		FullSuite:   p.FullTestSuite && s.blockFullSuite(r.Context()),
 
 		Knowledge:     knowledge,

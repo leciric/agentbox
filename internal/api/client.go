@@ -61,6 +61,7 @@ type StatusError struct {
 	Code    int
 	Message string
 	Reason  string // Error.Code: which refusal it is, when the daemon says
+	Skipped []SkippedPath
 }
 
 func (e *StatusError) Error() string { return e.Message }
@@ -106,7 +107,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		if json.Unmarshal(data, &e) != nil || e.Error == "" {
 			e.Error = strings.TrimSpace(string(data))
 		}
-		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error, Reason: e.Code}
+		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error, Reason: e.Code, Skipped: e.Skipped}
 	}
 	return resp, nil
 }
@@ -1120,6 +1121,13 @@ func (c *Client) Projects(ctx context.Context) ([]Project, error) {
 func (c *Client) AddProject(ctx context.Context, req AddProjectRequest) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodPost, "/v1/projects", req, &out)
+}
+
+// MergeAgent merges an agent's branch into the branch it started from, on
+// this machine (POST /v1/agents/{project}/{agent}/merge).
+func (c *Client) MergeAgent(ctx context.Context, ref string, req MergeAgentRequest) (MergeAgentResult, error) {
+	var out MergeAgentResult
+	return out, c.agentDo(ctx, http.MethodPost, ref, "/merge", req, &out)
 }
 
 // CloneProject starts the job that clones a repository and adds it as a

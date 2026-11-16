@@ -613,6 +613,54 @@ func newDiffCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+func newMergeCmd(a *app) *cobra.Command {
+	var message string
+	cmd := &cobra.Command{
+		Use:   "merge <project/agent>",
+		Short: "Merge the agent's branch into the branch it started from, on this machine",
+		Long: `Merge the agent's branch into the branch it started from (its parent's, for
+a stacked agent; the project's checked-out branch otherwise), here, with no
+remote involved: how a project with nowhere to push lands an agent's work.
+
+Only what the agent committed is merged, so an agent with uncommitted changes
+is refused. A merge that conflicts changes nothing and names the files: have
+the agent merge the base into its branch and resolve them, then merge again.
+Where the branch is checked out, its files move with it, so that checkout
+mustn't have uncommitted changes to tracked files.`,
+		Example: `  agentbox merge my-app/agent-03`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			m, err := c.MergeAgent(cmd.Context(), args[0], api.MergeAgentRequest{Message: message})
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			switch {
+			case m.UpToDate:
+				_, _ = fmt.Fprintf(out, "%s is already in %s: nothing to merge\n", m.Branch, m.Into)
+			case m.FastForward:
+				_, _ = fmt.Fprintf(out, "Merged %s into %s (fast-forward to %s)\n", m.Branch, m.Into, shortSHA(m.Commit))
+			default:
+				_, _ = fmt.Fprintf(out, "Merged %s into %s (merge commit %s)\n", m.Branch, m.Into, shortSHA(m.Commit))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&message, "message", "m", "", "the merge commit's message, when one is needed")
+	return cmd
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 func newPathCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "path <project/agent>",

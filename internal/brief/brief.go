@@ -64,6 +64,10 @@ type Data struct {
 	// and open their own pull request. Off, the brief tells the agent not to
 	// push and leaves both to the user and the lead.
 	AgentPRs bool
+	// NoRemote is whether the project's repository has no remote: nothing to
+	// push to, so no pull request either, whatever AgentPRs says. The user
+	// merges the agent's branch here instead.
+	NoRemote bool
 	// CreditAITool is whether the user lets commits and pull requests credit
 	// the AI tool (state.SettingCreditAITool). Off, the brief asks the agent
 	// not to: Claude Code's settings and a commit-msg hook already keep its
@@ -160,6 +164,10 @@ type LeadData struct {
 	// their own pull request, so the lead doesn't do it for them and retires
 	// one once its PR is open.
 	AgentPRs bool
+	// NoRemote is whether the project's repository has no remote: its
+	// agents' branches land by merging them here (agentbox merge), not
+	// through pull requests.
+	NoRemote bool
 	// Recheck is whether the daemon wakes the lead now and then with a
 	// status of its running agents ("lead rechecks agents"),
 	// which it may act on by retiring finished agents.
