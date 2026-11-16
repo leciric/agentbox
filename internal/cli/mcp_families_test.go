@@ -120,6 +120,11 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 		{"pause_schedule", "schedules", `{"action":"pause","id":"x"}`, "PATCH /v1/project/schedules/x paused=true"},
 		{"pause_schedule paused false", "schedules", `{"action":"resume","id":"x"}`, "PATCH /v1/project/schedules/x paused=false"},
 		{"delete_schedule", "schedules", `{"action":"delete","id":"x"}`, "DELETE /v1/project/schedules/x"},
+		{"list_todos", "todos", `{"action":"list"}`, "GET /v1/project/todos"},
+		{"add_todo", "todos", `{"action":"add","text":"t"}`, "POST /v1/project/todos"},
+		{"check_todo", "todos", `{"action":"check","id":"x"}`, "PATCH /v1/project/todos/x"},
+		{"start_todo", "todos", `{"action":"start","id":"x"}`, "POST /v1/project/todos/x/start"},
+		{"delete_todo", "todos", `{"action":"delete","id":"x"}`, "DELETE /v1/project/todos/x"},
 	} {
 		tool, ok := tools[tc.tool]
 		if !ok {
@@ -131,8 +136,8 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 			t.Errorf("%s, now %s(%s), called %v, want %s", tc.old, tc.tool, tc.args, got, tc.route)
 		}
 	}
-	if len(tools) != 21 {
-		t.Errorf("the lead has %d tools, want 21", len(tools))
+	if len(tools) != 22 {
+		t.Errorf("the lead has %d tools, want 22", len(tools))
 	}
 }
 
@@ -161,8 +166,9 @@ func TestLeadToolsBudget(t *testing.T) {
 	// create_agent, list_agents, questions and list_resources, and
 	// agent@machine in every agent's name. Half a KiB more since agent goals
 	// are always on (create_agent's goal was off in this count before), and
-	// tell_agent sets and clears a running agent's.
-	const budget = 27<<10 + 1<<9 + 1<<9
+	// tell_agent sets and clears a running agent's. 1 KiB more for todos, the
+	// user's todo list.
+	const budget = 28<<10 + 1<<9 + 1<<9
 	if len(raw) > budget {
 		t.Errorf("the lead's tools are %d bytes, over the %d budget", len(raw), budget)
 	}

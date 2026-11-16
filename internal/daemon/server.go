@@ -1008,6 +1008,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/brief", s.brief)
 	// Scheduled tasks (schedules.go).
 	s.scheduleRoutes("/v1/projects/{project}", "user", h)
+	// The project's todo list (todos.go).
+	s.todoRoutes("/v1/projects/{project}", false, h)
+	h("GET /v1/todos/counts", s.todoCounts)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
 	// The chat's sessions (leadsessions.go). Every route of the project's
