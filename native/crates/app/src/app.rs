@@ -42,6 +42,7 @@ mod sidebar;
 mod sidebar_actions;
 mod sidebar_dialogs;
 mod stale;
+mod todos;
 mod topbar;
 mod tour;
 mod usage;
@@ -98,6 +99,8 @@ pub struct AppView {
     /// The panel's Browser, Android and picker (views.rs).
     views: views::Views,
     schedules: schedules::Schedules,
+    /// The project's todo list, and every project's open count (todos.rs).
+    todos: todos::Todos,
     issues: issues::Issues,
     agent_settings: agent_settings::AgentSettings,
     /// The past agent open (past.rs).
@@ -211,6 +214,7 @@ impl AppView {
             agent: agent::AgentPage::new(window, cx),
             views,
             schedules: schedules::Schedules::new(window, cx),
+            todos: todos::Todos::new(window, cx),
             issues: issues::Issues::default(),
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
@@ -444,6 +448,11 @@ impl AppView {
             agentbox_api::EVENT_QUESTION => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
                     self.load_questions(p.to_string(), cx);
+                }
+            }
+            agentbox_api::EVENT_TODO => {
+                if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
+                    self.on_todo_event(p, cx);
                 }
             }
             _ => {}
