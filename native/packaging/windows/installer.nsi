@@ -119,8 +119,13 @@ Function .onInstSuccess
 FunctionEnd
 
 Section "Uninstall"
-  Delete "$SMPROGRAMS\${NAME}.lnk"
+  ; A copy that's running can't be deleted: stop here, with everything still
+  ; registered, rather than leave the app behind with no way to remove it.
   Delete "$INSTDIR\${EXE}"
+  IfFileExists "$INSTDIR\${EXE}" 0 +3
+    MessageBox MB_ICONEXCLAMATION "${NAME} is running: quit it, then uninstall it again." /SD IDOK
+    Abort
+  Delete "$SMPROGRAMS\${NAME}.lnk"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\agentbox-native.ico"

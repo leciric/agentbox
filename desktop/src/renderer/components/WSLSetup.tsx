@@ -63,7 +63,6 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
   const installResult = (
     <>
       {installLines.length > 0 && !restart && <SetupLog lines={installLines} label={t('vm.wsl.log')} />}
-      {restart && <Notice tone="warning">{t('vm.wsl.restart')}</Notice>}
       {install.error && <Notice>{errorMessage(install.error)}</Notice>}
     </>
   );
@@ -104,6 +103,9 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
           <span className="text-xs text-subtle">{pending ? t('vm.wsl.takesAWhile') : t('vm.wsl.noPassword')}</span>
         </div>
       )}
+      {/* Whatever the card shows by then: WSL can answer already while the
+          platform it turned on still waits for the restart. */}
+      {restart && <Notice tone="warning">{t('vm.wsl.restart')}</Notice>}
       {(lines.length > 0 || pending) && <SetupLog lines={lines} label={t('vm.wsl.log')} />}
       {noVirtualization ? (
         <div className="grid gap-2">

@@ -129,10 +129,11 @@ impl Conn {
         if let Some((step, _)) = self.setup.running {
             return Some(of(step));
         }
-        let said = self
-            .vm
-            .as_ref()
-            .and_then(|v| machine_setup::need(cfg!(windows), v));
+        let said = self.vm.as_ref().and_then(|v| {
+            let start_failed =
+                !self.answered && self.start_error.is_some() && self.starting.is_none();
+            machine_setup::need(cfg!(windows), v, start_failed)
+        });
         said.or_else(|| {
             (self.setup.error.is_some() || self.setup.restart)
                 .then_some(self.setup.last)

@@ -83,8 +83,11 @@ impl Need {
 /// need reads what the tool said of the machine: `agentbox wsl status --json`
 /// on Windows (hostwsl.Status), `agentbox vm status --json` elsewhere. None
 /// is a machine that's there, or one only the user can repair (a WSL 1
-/// distro), whose problem the start's error says.
-pub(super) fn need(windows: bool, status: &serde_json::Value) -> Option<Need> {
+/// distro), whose problem the start's error says. start_failed is the app's
+/// own start of the daemon having failed: on Windows a distro that's there
+/// and still has no daemon is one `wsl init` didn't finish (it stopped, or
+/// the app was closed, after the import), which running it again finishes.
+pub(super) fn need(windows: bool, status: &serde_json::Value, start_failed: bool) -> Option<Need> {
     let str_of = |k: &str| status.get(k).and_then(|s| s.as_str());
     let exists = status.get("exists").and_then(|e| e.as_bool());
     if windows {
@@ -93,8 +96,10 @@ pub(super) fn need(windows: bool, status: &serde_json::Value) -> Option<Need> {
         if wsl.is_empty() {
             return Some(Need::Wsl);
         }
-        return (exists == Some(false)).then(|| Need::Distro {
-            exists: false,
+        let unusable = str_of("problem").is_some_and(|p| !p.is_empty());
+        let half_made = exists == Some(true) && !unusable && start_failed;
+        return (exists == Some(false) || half_made).then(|| Need::Distro {
+            exists: exists == Some(true),
             name: str_of("name").unwrap_or("AgentBox").to_string(),
         });
     }
@@ -487,11 +492,11 @@ mod tests {
         // hostwsl.Status: no WSL, WSL with no distro, a distro that's there.
         let no_wsl = json!({"wsl": "", "name": "AgentBox", "user": "", "exists": false,
             "problem": "WSL isn't installed."});
-        assert_eq!(need(true, &no_wsl), Some(Need::Wsl));
+        assert_eq!(need(true, &no_wsl, false), Some(Need::Wsl));
         let no_distro = json!({"wsl": "2.4.13.0", "name": "AgentBox", "user": "ana", "exists": false,
             "problem": "AgentBox's WSL distro isn't set up: run agentbox wsl init"});
         assert_eq!(
-            need(true, &no_distro),
+            need(true, &no_distro, false),
             Some(Need::Distro {
                 exists: false,
                 name: "AgentBox".into()
@@ -499,32 +504,47 @@ mod tests {
         );
         let there = json!({"wsl": "2.4.13.0", "name": "AgentBox", "user": "ana", "exists": true,
             "state": "Stopped", "version": 2});
-        assert_eq!(need(true, &there), None);
+        assert_eq!(need(true, &there, false), None);
         // A WSL 1 distro is the user's to convert: the problem says how.
         let wsl1 = json!({"wsl": "2.4.13.0", "name": "AgentBox", "user": "ana", "exists": true,
             "version": 1, "problem": "AgentBox is a WSL 1 distro"});
-        assert_eq!(need(true, &wsl1), None);
+        assert_eq!(need(true, &wsl1, false), None);
+        // A distro that's there with no daemon to start: finish its setup.
+        assert_eq!(
+            need(true, &there, true),
+            Some(Need::Distro {
+                exists: true,
+                name: "AgentBox".into()
+            })
+        );
+        assert_eq!(need(true, &wsl1, true), None);
         // Not a status at all (an older tool): nothing to offer.
-        assert_eq!(need(true, &json!({"error": "unknown command"})), None);
-        assert_eq!(need(true, &no_wsl).unwrap().step(), Step::InstallWsl);
-        assert_eq!(need(true, &no_distro).unwrap().step(), Step::InitWsl);
+        assert_eq!(
+            need(true, &json!({"error": "unknown command"}), false),
+            None
+        );
+        assert_eq!(need(true, &no_wsl, false).unwrap().step(), Step::InstallWsl);
+        assert_eq!(need(true, &no_distro, false).unwrap().step(), Step::InitWsl);
     }
 
     #[::core::prelude::v1::test]
     fn a_vm_that_isnt_made_needs_vm_init() {
         // A Mac's (exists), Linux VM mode's (state), and host mode, which has
         // no VM to make.
-        assert_eq!(need(false, &json!({"exists": false})), Some(Need::Vm));
         assert_eq!(
-            need(false, &json!({"mode": "vm", "state": "missing"})),
+            need(false, &json!({"exists": false}), false),
             Some(Need::Vm)
         );
         assert_eq!(
-            need(false, &json!({"mode": "host", "state": "missing"})),
+            need(false, &json!({"mode": "vm", "state": "missing"}), false),
+            Some(Need::Vm)
+        );
+        assert_eq!(
+            need(false, &json!({"mode": "host", "state": "missing"}), false),
             None
         );
         assert_eq!(
-            need(false, &json!({"exists": true, "status": "Running"})),
+            need(false, &json!({"exists": true, "status": "Running"}), false),
             None
         );
         assert_eq!(Need::Vm.step().command(), "agentbox vm init");

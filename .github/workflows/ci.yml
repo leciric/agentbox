@@ -686,8 +686,10 @@ jobs:
       - name: install.ps1 -Check, on this runner
         shell: powershell
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File internal\installsh\install.ps1 -Check
-          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { exit 1 }
+          $said = powershell.exe -NoProfile -ExecutionPolicy Bypass -File internal\installsh\install.ps1 -Check 6>&1 | Out-String
+          Write-Host $said
+          # A script that threw exits 1 too: it has to have said its verdict.
+          if ($said -notmatch "can run AgentBox|can't be installed on this computer") { exit 1 }
           exit 0
 
       - run: go build -o bin/agentbox.exe ./cmd/agentbox
