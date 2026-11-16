@@ -106,6 +106,12 @@ impl AppView {
     ) {
         self.select_project(project, window, cx);
         self.pulls.tab = RailTab::Todos;
+        // Folded to its strip, or a drawer where it doesn't fit: open it,
+        // or the click would seem to do nothing.
+        self.panel.folded = false;
+        if self.narrow() {
+            self.widths.drawer = true;
+        }
         self.panel_sync(window, cx);
         cx.notify();
     }
