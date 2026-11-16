@@ -5560,6 +5560,30 @@ pub struct MemorySearchResults {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ShareMemoriesRequest {
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub ids: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareMemoriesResult {
+    pub branch: String,
+    pub base: String,
+    pub commit: String,
+    #[serde(deserialize_with = "nullable")]
+    pub files: Vec<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub removed: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub unchanged: bool,
+    pub push: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WorkingMemory {
     #[serde(skip_serializing_if = "is_empty")]
     pub goal: String,
@@ -6980,6 +7004,7 @@ pub const MEMORY_KIND_EPISODIC: &str = "episodic";
 pub const MEMORY_KIND_DECISION: &str = "decision";
 pub const MEMORY_KIND_DISCOVERY: &str = "discovery";
 pub const MEMORY_KIND_ISSUE: &str = "issue";
+pub const MEMORY_SOURCE_REPOSITORY: &str = "repository";
 pub const REPORT_KIND_PROBLEM: &str = "problem";
 pub const REPORT_KIND_ERROR: &str = "error";
 pub const REPORT_SECTION_SYSTEM: &str = "system";

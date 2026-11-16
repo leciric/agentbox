@@ -1009,7 +1009,6 @@ impl AppView {
             .justify_center()
             .rounded(px(4.))
             .text_color(theme::subtle())
-            .when(needs == 0, |el| el.ml_auto())
             .hover(|el| el.bg(theme::surface_strong()).text_color(theme::title()))
             .tooltip(move |w, cx| Tooltip::new(settings_tip.clone()).build(w, cx))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -1017,6 +1016,33 @@ impl AppView {
                 this.open_settings_at(format!("project:{gear_project}"), window, cx);
             }))
             .child(crate::icons::ic("settings").size(px(14.)));
+        // Its Memories page (memories.rs), on the project that is open.
+        let memories_tip: SharedString = t("native.memories.open").into();
+        let memories_project = p.name.clone();
+        let memories_open = selected && self.side.page == Some(super::foot::FootPage::Memories);
+        let brain = div()
+            .id(SharedString::from(format!("memories-{}", p.name)))
+            .flex_none()
+            .my(px(-4.))
+            .size_5()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .text_color(if memories_open {
+                theme::brand(300)
+            } else {
+                theme::subtle()
+            })
+            .when(memories_open, |el| el.bg(theme::surface_strong()))
+            .when(needs == 0, |el| el.ml_auto())
+            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::title()))
+            .tooltip(move |w, cx| Tooltip::new(memories_tip.clone()).build(w, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.open_memories(memories_project.clone(), window, cx);
+            }))
+            .child(crate::icons::ic("brain").size(px(14.)));
         let asking = needs > 0 && !selected;
         let hover = if asking {
             theme::amber(400).opacity(0.1)
@@ -1123,7 +1149,7 @@ impl AppView {
                                 )
                             })
                             .children(right)
-                            .when(selected, |el| el.child(gear)),
+                            .when(selected, |el| el.child(brain).child(gear)),
                     )
                     .child(
                         h_flex()

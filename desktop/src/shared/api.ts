@@ -3336,6 +3336,21 @@ export interface MemorySearchResults {
   reports?: AgentReport[];
 }
 
+export interface ShareMemoriesRequest {
+  ids?: string[];
+  all?: boolean;
+}
+
+export interface ShareMemoriesResult {
+  branch: string;
+  base: string;
+  commit: string;
+  files: string[];
+  removed?: string[];
+  unchanged?: boolean;
+  push: string;
+}
+
 export interface WorkingMemory {
   goal?: string;
   currentTask?: string;
@@ -4267,6 +4282,7 @@ export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";
 export const MemoryKindDiscovery = "discovery";
 export const MemoryKindIssue = "issue";
+export const MemorySourceRepository = "repository";
 export const ReportKindProblem = "problem";
 export const ReportKindError = "error";
 export const ReportSectionSystem = "system";

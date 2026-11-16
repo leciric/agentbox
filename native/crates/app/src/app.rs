@@ -22,6 +22,7 @@ mod foot;
 mod home_status;
 mod issues;
 mod machine_setup;
+mod memories;
 mod merge;
 mod new_agent;
 mod new_task;
@@ -98,6 +99,7 @@ pub struct AppView {
     /// The panel's Browser, Android and picker (views.rs).
     views: views::Views,
     schedules: schedules::Schedules,
+    memories: memories::MemoriesPage,
     issues: issues::Issues,
     agent_settings: agent_settings::AgentSettings,
     /// The past agent open (past.rs).
@@ -211,6 +213,7 @@ impl AppView {
             agent: agent::AgentPage::new(window, cx),
             views,
             schedules: schedules::Schedules::new(window, cx),
+            memories: Default::default(),
             issues: issues::Issues::default(),
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),

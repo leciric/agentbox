@@ -245,18 +245,18 @@ func (s *Store) syncRepo(ctx context.Context, project string) {
 	if root == "" {
 		return
 	}
-	print := repoFingerprint(root)
+	seen := repoFingerprint(root)
 	key := repoKey{s.db, project}
-	if seen, ok := repoSeen.Load(key); ok && seen == print {
+	if was, ok := repoSeen.Load(key); ok && was == seen {
 		return
 	}
 	repoImport.Lock()
 	defer repoImport.Unlock()
-	if seen, ok := repoSeen.Load(key); ok && seen == print {
+	if was, ok := repoSeen.Load(key); ok && was == seen {
 		return
 	}
 	if _, err := s.ImportRepo(ctx, project, root); err == nil {
-		repoSeen.Store(key, print)
+		repoSeen.Store(key, seen)
 	}
 }
 

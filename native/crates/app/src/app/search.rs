@@ -1104,7 +1104,8 @@ impl AppView {
             "project-media" => lead_tab(self, RailTab::Evidence, window, cx),
             "schedule" => lead_tab(self, RailTab::Schedules, window, cx),
             "project-past" => self.open_work(target, String::new(), window, cx),
-            "project-settings" | "project-repository" | "project-notes" | "project-memory"
+            "project-memory" => self.open_memories(project_of(&target), window, cx),
+            "project-settings" | "project-repository" | "project-notes"
             | "project-tokens" | "project-secrets" | "project-connectors" | "project-skills"
             | "nesting" => {
                 self.open_settings_at(format!("project:{}", project_of(&target)), window, cx)

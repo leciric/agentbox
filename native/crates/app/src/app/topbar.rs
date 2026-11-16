@@ -230,6 +230,7 @@ impl AppView {
             match self.side.page {
                 Some(FootPage::Media) => Some(t("shell.nav.media")),
                 Some(FootPage::Jobs) => Some(t("shell.nav.jobs")),
+                Some(FootPage::Memories) => Some(self.memories_crumb()),
                 None if self.is_home() || self.project.is_none() => Some(t("shell.nav.home")),
                 None => None,
             }
