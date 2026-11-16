@@ -51,6 +51,19 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   at the same path, and worktrees go there (`AGENTBOX_WORKTREES`). Android is off.
   `AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu` tests the front end on Linux.
 
+- **Windows** (D94): `agentbox.exe` (`cmd/agentbox/main_windows.go`, `internal/hostwsl`) runs
+  everything in a WSL 2 distro of AgentBox's own, and relays the apps to its daemon over a named
+  pipe. `agentbox wsl install` installs WSL itself behind Windows' administrator prompt (exit
+  status 3: Windows has to restart), `agentbox wsl init` makes the distro; both apps' Setup run them.
+- **Installing** is one line per system, both scripts in `internal/installsh` (tested against fake
+  machines, published by `scripts/r2-publish.sh` with each stable release): `install.sh` on Linux
+  and a Mac, `install.ps1` on Windows.
+- **The native app** (`native/`, Rust and GPUI, experimental) is a second client of the socket with
+  the `agentbox` tool built in (`scripts/native-cli.sh`), packaged by `scripts/native-package.sh`:
+  nightlies for Linux, Mac and Windows, releases for Windows, whose installer is
+  `native/packaging/windows/installer.nsi` (NSIS, per user). It sets the machine up itself where
+  there is none (`native/crates/app/src/app/machine_setup.rs`).
+
 ## Conventions
 
 - **The app's text is translated** (`desktop/src/shared/i18n`): every user-visible string in the
@@ -120,6 +133,10 @@ and Windows included. A new push cancels the run it supersedes.
   import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths`, `internal/api` and `internal/iossim` for
   darwin; `internal/hostos` and `internal/hostwsl/...` for Windows), a file only that OS builds,
   and for macOS `scripts/mac-sign.sh` and the entitlements.
+- **The native app on Windows** (`native-windows`): a release build and the installer, installed
+  and uninstalled on the runner, on pushes to `main` and on a PR labelled `ci:full`, when the change
+  reaches `native/` or `scripts/native-(package|cli).sh`. Linux type-checks it for Windows on every
+  native change. `WINDOWS_RUN=wine scripts/native-package.sh windows …` tries the packaging on Linux.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
 
 Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
@@ -245,6 +262,7 @@ PR that bumps `version` in `desktop/package.json` and `desktop/package-lock.json
    `.deb`, `.pacman`, the Windows setup and portable `.exe`, the CLI for linux/darwin × amd64/arm64,
    and the signed Mac `.dmg`/`.zip` when Apple's signing secrets are set (skipped otherwise). Only
    when every build succeeds does it upload, write `SHA256SUMS` and publish (D49, D92, D94, D95).
+   The native app's Windows installer rides along: its job failing doesn't hold the release.
 
 Every build goes through `scripts/release-build.sh`: nothing uncommitted, and a version matching the
 tag. A failed build leaves the release a draft; rerunning the workflow picks up where it stopped.
