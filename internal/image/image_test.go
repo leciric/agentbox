@@ -208,9 +208,11 @@ func TestUpdateToolsInPlace(t *testing.T) {
 	installed := inc.ran(t, "/root/tools.sh|install|dev|/root/tools.list|")
 	verified := inc.ran(t, "/root/tools.sh|verify|dev|/root/tools.current|")
 	recorded := inc.ran(t, "user.agentbox.tools-version="+image.ToolsVersion(image.ToolsFor(image.Components{}))+"|")
+	// mise's downloads go, as after a build, or each update grows the base.
+	cleaned := inc.ran(t, "apt-get clean && rm -rf /home/dev/.cache/mise &&")
 	ready := inc.ran(t, "snapshot|create|agentbox-base-next|ready")
 	swapped := inc.ran(t, "rename|agentbox-base-next|agentbox-base")
-	if copied >= installed || installed >= verified || verified >= recorded || recorded >= ready || ready >= swapped {
+	if copied >= installed || installed >= verified || verified >= cleaned || cleaned >= recorded || recorded >= ready || ready >= swapped {
 		t.Errorf("the update ran out of order:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
 	if !strings.Contains(log.String(), "Installing "+image.Pin("claude")+"\n") {
