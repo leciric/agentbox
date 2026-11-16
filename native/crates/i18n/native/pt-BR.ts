@@ -23,7 +23,7 @@ export const ptBRNative = {
   'native.day.short.6': 'sáb.',
   'native.day.long.6': 'sábado',
   'native.pdf.external': 'Abrir no seu leitor de PDF',
-  'native.setup.runIt': 'Este app não consegue criar a VM sozinho: rode isto em um terminal. O app continua assim que o AgentBox responder.',
+  'native.setup.noTool': 'Esta versão do app não tem a ferramenta agentbox embutida, e nenhuma está instalada: instale o AgentBox, ou rode o comando abaixo em um terminal.',
   'native.setup.startIt': 'A ferramenta de linha de comando não está no PATH, então este app não consegue iniciar o AgentBox sozinho. Inicie-o em um terminal:',
   'native.vm.wslOff': 'a distro WSL do AgentBox está desligada: inicie-a para continuar',
   'native.vm.runIt': 'Rode isto em um terminal. O app continua assim que o AgentBox responder.',

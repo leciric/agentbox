@@ -14,7 +14,8 @@
 // On Windows there is no host to set up either: AgentBox runs in a WSL distro
 // of its own, and setting it up is `agentbox.exe wsl init`, which makes the
 // distro and runs host setup inside it as the distro's root (internal/hostwsl,
-// D94). It needs no password; WSL itself, which does, is a documented step.
+// D94). It needs no password; WSL itself, which takes an administrator, is
+// `agentbox wsl install` behind Windows' own prompt (installWSL).
 //
 // There is no AgentBox polkit policy file on purpose. Installing one needs
 // root, which is the very step this removes, so pkexec falls back to
@@ -543,6 +544,43 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
       reject(
         new Error(
           `${t('web.main.wslInitFailed')}${last ? `: ${last.replace(/^error: /, "")}` : ""}`,
+        ),
+      );
+    });
+  });
+}
+
+// installWSL installs WSL itself, which takes an administrator: `agentbox wsl
+// install`, which runs `wsl --install --no-distribution` behind Windows' own
+// prompt (internal/hostwsl/install.go). restart is Windows having to restart
+// before WSL can be used (its exit status 3): the Virtual Machine Platform it
+// turns on counts from the next boot.
+export function installWSL(onOutput: (text: string) => void): Promise<{ restart: boolean }> {
+  const binary = agentboxBin();
+  return new Promise((resolve, reject) => {
+    onOutput("> agentbox wsl install\n");
+    const child = spawn(binary, ["wsl", "install"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let tail = "";
+    const collect = (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      tail = (tail + text).slice(-2_000);
+      onOutput(text);
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("error", (err) =>
+      reject(new Error(t('web.main.couldntRun', { bin: binary, error: err.message }))),
+    );
+    child.on("close", (code) => {
+      lastWSL = undefined;
+      if (code === 0 || code === 3) return resolve({ restart: code === 3 });
+      const last = tail.trim().split("\n").filter(Boolean).at(-1) ?? "";
+      reject(
+        new Error(
+          `${t('web.main.wslInstallFailed')}${last ? `: ${last.replace(/^error: /, "")}` : ""}`,
         ),
       );
     });

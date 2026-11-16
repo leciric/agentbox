@@ -341,7 +341,7 @@ func (d *Distro) Shell(ctx context.Context) (int, error) {
 // is what the app's setup card looks for to show the same steps with a copy
 // button.
 var ErrNoVirtualization = errors.New("WSL can't start a WSL 2 distro: Windows' Virtual Machine Platform is off, or virtualization is off in the BIOS/UEFI. " +
-	"In PowerShell, as administrator, run: wsl --install --no-distribution (or: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart), then restart Windows. " +
+	"Run agentbox wsl install (one administrator prompt), or in PowerShell, as administrator: wsl --install --no-distribution (or: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart), then restart Windows. " +
 	"If it still fails, turn on virtualization (Intel VT-x / AMD SVM) in the BIOS/UEFI: Task Manager > Performance > CPU shows \"Virtualization: Enabled\"")
 
 // noVirtualization reports whether what wsl.exe said means WSL 2 can't create

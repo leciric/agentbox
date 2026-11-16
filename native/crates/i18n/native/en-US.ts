@@ -25,7 +25,7 @@ export const enUSNative = {
   'native.day.short.6': 'Sat',
   'native.day.long.6': 'Saturday',
   'native.pdf.external': 'Open it in your PDF viewer',
-  'native.setup.runIt': 'This app can\'t make the VM itself: run this in a terminal. The app carries on once AgentBox answers.',
+  'native.setup.noTool': 'This build of the app has no agentbox tool inside it, and none is installed: install AgentBox, or run the command below in a terminal.',
   'native.setup.startIt': 'The command-line tool isn\'t on PATH, so this app can\'t start AgentBox itself. Start it in a terminal:',
   'native.vm.wslOff': 'AgentBox\'s WSL distro is off: start it to carry on',
   'native.vm.runIt': 'Run this in a terminal. The app carries on once AgentBox answers.',

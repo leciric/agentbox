@@ -26,6 +26,15 @@ type machine struct {
 	osRelease string // ID and ID_LIKE lines
 	pacman    bool   // a pacman on PATH
 	cpuFlags  string // /proc/cpuinfo's flags
+	macOS     string // sw_vers -productVersion, on a Mac
+	noApps    bool   // a Mac whose /Applications isn't this user's to write to
+	running   bool   // a Mac with AgentBox open
+}
+
+// goodMac is a Mac that can run AgentBox: Apple silicon, macOS 15, with
+// /Applications.
+func goodMac() machine {
+	return machine{os: "Darwin", arch: "arm64", memKB: 16 << 20, freeKB: 200 << 20, macOS: "15.1"}
 }
 
 func goodMachine() machine {
@@ -97,6 +106,26 @@ func setup(t *testing.T, m machine) (env []string, home, calls string) {
 	if m.pacman {
 		write(t, filepath.Join(bin, "pacman"), "#!/bin/sh\necho \"pacman $*\" >>\""+calls+"\"\n", 0o755)
 	}
+	if m.os == "Darwin" {
+		// What a Mac has that the script runs: sw_vers, sysctl, pgrep, ditto
+		// (which unpacks the .zip: here the "zip" is the app's one file),
+		// xattr and open.
+		write(t, filepath.Join(bin, "sw_vers"), "#!/bin/sh\necho "+m.macOS+"\n", 0o755)
+		write(t, filepath.Join(bin, "sysctl"), fmt.Sprintf("#!/bin/sh\necho %d\n", m.memKB*1024), 0o755)
+		pgrep := "exit 1"
+		if m.running {
+			pgrep = "echo 4242"
+		}
+		write(t, filepath.Join(bin, "pgrep"), "#!/bin/sh\n"+pgrep+"\n", 0o755)
+		write(t, filepath.Join(bin, "ditto"), "#!/bin/sh\necho \"ditto $1 $2\" >>\""+calls+"\"\nmkdir -p \"$4/AgentBox.app/Contents\" && cp \"$3\" \"$4/AgentBox.app/Contents/Info.plist\"\n", 0o755)
+		write(t, filepath.Join(bin, "xattr"), "#!/bin/sh\necho \"xattr $1 $2\" >>\""+calls+"\"\n", 0o755)
+		write(t, filepath.Join(bin, "open"), "#!/bin/sh\necho \"open ${1#"+root+"}\" >>\""+calls+"\"\n", 0o755)
+		if !m.noApps {
+			if err := os.MkdirAll(filepath.Join(root, "Applications"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	env = []string{
 		"PATH=" + bin + ":/usr/bin:/bin",
 		"HOME=" + home,
@@ -147,7 +176,12 @@ func TestChecks(t *testing.T) {
 		{name: "fedora", change: func(m *machine) { m.osRelease = "ID=fedora\n" }, code: 0, want: []string{"the AppImage, in ~/.local/bin"}},
 		{name: "arch", change: func(m *machine) { m.osRelease = "ID=arch\n"; m.pacman = true }, code: 0, want: []string{"the .pacman, with pacman"}},
 		{name: "arch-like without pacman", change: func(m *machine) { m.osRelease = "ID=endeavouros\nID_LIKE=arch\n" }, code: 0, want: []string{"the AppImage"}},
-		{name: "macOS", change: func(m *machine) { m.os = "Darwin" }, code: 1, want: []string{"On a Mac", ".dmg", "/index.html"}},
+		{name: "a Mac", change: func(m *machine) { *m = goodMac() }, code: 0, want: []string{"it would install AgentBox.app, in /Applications"}, absent: []string{"kvm", "FUSE"}},
+		{name: "an Intel Mac", change: func(m *machine) { *m = goodMac(); m.arch = "x86_64" }, code: 0, want: []string{"AgentBox.app"}},
+		{name: "a Mac with no /Applications of its own", change: func(m *machine) { *m = goodMac(); m.noApps = true }, code: 0, want: []string{"AgentBox.app, in "}, absent: []string{"in /Applications."}},
+		{name: "an old macOS", change: func(m *machine) { *m = goodMac(); m.macOS = "12.7.6" }, code: 1, want: []string{"macOS 12.7.6", "macOS 13"}},
+		{name: "a Mac with little memory", change: func(m *machine) { *m = goodMac(); m.memKB = 4 << 20 }, code: 1, want: []string{"4 GB of memory"}},
+		{name: "a Mac, --appimage", change: func(m *machine) { *m = goodMac() }, args: []string{"--appimage"}, code: 2, want: []string{"--appimage is for Linux"}},
 		{name: "unknown option", args: []string{"--nope"}, code: 2, want: []string{"unknown option --nope"}},
 	}
 	for _, tt := range tests {
@@ -211,7 +245,12 @@ func server(t *testing.T, sums map[string]string) *httptest.Server {
 	for _, tag := range []string{"v0.16.0", "v0.17.0-nightly.20261026.1"} {
 		v := strings.TrimPrefix(tag, "v")
 		var list strings.Builder
-		for _, name := range []string{"AgentBox-" + v + "-amd64.deb", "AgentBox-" + v + "-x64.pacman", "AgentBox-" + v + "-x86_64.AppImage"} {
+		names := []string{"AgentBox-" + v + "-amd64.deb", "AgentBox-" + v + "-x64.pacman", "AgentBox-" + v + "-x86_64.AppImage", "AgentBox-" + v + "-x64-setup.exe"}
+		// The native app's Windows installer, which only the nightly has here.
+		if strings.Contains(tag, "nightly") {
+			names = append(names, "AgentBox-Native-experimental-"+v+"-windows-x64-setup.exe")
+		}
+		for _, name := range names {
 			body := "package " + name
 			files["/releases/"+tag+"/"+name] = body
 			sum := sha256.Sum256([]byte(body))
@@ -221,7 +260,27 @@ func server(t *testing.T, sums map[string]string) *httptest.Server {
 			}
 			fmt.Fprintf(&list, "%s  %s\n", s, name)
 		}
+		// A release's Mac files are summed by the Mac that built them, in
+		// SHA256SUMS-mac; a nightly's are with the rest.
+		var mac strings.Builder
+		for _, name := range []string{"AgentBox-" + v + "-mac-arm64.zip", "AgentBox-" + v + "-mac-x64.zip"} {
+			body := "app " + name
+			files["/releases/"+tag+"/"+name] = body
+			sum := sha256.Sum256([]byte(body))
+			s := hex.EncodeToString(sum[:])
+			if o, ok := sums[name]; ok {
+				s = o
+			}
+			if strings.Contains(tag, "nightly") {
+				fmt.Fprintf(&list, "%s  %s\n", s, name)
+			} else {
+				fmt.Fprintf(&mac, "%s  %s\n", s, name)
+			}
+		}
 		files["/releases/"+tag+"/SHA256SUMS"] = list.String()
+		if mac.Len() > 0 {
+			files["/releases/"+tag+"/SHA256SUMS-mac"] = mac.String()
+		}
 	}
 	files["/releases.json"] = releasesJSON
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +378,75 @@ func TestInstall(t *testing.T) {
 		if _, err := os.Stat(calls); err == nil {
 			got, _ := os.ReadFile(calls)
 			t.Errorf("installed anyway: %s", got)
+		}
+	})
+
+	t.Run("a Mac", func(t *testing.T) {
+		for _, tc := range []struct{ arch, asset, channel string }{
+			{"arm64", "AgentBox-0.16.0-mac-arm64.zip", ""},
+			{"x86_64", "AgentBox-0.16.0-mac-x64.zip", ""},
+			{"arm64", "AgentBox-0.17.0-nightly.20261026.1-mac-arm64.zip", "nightly"},
+		} {
+			m := goodMac()
+			m.arch = tc.arch
+			env, _, calls := setup(t, m)
+			env = withURL(env, srv.URL)
+			if tc.channel != "" {
+				env = append(env, "AGENTBOX_CHANNEL="+tc.channel)
+			}
+			out, code := run(t, sh, env)
+			if code != 0 {
+				t.Fatalf("%s: exit %d:\n%s", tc.asset, code, out)
+			}
+			root := ""
+			for _, e := range env {
+				if v, ok := strings.CutPrefix(e, "AGENTBOX_INSTALL_ROOT="); ok {
+					root = v
+				}
+			}
+			// The app is in /Applications, holding what was downloaded.
+			got, err := os.ReadFile(filepath.Join(root, "Applications/AgentBox.app/Contents/Info.plist"))
+			if err != nil || string(got) != "app "+tc.asset {
+				t.Errorf("%s: /Applications/AgentBox.app holds %q, %v\n%s", tc.asset, got, err, out)
+			}
+			said, _ := os.ReadFile(calls)
+			for _, want := range []string{"ditto -x -k", "xattr -dr com.apple.quarantine", "open /Applications/AgentBox.app"} {
+				if !strings.Contains(string(said), want) {
+					t.Errorf("%s: no %q in what it ran:\n%s", tc.asset, want, said)
+				}
+			}
+			if strings.Contains(string(said), "sudo") {
+				t.Errorf("%s: a Mac's install asked for a password:\n%s", tc.asset, said)
+			}
+			if !strings.Contains(out, "Checked against the release's SHA256SUMS") || !strings.Contains(out, "is installed, and opening") {
+				t.Errorf("%s:\n%s", tc.asset, out)
+			}
+		}
+	})
+
+	t.Run("a Mac's download that doesn't match", func(t *testing.T) {
+		bad := server(t, map[string]string{"AgentBox-0.16.0-mac-arm64.zip": strings.Repeat("0", 64)})
+		env, _, calls := setup(t, goodMac())
+		out, code := run(t, sh, withURL(env, bad.URL))
+		if code != 1 || !strings.Contains(out, "doesn't match the release's SHA256SUMS") {
+			t.Errorf("exit %d:\n%s", code, out)
+		}
+		if _, err := os.Stat(calls); err == nil {
+			got, _ := os.ReadFile(calls)
+			t.Errorf("installed anyway: %s", got)
+		}
+	})
+
+	t.Run("a Mac with AgentBox open", func(t *testing.T) {
+		m := goodMac()
+		m.running = true
+		env, _, calls := setup(t, m)
+		out, code := run(t, sh, withURL(env, srv.URL))
+		if code != 1 || !strings.Contains(out, "AgentBox is open: quit it") {
+			t.Errorf("exit %d:\n%s", code, out)
+		}
+		if got, _ := os.ReadFile(calls); strings.Contains(string(got), "ditto") {
+			t.Errorf("installed over a running app: %s", got)
 		}
 	})
 

@@ -19,7 +19,7 @@ out() { echo "$1=$2"; }
 
 # A change to how CI decides, or to the tools' versions, runs everything.
 if has '^(\.github/workflows/ci\.yml|scripts/ci-changes\.sh)$'; then
-  for k in go desktop mobile native hub vuln macos windows; do out "$k" true; done
+  for k in go desktop mobile native native_windows hub vuln macos windows; do out "$k" true; done
   exit 0
 fi
 
@@ -44,10 +44,17 @@ if has '^(desktop/|internal/machinesweb/static/vnc\.js$|internal/features/featur
 mobile=false
 if has '^(mobile/|desktop/src/shared/(api\.ts|i18n/)|mise\.toml$)'; then mobile=true; fi
 
-# The native app (native/, Rust): Linux only, as macOS and Windows aren't
-# built for it yet. Its build compiles in the desktop's text catalogs.
+# The native app (native/, Rust), checked on Linux. Its build compiles in the
+# desktop's text catalogs.
 native=false
 if has '^(native/|desktop/src/shared/i18n/)'; then native=true; fi
+
+# Its Windows build and installer, which only a Windows runner can make
+# (ci.yml's native-windows, on main and on a PR labelled ci:full): the app,
+# and what packages it. Not the text catalogs alone, which change every day
+# and which the check on Linux compiles.
+native_windows=false
+if has '^(native/|scripts/native-(package|cli)\.sh$)'; then native_windows=true; fi
 
 # The hub's npm packages (npx agentbox-hub): its Go, the protocol it imports,
 # its launcher and build script, and the toolchain that builds them. Its Go
@@ -82,6 +89,9 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
         [ -n "$f" ] || continue
         case "$f" in
           scripts/mac-sign.sh | scripts/agentbox.entitlements) macos=true; continue ;;
+          # Windows' install script, which only Windows PowerShell 5.1 runs
+          # the way `irm | iex` does.
+          internal/installsh/install.ps1 | internal/installsh/installps1_test.go) windows=true; continue ;;
         esac
         case "$f" in
           desktop/src/shared/api.ts | native/crates/agentbox-api/src/types.rs) f=internal/api/api.ts ;; # read by internal/api's test
@@ -114,6 +124,7 @@ out go "$go"
 out desktop "$desktop"
 out mobile "$mobile"
 out native "$native"
+out native_windows "$native_windows"
 out hub "$hub"
 out vuln "$vuln"
 out macos "$macos"

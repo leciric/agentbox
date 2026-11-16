@@ -52,6 +52,7 @@ KINDS = [
     (r"^AgentBox-Native-experimental-.*\.tar\.gz$", "native", "Linux", ".tar.gz archive, x86_64", None),
     (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Ubuntu 24.04", ".deb package", None),
     (r"^AgentBox-Native-experimental-.*\.pacman$", "native", "Arch Linux", ".pacman package, install with pacman -U", None),
+    (r"^AgentBox-Native-experimental-.*-setup\.exe$", "native", "Windows", "installer, x64, no administrator needed", None),
     (r"^AgentBox-Native-experimental-.*\.zip$", "native", "Windows", ".zip of the .exe, x64", None),
     (r"^AgentBox-Native-experimental-.*-mac-arm64\.dmg$", "native", "macOS", ".dmg disk image, Apple Silicon", None),
     (r"^AgentBox-Native-experimental-", None, None, None, None),

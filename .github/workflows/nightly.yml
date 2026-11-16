@@ -26,7 +26,7 @@ name: Nightly
 #
 # The native app (native/, Rust and GPUI) rides along as an experimental
 # download: AgentBox-Native-experimental-<version>-linux-x86_64.tar.gz, an
-# -amd64.deb, a -windows-x64.zip and a -mac-arm64.dmg (scripts/native-package.sh). Their names match nothing the Electron app's update, install.sh or the
+# -amd64.deb, a -windows-x64-setup.exe, a -windows-x64.zip and a -mac-arm64.dmg (scripts/native-package.sh). Their names match nothing the Electron app's update, install.sh or the
 # download page's button look for (scripts/r2-page.py lists them on their own),
 # and a native job that fails leaves the nightly to publish without them.
 #
@@ -504,7 +504,8 @@ jobs:
           path: native-out/
           if-no-files-found: error
 
-  # The native app for Windows, as a zipped .exe, on windows-latest (minutes
+  # The native app for Windows, as an installer and a zipped .exe
+  # (native/packaging/windows/installer.nsi), on windows-latest (minutes
   # billed 2x): GPUI's release build compiles its DirectX shaders with the
   # Windows SDK's fxc.exe, which a cross build from Linux doesn't have.
   # Without the video feature, whose FFmpeg Windows has no package of: agents'
@@ -565,6 +566,12 @@ jobs:
       - name: Build it
         working-directory: native
         run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      # The runners have NSIS, which makes the installer; one that doesn't
+      # gets it.
+      - name: NSIS, for the installer
+        run: |
+          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
 
       - name: Package it
         run: scripts/native-package.sh windows "$VERSION" native-out
@@ -743,7 +750,7 @@ jobs:
           short=${SHA:0:7}
           notes="A nightly build of what's coming in the next release, from ${PR:+the release PR #$PR, }commit $short. Not a release: it may break, and it is never marked latest. Pick **Nightly** under Settings → Update channel (or run \`agentbox version --channel nightly\`) to be offered the next one."
           if compgen -G 'out/AgentBox-Native-experimental-*' >/dev/null; then
-            notes+=$'\n\n'"**Experimental: the native app.** The \`AgentBox-Native-experimental-*\` files are AgentBox's desktop app rewritten in Rust and GPUI: for Linux (an AppImage that updates itself for any distribution with WebKitGTK 4.1; a .pacman for Arch (\`sudo pacman -U\`); a .deb for Ubuntu 24.04 and distributions built on it; a .tar.gz), Windows (.zip) and Apple Silicon Macs (.dmg). It talks to the same AgentBox, so install AgentBox as usual and start \`agentbox-native\` (on a Mac, AgentBox Native) instead of the app. It updates itself (a .deb install: from the release page) and can't yet: show an agent's iOS simulator; resize or restart the VM, run host setup or install the command-line tool (it shows the command to run instead); hide to the tray (it minimises). On Wayland, HTML previews are a still picture; on Windows and macOS, recordings don't play. There is no Intel Mac build."
+            notes+=$'\n\n'"**Experimental: the native app.** The \`AgentBox-Native-experimental-*\` files are AgentBox's desktop app rewritten in Rust and GPUI: for Linux (an AppImage that updates itself for any distribution with WebKitGTK 4.1; a .pacman for Arch (\`sudo pacman -U\`); a .deb for Ubuntu 24.04 and distributions built on it; a .tar.gz), Windows (\`-windows-x64-setup.exe\`, an installer for your user alone that asks for no administrator; or a .zip) and Apple Silicon Macs (.dmg). It talks to the same AgentBox as the app, and sets it up itself where there is none: start \`agentbox-native\` (on a Mac and on Windows, AgentBox Native) instead of the app. It updates itself (a .deb install: from the release page) and can't yet: show an agent's iOS simulator; resize or restart the VM, run host setup or install the command-line tool (it shows the command to run instead); hide to the tray (it minimises). On Wayland, HTML previews are a still picture; on Windows and macOS, recordings don't play. There is no Intel Mac build."
             if compgen -G 'out/AgentBox-Native-experimental-*.dmg' >/dev/null && [ "$NATIVE_MAC_SIGNED" != true ]; then
               notes+=" The Mac app isn't notarized: after copying it to Applications, run \`xattr -dr com.apple.quarantine \"/Applications/AgentBox Native (experimental).app\"\` once, or macOS says it is damaged."
             fi
