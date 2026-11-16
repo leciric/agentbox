@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/github"
@@ -25,13 +26,19 @@ import (
 type pullsErr struct {
 	message string
 	kind    string // one of the api.GitHub… kinds; empty when nothing failed
+	resetAt int64  // for api.GitHubRateLimited, when GitHub is read again, in Unix seconds
 }
 
 func newPullsErr(err error) pullsErr {
 	if err == nil {
 		return pullsErr{}
 	}
-	return pullsErr{message: err.Error(), kind: githubErrKind(err)}
+	out := pullsErr{message: err.Error(), kind: githubErrKind(err)}
+	var limited *github.RateLimitError
+	if errors.As(err, &limited) {
+		out.resetAt = limited.Until.Unix()
+	}
+	return out
 }
 
 // failed reports whether this is a failure at all.
@@ -49,6 +56,8 @@ func githubErrKind(err error) string {
 		return api.GitHubNoAccess
 	case errors.Is(err, github.ErrBadToken):
 		return api.GitHubBadToken
+	case errors.Is(err, github.ErrRateLimited):
+		return api.GitHubRateLimited
 	default:
 		return api.GitHubOtherErr
 	}
@@ -107,6 +116,10 @@ func (s *Server) githubErrorFrom(p state.Project, repo github.Repo, failure pull
 	}
 	account, login := s.githubAccountFor(p)
 	out := &api.GitHubError{Kind: failure.kind, Message: failure.message, Account: account, Login: login}
+	if failure.resetAt != 0 {
+		reset := time.Unix(failure.resetAt, 0)
+		out.ResetAt = &reset
+	}
 	if repo.Owner != "" {
 		out.Repo = repo.String()
 	}

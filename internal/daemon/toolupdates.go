@@ -18,7 +18,7 @@ import (
 	"agentbox/internal/state"
 )
 
-// "Keep Claude Code up to date" (off by default): new Claude Code releases
+// "Keep Claude Code up to date" (on by default): new Claude Code releases
 // without an AgentBox release. While it's on, the daemon asks npm for the
 // newest Claude Code and claude-agent-acp as it starts, once a day and when
 // you press Check now, and moves the base image's copies on in place the way
@@ -40,7 +40,7 @@ import (
 // and OpenCode could join with an entry each, and a setting.
 type autoUpdate struct {
 	tool    string // as agents name it: "claude"
-	setting string // the flag that turns it on, off by default
+	setting string // the flag that turns it on, on unless turned off (FlagOn)
 	// packages are what it moves on, by mise's name and npm's. The first is
 	// the tool itself, whose version Settings shows.
 	packages []autoPackage
@@ -150,7 +150,7 @@ func (s *Server) checkToolUpdateNow(u autoUpdate) {
 }
 
 func (s *Server) beginToolCheck(ctx context.Context, u autoUpdate) bool {
-	if on, err := s.store.Flag(ctx, u.setting); err != nil || !on {
+	if on, err := s.store.FlagOn(ctx, u.setting); err != nil || !on {
 		return false
 	}
 	return s.toolUpdates.begin(u.tool)
@@ -231,7 +231,7 @@ func (s *Server) runToolCheck(ctx context.Context, u autoUpdate) {
 			s.recordToolCheck(context.WithoutCancel(ctx), u, latest, now, err)
 			return nil, err
 		}
-		if on, err := s.store.Flag(ctx, u.setting); err == nil && !on {
+		if on, err := s.store.FlagOn(ctx, u.setting); err == nil && !on {
 			revert = true
 			return nil, errors.New("keeping Claude Code up to date was turned off while it updated")
 		}
@@ -334,7 +334,7 @@ func (s *Server) npmLatest(ctx context.Context, pkg string) (string, error) {
 
 // toolAutoUpdate is u as Settings shows it.
 func (s *Server) toolAutoUpdate(ctx context.Context, u autoUpdate) (api.ToolAutoUpdate, error) {
-	on, err := s.store.Flag(ctx, u.setting)
+	on, err := s.store.FlagOn(ctx, u.setting)
 	if err != nil {
 		return api.ToolAutoUpdate{}, err
 	}

@@ -68,7 +68,7 @@ func TestNewProjectAllowsItsOwnAccount(t *testing.T) {
 	if err != nil || p.ClaudeAccount != "work" || strings.Join(p.ClaudeAccounts, ",") != "work" {
 		t.Errorf("with work chosen: %q, %v, %v, want only work", p.ClaudeAccount, p.ClaudeAccounts, err)
 	}
-	// It is the same list create_agent and list_accounts go by.
+	// It is the same list create_agent and list_resources go by.
 	lead := api.NewClient(d.srv.leadSocketPath("pawly"))
 	if accounts, err := lead.ProjectAccounts(ctx); err != nil || len(accounts) != 1 || accounts[0].Name != "work" {
 		t.Errorf("list_accounts = %+v, %v, want only work", accounts, err)
@@ -259,7 +259,7 @@ func TestLeadAccountsRoute(t *testing.T) {
 
 // TestProjectClaudeAccountsAllowList: a project limited to some accounts
 // takes the list over the API, refuses one without its own account, refuses a
-// create_agent outside it naming the ones it may use, and list_accounts shows
+// create_agent outside it naming the ones it may use, and list_resources shows
 // the lead only those.
 func TestProjectClaudeAccountsAllowList(t *testing.T) {
 	t.Parallel()

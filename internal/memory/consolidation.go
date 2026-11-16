@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode"
 
+	"agentbox/internal/features"
 	"agentbox/internal/trace"
 )
 
@@ -695,9 +696,9 @@ func (s *Store) Watermark(ctx context.Context, project string) (time.Time, error
 	return attime(*at), nil
 }
 
-// distillTypes are the event types a distillation never reads: its own. See
-// EventMemoryConsolidated.
-var distillTypes = []string{EventMemoryConsolidated}
+// distillTypes are the event types a distillation never reads: its own (see
+// EventMemoryConsolidated), and the lead's note of a feature it suggested.
+var distillTypes = []string{EventMemoryConsolidated, features.OfferedEvent}
 
 // PendingEvents is how many events the project has gathered since the
 // watermark. It is the cheap question a lead chokepoint asks every turn, so

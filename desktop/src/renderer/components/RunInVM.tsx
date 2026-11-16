@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Cpu, LoaderCircle, MemoryStick, Monitor } from 'lucide-react';
+import { ArrowRight, Cpu, KeyRound, LoaderCircle, MemoryStick, Monitor } from 'lucide-react';
 import type { LinuxSetup } from '../../preload';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { t, useT } from '../lib/i18n';
+import { startMachine, useMachineRun } from '../lib/machineRun';
 import { cn, errorMessage } from '../lib/utils';
 import { laterKey, movePrompt } from '../lib/vmMove';
 import { rememberSection } from './SettingsPage';
@@ -31,58 +32,114 @@ import { Field, Input } from './ui/input';
 const vmSummary = () => t('vm.run.summary');
 const noKVM = () => t('vm.run.noKVM');
 
+// kvmFixable says whether what keeps this user from /dev/kvm is something
+// `agentbox host kvm` fixes: a device they can't open, or KVM's module not
+// loaded. Without virtualization in the CPU, only the firmware's settings can.
+export function kvmFixable(linux: LinuxSetup | null | undefined): boolean {
+  return linux?.kvmProblem === 'denied' || linux?.kvmProblem === 'module';
+}
+
 // LinuxVMSetup is a Linux machine's first screen, before AgentBox's VM is
 // made: there's no daemon until then, so the setup is the page, as a Mac's
 // VMSetup is. It makes the VM with `agentbox vm init`, at the size chosen
 // here, and streams what it prints; the daemon it starts is the app's to
-// connect to when it finishes.
+// connect to when it finishes. The run goes on in the background
+// (lib/machineRun), as a Mac's VMSetup's does.
 export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [lines, setLines] = useState<string[]>([]);
+  const machine = useMachineRun();
   const [form, setForm] = useState<VMSizeForm>(() => vmSizeDefaults(linux));
-  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
   const sized = vmSize(form, linux);
-  const run = useMutation({
-    mutationFn: () => window.agentbox.hostSetup.run({ vm: true, ...sized }),
-    onMutate: () => setLines([]),
-    onSuccess: async () => {
+  const pending = machine.state === 'running';
+  const lines = machine.lines;
+  const error = machine.state === 'failed' ? machine.error : undefined;
+  const run = () =>
+    void startMachine({ vm: true, ...sized }, () => {
       toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
-      await queryClient.invalidateQueries();
-    },
-  });
+      void queryClient.invalidateQueries();
+    });
   return (
     <Panel className="grid gap-3 p-4" data-linux-vm-setup={linux.kvm ? 'create' : 'nokvm'}>
       <div className="flex items-start gap-3">
         <Monitor className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
-          <h2 className="text-[15px] font-medium text-primary">{t('vm.run.setupTitle')}</h2>
-          <p className="text-[13px] text-muted">
+          <h2 className="text-heading font-medium text-primary">{t('vm.run.setupTitle')}</h2>
+          <p className="text-ui text-muted">
             {t('vm.run.setupIntro', { summary: vmSummary() })}
           </p>
         </div>
       </div>
       {linux.kvm ? (
         <>
-          <VMSizeFields linux={linux} form={form} disabled={run.isPending} onChange={setForm} />
+          <VMSizeFields linux={linux} form={form} disabled={pending} onChange={setForm} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" disabled={run.isPending || !sized} onClick={() => run.mutate()} data-linux-vm-setup-run>
-              {run.isPending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
+            <Button variant="primary" disabled={pending || !sized} onClick={() => run()} data-linux-vm-setup-run>
+              {pending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
               {t('vm.run.setUp')}
             </Button>
-            <span className="text-xs text-subtle">{run.isPending ? t('vm.run.making') : t('vm.run.noPassword')}</span>
+            <span className="text-xs text-subtle">{pending ? t('vm.run.making') : t('vm.run.noPassword')}</span>
           </div>
         </>
       ) : (
-        <Notice tone="warning">{noKVM()}</Notice>
+        <KVMAccess linux={linux} />
       )}
-      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
-      {run.error && <Notice>{errorMessage(run.error)}</Notice>}
-      <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
-        <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
-      </div>
+      {(lines.length > 0 || pending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
+      {error && <Notice>{error}</Notice>}
+      {/* KVMAccess has its own command first: vm init comes after it. */}
+      {!kvmFixable(linux) && (
+        <div className="grid gap-2">
+          <p className="text-ui text-muted">{t('vm.run.orTerminal')}</p>
+          <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
+        </div>
+      )}
     </Panel>
+  );
+}
+
+// KVMAccess is what Setup shows while this user can't use /dev/kvm. When it's
+// a permission (Debian and Ubuntu give /dev/kvm to the kvm group, which counts
+// only from the next login) or KVM's module isn't loaded, one button fixes it
+// with the desktop's password dialog: `agentbox host kvm` through pkexec, which
+// adds an ACL for this user that counts at once, so nobody logs in again
+// (internal/kvm). The status Setup polls turns kvm true by itself afterwards.
+// Without virtualization in the CPU it says what to turn on.
+export function KVMAccess({ linux }: { linux: LinuxSetup }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [lines, setLines] = useState<string[]>([]);
+  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
+  const grant = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.grantKVM(),
+    onMutate: () => setLines([]),
+    onSuccess: async () => {
+      toast(t('vm.kvm.toast'), { description: t('vm.kvm.toastDescription') });
+      await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
+    },
+  });
+  if (!kvmFixable(linux))
+    return (
+      <div data-kvm-access="novirt">
+        <Notice tone="warning">{noKVM()}</Notice>
+      </div>
+    );
+  return (
+    <div className="grid gap-3" data-kvm-access={linux.kvmProblem}>
+      <Notice tone="warning">{linux.kvmProblem === 'module' ? t('vm.kvm.module') : t('vm.kvm.denied')}</Notice>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" disabled={grant.isPending} onClick={() => grant.mutate()} data-kvm-grant>
+          {grant.isPending ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
+          {t('vm.kvm.grant')}
+        </Button>
+        <span className="text-xs text-subtle">{grant.isPending ? t('vm.kvm.granting') : t('vm.kvm.onePrompt')}</span>
+      </div>
+      {lines.length > 0 && <SetupLog lines={lines} label={t('vm.kvm.log')} />}
+      {grant.error && <Notice>{errorMessage(grant.error)}</Notice>}
+      <div className="grid gap-2">
+        <p className="text-ui text-muted">{t('vm.kvm.orTerminal')}</p>
+        <CommandBox command="sudo agentbox host kvm" />
+      </div>
+    </div>
   );
 }
 
@@ -136,7 +193,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
             min={1}
             max={linux.cores}
             step={1}
-            className="h-8 pl-8 font-mono text-[12.5px]"
+            className="h-8 pl-8 font-mono text-ui"
             disabled={disabled}
             value={form.cpus}
             onChange={(e) => onChange({ ...form, cpus: e.target.value })}
@@ -161,7 +218,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
             min={4}
             max={most}
             step={1}
-            className="h-8 pl-8 font-mono text-[12.5px]"
+            className="h-8 pl-8 font-mono text-ui"
             disabled={disabled}
             value={form.memory}
             onChange={(e) => onChange({ ...form, memory: e.target.value })}
@@ -178,29 +235,28 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
 // `agentbox vm migrate`, which takes this installation into AgentBox's VM;
 // this is where the app runs it. action is the move itself, in the app
 // (VMMigrate); without it, command is the command, in a box to copy.
-export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: ReactNode; action?: ReactNode }) {
+export function MoveToVM({ kvm, linux, command, action }: { kvm: boolean; linux?: LinuxSetup | null; command: ReactNode; action?: ReactNode }) {
   const t = useT();
   return (
     <Panel className="grid gap-3 p-4" data-move-to-vm>
       <div className="flex items-center gap-2">
         <Monitor className="size-4 text-brand-300" />
-        <h3 className="text-[14px] font-semibold text-primary">{t('vm.run.moveTitle')}</h3>
+        <h3 className="text-body font-semibold text-primary">{t('vm.run.moveTitle')}</h3>
       </div>
-      <p className="text-[13px] leading-relaxed text-muted">
+      <p className="text-ui leading-relaxed text-muted">
         {t('vm.run.moveDescription')}
       </p>
+      {!kvm && (linux ? <KVMAccess linux={linux} /> : <Notice tone="warning">{noKVM()}</Notice>)}
       {action ? (
         action
       ) : kvm ? (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {t('vm.run.moveCommand')}
           </p>
           {command}
         </div>
-      ) : (
-        <Notice tone="warning">{noKVM()}</Notice>
-      )}
+      ) : null}
     </Panel>
   );
 }
@@ -248,14 +304,14 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
               : t('vm.run.promptAvailable')}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2 text-[13px] leading-relaxed text-muted">
+        <div className="grid gap-2 text-ui leading-relaxed text-muted">
           <p>
             {t('vm.run.promptStill')}
           </p>
           <p>
             {t('vm.run.promptTakes', { projects, agents })}
           </p>
-          {!kvm && <Notice tone="warning">{noKVM()}</Notice>}
+          {!kvm && <Notice tone="warning">{kvmFixable(status.data?.linux) ? t('vm.kvm.beforeMove') : noKVM()}</Notice>}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={putOff}>

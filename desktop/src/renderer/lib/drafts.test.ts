@@ -6,7 +6,8 @@
 // storage does.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { composed, getDraft, setDraft } from './drafts.ts';
+import type { PendingImage } from './chatImages.ts';
+import { composed, draftAttachmentsLoaded, draftProjects, getDraft, getDraftAttachments, leadProject, projectsWithDraft, setAttachmentStore, setDraft, setDraftAttachments, type AttachmentStore, type StoredAttachments } from './drafts.ts';
 
 test('a ref with nothing typed has an empty draft', () => {
   assert.equal(getDraft('agent-never-seen'), '');
@@ -27,4 +28,74 @@ test('setting an empty draft clears it', () => {
 test('text composed into a chat goes before what was typed there, not over it', () => {
   assert.equal(composed('Ask @pawly’s lead ', ''), 'Ask @pawly’s lead ');
   assert.equal(composed('Ask @pawly’s lead ', '  about the release notes'), 'Ask @pawly’s lead about the release notes');
+});
+
+const picture = (key: string): PendingImage => ({ key, name: 'image.png', mimeType: 'image/png', size: 3, data: 'iVBO' });
+
+test('a draft maps to its project only for a lead chat, and whitespace or nothing does not count', () => {
+  assert.equal(leadProject('pawly'), 'pawly');
+  assert.equal(leadProject('pawly/lead'), 'pawly');
+  assert.equal(leadProject('pawly/lead.second'), 'pawly');
+  assert.equal(leadProject('pawly/agent-01'), undefined);
+  const out = projectsWithDraft([
+    ['a/lead', 'hello'],
+    ['b/lead', '  \n '],
+    ['c/agent-01', 'for an agent'],
+    ['d', ''],
+    ['e', 'bare project ref'],
+  ]);
+  assert.deepEqual([...out].sort(), ['a', 'e']);
+});
+
+test('an attachment alone is a draft', () => {
+  assert.deepEqual([...projectsWithDraft([['a/lead', '']], new Map([['a/lead', 1], ['b/lead', 0], ['c/agent-01', 2]]))], ['a']);
+});
+
+test('draftProjects follows typing, clearing and attaching, and is stable between changes', () => {
+  setDraft('live/lead', 'hi');
+  const first = draftProjects();
+  assert.ok(first.has('live'));
+  assert.equal(draftProjects(), first);
+  setDraft('live/lead', 'hi there');
+  assert.equal(draftProjects(), first);
+  setDraft('live/lead', '   ');
+  assert.ok(!draftProjects().has('live'));
+  setDraftAttachments('live/lead', [picture('img-live')]);
+  assert.ok(draftProjects().has('live'));
+  setDraftAttachments('live/lead', []);
+  assert.ok(!draftProjects().has('live'));
+});
+
+test("a draft's attachments come back with it, apart from its text", () => {
+  assert.deepEqual(getDraftAttachments('p/lead.a'), []);
+  setDraft('p/lead.a', 'see this');
+  setDraftAttachments('p/lead.a', [picture('img-1')]);
+  // Another session's draft doesn't touch it.
+  setDraftAttachments('p/lead.b', [picture('img-2')]);
+  assert.deepEqual(getDraftAttachments('p/lead.a').map((p) => p.key), ['img-1']);
+  assert.equal(getDraft('p/lead.a'), 'see this');
+  // Sent, or every one taken off: nothing waits.
+  setDraftAttachments('p/lead.a', []);
+  assert.deepEqual(getDraftAttachments('p/lead.a'), []);
+  assert.deepEqual(getDraftAttachments('p/lead.b').map((p) => p.key), ['img-2']);
+});
+
+test('attachments are written through to the store, and read back from it after a restart', async () => {
+  const kept: Record<string, StoredAttachments> = { 'q/lead': { items: [picture('img-old')], updatedAt: 1 }, 'q/agent-01': { items: [picture('img-mine')], updatedAt: 1 } };
+  const store: AttachmentStore = {
+    load: async () => structuredClone(kept),
+    put: async (ref, draft) => void (kept[ref] = draft),
+    delete: async (ref) => void delete kept[ref],
+  };
+  // Attached before the store was read back: what is new wins.
+  setDraftAttachments('q/agent-01', [picture('img-new')]);
+  await setAttachmentStore(store);
+  await draftAttachmentsLoaded();
+  assert.deepEqual(getDraftAttachments('q/lead').map((p) => p.key), ['img-old']);
+  assert.deepEqual(getDraftAttachments('q/agent-01').map((p) => p.key), ['img-new']);
+  setDraftAttachments('q/lead.x', [picture('img-3')]);
+  assert.deepEqual(kept['q/lead.x'].items.map((p) => p.key), ['img-3']);
+  setDraftAttachments('q/lead', []);
+  assert.equal(kept['q/lead'], undefined);
+  await setAttachmentStore(null);
 });

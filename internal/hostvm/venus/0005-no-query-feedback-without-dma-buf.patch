@@ -1,0 +1,35 @@
+From: AgentBox
+Subject: [PATCH] venus: no query feedback on a renderer without dma-buf
+
+On a macOS host (krunkit, MoltenVK), feedback for the timestamp queries
+ANGLE records around a three.js frame never reaches the feedback buffer
+(a frame that only clears is fine), so vkGetQueryPoolResults with
+VK_QUERY_RESULT_WAIT_BIT spins until Chromium's GPU watchdog kills the process and WebGL loses
+its context (EXT_disjoint_timer_query). Without dma-buf, queries are
+answered by the renderer, as with VN_PERF=no_query_feedback. Its debug
+message is how AgentBox tells a driver with this fix (venus-chromium.sh).
+
+---
+diff --git a/src/virtio/vulkan/vn_command_buffer.c b/src/virtio/vulkan/vn_command_buffer.c
+--- a/src/virtio/vulkan/vn_command_buffer.c
++++ b/src/virtio/vulkan/vn_command_buffer.c
+@@ -1805,6 +1805,19 @@
+    if (unlikely(VN_PERF(NO_QUERY_FEEDBACK)))
+       return;
+ 
++   /* Without dma-buf (a macOS host), query feedback can fail to land and
++    * vkGetQueryPoolResults with WAIT then spins forever: the renderer
++    * answers instead. AgentBox finds this message in the driver to tell
++    * one with this fix.
++    */
++   if (!cmd->pool->device->physical_device->base.base.supported_extensions
++           .EXT_external_memory_dma_buf) {
++      if (VN_DEBUG(INIT))
++         vn_log(cmd->pool->device->instance,
++                "query feedback off: the renderer has no dma-buf");
++      return;
++   }
++
+    if (unlikely(!query_pool->fb_buf)) {
+       if (vn_query_feedback_buffer_init_once(cmd->pool->device, query_pool) !=
+           VK_SUCCESS) {

@@ -175,3 +175,53 @@ func TestEnsureRecordingStageMountsTheAgentsMedia(t *testing.T) {
 		})
 	}
 }
+
+// After a restart, a machine can be started by something else between Start's
+// look at it and its own `incus start` (Incus's autostart, a wake): Incus
+// refuses that start with "already running", and the agent must still start,
+// or the turn the restart cut short is left failed instead of resumed.
+func TestStartCarriesOnWhenTheMachineWasStartedMeanwhile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("BOOTED", filepath.Join(dir, "booted"))
+	inc, calls := loggingIncus(t, `case "$1" in
+  list)
+    if [ -f "$BOOTED" ]; then
+      echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]'
+    else
+      echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]'
+    fi ;;
+  start) touch "$BOOTED"; echo "Error: The instance is already running" >&2; exit 1 ;;
+  query) echo '{"config": {}, "devices": {"agentbox": {"type":"proxy","listen":"unix:/run/agentbox.sock"}}}' ;;
+esac
+exit 0`)
+	f := setup(t, inc)
+	f.m.AgentSocket = func(instance string) string { return "/t/sockets/" + instance + ".sock" }
+	f.m.RecheckAgentAPI = func(func()) {}
+	a := destroyFixture(t, f)
+
+	if _, err := f.m.Start(context.Background(), a); err != nil {
+		t.Fatalf("a machine already running is started: %v\n%s", err, strings.Join(calls(), "\n"))
+	}
+	var started bool
+	for _, c := range calls() {
+		started = started || strings.HasPrefix(c, "start ab-hello-stack-agent-01")
+	}
+	if !started {
+		t.Fatalf("the test should have its start refused:\n%s", strings.Join(calls(), "\n"))
+	}
+}
+
+// A start that fails for any other reason still fails.
+func TestStartStillFailsWhenTheMachineDidNotStart(t *testing.T) {
+	inc, _ := loggingIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;;
+  start) echo "Error: no space left" >&2; exit 1 ;;
+  query) echo '{"config": {}, "devices": {}}' ;;
+esac
+exit 0`)
+	f := setup(t, inc)
+	a := destroyFixture(t, f)
+	if _, err := f.m.Start(context.Background(), a); err == nil || !strings.Contains(err.Error(), "no space left") {
+		t.Fatalf("Start = %v, want the start's error", err)
+	}
+}

@@ -14,6 +14,7 @@ var carriedTables = []string{
 	"projects", "agents", "chats", "chat_items", "questions", "settings", "secrets", "media",
 	"events", "memories", "working_memory", "artifacts", "agent_reports",
 	"project_sections", "token_usage", "claude_limits", "tool_limits", "pr_watches",
+	"pr_merge_when_green",
 }
 
 // Carried is how many rows of a table one state.db had, and how many another

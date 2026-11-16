@@ -395,7 +395,8 @@ func limitedNotice(a state.Agent, until time.Time) string {
 	if !until.IsZero() {
 		when = "AgentBox resumes it at " + until.Format("15:04 MST")
 	}
-	return fmt.Sprintf("[AgentBox: %s (%s) hit its usage limit and is paused, not finished: %s. Nothing to do.]",
+	return fmt.Sprintf("[AgentBox: %s (%s) hit its usage limit and is paused, not finished: %s. "+
+		"switch_agent_account moves it to another account with room (list_resources accounts); otherwise nothing to do.]",
 		a.Name, titleOrNone(a.Title), when)
 }
 
@@ -428,7 +429,7 @@ func (s *Server) pauseForLimit(ctx context.Context, a state.Agent, end chat.Turn
 	}
 	s.record(ctx, ev)
 	if prev.kind != api.AgentOutcomeLimited {
-		s.tellLead(ctx, a.Project, limitedNotice(a, until), false)
+		s.tellOwner(ctx, a, limitedNotice(a, until), false)
 	}
 }
 

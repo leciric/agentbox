@@ -142,7 +142,13 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 		who := api.RetiredAgent{Name: st.Name, Title: st.Title, Branch: st.Branch}
-		changes := changesOf(st.Agent)
+		changes, err := measureChanges(st.Agent)
+		if err != nil {
+			// Whether it has uncommitted work is what retiring could lose.
+			who.Reason = "its worktree can't be read right now: " + err.Error()
+			out.Skipped = append(out.Skipped, who)
+			continue
+		}
 		busy, _, last, advice := s.idleOf(ctx, st, changes)
 		if who.Reason = skipReason(req, st, busy, last, advice, idleFor); who.Reason == stillWorking {
 			who.Reason = s.busyReason(st.Ref())
@@ -164,23 +170,27 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 		s.countFeature(api.FeatureAgentRetire)
 		s.recordAgentFinished(ctx, st.Agent, "retired")
 	}
-	s.refreshAgents(ctx)
+	s.refreshAgentsBehind()
 	return writeJSON(w, http.StatusOK, out)
 }
 
 // retireOne frees one agent. The branch is kept unless it is merged or
 // pushed: until then it is the work.
 func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent, how string) error {
+	// Its turn ending now is the retire's doing, not a failure.
+	s.expectStop(a.Ref())
 	var err error
 	switch how {
 	case api.RetirePause:
 		s.chat.Stop(a.Ref(), "the agent was retired")
 		err = m.Pause(ctx, a)
 	case api.RetireStop:
-		s.chat.Stop(a.Ref(), "the agent was retired")
-		err = s.stopAgent(ctx, m, a)
-		if err == nil {
-			s.markRetired(a.Ref(), true)
+		// Marked before it stops, not after: a message nobody asked for,
+		// waiting on the stop (tellUnlessRetired), must find it retired.
+		s.markRetired(a.Ref(), true)
+		err = s.stopAgent(ctx, m, a, "the agent was retired")
+		if err != nil {
+			s.markRetired(a.Ref(), false)
 		}
 	case api.RetireDestroy:
 		// Force discards the worktree, which the caller has already agreed to;
@@ -191,6 +201,7 @@ func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent,
 		return errors.New("unknown way to retire")
 	}
 	if err != nil {
+		s.agentBack(a.Ref())
 		return err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": how, "branch": a.Branch}, "")

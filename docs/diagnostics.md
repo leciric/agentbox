@@ -39,6 +39,37 @@ stalls in the window are listed below the table.
 Long-lived requests, like the app's event stream or a terminal, count for as long as they stay
 open, so they can top the table without being slow.
 
+## The daemon's memory
+
+```bash
+agentbox debug heap                            # saves agentbox-heap-<time>.pb.gz here
+go tool pprof -top -sample_index=inuse_space agentbox-heap-*.pb.gz
+```
+
+`agentbox debug heap` saves what the daemon's heap holds, by where it was allocated, after a garbage
+collection, and prints how much is live and how much the daemon has from the system. Go's other
+profiles (goroutines, CPU, allocations) are at `/debug/pprof/` on the daemon's socket, and only
+there: not to phones or the hub.
+
+The daemon keeps its heap under a soft limit of 256 MiB: near it, Go collects garbage more often
+rather than asking for more memory. Set `GOMEMLIMIT` in the daemon's environment to choose another
+(`GOMEMLIMIT=512MiB`), or `GOMEMLIMIT=off` for none.
+
+## GitHub's rate limit
+
+GitHub gives each account 5,000 REST requests an hour, and AgentBox's token is shared: the daemon,
+the app's views behind it and every agent's own `gh` spend the same budget. `agentbox github usage`
+shows what the daemon sent since it started, by account, by what asked (the pull request list, the
+pull request watch, the pull request view, issue pickup…) and by endpoint, with what GitHub last said
+is left. Its "others" figure is what GitHub counted beyond AgentBox's own requests: mostly agents'
+`gh`, and anything else of yours using the token.
+
+AgentBox asks GitHub again for what it already read with its ETag (an unchanged answer is free),
+shares a read in flight, reads every open pull request's checks in one GraphQL query, and re-reads
+less often once a fifth of the budget is left. Below 5%, its background reads wait for the reset;
+once GitHub says the budget is spent, nothing is sent until then, and the app says when that is.
+`AGENTBOX_GITHUB_DEBUG=1` in the daemon's environment logs every request.
+
 ## The API
 
 The app's Diagnostics page reads the same data over the daemon's socket:
@@ -49,3 +80,4 @@ The app's Diagnostics page reads the same data over the daemon's socket:
 | `GET /v1/diagnostics/stalls?since=24h` | the stalls, newest first |
 | `GET /v1/diagnostics/resources?window=1h` | the VM's samples and each agent's |
 | `POST /v1/diagnostics/client-spans` | the app's own spans, up to 500 at a time, stored with `source: "app"` |
+| `GET /v1/github/usage` | each GitHub token's requests since the daemon started, and what is left of its budgets |

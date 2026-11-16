@@ -1,22 +1,22 @@
+import { startPresence, usePresence } from "./lib/presence";
 import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
-import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { closeSettingsEvent, openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
 import { openAgentEvent } from "./components/chat/AgentPermissionCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
-import { openSearch, toggleSearch } from "./lib/searchOpen";
+import { openSearch, searchState, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
-import { HomeView } from "./components/HomeView";
-import { AllMediaView } from "./components/AllMediaView";
+import { openHomeChatEvent } from "./lib/doctor";
+import { MediaView } from "./components/media/MediaView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { MediaPlace } from "./components/MediaPlace";
-import { MediaViewer } from "./components/MediaTab";
+import { MediaViewer } from "./components/media/MediaParts";
 import { NoticeToast } from "./components/Notifications";
 import { PageArrivals } from "./components/pages/PageArrivals";
 import { PagePreviewHost } from "./components/pages/PagePreview";
@@ -26,9 +26,10 @@ import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
-import { PastAgents } from "./components/PastAgents";
+import { usePrefetchProjectIcons } from "./components/ProjectIcon";
+import { PastAgentView } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
-import { Sidebar } from "./components/Sidebar";
+import { useKeepAwake } from "./lib/keepAwake";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
 import { CompareView } from "./components/groups/CompareView";
@@ -37,9 +38,9 @@ import { onOpenCompare } from "./lib/groups";
 import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
-import { HomeStatusV2, PastAgentsV2 } from "./components/v2/PagesV2";
+import { HomeStatusV2 } from "./components/v2/PagesV2";
 import { cycleRegion, isBackToLeadShortcut, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
-import { onMac } from "./lib/utils";
+import { cn, onMac } from "./lib/utils";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
@@ -47,29 +48,42 @@ import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
 import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
+import { settleDots } from "./components/FeatureDot";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
+import { BuiltWithBadgeOffer } from "./components/BuiltWithBadgeOffer";
 import { StartingNotice } from "./components/StartingNotice";
+import { StaleDaemonNotice, useStaleDaemon } from "./components/StaleDaemonNotice";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
-import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
-import { tourFirst, tourState } from "./lib/tours";
+import { useSessionAlerts } from "./lib/useSessionAlerts";
+import { chooseSession } from "./lib/sessions";
+import { HomeProject } from "../shared/api";
+import { launchArrival, tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
-import { openAgentChat, openPanelOn } from "./lib/rightPanel";
+import { onList, openAgentChat, openPanelOn, usePanel } from "./lib/rightPanel";
+import { usingDesktop } from "./lib/pip";
+import { chatOf } from "./components/v2/PanelButton";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
 import { reviewHeadKey, questionsKey } from "./lib/inboxPages";
 import { mayNotify, type Kind } from "./lib/notifyPrefs";
-import { playReadySound } from "./lib/reviewAlert";
+import { playReadySound, useReviewing } from "./lib/reviewAlert";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
+import { useMachineRun } from "./lib/machineRun";
+import { machineState, showFirstRun } from "./lib/firstRun";
+import { FirstRun, firstRunMark, setFirstRunMark } from "./components/FirstRun";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
-import { TodayView } from "./components/timeline/TodayView";
+import { WorkPage } from "./components/WorkView";
+import { RecapView } from "./components/RecapView";
+import type { WorkFilter } from "./lib/work";
+import { OfficeView } from "./components/office/OfficeView";
 
 export type View =
   | { kind: "home" }
@@ -77,46 +91,58 @@ export type View =
   | { kind: "jobs" }
   | { kind: "media" }
   | { kind: "settings" }
-  | { kind: "project"; project: string; tab?: ProjectPlaceName }
-  | { kind: "agent"; ref: string; tab?: AgentPlaceName }
-  // A project's day: every agent's timeline as one story (components/timeline/TodayView).
-  | { kind: "today"; project: string }
-  // Every project's past agents, or one of them (ref) read in its chat.
-  | { kind: "pastAgents"; ref?: string; project?: string }
+  // from: "office" when opened from the Office, whose way back is to it.
+  | { kind: "project"; project: string; tab?: ProjectPlaceName; from?: "office" }
+  | { kind: "agent"; ref: string; tab?: AgentPlaceName; from?: "office" }
+  // Everything agents did, live and past, of every project or project's,
+  // opened on filter (components/WorkView).
+  | { kind: "work"; project?: string; filter?: WorkFilter }
+  // The user's week with AgentBox, opened from Work (components/RecapView).
+  | { kind: "recap" }
+  // A past agent (ref), read in its chat.
+  | { kind: "pastAgents"; ref: string }
   // A group of agents given one task, side by side (components/groups).
-  | { kind: "group"; id: string };
+  | { kind: "group"; id: string }
+  // The Office (lib/uiOffice.ts): a 3D room with a desk for every agent.
+  | { kind: "office" };
 
 // initial is the view the app opens on: Home, except in the dev preview
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
-  // UI v2, the lead-first layout (Settings → General → Layout): its own
-  // sidebar, with each project's agents under its lead and no agent rail, and
-  // the review's decision in the carousel. It switches as the setting does.
-  const v2 = useUiV2();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
+  // This window's presence lease (lib/presence.ts): the project or agent on
+  // screen, so the daemon's housekeeping backs off for the rest.
+  useEffect(() => startPresence(), []);
+  usePresence(presenceOf(view));
+  const beforeOffice = useRef<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
-  const [addingProject, setAddingProject] = useState(false);
+  // "clone" opens the dialog on its Clone from link tab.
+  const [addingProject, setAddingProject] = useState<boolean | "clone">(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState(false);
-  // In a narrow window (below lg, 1024px: a small screen, a portrait monitor,
-  // or a phone in the web app), the sidebar slides in over the page from the
-  // left; below xl (1280px), the agent rail from the right. Each is a drawer
-  // the top bar opens, so the page keeps the width.
+  // In a narrow window (below lg, 1024px: a small screen, or a phone in the
+  // web app), the sidebar slides in over the page from the left, a drawer the
+  // top bar opens, so the page keeps the width. A portrait monitor (1080px)
+  // fits the chat beside the right-hand panel but not beside both, so while
+  // the panel is beside the chat the sidebar is the one that gives way, up to
+  // xl (1280px); folding the panel to its strip brings the sidebar back.
   const [navOpen, setNavOpen] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
+  const panel = usePanel();
   useEffect(() => {
-    if (!navOpen && !railOpen) return;
+    if (!navOpen) return;
     const close = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setNavOpen(false);
-      setRailOpen(false);
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [navOpen, railOpen]);
+  }, [navOpen]);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  usePrefetchProjectIcons(useQuery({ queryKey: ["projects"], queryFn: api.projects }).data);
+  useKeepAwake();
   const connection = useConnection();
+  const stale = useStaleDaemon();
   // On a Mac, the daemon lives in AgentBox's Linux VM, and on Windows in its
   // WSL distro: while it can't be reached, ask whether that's because the VM
   // or the distro isn't set up.
@@ -130,9 +156,11 @@ export function App({ initial }: { initial?: View } = {}) {
   useEffect(() => {
     const version = info.data?.version;
     if (!version) return;
-    // In v2 a What's new tour for this version plays first, and its last step
+    // A What's new tour for this version plays first, and its last step
     // links to the release notes: they never open over it.
-    if (shouldShowAutomatically(version) && !(uiV2() && tourFirst(tourState(), launchArrival()))) setWhatsNew(true);
+    if (shouldShowAutomatically(version) && !tourFirst(tourState(), launchArrival())) setWhatsNew(true);
+    // Before markSeen: the version What's new saw last is the one dots count from.
+    settleDots(version);
     markSeen(version);
   }, [info.data?.version]);
   const hostSetup = useQuery({
@@ -145,7 +173,37 @@ export function App({ initial }: { initial?: View } = {}) {
       connection.state !== "connected",
     refetchInterval: 3_000,
   });
-  const setup = setupCard(connection, hostSetup.data);
+  // The machine being made in the background (lib/machineRun) isn't a
+  // machine to set up: its indicator shows it, and the card comes back only
+  // if it fails.
+  const machineRun = useMachineRun();
+  const machine = machineState({ run: machineRun, host: hostSetup.data, connection });
+  const card = setupCard(connection, hostSetup.data);
+  const setup = machine.kind === "running" ? null : card;
+  // A new installation's first run is the page until it's finished
+  // (components/FirstRun). One set up before it existed says so in its
+  // settings, and this app remembers that, so a VM removed later never
+  // brings it back.
+  const appSettings = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.settings,
+    enabled: connection.state === "connected",
+  });
+  const [firstRunEnded, setFirstRunEnded] = useState(false);
+  useEffect(() => {
+    if (appSettings.data?.firstRun === false && firstRunMark() !== "done") setFirstRunMark("done");
+  }, [appSettings.data?.firstRun]);
+  const firstRun =
+    !firstRunEnded &&
+    showFirstRun({
+      connected: connection.state === "connected",
+      settings: appSettings.data,
+      host: hostSetup.data,
+      mark: firstRunMark(),
+    });
+  // fullPage: the first run or the setup is the page, with nothing of the
+  // app's own beside it.
+  const fullPage = firstRun || !!setup;
   const seen = useRef<string | null>(null);
   const queryClient = useQueryClient();
   // AgentBox wears the theme of the desktop it runs on, unless that is turned
@@ -167,21 +225,25 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const select = (next: View) => {
     setSettingsLink(undefined);
-    // v2 has no tabs on an agent's page: the ones that were become the right
+    // The Office covers the window; its Back returns to where you were.
+    // (Coming back to it from a page it opened keeps where you were before.)
+    if (next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
+    // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
-    const kind = next.kind === "agent" && v2 && next.tab ? agentPanelKind[next.tab as string] : undefined;
+    const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
     if (next.kind === "agent" && kind) {
       openPanelOn(next.ref, kind, next.ref);
       next = { kind: "agent", ref: next.ref, tab: "chat" };
-    } else if (next.kind === "agent" && v2 && (!next.tab || next.tab === "chat")) {
-      // Opening an agent's chat opens the panel on its Desktop.
-      openAgentChat(next.ref);
+    } else if (next.kind === "agent" && (!next.tab || next.tab === "chat")) {
+      // Opening an agent's chat opens the panel on its Desktop if it's using it.
+      const project = next.ref.split("/")[0];
+      const uses = queryClient.getQueryData<T.DesktopUse[]>(["desktops", project]) ?? [];
+      openAgentChat(next.ref, usingDesktop(next.ref, agents.data ?? [], uses, Date.now()));
     }
     if (next.kind === "agent" && next.tab)
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
     setNavOpen(false);
-    setRailOpen(false);
   };
 
   // A group's card in a lead chat, or its chip, opens the Compare view.
@@ -218,11 +280,23 @@ export function App({ initial }: { initial?: View } = {}) {
   // A link from a chat to another project's, on a message between their leads.
   useEffect(() => {
     const open = (e: Event) => {
-      setView({ kind: "project", project: (e as CustomEvent<string>).detail });
+      const project = (e as CustomEvent<string>).detail;
+      setView(project === HomeProject ? { kind: "homeChat" } : { kind: "project", project });
       setNavOpen(false);
     };
     window.addEventListener(openProjectEvent, open);
     return () => window.removeEventListener(openProjectEvent, open);
+  }, []);
+
+  // Setup handing a failing check to the Home chat (DoctorPanel), whose
+  // session it chose already.
+  useEffect(() => {
+    const open = () => {
+      setView({ kind: "homeChat" });
+      setNavOpen(false);
+    };
+    window.addEventListener(openHomeChatEvent, open);
+    return () => window.removeEventListener(openHomeChatEvent, open);
   }, []);
 
   // A link from a project's chat to one of its agents, on its permission request.
@@ -233,6 +307,14 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener(openAgentEvent, open);
     return () => window.removeEventListener(openAgentEvent, open);
+  }, []);
+
+  // Any view, by its description: native/scripts/parity.sh opens each of its
+  // scenarios with it, as the native app opens them with AGENTBOX_NATIVE_VIEW.
+  useEffect(() => {
+    const open = (e: Event) => selectRef.current((e as CustomEvent<View>).detail);
+    window.addEventListener("agentbox:select-view", open);
+    return () => window.removeEventListener("agentbox:select-view", open);
   }, []);
 
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
@@ -274,19 +356,22 @@ export function App({ initial }: { initial?: View } = {}) {
 
   // The search modal: Ctrl+K or Ctrl+Shift+F (⌘ on a Mac) anywhere but a
   // terminal, the top bar's button, or openSearch from any component. What it
-  // opens is brought forward on the page it opens.
+  // opens is brought forward on the page it opens. On a project's page it
+  // opens on that project, its chat's sessions first, open and closed: the
+  // project's menu in it widens it to every project.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isSearchShortcut(event)) return;
       event.preventDefault();
-      toggleSearch();
+      const here = viewRef.current;
+      if (here.kind === "project" && here.project && !searchState().open) openSearch({ project: here.project });
+      else toggleSearch();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-  // UI v2's New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
+  // New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
   useEffect(() => {
-    if (!v2) return;
     const onKey = (event: KeyboardEvent) => {
       if (!isNewTaskShortcut(event)) return;
       event.preventDefault();
@@ -294,14 +379,13 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [v2]);
-  // v2's other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
+  }, []);
+  // The other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
   // for Settings, F6 (Shift+F6 back) to move between the sidebar, the
   // chat and the panel, and Alt+← from an agent's chat to its lead's.
   const viewRef = useRef(view);
   viewRef.current = view;
   useEffect(() => {
-    if (!v2) return;
     const onKey = (event: KeyboardEvent) => {
       if (isSheetShortcut(event)) {
         event.preventDefault();
@@ -314,12 +398,17 @@ export function App({ initial }: { initial?: View } = {}) {
         if (cycleRegion(event.shiftKey)) event.preventDefault();
       } else if (viewRef.current.kind === "agent" && isBackToLeadShortcut(event, onMac)) {
         event.preventDefault();
-        selectRef.current({ kind: "project", project: viewRef.current.ref.split("/")[0] });
+        const v = viewRef.current;
+        selectRef.current(v.from === "office" ? { kind: "office" } : { kind: "project", project: v.ref.split("/")[0] });
+      } else if (viewRef.current.kind === "project" && viewRef.current.from === "office" && isBackToLeadShortcut(event, onMac)) {
+        // A lead's chat opened from the Office goes back to it, too.
+        event.preventDefault();
+        selectRef.current({ kind: "office" });
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [v2]);
+  }, []);
   const openFound = (target: SearchTarget) => {
     switch (target.open) {
       case "media":
@@ -388,6 +477,20 @@ export function App({ initial }: { initial?: View } = {}) {
     [queryClient],
   );
 
+  // A tray menu entry clicked (main/tray.ts): the window is in front again, go there.
+  useEffect(
+    () =>
+      window.agentbox.tray.onOpen((target) => {
+        if (target.kind === "question") openNoticeRef.current(target.notice);
+        else if (target.kind === "agent") selectRef.current({ kind: "agent", ref: target.ref });
+        else selectRef.current({ kind: "project", project: target.project });
+      }),
+    [],
+  );
+  // The tray counts Ready to review only while this computer reviews.
+  const reviewing = useReviewing();
+  useEffect(() => window.agentbox.tray.reviewing(reviewing), [reviewing]);
+
   // Tell you when an agent's AI tool waits for your answer while you look elsewhere.
   const chatStates = useRef<Map<string, string | undefined> | null>(null);
   useEffect(() => {
@@ -405,11 +508,11 @@ export function App({ initial }: { initial?: View } = {}) {
       // Not one the daemon keeps: the agent's own chat says it's waiting
       // until it isn't, so it needs no history.
       const id = `waiting:${a.ref}:${Date.now()}`;
-      // v2 answers it from the project's chat, where its card is (#323) and
-      // the lead knows about it; v1 in the agent's own.
+      // It's answered from the project's chat, where its card is (#323) and
+      // the lead knows about it.
       const open = () => {
         waiting.current.delete(id);
-        select(v2 && !isProjectChat(a.ref) ? { kind: "project", project: a.project, tab: "chat" } : { kind: "agent", ref: a.ref, tab: "chat" });
+        select(!isProjectChat(a.ref) ? { kind: "project", project: a.project, tab: "chat" } : { kind: "agent", ref: a.ref, tab: "chat" });
       };
       waiting.current.set(id, open);
       toastNotice(
@@ -459,6 +562,13 @@ export function App({ initial }: { initial?: View } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.data]);
 
+  // Tell you about a chat session you aren't looking at, and count what
+  // waits on you on the dock icon (lib/useSessionAlerts.ts).
+  useSessionAlerts((project, session) => {
+    chooseSession(project, session);
+    select(project === HomeProject ? { kind: "homeChat" } : { kind: "project", project, tab: "chat" });
+  });
+
   // Tell you when an agent newly lands in Ready to review: the chime and the
   // "new" marks are the hook's (lib/useReadyAlerts.ts); the OS notification,
   // shown only while the window isn't in front, is here.
@@ -498,77 +608,59 @@ export function App({ initial }: { initial?: View } = {}) {
         : view.kind === "settings"
           ? `settings:${settingsVisit}`
           : view.kind === "pastAgents"
-            ? `pastAgents:${view.ref ?? ""}:${view.project ?? ""}`
+            ? `pastAgents:${view.ref}`
+            : view.kind === "work"
+              ? `work:${view.project ?? ""}:${view.filter ?? ""}`
             : view.kind === "group"
               ? `group:${view.id}`
-            // v2's Home keeps its chat mounted as its tabs switch.
-            : v2 && view.kind === "homeChat"
+            // Home keeps its chat mounted as its tabs switch.
+            : view.kind === "homeChat"
               ? "home"
               : view.kind;
 
+  // The panel, beside the chat unless folded to its strip of agents.
+  const panelChat = !fullPage ? chatOf(view)?.chat : undefined;
+  const panelBeside = !!panelChat && !(onList(panel, panelChat) && panel.listFolded);
+  const navDocksAtXl = panelBeside;
   const shell = (
     <div className="flex h-full">
-      <div className="hidden lg:flex">
-        {v2 ? (
-          <SidebarV2
-            view={view}
-            onSelect={select}
-            onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
-          />
-        ) : (
-          <Sidebar
-            view={view}
-            onSelect={select}
-            onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
-          />
-        )}
+      <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
+        <SidebarV2
+          view={view}
+          onSelect={select}
+          onAddProject={() => setAddingProject(true)}
+          onNewAgent={setNewAgentProject}
+        />
       </div>
       {navOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden" data-nav-drawer>
+        <div className={cn("fixed inset-0 z-40 flex", navDocksAtXl ? "xl:hidden" : "lg:hidden")} data-nav-drawer>
           <div
             className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
             onClick={() => setNavOpen(false)}
           />
           <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[20px_0_60px_-20px_var(--ab-shadow-deep)]">
-            {v2 ? (
-              <SidebarV2
-                view={view}
-                onSelect={select}
-                onAddProject={() => {
-                  setNavOpen(false);
-                  setAddingProject(true);
-                }}
-                onNewAgent={(project) => {
-                  setNavOpen(false);
-                  setNewAgentProject(project);
-                }}
-              />
-            ) : (
-              <Sidebar
-                view={view}
-                onSelect={select}
-                onAddProject={() => {
-                  setNavOpen(false);
-                  setAddingProject(true);
-                }}
-                onNewAgent={(project) => {
-                  setNavOpen(false);
-                  setNewAgentProject(project);
-                }}
-              />
-            )}
+            <SidebarV2
+              view={view}
+              onSelect={select}
+              onAddProject={() => {
+                setNavOpen(false);
+                setAddingProject(true);
+              }}
+              onNewAgent={(project) => {
+                setNavOpen(false);
+                setNewAgentProject(project);
+              }}
+            />
           </div>
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
+          machine={firstRun || machineRun.state === "idle" ? undefined : machine}
           view={view}
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
-          onOpenRail={v2 ? undefined : () => setRailOpen(true)}
-          onOpenNotice={openNotice}
+          navDocksAtXl={navDocksAtXl}
           onSearch={() => openSearch()}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -576,7 +668,21 @@ export function App({ initial }: { initial?: View } = {}) {
             {/* Until the VM or the distro exists there's no daemon behind
                 any page, so the setup is the page, not a card over an empty
                 dashboard whose buttons can't do anything yet. */}
-            {setup ? (
+            {firstRun ? (
+              <FirstRun
+                connection={connection}
+                // The card even while it runs: the machine step, opened
+                // again from the rail, shows its log.
+                setup={card}
+                host={hostSetup.data}
+                windows={info.data?.platform === "win32"}
+                onFinish={(project) => {
+                  setFirstRunMark("done");
+                  setFirstRunEnded(true);
+                  select(project ? { kind: "project", project } : { kind: "home" });
+                }}
+              />
+            ) : setup ? (
               <div className="flex min-h-0 flex-1 justify-center overflow-y-auto px-4 py-10 md:px-6">
                 <div className="w-full max-w-2xl">
                   {setup.kind === "vm" ? (
@@ -595,6 +701,10 @@ export function App({ initial }: { initial?: View } = {}) {
                   windows={info.data?.platform === "win32"}
                 />
               </div>
+            ) : machine.kind === "running" ? (
+              <div className="px-4 pt-4 md:px-6">
+                <Notice tone="info">{t("shell.machineChip.runningBody")}</Notice>
+              </div>
             ) : (
               connection.state === "disconnected" && (
                 <div className="px-4 pt-4 md:px-6">
@@ -606,50 +716,39 @@ export function App({ initial }: { initial?: View } = {}) {
                 </div>
               )
             )}
-            {!setup && (
+            {!fullPage && connection.state === "connected" && stale && (
+              <div className="px-4 pt-4 md:px-6">
+                <StaleDaemonNotice stale={stale} />
+              </div>
+            )}
+            {!fullPage && connection.state !== "disconnected" && <BuiltWithBadgeOffer />}
+            {!fullPage && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
-                {view.kind === "home" && !v2 && (
-                  <HomeView
-                    onSelect={select}
-                    onAddProject={() => setAddingProject(true)}
-                    onNewAgent={() => setNewAgentProject("")}
-                  />
-                )}
-                {/* v2's Home is one page: the chat (homeChat) and its Status
+                {/* Home is one page: the chat (homeChat) and its Status
                     tab (home), which was Overview. */}
-                {(view.kind === "homeChat" || (v2 && view.kind === "home")) && (
+                {(view.kind === "homeChat" || view.kind === "home") && (
                   <HomeChatPanel
-                    home={
-                      v2
-                        ? {
-                            onStatus: view.kind === "home",
-                            onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
-                            status: (
-                              <HomeStatusV2
-                                onSelect={select}
-                                onAddProject={() => setAddingProject(true)}
-                                onNewAgent={() => setNewAgentProject("")}
-                              />
-                            ),
-                          }
-                        : undefined
-                    }
+                    home={{
+                      onStatus: view.kind === "home",
+                      onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
+                      status: (
+                        <HomeStatusV2
+                          onSelect={select}
+                          onAddProject={() => setAddingProject(true)}
+                          onCloneProject={() => setAddingProject("clone")}
+                          onNewAgent={() => setNewAgentProject("")}
+                        />
+                      ),
+                    }}
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
+                {view.kind === "office" && <OfficeView onSelect={select} onBack={() => select(beforeOffice.current.kind === "office" ? { kind: "home" } : beforeOffice.current)} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
-                {view.kind === "media" && <AllMediaView onSelect={select} />}
-                {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
-                {view.kind === "pastAgents" &&
-                  (v2 ? (
-                    <PastAgentsV2 open={view.ref} project={view.project} onSelect={select} />
-                  ) : (
-                    <PastAgents
-                      open={view.ref}
-                      onOpen={(ref) => select({ kind: "pastAgents", ref: ref ?? undefined })}
-                      onSelect={select}
-                    />
-                  ))}
+                {view.kind === "media" && <MediaView heading onSelect={select} />}
+                {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}
+                {view.kind === "recap" && <RecapView onSelect={select} />}
+                {view.kind === "pastAgents" && <PastAgentView agentRef={view.ref} onBack={() => select({ kind: "work" })} onSelect={select} />}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} linked={settingsLink} />
                 )}
@@ -657,7 +756,6 @@ export function App({ initial }: { initial?: View } = {}) {
                   <ProjectView
                     name={view.project}
                     tab={view.tab}
-                    onSelect={select}
                     onNewAgent={() => setNewAgentProject(view.project)}
                   />
                 )}
@@ -667,47 +765,20 @@ export function App({ initial }: { initial?: View } = {}) {
                     tab={tabs[view.ref]}
                     onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
                     onSelect={select}
-                    chatCard={v2 ? (agent) => <AgentReviewCard agent={agent} /> : undefined}
+                    chatCard={(agent, wake) => <AgentReviewCard agent={agent} wake={wake} />}
                   />
                 )}
               </div>
             )}
           </main>
-          {/* v2's right-hand panel: files, desktop, terminal, browser,
+          {/* The right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {v2 && !setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
-          {!v2 && (view.kind === "project" || view.kind === "agent") && (
-            <div className="hidden xl:flex">
-              <AgentRail
-                view={view}
-                onSelect={select}
-                onNewAgent={setNewAgentProject}
-              />
-            </div>
-          )}
-          {!v2 && railOpen && (view.kind === "project" || view.kind === "agent") && (
-            <div className="fixed inset-0 z-40 flex justify-end xl:hidden" data-rail-drawer>
-              <div
-                className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
-                onClick={() => setRailOpen(false)}
-              />
-              <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]">
-                <AgentRail
-                  view={view}
-                  onSelect={select}
-                  onNewAgent={(project) => {
-                    setRailOpen(false);
-                    setNewAgentProject(project);
-                  }}
-                  onClose={() => setRailOpen(false)}
-                />
-              </div>
-            </div>
-          )}
+          {!fullPage && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
         </div>
       </div>
       <AddProjectDialog
-        open={addingProject}
+        open={!!addingProject}
+        initialMode={addingProject === "clone" ? "clone" : "existing"}
         onOpenChange={setAddingProject}
         onAdded={(project) =>
           select({ kind: "project", project: project.name })
@@ -763,12 +834,21 @@ export function App({ initial }: { initial?: View } = {}) {
           })
         }
       />
-      <SearchModal onOpen={openFound} />
-      {v2 && <NewTaskDialog onSelect={select} />}
+      <SearchModal
+        onOpen={openFound}
+        palette={{
+          view,
+          select,
+          addProject: () => setAddingProject(true),
+          newAgent: setNewAgentProject,
+          whatsNew: () => setWhatsNew(true),
+        }}
+      />
+      <NewTaskDialog onSelect={select} />
       <FanOutDialog onSelect={select} />
-      {v2 && <ShortcutSheet />}
+      <ShortcutSheet />
       {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
-      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
+      {!fullPage && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}
@@ -795,5 +875,18 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
     </div>
   );
-  return v2 ? <ReviewV2>{shell}</ReviewV2> : shell;
+  return <ReviewV2 onSelect={select}>{shell}</ReviewV2>;
+}
+
+// presenceOf is what a view shows, for the presence lease.
+function presenceOf(view: View): { project: string; agent?: string } | undefined {
+  switch (view.kind) {
+    case "project":
+      return { project: view.project };
+    case "agent":
+      return { project: view.ref.split("/")[0], agent: view.ref };
+    case "work":
+      return view.project ? { project: view.project } : undefined;
+  }
+  return undefined;
 }

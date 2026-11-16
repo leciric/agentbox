@@ -206,7 +206,8 @@ const (
 // ScanConnectorsRequest is the body of POST /v1/connectors/scan: the MCP
 // servers the user's own AI tools have, as they would be imported into
 // Project ("" for AgentBox-wide): Claude Code (~/.claude.json, and its
-// projects'), Claude Desktop, Codex, OpenCode, Cursor and Gemini CLI.
+// projects'), Claude Desktop, Codex, OpenCode, Cursor, Gemini CLI and GitHub
+// Copilot CLI.
 type ScanConnectorsRequest struct {
 	Project string `json:"project,omitempty"`
 }
@@ -261,8 +262,8 @@ type ConnectorCandidate struct {
 
 // ConnectorSource is one AI tool that has a server.
 type ConnectorSource struct {
-	// Tool is "claude", "claude-desktop", "codex", "opencode", "cursor" or
-	// "gemini".
+	// Tool is "claude", "claude-desktop", "codex", "opencode", "cursor",
+	// "gemini" or "copilot".
 	Tool string `json:"tool"`
 	// Name is what the tool calls it.
 	Name string `json:"name"`

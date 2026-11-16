@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 	"agentbox/internal/toolcreds"
 )
@@ -55,6 +56,14 @@ func (m *Manager) toolHides(a state.Agent) ([]string, error) {
 		}
 	case "opencode":
 		if !m.Creds.HasOpenCodeLogin(a.OpenCodeAccounts) {
+			return nil, nil
+		}
+	case "gemini":
+		if !m.Creds.HasGeminiLogin(a.GeminiAccount) {
+			return nil, nil
+		}
+	case "copilot":
+		if !m.Creds.HasCopilotLogin(a.CopilotAccount) {
 			return nil, nil
 		}
 	default:
@@ -123,7 +132,7 @@ for d in /proc/[0-9]*; do
   [ "$(stat -c %u "$d" 2>/dev/null)" = "$uid" ] || continue
   cmd=$(tr '\000\n' '\001 ' <"$d/cmdline" 2>/dev/null | cut -d "$(printf '\001')" -f1,2) || continue
   ppid=$(awk '/^PPid:/ {print $2}' "$d/status" 2>/dev/null)
-  case "$cmd" in *claude*|*codex*|*opencode*) ;; *) printf 'P %s %s -\n' "${d#/proc/}" "$ppid"; continue ;; esac
+  case "$cmd" in *claude*|*codex*|*opencode*|*gemini*|*copilot*) ;; *) printf 'P %s %s -\n' "${d#/proc/}" "$ppid"; continue ;; esac
   printf 'P %s %s %s\n' "${d#/proc/}" "$ppid" "$cmd"
   while IFS= read -r -d '' kv; do
     n=${kv%%=*}
@@ -175,7 +184,7 @@ func parseToolProcesses(out string) []toolProcess {
 // script node runs for it. The ACP adapters around Claude Code and Codex
 // aren't: the tool is their child.
 func isTool(tool string, argv []string) bool {
-	names := map[string][]string{"claude": {"claude", "cli.js"}, "codex": {"codex", "codex-acp"}, "opencode": {"opencode"}}[tool]
+	names := map[string][]string{"claude": {"claude", "cli.js"}, "codex": {"codex", "codex-acp"}, "opencode": {"opencode"}, "gemini": {"gemini", "gemini.js"}, "copilot": {"copilot"}}[tool]
 	for i, arg := range argv {
 		if i > 1 || (i == 1 && path.Base(argv[0]) != "node") {
 			break
@@ -203,8 +212,12 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if a.AI == "claude" {
 		watched = append(slices.Clone(watched), "CLAUDE_CODE_OAUTH_TOKEN")
 	}
+	if a.AI == "copilot" {
+		// What it falls back on without an account: the agent's GitHub token.
+		watched = append(slices.Clone(watched), "GH_TOKEN", "GITHUB_TOKEN")
+	}
 	authFile := ""
-	if a.AI == "codex" || a.AI == "opencode" {
+	if a.AI == "codex" || a.AI == "opencode" || a.AI == "gemini" {
 		authFile = "/home/" + m.User.Name + "/" + toolAuthFile(a.AI)
 	}
 	out, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", credentialScript(m.User.UID, watched, authFile))
@@ -243,6 +256,20 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if sum := authFileSum(out); sum != "" {
 		cred.Account = m.toolAccountOf(a, sum)
 	}
+	if sum, ok := top.env["GEMINI_API_KEY"]; ok && a.AI == "gemini" {
+		// The key AgentBox started it with (geminiKeyEnv), when it is one.
+		if name := m.geminiKeyAccountOf(sum); name != "" {
+			cred.Account = name
+		}
+	} else if key := m.geminiKeyLogin(a); key != "" && cred.Variable == "" && a.Interface == state.InterfaceChat {
+		// The key its chat signed it in with over ACP (ChatAuth), which
+		// no environment shows.
+		cred.Account = m.geminiKeyAccountOf(sha256Hex(key))
+	}
+	if sum, ok := top.env["COPILOT_GITHUB_TOKEN"]; ok && a.AI == "copilot" {
+		// The token AgentBox started it with (copilotTokenEnv), when it is one.
+		cred.Account = m.copilotAccountOf(sum)
+	}
 	return cred, nil
 }
 
@@ -255,6 +282,11 @@ func credentialOf(tool string, env map[string]string) (string, []string) {
 		"claude": {"AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_AWS_API_KEY", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
 			"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
 		"codex": {"CODEX_API_KEY", "OPENAI_API_KEY"},
+		// Gemini CLI's: Vertex AI's key when it is told to use Vertex AI,
+		// else the Gemini API key.
+		"gemini": {"GOOGLE_API_KEY", "GEMINI_API_KEY"},
+		// Copilot's documented precedence.
+		"copilot": {"COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_API_KEY", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"},
 	}[tool]
 	var variable string
 	for _, name := range order {
@@ -273,7 +305,7 @@ func credentialOf(tool string, env map[string]string) (string, []string) {
 	}
 	var others []string
 	for name := range env {
-		if name != variable && name != "CLAUDE_CODE_OAUTH_TOKEN" {
+		if name != variable && name != "CLAUDE_CODE_OAUTH_TOKEN" && (tool != "copilot" || (name != "GH_TOKEN" && name != "GITHUB_TOKEN")) {
 			others = append(others, name)
 		}
 	}
@@ -324,6 +356,21 @@ func (m *Manager) toolAccountOf(a state.Agent, sum string) string {
 	return ""
 }
 
+// geminiKeyAccountOf names the stored Gemini CLI API key account whose key
+// hashes to sum.
+func (m *Manager) geminiKeyAccountOf(sum string) string {
+	accounts, err := m.Creds.ToolAccounts(credentials.ToolGemini)
+	if err != nil {
+		return ""
+	}
+	for _, acc := range accounts {
+		if login, ok := m.Creds.GeminiLogin(acc.Name); ok && login.APIKey != "" && sha256Hex(login.APIKey) == sum {
+			return acc.Name
+		}
+	}
+	return ""
+}
+
 // formatAccounts says which account each OpenCode provider is on.
 func formatAccounts(m state.AccountMap) string {
 	var parts []string
@@ -336,4 +383,19 @@ func formatAccounts(m state.AccountMap) string {
 func sha256Hex(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// copilotAccountOf names the stored Copilot account whose token has the
+// SHA-256 sum, "" for none.
+func (m *Manager) copilotAccountOf(sum string) string {
+	accounts, err := m.Creds.ToolAccounts(credentials.ToolCopilot)
+	if err != nil {
+		return ""
+	}
+	for _, acc := range accounts {
+		if login, ok := m.Creds.CopilotLogin(acc.Name); ok && sha256Hex(login.Token) == sum {
+			return acc.Name
+		}
+	}
+	return ""
 }

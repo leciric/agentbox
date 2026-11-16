@@ -15,8 +15,8 @@ func newScheduleCmd(a *app) *cobra.Command {
 		Aliases: []string{"schedules"},
 		Short:   "Tasks a project's chat runs at a time you choose",
 		Long: `A scheduled task wakes a project's chat with the task when it falls due — once,
-every so often, or on a cron expression — or creates an agent with it. A run
-missed while AgentBox wasn't running runs once when it is back, marked late.
+every so often, on a cron expression, or each time an event happens on the
+project's GitHub repository — or creates an agent with it. A run missed while AgentBox wasn't running runs once when it is back, marked late.
 The project's chat makes them too, when you ask it to do something later.`,
 	}
 	cmd.AddCommand(newScheduleListCmd(a), newScheduleAddCmd(a), newScheduleRemoveCmd(a),
@@ -53,7 +53,7 @@ func newScheduleListCmd(a *app) *cobra.Command {
 }
 
 func newScheduleAddCmd(a *app) *cobra.Command {
-	var at, in, every, cron, timezone, title, precheck, session string
+	var at, in, every, cron, on, label, timezone, title, precheck, session string
 	var agent bool
 	var grace int
 	cmd := &cobra.Command{
@@ -61,11 +61,16 @@ func newScheduleAddCmd(a *app) *cobra.Command {
 		Short: "Schedule a task for a project's chat",
 		Long: `Give the task, and when: --at a time ("2026-10-19 09:00", or "09:00" for the
 next time the clock shows it), --in a while ("2h"), --every an interval ("1d",
-from --at or now), or --cron an expression ("0 8 * * 1" is Mondays at 08:00).
+from --at or now), --cron an expression ("0 8 * * 1" is Mondays at 08:00), or
+--on an event: ci_failed (checks fail on the default branch), review_requested
+(a review is asked of you), issue_labeled with --label, or pr_opened (a pull
+request not from an agent). An event's details are added to the task.
 Times are in your timezone, as the app last reported it, unless --tz says.
 
     agentbox schedule add web "Run the release checks" --at "2026-10-19 09:00"
-    agentbox schedule add web "Triage new issues" --cron "0 8 * * 1" --agent`,
+    agentbox schedule add web "Triage new issues" --cron "0 8 * * 1" --agent
+    agentbox schedule add web "Find why CI broke and fix it" --on ci_failed --agent
+    agentbox schedule add web "Reproduce and fix this bug" --on issue_labeled --label bug --agent`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -78,7 +83,7 @@ Times are in your timezone, as the app last reported it, unless --tz says.
 				into **string
 				val  *string
 			}{{"at", &req.At, &at}, {"in", &req.In, &in}, {"every", &req.Every, &every}, {"cron", &req.Cron, &cron},
-				{"tz", &req.Timezone, &timezone}, {"title", &req.Title, &title}, {"precheck", &req.Precheck, &precheck}, {"session", &req.Session, &session}} {
+				{"on", &req.On, &on}, {"label", &req.Label, &label}, {"tz", &req.Timezone, &timezone}, {"title", &req.Title, &title}, {"precheck", &req.Precheck, &precheck}, {"session", &req.Session, &session}} {
 				if cmd.Flags().Changed(f.name) {
 					*f.into = f.val
 				}
@@ -103,6 +108,8 @@ Times are in your timezone, as the app last reported it, unless --tz says.
 	f.StringVar(&in, "in", "", "run once this long from now, like 2h")
 	f.StringVar(&every, "every", "", "repeat on this interval, like 6h or 1d")
 	f.StringVar(&cron, "cron", "", "repeat on this cron expression")
+	f.StringVar(&on, "on", "", "run each time this event happens: ci_failed, review_requested, issue_labeled or pr_opened")
+	f.StringVar(&label, "label", "", "with --on issue_labeled: the label to wait for")
 	f.StringVar(&timezone, "tz", "", "the IANA timezone its times are in, like Europe/Lisbon")
 	f.StringVar(&title, "title", "", "a short name for it (default: the task's first line)")
 	f.BoolVar(&agent, "agent", false, "create an agent with the task, instead of telling the chat")

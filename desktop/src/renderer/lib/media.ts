@@ -9,6 +9,7 @@ export function mediaUrl(item: Pick<T.MediaItem, 'id'>, path?: string): string {
   return window.agentbox.mediaUrl(item.id, path);
 }
 
+
 export const mediaKinds: { kind: string; label: string; one: string; icon: ComponentType<{ className?: string }> }[] = [
   // label and one are read when they're shown, in the language of the moment.
   {

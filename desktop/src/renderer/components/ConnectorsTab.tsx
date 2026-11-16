@@ -119,7 +119,7 @@ export function ConnectorsTab({ target, embedded }: { target: string; embedded?:
           {connectors.error && <Notice>{errorMessage(connectors.error)}</Notice>}
           {connectors.isPending && <p className="py-3 text-sm text-subtle">{t('common.loading')}</p>}
           {!connectors.isPending && mine.length === 0 && (
-            <p className="py-3 text-[13px] leading-relaxed text-subtle">
+            <p className="py-3 text-ui leading-relaxed text-subtle">
               {t.rich('project.connectors.none', { code: (c) => <Code>{c}</Code> })}
             </p>
           )}
@@ -334,11 +334,11 @@ function Tile({
         'disabled:cursor-default disabled:opacity-55 disabled:hover:border-line-faint',
       )}
     >
-      <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
+      <span className="flex items-center gap-2 text-ui font-medium text-primary">
         <span className="flex size-6 items-center justify-center rounded-md bg-surface text-secondary ring-1 ring-inset ring-line">{mark}</span>
         {label}
       </span>
-      <span className="line-clamp-2 w-full text-[11px] leading-snug text-subtle">{detail}</span>
+      <span className="line-clamp-2 w-full text-caption leading-snug text-subtle">{detail}</span>
     </button>
   );
 }
@@ -354,7 +354,7 @@ function PresetMark({ preset }: { preset: ConnectorPreset }) {
       </svg>
     );
   }
-  return <span className="text-[11px] font-semibold">{preset.label[0]}</span>;
+  return <span className="text-caption font-semibold">{preset.label[0]}</span>;
 }
 
 type AuthChoice = typeof A.ConnectorOAuth | typeof A.ConnectorSecret | typeof A.ConnectorNone;
@@ -432,7 +432,7 @@ function ConnectorForm({
         >
           <Input
             id="connector-name"
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             placeholder="acme"
             autoComplete="off"
             spellCheck={false}
@@ -447,7 +447,7 @@ function ConnectorForm({
         <Field label={t('project.connectors.urlLabel')} htmlFor="connector-url" hint={problemHint(problems.url, t('project.connectors.urlHint'))}>
           <Input
             id="connector-url"
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             placeholder="https://mcp.example.com/mcp"
             autoComplete="off"
             spellCheck={false}
@@ -484,7 +484,7 @@ function ConnectorForm({
             <Input
               id="connector-token"
               type="password"
-              className="font-mono text-[13px]"
+              className="font-mono text-ui"
               placeholder={t('project.connectors.tokenPlaceholder')}
               autoComplete="off"
               spellCheck={false}
@@ -495,7 +495,7 @@ function ConnectorForm({
           <Field label={t('project.connectors.secretLabel')} htmlFor="connector-secret" hint={problemHint(problems.secret)}>
             <Input
               id="connector-secret"
-              className="font-mono text-[13px]"
+              className="font-mono text-ui"
               placeholder="ACME_TOKEN"
               autoComplete="off"
               spellCheck={false}
@@ -510,7 +510,7 @@ function ConnectorForm({
           <Field label={t('project.connectors.headerLabel')} htmlFor="connector-header" hint={problemHint(problems.header, header.trim().toLowerCase() === 'authorization' ? t('project.connectors.headerHint') : undefined)}>
             <Input
               id="connector-header"
-              className="font-mono text-[13px]"
+              className="font-mono text-ui"
               autoComplete="off"
               spellCheck={false}
               aria-invalid={isWrong(problems.header)}
@@ -597,14 +597,14 @@ function ConnectorRow({
       className="grid gap-1.5 rounded-xl border border-line-faint bg-surface-faint px-3 py-2.5 transition hover:border-line-strong"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-mono text-[13px] text-primary">{c.name}</span>
+        <span className="font-mono text-ui text-primary">{c.name}</span>
         <Badge variant={status.tone}>
           {waiting && <LoaderCircle className="animate-spin" />}
           {status.label}
         </Badge>
         {!c.enabled && <Badge>{t('project.connectors.off')}</Badge>}
         {isWide(c) && target === undefined && !control && <Badge variant="brand">{t('project.connectors.wideBadge')}</Badge>}
-        <span className="min-w-0 truncate font-mono text-[11.5px] text-subtle" title={c.url}>
+        <span className="min-w-0 truncate font-mono text-caption text-subtle" title={c.url}>
           {c.url}
         </span>
         {control && <div className="ml-auto flex shrink-0 items-center">{control}</div>}
@@ -648,7 +648,7 @@ function ConnectorRow({
           </div>
         )}
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-[11.5px] text-subtle">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-caption text-subtle">
         {token && <span data-connector-token>{token}</span>}
         {c.issuer && <span className="min-w-0 truncate">{t('project.connectors.signedInWith', { host: hostOf(c.issuer) })}</span>}
         {c.connectedAt && c.status === A.ConnectorConnected && <span title={formatDateTime(c.connectedAt)}>{t('project.connectors.since', { when: timeAgo(c.connectedAt, now) })}</span>}
@@ -660,8 +660,8 @@ function ConnectorRow({
           </Tip>
         )}
       </div>
-      {c.status === A.ConnectorError && c.error && <p className="break-words text-[11.5px] text-rose-300">{c.error}</p>}
-      {change.error && <p className="break-words text-[11.5px] text-rose-300">{errorMessage(change.error)}</p>}
+      {c.status === A.ConnectorError && c.error && <p className="break-words text-caption text-rose-300">{c.error}</p>}
+      {change.error && <p className="break-words text-caption text-rose-300">{errorMessage(change.error)}</p>}
     </li>
   );
 }
@@ -701,7 +701,7 @@ function OverrideControl({ project, connector: c }: { project: string; connector
           disabled={set.isPending}
           onClick={() => current !== value && set.mutate(value)}
           className={cn(
-            'rounded-md px-2.5 py-1 text-[11.5px] font-medium transition',
+            'rounded-md px-2.5 py-1 text-caption font-medium transition',
             current === value ? 'bg-brand-500/15 text-primary ring-1 ring-inset ring-brand-400/50' : 'text-subtle hover:text-primary',
           )}
         >

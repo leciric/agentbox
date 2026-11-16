@@ -103,7 +103,7 @@ exit 0`))
 		t.Fatal(err)
 	}
 	script := cmd.Args[len(cmd.Args)-1]
-	for _, want := range []string{`AGENTBOX_CURSOR_SDK="$(mise where 'npm:@cursor/sdk@`, "exec mise exec 'npm:@cursor/sdk@", "-- 'node' '/home/", "/.local/share/agentbox/agentbox-cursor-acp.mjs'"} {
+	for _, want := range []string{`AGENTBOX_CURSOR_SDK="$(mise where 'npm:@cursor/sdk@`, "exec mise exec 'npm:@cursor/sdk@", "agentbox-shims 'node' '/home/", "/.local/share/agentbox/agentbox-cursor-acp.mjs'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the chat's command %q doesn't have %q", script, want)
 		}

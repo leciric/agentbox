@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "headers": {"Authorization": "Bearer ${SENTRY_TOKEN}"},
+      "tools": ["*"]
+    },
+    "old": {"type": "sse", "url": "https://old.example.com/sse", "tools": ["*"]},
+    "playwright": {"type": "local", "command": "npx", "args": ["@playwright/mcp@latest"], "tools": ["*"]}
+  }
+}

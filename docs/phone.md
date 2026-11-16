@@ -30,6 +30,17 @@ once, open chat included.
 The phone connects to port 7780 (`agentbox phone on --port <port>` moves it). If a firewall runs on
 the computer, it has to let that port in from the local network.
 
+AgentBox runs in a VM, whose network a phone can't reach: AgentBox opens the port on the computer
+itself, on Linux, on a Mac and on Windows alike, and passes what the phone sends on to the VM.
+
+- **On Windows**, the app opens it, so a phone reaches AgentBox while the app is open. The first time,
+  Windows Firewall asks whether to allow `agentbox.exe`: allow it on private networks. If it was
+  turned down, or the computer is on a network Windows calls public, **Settings → Phone** says so and
+  what to allow (Windows Security → Firewall & network protection → Allow an app through firewall).
+- **On a Mac**, if the firewall is on (System Settings → Network → Firewall), macOS may ask whether
+  `agentbox` may accept incoming network connections: allow it. **Settings → Phone** says when the
+  firewall blocks it.
+
 ## From anywhere
 
 On the local network only, the phone stops working once you leave the house. **Reach from anywhere**
@@ -55,7 +66,9 @@ and the tunnel's token: the phone's traffic goes through Cloudflare straight to 
 through the hub, and phones still pair with a QR code from this computer, which the hub can't make.
 Choose it in **Settings → Phone → Stable address (via hub)**, or `agentbox phone tunnel on --hub`.
 A hub gives out addresses only once whoever runs it gives it a Cloudflare zone (see the hub's
-README); one that doesn't leaves you on a quick tunnel.
+README); one that doesn't leaves you on a quick tunnel. A hub on Tailscale gives an address in
+your tailnet instead, which only your devices reach, with Tailscale on: see
+[Tailscale instead of Cloudflare](hub.md#tailscale-instead-of-cloudflare).
 
 Otherwise it's a **quick tunnel**: no Cloudflare account, on a random `trycloudflare.com` address
 that changes every time AgentBox starts. A phone's pairing belongs to the address it paired on, so

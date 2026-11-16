@@ -268,6 +268,79 @@ jobs:
           path: desktop/dist/release/${{ needs.release.outputs.tag_name }}/
           if-no-files-found: error
 
+  # The native app (native/, Rust and GPUI) for Windows, experimental, beside
+  # the Electron app: its installer, a .zip, and the .exe its own update
+  # downloads (scripts/native-package.sh), built as the nightly builds them,
+  # on windows-latest, since GPUI's release build needs the Windows SDK's
+  # fxc.exe. Like the nightly's, it is an extra: publish waits for it and
+  # doesn't need it to succeed, so a release never stays a draft over an
+  # experimental file. Linux and Mac builds of it are the nightly's only.
+  native-windows:
+    name: Native app, Windows (experimental)
+    needs: [release, checks]
+    if: always() && needs.checks.result == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ needs.release.outputs.tag_name }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag_name }}
+
+      # update.rs's APP_VERSION: without it the app has no version of its
+      # own, takes the daemon's, and keeps offering the update it just
+      # installed.
+      - name: The version
+        run: |
+          version=${TAG#v}
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          echo "AGENTBOX_VERSION=$version" >>"$GITHUB_ENV"
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: nightly-native
+          save-if: false
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      # agentbox.exe, and the Linux agentbox it installs in AgentBox's WSL
+      # distro, as the Electron app ships both: the app has them built in.
+      - name: Build the agentbox tool
+        run: |
+          scripts/native-cli.sh windows "$VERSION" "$RUNNER_TEMP/cli"
+          {
+            echo "AGENTBOX_BUNDLED_CLI=$RUNNER_TEMP/cli/agentbox.exe"
+            echo "AGENTBOX_BUNDLED_CLI_LINUX=$RUNNER_TEMP/cli/agentbox-linux"
+          } >>"$GITHUB_ENV"
+
+      - name: Build it
+        working-directory: native
+        run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      - name: NSIS, for the installer
+        run: |
+          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+
+      - name: Package it
+        run: scripts/native-package.sh windows "$VERSION" native-out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-windows
+          path: native-out/
+          if-no-files-found: error
+
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
   # for Apple silicon and Intel, from the tag release-please made. It's signed
   # and notarized when the repository has Apple's credentials as secrets;
@@ -362,10 +435,11 @@ jobs:
   # `== 'success'` checks below. Needs `always()`, since a skipped macos would
   # otherwise skip this job too. Nothing is published if any build fails: the
   # release stays a draft, visible to collaborators only, until a rerun of
-  # this workflow gets all three green.
+  # this workflow gets all three green. The native app's files are an extra:
+  # it waits for native-windows, and publishes without them when it failed.
   publish:
     name: Publish
-    needs: [release, linux, windows, macos]
+    needs: [release, linux, windows, macos, native-windows]
     if: >-
       always() &&
       needs.release.outputs.release_created == 'true' &&
@@ -391,6 +465,14 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: windows
+          path: out
+          merge-multiple: true
+
+      # None when native-windows failed: a pattern that matches no artifact
+      # downloads nothing.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-windows
           path: out
           merge-multiple: true
 

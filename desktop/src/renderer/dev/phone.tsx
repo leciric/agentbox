@@ -8,11 +8,17 @@
 //   ?phone=list             the chat list (the default)
 //   ?phone=chat             agent-12's chat, its turn running live
 //   ?phone=lead             the project's chat, rich blocks and code in it
+//   ?phone=pulls            the project's open pull requests, to merge one
 //   ?phone=frame            the list in a 390×844 frame in the middle of the
 //                           page, for watching it on a wide screen
 //   &controls=1             a button to drop the connection and get it back
 //                           (beside the phone, with ?phone=frame)
+//   &still=1                no turn running live: the agent stays idle
 //   &offline=1              starts with the connection dropped
+//   &speech=fake            a made-up speech recogniser, for the composer's mic
+//                           (it "hears" a sentence, word by word, and listens until the mic is tapped);
+//                           =insecure is the plain-http LAN page, =none a
+//                           browser with no speech API
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
@@ -26,6 +32,22 @@ import { buildFixtures, PROJECT, richChat } from './fixtures';
 
 const OTHER = 'reminders-app';
 const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+// pulls is a project's open pull requests: passing, failing, running, a
+// draft, and a title long enough to wrap; the other project has none.
+const pulls = (project: string): T.ProjectPullRequests => ({
+  project,
+  canMerge: true,
+  mergeMethods: ['squash'],
+  pullRequests:
+    project === OTHER
+      ? []
+      : [
+          { number: 482, title: 'feat: the reminders page lists reminders by due date, and Snooze moves one to tomorrow', state: 'open', checks: 'passing', url: '', baseBranch: 'main', agent: 'agent-12', additions: 412, deletions: 38 },
+          { number: 479, title: 'fix: a reminder due at midnight shows on the right day', state: 'open', checks: 'failing', url: '', baseBranch: 'main', agent: 'agent-09', additions: 23, deletions: 4 },
+          { number: 477, title: 'refactor: one clock for every reminder', state: 'open', checks: 'pending', url: '', baseBranch: 'main', additions: 88, deletions: 120 },
+          { number: 470, title: 'WIP: push notifications', state: 'open', checks: '', url: '', baseBranch: 'main', draft: true },
+        ],
+});
 const session = (over: Partial<T.ChatSession> = {}): T.ChatSession => ({ state: 'ready', tool: 'claude', options: [], commands: [], ...over });
 
 type Bridge = {
@@ -78,6 +100,12 @@ function settled(id: string, ask: string, answer: string, took: number, ago: num
 }
 
 export function startPhonePreview(mode: string, params: URLSearchParams): void {
+  // web.html's viewport, which preview.html lacks: without it a phone lays
+  // the page out 980 px wide and shrinks it.
+  const viewport = document.createElement('meta');
+  viewport.name = 'viewport';
+  viewport.content = document.querySelector<HTMLMetaElement>('meta[name=viewport]')?.content || 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content';
+  if (!document.head.querySelector('meta[name=viewport]')) document.head.append(viewport);
   const base = buildFixtures().projects[0];
   const projects: T.Project[] = [
     { ...base, name: PROJECT, displayName: 'AgentBox' },
@@ -148,6 +176,13 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     if (method === 'GET' && route === '/v1/settings') return answer({ language: params.get('lang') ?? 'en-US' });
     const leadOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/lead$/.exec(route) : null;
     if (leadOf) return answer(leads[decodeURIComponent(leadOf[1])]);
+    // Claude Code signed in, as on a computer the phone was paired from: or
+    // every composer says to log in first, over a permission to give.
+    if (method === 'GET' && route === '/v1/auth') {
+      return answer({ claude: true, codex: false, opencode: false, cursor: false, gemini: false, copilot: false, claudeAccounts: [{ name: 'default', default: true, savedAt: at(86_400_000) }], codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], geminiAccounts: [], copilotAccounts: [], github: true, githubAccounts: [] } satisfies T.AuthStatus);
+    }
+    const pullsOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/pulls$/.exec(route) : null;
+    if (pullsOf) return answer(pulls(decodeURIComponent(pullsOf[1])));
     const ref = chatRef(route);
     if (method === 'GET' && ref && threads.has(ref)) return answer(threads.get(ref));
     if (method === 'POST' && route.endsWith('/chat/start')) return answer(session());
@@ -239,10 +274,12 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
       setTimeout(step, wait);
     }
   };
-  setTimeout(live, 600);
+  if (params.get('still') !== '1') setTimeout(live, 600);
 
+  fakeSpeech(new URLSearchParams(location.search).get('speech'));
   if (mode === 'chat') location.hash = `#/a/${PROJECT}/agent-12`;
   else if (mode === 'lead') location.hash = `#/p/${PROJECT}`;
+  else if (mode === 'pulls') location.hash = `#/pr/${PROJECT}`;
   else if (!location.hash.startsWith('#/')) location.hash = '#/';
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });
@@ -257,7 +294,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
           <div style={{ position: 'fixed', right: 8, bottom: 92, zIndex: 80, display: 'grid', gap: 6 }}>
             <button
               data-dev-drop
-              className="rounded-lg border border-line-strong bg-overlay px-2.5 py-1 text-[11px] text-secondary shadow-md"
+              className="rounded-lg border border-line-strong bg-overlay px-2.5 py-1 text-caption text-secondary shadow-pop"
               onClick={toggle}
             >
               Drop / restore
@@ -300,4 +337,45 @@ export function startPhoneFrame(params: URLSearchParams): void {
       )}
     </div>,
   );
+}
+
+// fakeSpeech stands in for the browser's recogniser (localhost is a secure
+// context, and a headless Chromium hears nothing).
+function fakeSpeech(kind: string | null) {
+  if (!kind) return;
+  const w = window as unknown as Record<string, unknown>;
+  if (kind === 'none') {
+    delete w.SpeechRecognition;
+    delete w.webkitSpeechRecognition;
+    return;
+  }
+  if (kind === 'insecure') Object.defineProperty(window, 'isSecureContext', { value: false });
+  const words = 'fix the failing test in the checkout flow'.split(' ');
+  class Fake {
+    onresult: ((e: unknown) => void) | null = null;
+    onend: (() => void) | null = null;
+    timer = 0;
+    said = '';
+    start() {
+      let n = 0;
+      this.timer = window.setInterval(() => {
+        n++;
+        // Listening carries on after the last word until the mic is tapped, so
+        // a screenshot can catch it.
+        this.said = words.slice(0, Math.min(n, words.length)).join(' ');
+        this.onresult?.({ results: [Object.assign([{ transcript: this.said }], { isFinal: false })] });
+      }, 700);
+    }
+    stop() {
+      window.clearInterval(this.timer);
+      if (this.said) this.onresult?.({ results: [Object.assign([{ transcript: this.said }], { isFinal: true })] });
+      this.said = '';
+      this.onend?.();
+    }
+    abort() {
+      this.stop();
+    }
+  }
+  w.SpeechRecognition = Fake;
+  w.webkitSpeechRecognition = Fake;
 }

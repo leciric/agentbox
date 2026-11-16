@@ -13,6 +13,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/daemon"
+	"agentbox/internal/hostos"
 	"agentbox/internal/incus"
 )
 
@@ -42,6 +43,8 @@ func newDaemonCmd(a *app) *cobra.Command {
 				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
 				TraceDir:    filepath.Dir(a.paths.StateDB()),
+				FetchImage:  hostos.InVM(),
+				CrashOutput: true,
 			})
 			if err != nil {
 				return err
@@ -211,6 +214,17 @@ func insideAgent() bool {
 	}
 	host, err := insideAgentHostname()
 	return err == nil && strings.HasPrefix(host, insideAgentHostnamePrefix)
+}
+
+// onAgentMachine is insideAgent without its hostname fallback: what a guard
+// that refuses work uses, so a host that happens to be named ab-… isn't
+// taken for an agent.
+func onAgentMachine() bool {
+	if _, err := os.Stat(inAgentMarker()); err == nil {
+		return true
+	}
+	_, err := os.Stat(inAgentSocket())
+	return err == nil
 }
 
 // inAgentSocket is api.InAgentSocket, unless AGENTBOX_IN_AGENT_SOCKET says

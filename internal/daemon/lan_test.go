@@ -9,8 +9,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,14 +22,30 @@ import (
 	"agentbox/internal/state"
 )
 
+// portsTaken is the ports freePort has handed out in this test binary.
+var portsTaken = struct {
+	sync.Mutex
+	used map[int]bool
+}{used: map[int]bool{}}
+
 // freePort is a port nothing listens on, for a server the test starts later.
 // It's below the ephemeral ranges (Linux 32768–60999, macOS 49152–65535):
 // one the kernel handed out with :0 is free again once closed, and a
 // parallel test's outgoing connection could take it before the server binds.
+//
+// No two calls return the same port: a test that has picked one hasn't bound
+// it yet, and a parallel test picking it too would find it free.
 func freePort(t *testing.T) int {
 	t.Helper()
 	for range 100 {
 		port := 20000 + rand.IntN(12000)
+		portsTaken.Lock()
+		dup := portsTaken.used[port]
+		portsTaken.used[port] = true
+		portsTaken.Unlock()
+		if dup {
+			continue
+		}
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 		if err == nil {
 			_ = ln.Close()
@@ -292,6 +311,36 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 
 // In the Linux host's VM the supervisor opens the port on the host, and
 // passes requests on over the daemon's socket, saying who they came from.
+// A web app whose page came out empty, as when the daemon restarted while
+// the app was installing it, isn't taken, and one already installed so
+// doesn't count: the app installs it again the next time it connects.
+func TestPhoneWebAppWithAnEmptyPage(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	app := newPhone(t, "http://agentbox", d.client.HTTPClient().Transport)
+	if code, _ := app.do(http.MethodPut, "/v1/lan/web/1.0.0/files/web.html", ""); code != http.StatusNoContent {
+		t.Fatal(code)
+	}
+	if code, body := app.do(http.MethodPost, "/v1/lan/web/1.0.0", ""); code < 400 {
+		t.Errorf("installing an empty web.html = %d %q", code, body)
+	}
+
+	dir := filepath.Join(d.srv.lanWebDir(), "1.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "web.html"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.srv.lanWebDir(), "current"), []byte("1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := d.client.LAN(ctx); err != nil || st.WebVersion != "" {
+		t.Errorf("WebVersion with an empty web.html installed = %q, %v", st.WebVersion, err)
+	}
+}
+
 func TestPhoneThroughTheVMsHost(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -338,28 +387,41 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	}
 }
 
-// The Mac's vz VM runs under the same supervisor as the Linux host's: once it
-// reports, the port it opened on the Mac is what phones reach.
-func TestPhoneThroughMacVZ(t *testing.T) {
-	t.Setenv(hostos.Env, "darwin")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	ctx := context.Background()
-	port := freePort(t)
-	on := true
-	st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
-	if err != nil || st.Listening || !strings.Contains(st.Error, "can't reach AgentBox's VM on a Mac") {
-		t.Fatalf("on with no report = %+v, %v", st, err)
-	}
-	if err := d.client.ReportLANHost(ctx, api.LANHostReport{Port: port, Listening: true, Addresses: []string{"192.168.1.5"}}); err != nil {
-		t.Fatal(err)
-	}
-	st, _ = d.client.LAN(ctx)
-	want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
-	if !st.Listening || st.Error != "" || len(st.URLs) != 1 || st.URLs[0] != want {
-		t.Fatalf("after the supervisor's report = %+v", st)
-	}
-	if _, err := d.client.PairLAN(ctx); err != nil {
-		t.Errorf("pairing after the supervisor's report: %v", err)
+// In a VM on a Mac or Windows, the daemon leaves the port to the process on
+// that computer that opens it there (lan.Forward), whose report is what
+// phones reach, firewall warning included.
+func TestPhoneInAVMOnAnotherComputer(t *testing.T) {
+	for _, c := range []struct{ os, waiting string }{
+		{"darwin", "waiting for AgentBox's VM"},
+		{"windows", "waiting for the AgentBox app to open the port on Windows"},
+	} {
+		t.Run(c.os, func(t *testing.T) {
+			t.Setenv(hostos.Env, c.os)
+			d := startTestDaemon(t, t.TempDir(), fakeIncus)
+			ctx := context.Background()
+			port := freePort(t)
+			on := true
+			st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
+			if err != nil || st.Listening || !strings.HasPrefix(st.Error, c.waiting) {
+				t.Fatalf("on with no report = %+v, %v", st, err)
+			}
+			if conn, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port)); err == nil {
+				_ = conn.Close()
+				t.Error("the daemon listens on the port itself")
+			}
+			report := api.LANHostReport{Port: port, Listening: true, Warning: "allow it", Addresses: []string{"192.168.1.5"}}
+			if err := d.client.ReportLANHost(ctx, report); err != nil {
+				t.Fatal(err)
+			}
+			st, _ = d.client.LAN(ctx)
+			want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
+			if !st.Listening || st.Error != "" || st.Warning != "allow it" || len(st.URLs) != 1 || st.URLs[0] != want {
+				t.Fatalf("after the report = %+v", st)
+			}
+			if _, err := d.client.PairLAN(ctx); err != nil {
+				t.Errorf("pairing after the report: %v", err)
+			}
+		})
 	}
 }
 
@@ -435,7 +497,7 @@ func TestLANNever(t *testing.T) {
 		"secrets and credentials": {
 			"GET /v1/projects/p/secrets", "PUT /v1/projects/p/secrets/K", "DELETE /v1/agents/p/a/secrets/K",
 			"GET /v1/projects/p/credentials", "GET /v1/agents/p/a/credential", "POST /v1/projects/p/questions/q1/credential",
-			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "DELETE /v1/auth/cursor",
+			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "POST /v1/auth/github/login", "GET /v1/auth/github/login/j", "DELETE /v1/auth/cursor",
 			"GET /v1/projects/p/browser-cookies", "PUT /v1/projects/p/browser-cookies",
 		},
 		"connectors": {
@@ -445,7 +507,7 @@ func TestLANNever(t *testing.T) {
 		"terminals": {"GET /v1/agents/p/a/terminal"},
 		"the browser and Android views": {
 			"GET /v1/agents/p/a/browser/view", "GET /v1/agents/p/a/browser", "POST /v1/agents/p/a/browser/start",
-			"GET /v1/agents/p/a/android/view", "POST /v1/agents/p/a/android/start",
+			"GET /v1/agents/p/a/android/stream", "POST /v1/agents/p/a/android/start",
 		},
 		"pairing and the phone, remote and tunnel settings": {
 			"POST /v1/lan/pairings", "GET /v1/lan", "PATCH /v1/lan", "PATCH /v1/lan/phones/phone_1", "DELETE /v1/lan/phones/phone_1",

@@ -166,6 +166,7 @@ func (s *Server) vncView(w http.ResponseWriter, r *http.Request, dial func(conte
 	if err != nil {
 		return err
 	}
+	defer s.viewIdle(a.Ref())()
 	vnc, err := dial(r.Context(), a)
 	if err != nil {
 		return err

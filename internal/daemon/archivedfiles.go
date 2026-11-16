@@ -1,12 +1,9 @@
 package daemon
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 
 	"agentbox/internal/api"
-	"agentbox/internal/state"
 	"agentbox/internal/worktreefs"
 )
 
@@ -29,17 +26,9 @@ func (s *Server) archivedCommit(r *http.Request) (root, commit, base, baseName s
 	if err != nil {
 		return "", "", "", "", err
 	}
-	if a.Branch == "" {
-		return "", "", "", "", fmt.Errorf("%w: %s had no branch", state.ErrNotFound, a.Name)
-	}
-	commit, err = worktreefs.BranchCommit(p.Root, a.Branch)
-	if errors.Is(err, worktreefs.ErrNoBranch) {
-		return "", "", "", "", fmt.Errorf("%w: branch %s is gone, from the project's repository and from origin", state.ErrNotFound, a.Branch)
-	}
-	if err != nil {
+	if commit, base, err = archivedRange(p.Root, a); err != nil {
 		return "", "", "", "", err
 	}
-	base = worktreefs.BaseAt(p.Root, a.BaseCommit, a.BaseRef, commit)
 	baseName = a.BaseRef
 	if baseName == "" && base != "" {
 		baseName = base[:min(len(base), 12)]
@@ -98,7 +87,7 @@ func (s *Server) archivedRead(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fileErr(err)
 	}
-	if q.Get("base") == "1" && base != "" && !content.Binary && !content.TooLarge && (content.Image == "" || content.Text != "") {
+	if q.Get("base") == "1" && base != "" && !content.Binary && !content.PDF && !content.TooLarge && (content.Image == "" || content.Text != "") {
 		if changes, _, err := worktreefs.StatusAt(root, base, commit); err == nil {
 			content.Base = baseName
 			content.Status = changes[content.Path]
@@ -108,4 +97,18 @@ func (s *Server) archivedRead(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	return writeJSON(w, http.StatusOK, content)
+}
+
+func (s *Server) archivedSQLite(w http.ResponseWriter, r *http.Request) error {
+	root, commit, _, _, err := s.archivedCommit(r)
+	if err != nil {
+		return err
+	}
+	q := r.URL.Query()
+	offset, limit := sqlitePage(q)
+	out, err := worktreefs.SQLiteAt(r.Context(), root, commit, q.Get("path"), q.Get("table"), offset, limit)
+	if err != nil {
+		return sqliteErr(err)
+	}
+	return writeJSON(w, http.StatusOK, out)
 }

@@ -1,5 +1,7 @@
 // Package schedule works out when a scheduled task runs: once at a time, every
-// so often, or on a cron expression, in the timezone of the person who asked.
+// so often, or on a cron expression, in the timezone of the person who asked;
+// or on an event on the project's GitHub repository, which the daemon's pull
+// request watch notices (internal/daemon/eventtriggers.go).
 // It keeps no state and knows nothing of what a run does; the daemon stores
 // schedules (state.Schedule) and runs them (internal/daemon/schedules.go).
 package schedule
@@ -7,6 +9,7 @@ package schedule
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +24,27 @@ const (
 	Every = "every"
 	// Cron runs on a five-field cron expression, read in Location.
 	Cron = "cron"
+	// OnEvent runs each time Event happens, and never at a time of its own.
+	OnEvent = "event"
 )
+
+// Events an OnEvent schedule can run on.
+const (
+	// EventCIFailed is the checks on the newest commit of the repository's
+	// default branch failing: once per commit.
+	EventCIFailed = "ci_failed"
+	// EventReviewRequested is a review being asked of the user (the GitHub
+	// account AgentBox reads the repository with) on a pull request.
+	EventReviewRequested = "review_requested"
+	// EventIssueLabeled is an open issue getting the label Spec.Label.
+	EventIssueLabeled = "issue_labeled"
+	// EventPROpened is a pull request opened from outside AgentBox: from a
+	// branch that isn't an agent's.
+	EventPROpened = "pr_opened"
+)
+
+// Events lists them, in the order they are offered.
+var Events = []string{EventCIFailed, EventReviewRequested, EventIssueLabeled, EventPROpened}
 
 // MinEvery is the shortest interval a schedule may repeat on: anything
 // shorter is a loop, not a schedule, and each run starts a turn of a model.
@@ -42,6 +65,10 @@ type Spec struct {
 	// Once or Every schedule is an instant and needs none, but keeps it to be
 	// shown in.
 	Location *time.Location
+	// Event is what an OnEvent schedule runs on, and Label the label an
+	// EventIssueLabeled one waits for.
+	Event string
+	Label string
 }
 
 // Check reports what is wrong with a spec, if anything.
@@ -62,8 +89,15 @@ func (s Spec) Check() error {
 		if _, err := ParseCron(s.Cron); err != nil {
 			return err
 		}
+	case OnEvent:
+		if !slices.Contains(Events, s.Event) {
+			return fmt.Errorf("unknown event %q: %s", s.Event, strings.Join(Events, ", "))
+		}
+		if s.Event == EventIssueLabeled && strings.TrimSpace(s.Label) == "" {
+			return errors.New("an issue_labeled trigger needs the label to wait for")
+		}
 	default:
-		return fmt.Errorf("unknown kind of schedule %q: once, every or cron", s.Kind)
+		return fmt.Errorf("unknown kind of schedule %q: once, every, cron or event", s.Kind)
 	}
 	return nil
 }
@@ -77,7 +111,7 @@ func (s Spec) loc() *time.Location {
 
 // Next is the first time the schedule runs after after, and false when it
 // never runs again: a Once whose time has passed, or a cron expression no
-// date matches (30 February).
+// date matches (30 February). An OnEvent schedule has no time: always false.
 func (s Spec) Next(after time.Time) (time.Time, bool) {
 	switch s.Kind {
 	case Once:
@@ -112,8 +146,25 @@ func (s Spec) Describe() string {
 		return "every " + FormatEvery(s.Every)
 	case Cron:
 		return fmt.Sprintf("cron %q (%s)", s.Cron, loc)
+	case OnEvent:
+		return DescribeEvent(s.Event, s.Label)
 	}
 	return s.Kind
+}
+
+// DescribeEvent says when an OnEvent schedule runs, in English.
+func DescribeEvent(event, label string) string {
+	switch event {
+	case EventCIFailed:
+		return "when CI fails on the default branch"
+	case EventReviewRequested:
+		return "when a review is requested from the user"
+	case EventIssueLabeled:
+		return fmt.Sprintf("when an issue is labelled %q", label)
+	case EventPROpened:
+		return "when a pull request from outside AgentBox is opened"
+	}
+	return "on event " + event
 }
 
 // FormatEvery writes an interval the way people say it: 90m is 1h30m, 48h is

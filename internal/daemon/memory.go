@@ -42,8 +42,10 @@ type memoryScope struct {
 	project string
 	agent   string
 	origin  string
-	// lead is set on a project chat's own socket.
-	lead bool
+	// lead is set on a project chat's own socket, and session is which of
+	// the chat's sessions it is: what it is working on is its own.
+	lead    bool
+	session string
 }
 
 // who names whoever is asking, for a record of it: the agent, the lead, or
@@ -71,7 +73,7 @@ func (s *Server) projectMemoryScope(r *http.Request) (memoryScope, error) {
 // leadMemoryScope is projectMemoryScope on a project chat's socket.
 func (s *Server) leadMemoryScope(r *http.Request) (memoryScope, error) {
 	who, err := s.projectMemoryScope(r)
-	who.lead = true
+	who.lead, who.session = true, sessionFrom(r)
 	return who, err
 }
 
@@ -260,7 +262,7 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			if err != nil {
 				return err
 			}
-			return writeJSON(w, http.StatusOK, apiWorking(working))
+			return writeJSON(w, http.StatusOK, apiWorking(working.ForSession(who.session)))
 
 		case "set-working":
 			var req api.WorkingMemoryPatch
@@ -269,12 +271,12 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			}
 			working, err := m.SetWorkingMemory(ctx, who.project, memory.WorkingMemoryPatch{
 				Goal: req.Goal, CurrentTask: req.CurrentTask, ActiveAgents: req.ActiveAgents,
-				Blockers: req.Blockers, Notes: req.Notes,
+				Blockers: req.Blockers, Notes: req.Notes, Session: who.session,
 			})
 			if err != nil {
 				return err
 			}
-			return writeJSON(w, http.StatusOK, apiWorking(working))
+			return writeJSON(w, http.StatusOK, apiWorking(working.ForSession(who.session)))
 
 		case "artifacts":
 			artifacts, err := m.Artifacts(ctx, who.project)
@@ -478,7 +480,7 @@ func (s *Server) buildContext(ctx context.Context, m *memory.Store, who memorySc
 		}
 	}
 	built, err := m.BuildContext(ctx, memory.ContextRequest{
-		Project: who.project, Query: req.Query, Budget: budget, For: audience,
+		Project: who.project, Query: req.Query, Budget: budget, For: audience, Session: who.session,
 	})
 	if err != nil {
 		return api.ContextResult{}, err
@@ -602,7 +604,7 @@ func apiMemories(memories []memory.Memory) []api.Memory {
 func apiWorking(w memory.WorkingMemory) api.WorkingMemory {
 	return api.WorkingMemory{
 		Goal: w.Goal, CurrentTask: w.CurrentTask, ActiveAgents: w.ActiveAgents,
-		Blockers: w.Blockers, Notes: w.Notes, UpdatedAt: w.UpdatedAt,
+		Blockers: w.Blockers, Notes: w.Notes, Sessions: w.Sessions, UpdatedAt: w.UpdatedAt,
 	}
 }
 

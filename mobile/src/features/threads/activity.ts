@@ -138,6 +138,31 @@ export function rank(agent: T.Agent): number {
   return tone === 'urgent' ? 0 : tone === 'error' ? 1 : tone === 'live' ? 2 : tone === 'warning' ? 3 : 4;
 }
 
+// Mood is what an agent's avatar acts out (agentStatus.ts's avatarMood):
+// at work, idle, asking you, asleep (its machine off) or broken.
+export type Mood = 'working' | 'idle' | 'asking' | 'sleeping' | 'error';
+
+export function avatarMood(agent: T.Agent, asking = false): Mood {
+  if (agent.state === 'initializing' || agent.state === 'queued') return 'sleeping';
+  if (agent.state === 'incomplete' || agent.state === 'missing' || agent.chat === 'error') return 'error';
+  if (agent.state === 'running' && agent.chat === 'running' && agent.stalledSince) return 'error';
+  if (agent.state !== 'running') return 'sleeping';
+  if (agent.chat === 'waiting' || asking) return 'asking';
+  if (agent.chat === 'running' || agent.chat === 'starting') return 'working';
+  if (agent.outcome === 'asking') return 'asking';
+  if (agent.outcome === 'failed') return 'error';
+  return 'idle';
+}
+
+// leadMood is avatarMood for a project's lead, which has a chat and no
+// machine: asleep until its chat starts.
+export function leadMood(chat: string | undefined, asking = false): Mood {
+  if (chat === 'error') return 'error';
+  if (chat === 'waiting' || asking) return 'asking';
+  if (chat === 'running' || chat === 'starting') return 'working';
+  return !chat || chat === 'off' ? 'sleeping' : 'idle';
+}
+
 // isWaiting says a question waits on the user: the lead couldn't answer it
 // and passed it on. Credentials are only ever given on the computer.
 export const isWaiting = (q: T.Question) => q.status === 'escalated' && (!q.kind || q.kind === 'decision');

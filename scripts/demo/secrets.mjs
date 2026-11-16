@@ -318,10 +318,10 @@ try {
     const tools = await chat.send('tools/list');
     const names = tools.result.tools.map((t) => t.name);
     console.log(`\nthe chat's tools: ${names.join(', ')}`);
-    check('the chat has a tool for the names', names.includes('list_secrets'), names.join(', '));
-    check('and no tool that reads, sets or removes a value', !names.some((n) => /secret/.test(n) && n !== 'list_secrets'), names.join(', '));
+    check('the chat has a tool for the names', names.includes('list_resources'), names.join(', '));
+    check('and no tool that reads, sets or removes a value', !names.some((n) => /secret/.test(n) && n !== 'list_resources'), names.join(', '));
 
-    const text = await chat.call('list_secrets');
+    const text = await chat.call('list_resources', { kind: 'secrets' });
     check('it names the project variable', text.includes('$OPENAI_API_KEY'), text);
     check('it says where each one applies', text.includes('every agent of this project'), text);
     check('it carries no value', !text.includes(KEY2) && !text.includes(AGENT_ONLY), text);

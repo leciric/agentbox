@@ -51,6 +51,26 @@ func TestSecretsCommands(t *testing.T) {
 		t.Errorf("setting a secret twice left %q, %v", secrets, err)
 	}
 
+	// --lead-managed marks it the lead's to keep fresh; setting it again
+	// without the flag keeps that, and =false stops it.
+	out, err = run(t, "sk-third-value", "secrets", "set", "hello-stack", "OPENAI_API_KEY", "--value-stdin", "--lead-managed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Managed by the lead")
+	if _, err := run(t, "sk-fourth-value", "secrets", "set", "hello-stack", "OPENAI_API_KEY", "--value-stdin"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, "", "secrets", "list", "hello-stack"); err != nil || !strings.Contains(out, "project, lead-managed") {
+		t.Errorf("after setting the value again, the list = %q, %v; want it still lead-managed", out, err)
+	}
+	if _, err := run(t, "sk-fifth-value", "secrets", "set", "hello-stack", "OPENAI_API_KEY", "--value-stdin", "--lead-managed=false"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, "", "secrets", "list", "hello-stack"); err != nil || strings.Contains(out, "lead-managed") {
+		t.Errorf("after --lead-managed=false, the list = %q, %v", out, err)
+	}
+
 	out, err = run(t, "", "secrets", "rm", "hello-stack", "OPENAI_API_KEY")
 	if err != nil {
 		t.Fatal(err)

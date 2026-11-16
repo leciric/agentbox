@@ -74,6 +74,29 @@ stops or deletes anything.
 			return nil
 		},
 	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "trim",
+		Short: "Give your disk back the space AgentBox's VM has freed, now",
+		Long: `The VM's disks are files on your disk that grow as the VM writes, and shrink
+only when the VM says which blocks it no longer uses. AgentBox does that a
+few minutes after agents are removed and twice a day; this does it now.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			t, err := c.TrimDisk(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if t.Error != "" {
+				return fmt.Errorf("trimmed %s, but: %s", humanBytes(t.Bytes), t.Error)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Trimmed %s: what of it the VM's disk images still held is back on your disk.\n", humanBytes(t.Bytes))
+			return nil
+		},
+	})
 	cmd.Flags().StringVar(&floor, "floor", "", `the least free space to keep on each disk, like 20GiB ("default": 10GiB)`)
 	cmd.Flags().StringVar(&percent, "floor-percent", "", `the share of each disk to keep free, if more ("default": 5)`)
 	return cmd

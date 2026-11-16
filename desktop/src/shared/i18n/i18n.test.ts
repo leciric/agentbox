@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { enUS } from './en-US.ts';
-import { format, placeholders } from './format.ts';
+import { fallbackPlural, format, placeholders } from './format.ts';
 import { formatDate, formatNumber, language, languages, resolveLanguage, setLanguage, t } from './index.ts';
 
 const keys = Object.keys(enUS) as (keyof typeof enUS)[];
@@ -70,5 +70,16 @@ test('messages, numbers and dates follow the language', () => {
     assert.equal(formatNumber(1234.5), '1,234.5');
   } finally {
     setLanguage('en-US');
+  }
+});
+
+// The phone's engine (Hermes on Android) has no Intl.PluralRules, so plurals
+// there pick their branch with fallbackPlural: it must agree with the real
+// rules for every language the app speaks (mobile/src/shared/i18n.test.ts
+// runs the catalogs without them).
+test('the plural rules used without Intl.PluralRules agree with it', () => {
+  for (const { tag } of languages) {
+    const rules = new Intl.PluralRules(tag);
+    for (const n of [0, 1, 1.5, 2, 3, 11, 21, 100, 1000000]) assert.equal(fallbackPlural(tag, n), rules.select(n), `${tag} ${n}`);
   }
 });

@@ -5,14 +5,17 @@ import (
 	"strings"
 
 	"agentbox/internal/gitrepo"
+	"agentbox/internal/state"
 )
 
 // syncBase brings the project's base branch up to date with its remote
 // before an agent is made from it (gitrepo.Repo.SyncBase), and says in the
 // log what it did. It is best effort: an agent is still made from what the
-// repository has when the remote can't be reached.
-func (m *Manager) syncBase(ctx context.Context, repo gitrepo.Repo) {
-	synced, err := repo.SyncBase(ctx)
+// repository has when the remote can't be reached. It fetches from GitHub
+// with the project's account, as its agents would.
+func (m *Manager) syncBase(ctx context.Context, p state.Project, repo gitrepo.Repo) {
+	token, _ := m.GitHubToken(p) // without one, the user's own credential helper
+	synced, err := repo.SyncBase(ctx, token)
 	switch {
 	case err != nil:
 		m.logf("Couldn't bring %s up to date with %s: %v", synced.Branch, shortRef(synced.Upstream.Ref), err)

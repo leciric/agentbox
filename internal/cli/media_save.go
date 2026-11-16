@@ -15,6 +15,7 @@ import (
 // gh pr create --attach can upload a screenshot to a pull request.
 func newMediaSaveCmd(a *app) *cobra.Command {
 	var name string
+	var raw bool
 	cmd := &cobra.Command{
 		Use:   "save [agent] <media> <path>",
 		Short: "Copy a screenshot or recording out of the Media tab into a file here, to attach it to a pull request",
@@ -80,7 +81,17 @@ It is what gh's --attach needs to put a screenshot in a pull request:
 			if info, err := os.Stat(dest); err == nil && info.IsDir() {
 				dest = filepath.Join(dest, filepath.Base(item.File))
 			}
-			body, err := c.MediaFile(ctx, ref, item.ID)
+			open := c.MediaFile
+			if raw {
+				if item.Meta.Raw == "" {
+					return fmt.Errorf("%q has no unedited original: it wasn't edited", name)
+				}
+				open = c.RawMediaFile
+				if dest != rest[0] {
+					dest = filepath.Join(rest[0], item.Meta.Raw)
+				}
+			}
+			body, err := open(ctx, ref, item.ID)
 			if err != nil {
 				return err
 			}
@@ -102,5 +113,6 @@ It is what gh's --attach needs to put a screenshot in a pull request:
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "the name of the media to save, instead of giving it before the path")
+	cmd.Flags().BoolVar(&raw, "raw", false, "an edited recording's original, as it was recorded")
 	return cmd
 }

@@ -1,0 +1,159 @@
+# Makes the ready-made disk of AgentBox's VM (internal/hostvm/chv/vmdisk.go),
+# Debian 13's cloud image with the VM's packages already installed, which
+# `agentbox vm init` downloads instead of installing them on the VM's first
+# boot, and publishes it as a GitHub release tagged vmdisk-<version>: a
+# prerelease, never latest, so app releases, release-please and the app's
+# update check don't see it. There is nothing in it but Debian's packages; next
+# to it go their exact versions and where their sources are
+# (VM-SOURCES-<arch>.md), as the GPL asks.
+#
+# The version is a hash of what goes into the disk (chv.DiskVersion): a push
+# that doesn't change it finds its release published and builds nothing. Only
+# the newest is kept (scripts/github-vm-disks.sh): an older AgentBox then finds
+# nothing to download and makes its VM from Debian's cloud image. On a pull
+# request it only builds, which checks that the disk still comes out.
+name: Published VM disk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - internal/hostvm/chv/image.go
+      - internal/hostvm/chv/image_userdata.go
+      - internal/hostvm/chv/tools.go
+      - internal/hostvm/chv/vmdisk*.go
+      - internal/hostvm/chv/vmdisk-build.yaml.tmpl
+      - '!internal/hostvm/chv/**_test.go'
+      - .github/workflows/published-vm-disk.yml
+      - scripts/github-vm-disks.sh
+  pull_request:
+    paths:
+      - internal/hostvm/chv/image.go
+      - internal/hostvm/chv/image_userdata.go
+      - internal/hostvm/chv/tools.go
+      - internal/hostvm/chv/vmdisk*.go
+      - internal/hostvm/chv/vmdisk-build.yaml.tmpl
+      - '!internal/hostvm/chv/**_test.go'
+      - .github/workflows/published-vm-disk.yml
+      - scripts/github-vm-disks.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: published-vm-disk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      published: ${{ steps.tag.outputs.published }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+      - id: tag
+        run: |
+          tag=$(go run ./cmd/agentbox vm build-disk-for-publishing --tag)
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          # Published already, every architecture: SHA256SUMS goes up last.
+          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx SHA256SUMS &&
+            [ "${{ github.event_name }}" = push ]; then
+            echo "published=yes" >>"$GITHUB_OUTPUT"
+            echo "$tag is published already: nothing to build"
+          else
+            echo "published=no" >>"$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: version
+    if: needs.version.outputs.published != 'yes'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            qemu: qemu-system-x86 ovmf
+          # The disk Macs with Apple silicon boot (the vz driver). These
+          # runners have no KVM, so QEMU emulates it: slower, not different.
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            qemu: qemu-system-arm qemu-efi-aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ${{ matrix.qemu }} xz-utils
+          # KVM, where the runner has it, for the runner's user.
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
+
+      - name: Make the disk and what goes with it
+        run: go run ./cmd/agentbox vm build-disk-for-publishing out/${{ matrix.arch }} --arch ${{ matrix.arch }} --commit "$GITHUB_SHA"
+
+      - name: What it holds
+        run: |
+          ls -l out/${{ matrix.arch }}
+          cat out/${{ matrix.arch }}/vm-disk-${{ matrix.arch }}.json out/${{ matrix.arch }}/SHA256SUMS
+          grep -vc '^#' out/${{ matrix.arch }}/vm-packages-${{ matrix.arch }}.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vm-disk-${{ matrix.arch }}
+          path: out/${{ matrix.arch }}
+          compression-level: 0
+          retention-days: 1
+
+  # Only when every architecture built: a half-failed run publishes nothing and
+  # deletes nothing.
+  publish:
+    name: Publish to GitHub releases
+    needs: build
+    if: needs.build.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    concurrency:
+      group: github-vm-disks
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vm-disk-*
+          path: out
+
+      - name: Publish the disk and delete the previous release
+        run: |
+          dirs=$(ls -d out/vm-disk-* 2>/dev/null || true)
+          if [ -z "$dirs" ]; then
+            echo "No architecture built: nothing to publish" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          scripts/github-vm-disks.sh $dirs

@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = ["crates/agentbox-api", "crates/app", "crates/fake-daemon", "crates/i18n", "crates/office"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.0.0"
+publish = false
+
+[workspace.dependencies]
+agentbox-api = { path = "crates/agentbox-api" }
+agentbox-i18n = { path = "crates/i18n" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "sync"] }
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+anyhow = "1"
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# gpui-component pins gpui-pre (Zed's gpui, published to crates.io); use the
+# same one so there is a single gpui in the tree.
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+gpui-component = "0.9.0"
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit", "wayland", "x11"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+strip = true
+
+[profile.dev]
+# GPUI is unusably slow unoptimised; keep our crates debuggable.
+[profile.dev.package."*"]
+opt-level = 2
+
+# native/scripts/parity.sh's builds: dev's, without debug assertions, as in
+# release (GPUI's assert that an element gets one .hover() would stop on
+# screens release builds draw fine).
+[profile.parity]
+inherits = "dev"
+debug-assertions = false

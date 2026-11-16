@@ -14,8 +14,13 @@ export type Reveal = {
   // its chat bring it forward instead, reading back to it if need be.
   selector?: string;
   // chat is a message of a project's chat (no agent), of an agent's, or of
-  // the Home chat (project HomeProject), with the words searched for.
-  chat?: { project: string; agent?: string; item: string; query?: string };
+  // the Home chat (project HomeProject), with the words searched for; in a
+  // chat of sessions, of the one it was said in (session).
+  chat?: { project: string; agent?: string; item: string; query?: string; session?: string };
+  // session is a session of a project's chat, or the Home chat's, to show:
+  // among the tabs while it is open, in the chat's history, read-only, once
+  // closed (SessionChatPanel).
+  session?: { project: string; id: string };
   // memory is the sub-tab of a project's Memory page it is on, and the
   // thing itself, for the page to show even when its list doesn't.
   memory?: { section: MemorySection; project: string; item: T.Memory | T.MemoryEvent | T.AgentReport };
@@ -23,6 +28,13 @@ export type Reveal = {
   pull?: { project: string; number: number };
   // line selects a line of a textarea (a project's notes), counted from 1.
   line?: number;
+  // setting is the Settings row it is (data-setting-id), for a section to
+  // unfold its Advanced settings when the row is folded among them.
+  setting?: string;
+  // click presses the element once it's there: the command palette's way to
+  // open a dialog a page keeps to itself (a connector's import, the phone's
+  // pairing).
+  click?: boolean;
 };
 
 // How long a request waits for its page, and how long a page that mounts
@@ -59,14 +71,20 @@ export function useReveal(): Reveal | null {
 // useChatOpenAt is ChatTab's openAt for a message a search found in this
 // chat (agent "" for a project's chat), while the request is new: a chat
 // opened later, by hand, opens at its end as usual.
-export function useChatOpenAt(project: string, agent = ''): { item: string; query?: string } | undefined {
+export function useChatOpenAt(project: string, agent = ''): ChatOpenAt | undefined {
   const reveal = useSyncExternalStore(subscribe, () => current);
   return useMemo(() => {
     const chat = reveal?.chat;
     if (!chat || chat.project !== project || (chat.agent ?? '') !== agent || Date.now() - reveal.at > waitMs) return undefined;
-    return { item: chat.item, query: chat.query };
+    return { item: chat.item, query: chat.query, session: chat.session };
   }, [reveal, project, agent]);
 }
+
+export type ChatOpenAt = { item: string; query?: string; session?: string };
+
+// inSession is openAt for the session shown, id: none when the message found
+// is another session's.
+export const inSession = (openAt: ChatOpenAt | undefined, id: string): ChatOpenAt | undefined => (openAt && (!openAt.session || openAt.session === id) ? openAt : undefined);
 
 async function bringForward(selector: string, reveal: Reveal) {
   const until = Date.now() + waitMs;
@@ -82,6 +100,7 @@ async function bringForward(selector: string, reveal: Reveal) {
     return;
   }
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (reveal.click && el instanceof HTMLElement) el.click();
   el.setAttribute('data-revealed', '');
   setTimeout(() => el.removeAttribute('data-revealed'), 2_400);
 }

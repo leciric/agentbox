@@ -50,8 +50,8 @@ export function FileChip({
         <Icon className={cn('size-4', tints[kind] ?? 'text-muted')} />
       </span>
       <span className="flex min-w-0 flex-col text-left leading-tight">
-        <span className="truncate text-[12.5px] text-primary">{name}</span>
-        <span className="text-[11px] tabular-nums text-subtle">{formatSize(size)}</span>
+        <span className="truncate text-ui text-primary">{name}</span>
+        <span className="text-caption tabular-nums text-subtle">{formatSize(size)}</span>
       </span>
     </>
   );

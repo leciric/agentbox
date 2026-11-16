@@ -85,3 +85,54 @@ touch ` + dir + `/restart
 		t.Errorf("ran %q", got)
 	}
 }
+
+// A krunkit VM that has a Venus driver still says, while "GPU for agents" is
+// on, that it's building a newer one and when that failed: agents keep the
+// old one, and Settings shows why. Not parallel: it points package agent's
+// globals at files of its own.
+func TestVMGPUSaysAFailedUpdate(t *testing.T) {
+	dir := t.TempDir()
+	oldScript, oldDir, oldGlob, oldSudo := agent.VenusScript, agent.VenusDir, agent.RenderNodeGlob, agent.VenusSudo
+	t.Cleanup(func() {
+		agent.VenusScript, agent.VenusDir, agent.RenderNodeGlob, agent.VenusSudo = oldScript, oldDir, oldGlob, oldSudo
+	})
+	agent.VenusScript, agent.VenusDir, agent.RenderNodeGlob, agent.VenusSudo = filepath.Join(dir, "venus.sh"), dir, "/dev/null", nil
+	for name, body := range map[string]string{
+		"venus.sh":            "while [ ! -e " + dir + "/go ]; do sleep 0.01; done\necho \"GPU: apt failed\" >&2; exit 1\n",
+		"libvulkan_virtio.so": "",
+		"multiarch":           "aarch64-linux-gnu\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	setup := func() api.VMGPU {
+		t.Helper()
+		out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.VMGPU
+	}
+
+	if _, err := patchSettings(t, d, `{"agentGPU":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := setup(); got.Kind != agent.GPURender || got.Setup != api.VMGPUSetupRunning {
+		t.Errorf("while it builds: %+v", got)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "go"), nil, 0o644)
+	d.srv.vgpu.wg.Wait()
+	if got := setup(); got.Kind != agent.GPURender || got.Setup != api.VMGPUSetupFailed || got.Reason != "GPU: apt failed" {
+		t.Errorf("failed: %+v", got)
+	}
+
+	// Off, there's nothing to say about a driver agents don't get.
+	if _, err := patchSettings(t, d, `{"agentGPU":false}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := setup(); got.Kind != agent.GPURender || got.Setup != "" || got.Reason != "" {
+		t.Errorf("off: %+v", got)
+	}
+}

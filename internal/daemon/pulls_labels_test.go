@@ -43,10 +43,8 @@ func (g *labelGitHub) serve(t *testing.T) http.HandlerFunc {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls":
 			_, _ = w.Write([]byte(`[{"number":9,"title":"Reminders","state":"open","html_url":"https://github.com/acme/hello-stack/pull/9","updated_at":"2026-10-01T10:00:00Z","user":{"login":"octocat"},"base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":"abc"},"labels":` + g.onPR() + `}]`))
-		case r.URL.Path == "/repos/acme/hello-stack/pulls/9":
-			_, _ = w.Write([]byte(`{"additions":1,"deletions":0,"comments":0}`))
-		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			_, _ = w.Write([]byte(`{"total_count":0}`))
+		case r.URL.Path == "/graphql":
+			_, _ = w.Write([]byte(`{"data":{"repository":{"pr9":{"additions":1,"deletions":0,"comments":{"totalCount":0},"commits":{"nodes":[]}}}}}`))
 		case r.URL.Path == "/repos/acme/hello-stack/labels":
 			_, _ = w.Write([]byte(`[{"name":"ci:full","color":"0e8a16","description":"Run every CI job"},{"name":"nightly","color":"5319e7"},{"name":"deploy-dev","color":"fbca04"}]`))
 		case r.URL.Path == "/repos/acme/hello-stack/issues/9/labels" && r.Method == http.MethodGet:

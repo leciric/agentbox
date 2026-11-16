@@ -342,6 +342,26 @@ func TestSecretsClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "LeadIssues", method: http.MethodGet, path: "/v1/project/issues",
+			resp: `{"project":"pawly","issues":[{"number":7,"title":"Crash","url":"u","handed":{"agent":"agent-01","at":"2026-10-24T00:00:00Z"}}],"pickUpIssues":false,"label":"agentbox"}`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.LeadIssues(context.Background())
+				if err != nil || len(got.Issues) != 1 || got.Issues[0].Handed == nil || got.Issues[0].Handed.Agent != "agent-01" {
+					t.Errorf("LeadIssues() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
+			name: "ProjectIssues", method: http.MethodGet, path: "/v1/projects/pawly/issues",
+			resp: `{"project":"pawly","issues":[],"pickUpIssues":true,"label":"agentbox"}`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.ProjectIssues(context.Background(), "pawly")
+				if err != nil || !got.PickUpIssues {
+					t.Errorf("ProjectIssues() = %+v, %v", got, err)
+				}
+			},
+		},
 	})
 }
 
@@ -392,6 +412,7 @@ func TestThemeAppliedAndDescribe(t *testing.T) {
 		{"follow with nothing found", Theme{Appearance: AppearanceFollow, Available: false}, false, "AgentBox's own colours"},
 		{"follow with a theme but no name", Theme{Appearance: AppearanceFollow, Available: true}, true, "this machine's theme"},
 		{"follow with a named theme", Theme{Appearance: AppearanceFollow, Available: true, Name: "tokyo-night"}, true, "tokyo-night"},
+		{"dracula", DraculaTheme, true, "Dracula"},
 	}
 	for _, tt := range tests {
 		if got := tt.theme.Applied(); got != tt.wantApplied {

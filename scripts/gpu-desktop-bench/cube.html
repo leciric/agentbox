@@ -1,0 +1,40 @@
+<!doctype html><meta charset=utf-8><title>cube</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{width:100vw;height:100vh;display:block}
+#hud{position:fixed;top:12px;left:12px;font:600 28px/1.3 monospace;color:#fff;background:#000a;padding:8px 14px;border-radius:8px}</style>
+<canvas id=c></canvas><div id=hud></div>
+<script>
+const c=document.getElementById('c'),gl=c.getContext('webgl2');
+const dbg=gl&&gl.getExtension('WEBGL_debug_renderer_info');
+window.renderer=gl?(dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)):'no webgl2';
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o}
+const p=gl.createProgram();
+gl.attachShader(p,sh(gl.VERTEX_SHADER,`#version 300 es
+in vec3 a;uniform float t;uniform float r;out vec3 col;
+void main(){float s=sin(t),k=cos(t);vec3 v=a;v=vec3(v.x*k-v.z*s,v.y,v.x*s+v.z*k);v=vec3(v.x,v.y*k-v.z*s,v.y*s+v.z*k);
+col=a*.5+.5;gl_Position=vec4(v.x/r*1.2,v.y*1.2,v.z*.1+.5,1.);}`));
+gl.attachShader(p,sh(gl.FRAGMENT_SHADER,`#version 300 es
+precision highp float;in vec3 col;out vec4 o;uniform int k;void main(){vec3 c=col;for(int i=0;i<k;i++){c=fract(sin(c*12.9898+float(i))*43758.5453)*.02+c*.98;}o=vec4(c,1.);}`));
+gl.linkProgram(p);gl.useProgram(p);
+const V=[-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,1,-1,1,1,1,1,-1,1,1];
+const I=[0,1,2,0,2,3,4,6,5,4,7,6,0,4,5,0,5,1,3,2,6,3,6,7,0,3,7,0,7,4,1,5,6,1,6,2];
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(V),gl.STATIC_DRAW);
+const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(I),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);gl.bindAttribLocation(p,0,'a');
+gl.enable(gl.DEPTH_TEST);
+const uk=gl.getUniformLocation(p,'k');const K=+(new URLSearchParams(location.search).get('k')||0);
+const ut=gl.getUniformLocation(p,'t'),ur=gl.getUniformLocation(p,'r');
+let frames=0,t0=0;
+function f(now){
+  const w=c.clientWidth*devicePixelRatio|0,h=c.clientHeight*devicePixelRatio|0;
+  if(c.width!==w||c.height!==h){c.width=w;c.height=h}
+  gl.viewport(0,0,w,h);gl.clearColor(.1,.1,.15,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.uniform1i(uk,K);gl.uniform1f(ut,now/1000);gl.uniform1f(ur,w/h);gl.drawElements(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0);
+  frames++;requestAnimationFrame(f);
+}
+requestAnimationFrame(f);
+// what the page draws, on the page, for recordings
+let hf=0,ht=performance.now();
+setInterval(()=>{const n=performance.now();document.getElementById('hud').textContent=`${((frames-hf)*1000/(n-ht)).toFixed(1)} fps · ${renderer.replace(/^ANGLE \((.*)\)$/,'$1').slice(0,70)}`;hf=frames;ht=n},1000);
+// fps over `secs` seconds, after the caller's warmup
+window.measure=secs=>new Promise(res=>{const f0=frames,s=performance.now();setTimeout(()=>res({fps:(frames-f0)*1000/(performance.now()-s),w:c.width,h:c.height}),secs*1000)});
+</script>

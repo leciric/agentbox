@@ -28,7 +28,7 @@ macOS front end of AgentBox's Linux VM, and `bin/agentbox-linux`, the Linux buil
 VM (D92). The app keeps both beside each other in
 `~/.local/share/agentbox/bin`, and until the VM exists its first screen sets it up.
 
-A new machine's setup is in the README's [Set up](../README.md#set-up), and a Mac's in [On a Mac](../README.md#on-a-mac).
+A new machine's setup is in the README's [Install](../README.md#install), and a Mac's in [macOS and Windows](../docs/install.md#macos-and-windows-alpha).
 
 ## Develop
 

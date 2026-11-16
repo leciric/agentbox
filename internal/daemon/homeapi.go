@@ -1,15 +1,14 @@
 package daemon
 
 import (
+	"cmp"
 	"errors"
+	"io"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
+	"time"
 
 	"agentbox/internal/api"
-	"agentbox/internal/chat"
 	"agentbox/internal/state"
 )
 
@@ -18,13 +17,16 @@ import (
 // user's own, at the same paths, so `agentbox mcp` reaches them with the
 // client's ordinary methods — but only the few its tools need: it reads
 // projects, their agents and their memory, keeps AgentBox-wide memory, makes
-// agents, tells a project's lead, and adds projects. It can't change a project's settings, retire an
-// agent or reach the daemon itself.
-func (s *Server) homeRoutes() http.Handler {
+// agents, asks a project's lead, and adds projects. It can't change a project's settings, retire an
+// agent or reach the daemon itself. Each of the chat's sessions has its own
+// socket, and session is the one this is: what it asks a project's lead is
+// answered there (homeTellLead).
+func (s *Server) homeRoutes(session string) http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			s.projectBySlug(r)
+			r = r.WithContext(withLeadSession(r.Context(), session))
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}
@@ -44,6 +46,8 @@ func (s *Server) homeRoutes() http.Handler {
 	h("POST /v1/projects/{project}/lead/messages", s.homeTellLead)
 	h("POST /v1/agents", s.homeCreateAgent)
 	h("GET /v1/agents/{project}/{agent}/chat", s.leadAgentChat)
+	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.leadAgent, false))
+	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.leadAgent))
 	h("GET /v1/archived-agents", s.listArchived)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "the Home chat can't do that"})
@@ -64,36 +68,56 @@ func (s *Server) homeCreateAgent(w http.ResponseWriter, r *http.Request) error {
 	return s.createAgentFrom(w, r, req, true)
 }
 
-// homeTellLead passes the Home chat's message to a project's own chat, making
-// that chat if the project has never had one, and wakes it. The notice is
-// shown in the project's chat, so the user sees what was asked there too.
+// homeTellLead asks a project's lead something for the Home chat, and the
+// answer comes back to the Home chat's session that asked. It is a thread
+// like one between two projects' leads (projectmessages.go), started by
+// state.HomeProject, with both ends' sessions pinned: the lead's session most
+// recently active hears it (one is opened for it in a project that has none,
+// making its chat if it never had one), answers it from there with
+// message_project reply, and the answer wakes the asking session, whether the
+// Home chat runs in the VM or on the user's computer. Each chat shows the
+// question and the answer as cards, and the lead reads the question fenced.
+// Unlike two leads' first message, it needs no approval: the Home chat is the
+// user's own.
 func (s *Server) homeTellLead(w http.ResponseWriter, r *http.Request) error {
 	var req api.ChatMessageRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	text := strings.TrimSpace(req.Text)
-	if text == "" {
-		return errors.New("the message is empty")
-	}
 	ctx := r.Context()
 	project := r.PathValue("project")
+	if project == state.HomeProject {
+		return errors.New("that is the Home chat itself: name a project")
+	}
 	if _, err := s.store.Project(ctx, project); err != nil {
 		return err
 	}
-	m := s.manager(s.cfg.Log)
-	lead, err := m.EnsureLead(ctx, project)
+	text, err := projectMessageText(req.Text, maxProjectMessage)
+	if err != nil {
+		return err
+	}
+	lead, err := s.eventLead(ctx, project, eventTopic(text), true)
 	if err != nil {
 		return err
 	}
 	s.rolloverIfNeeded(ctx, lead)
-	if lead, err = m.SyncLead(ctx, lead); err != nil {
+	if lead, err = s.manager(s.cfg.Log).SyncLead(ctx, lead); err != nil {
 		return err
 	}
-	if err := s.chat.Notice(lead, "From the user's Home chat:\n\n"+text, chat.NoticeOptions{Act: true}); err != nil {
+	now := time.Now()
+	t := state.ProjectThread{
+		ID: newID(), Project: state.HomeProject, Peer: project, Kind: state.ThreadMessage, Status: state.ThreadOpen,
+		ProjectSession: cmp.Or(leadSessionOf(ctx), state.MigratedSession), PeerSession: lead.Session(),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	m := state.ProjectMessage{
+		ID: newID(), Thread: t.ID, Project: state.HomeProject, Peer: project, Text: text, ExpectsReply: true, CreatedAt: now,
+	}
+	if err := s.store.AddProjectThread(ctx, t, m); err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusAccepted, map[string]string{"project": project})
+	s.deliverProjectMessage(ctx, t, m, api.ProjectMessageSent)
+	return writeJSON(w, http.StatusAccepted, s.toAPIThread(ctx, state.HomeProject, t))
 }
 
 // homeAddProject adds a project for the Home chat: a folder on this machine,
@@ -110,33 +134,13 @@ func (s *Server) homeAddProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		return s.addProjectFrom(w, r, add)
 	}
-	add.Name = strings.TrimSpace(add.Name)
-	if add.Name == "" {
-		add.Name = strings.TrimSuffix(path.Base(strings.TrimRight(req.URL, "/")), ".git")
-	}
-	if err := s.projectNameFree(r.Context(), add.Name); err != nil {
+	add, err := s.cloneRequest(r.Context(), strings.TrimSpace(req.URL), add)
+	if err != nil {
 		return err
 	}
-	add.Path = req.Path
-	if add.Path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		slug, err := s.store.ProjectSlug(r.Context(), add.Name)
-		if err != nil {
-			return err
-		}
-		add.Path = filepath.Join(home, "src", slug)
-	}
-	if err := s.manager(s.cfg.Log).CloneForHome(r.Context(), req.URL, add.Path); err != nil {
+	p, err := s.cloneAndAdd(r.Context(), strings.TrimSpace(req.URL), add, io.Discard)
+	if err != nil {
 		return err
 	}
-	// What was cloned here goes again if it can't be added, so asking twice
-	// doesn't find the folder in the way.
-	if err := s.addProjectFrom(w, r, add); err != nil {
-		_ = os.RemoveAll(add.Path)
-		return err
-	}
-	return nil
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }

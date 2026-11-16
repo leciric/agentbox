@@ -4,10 +4,12 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { api } from './api.ts';
+import { api, sessionOfRef, sessionRef, untitledTopic } from './api.ts';
 import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
+import { workKey } from './work.ts';
+import { sessionsSettled } from './sessions.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
@@ -16,6 +18,12 @@ import { changesFiles, refreshFiles } from './files.ts';
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
 const notificationListeners = new Set<(n: T.Notification) => void>();
+type SessionStatusListener = (project: string, prev: T.LeadSession[] | undefined, next: T.LeadSession[]) => void;
+const sessionStatusListeners = new Set<SessionStatusListener>();
+// pushedSessions is the sessions list each project's last status event
+// carried: what the next one is compared with for notices, since the cached
+// list may have been read again in between, already changed.
+const pushedSessions = new Map<string, T.LeadSession[]>();
 const logs = new Map<string, string[]>();
 const noLines: string[] = [];
 let connection: ConnectionState = { state: 'connecting' };
@@ -55,6 +63,15 @@ export function onMedia(fn: (item: T.MediaItem) => void): () => void {
 }
 
 // onNotification calls fn for every notification as the daemon makes it.
+// onSessionStatus calls fn whenever the daemon says where a project's chat
+// sessions stand (EventLeadSessionStatus), with the list it said before.
+export function onSessionStatus(fn: SessionStatusListener): () => void {
+  sessionStatusListeners.add(fn);
+  return () => {
+    sessionStatusListeners.delete(fn);
+  };
+}
+
 export function onNotification(fn: (n: T.Notification) => void): () => void {
   notificationListeners.add(fn);
   return () => {
@@ -80,6 +97,15 @@ function upsert<V extends { id: string; createdAt: string }>(list: V[] | undefin
   return [value, ...list.filter((v) => v.id !== value.id)].sort(newestFirst);
 }
 
+// appendResourcePoint adds a live sample to an agent's resource history,
+// dropping what falls out of its window.
+export function appendResourcePoint(h: T.AgentResourceHistory, point: T.AgentResourcePoint): T.AgentResourceHistory {
+  const last = h.points[h.points.length - 1];
+  if (last && last.at >= point.at) return h;
+  const cut = new Date(point.at).getTime() - h.windowSeconds * 1000;
+  return { ...h, points: [...h.points.filter((p) => new Date(p.at).getTime() > cut), point] };
+}
+
 export function connectEvents(queryClient: QueryClient): void {
   window.agentbox.onEvent((raw) => {
     const event = raw as T.Event;
@@ -97,6 +123,13 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
+        // A session's state, or a new message in it, is what its tab and the
+        // sidebar show.
+        if (sessionOfRef(chat.agent) && (chat.session || (chat.item && (chat.item.kind === 'user' || chat.item.kind === 'assistant')))) {
+          void queryClient.invalidateQueries({ queryKey: ['leadSessions', chat.agent.split('/')[0]] });
+        }
+        // An agent's goal moved (agent goals): its row and header show it.
+        if (chat.item?.kind === 'goal') void queryClient.invalidateQueries({ queryKey: ['agents'] });
         // A tool call that finished may have changed files the tree shows.
         if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.
@@ -104,9 +137,39 @@ export function connectEvents(queryClient: QueryClient): void {
         break;
       }
       case T.EventChatCache: {
-        // A project chat's cache card went up or down (see CacheCard).
+        // A project chat's cache card went up or down (see CacheCard): one
+        // session's, or the Home chat's.
         const cache = event.data as T.ChatCache;
-        queryClient.setQueryData(['chatCache', cache.project], cache);
+        queryClient.setQueryData(['chatCache', cache.session ? sessionRef(cache.project, cache.session) : `${cache.project}/${T.LeadName}`], cache);
+        break;
+      }
+      case T.EventLeadSessions: {
+        // A project's chat sessions were opened, renamed or deleted, or an
+        // agent moved between them.
+        const change = event.data as T.LeadSessionsChange;
+        void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['fleet', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionOutput', change.project] });
+        break;
+      }
+      case T.EventSessionsSettled: {
+        // Sessions whose work is in closed into History by themselves: the
+        // toast offers them back (SettledToasts).
+        const settled = event.data as T.SessionsSettled;
+        void queryClient.invalidateQueries({ queryKey: ['leadSessions', settled.project] });
+        sessionsSettled(settled);
+        break;
+      }
+      case T.EventLeadSessionStatus: {
+        // Where each session stands moved: its tab, its sidebar row and the
+        // badge read the list, which is the daemon's whole open list.
+        const change = event.data as T.LeadSessionStatusChange;
+        const next = change.sessions.map(untitledTopic);
+        const key = ['leadSessions', change.project];
+        const prev = pushedSessions.get(change.project) ?? queryClient.getQueryData<T.LeadSession[]>(key);
+        pushedSessions.set(change.project, next);
+        queryClient.setQueryData(key, next);
+        for (const fn of sessionStatusListeners) fn(change.project, prev, next);
         break;
       }
       case T.EventAgentEvent: {
@@ -120,6 +183,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (agentEvent.kind === T.AgentFinished) {
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
         break;
       }
@@ -164,6 +228,13 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventUsage:
         queryClient.setQueryData(['usage'], event.data as T.Usage);
         break;
+      case T.EventAgentResources: {
+        // A live sample of an agent whose Resources view is open
+        // (components/v2/AgentResources.tsx), onto the history it fetched.
+        const { ref, point } = event.data as T.AgentResourcesEvent;
+        queryClient.setQueryData<T.AgentResourceHistory>(['agentResources', ref], (h) => (h ? appendResourcePoint(h, point) : h));
+        break;
+      }
       case T.EventDisk:
         // The disk guard: a disk came near its floor, reached it or has room
         // again, or it paused or resumed an agent.
@@ -173,8 +244,12 @@ export function connectEvents(queryClient: QueryClient): void {
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });
         break;
-      case T.EventProject:
+      case T.EventProject: {
         void queryClient.invalidateQueries({ queryKey: ['projects'] });
+        // A project just added has its first chat session once this is
+        // sent: a list read before that, empty or not found, is read again.
+        const change = event.data as T.ProjectChange | undefined;
+        if (change?.name && !change.removed) void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.name] });
         // The project's notes change with it: the lead writes them too.
         void queryClient.invalidateQueries({ queryKey: ['notes'] });
         // A change with no project named is the list itself: a section made,
@@ -183,6 +258,7 @@ export function connectEvents(queryClient: QueryClient): void {
         // And v2's sidebar's hidden projects.
         void queryClient.invalidateQueries({ queryKey: ['sidebarLayout'] });
         break;
+      }
       case T.EventPulls: {
         // The daemon re-read GitHub behind an answer it had already given,
         // and something moved. Refetching here is what lets both views poll
@@ -191,12 +267,22 @@ export function connectEvents(queryClient: QueryClient): void {
         // stops showing "refreshing"; the fleet has nothing to redraw.
         const { project, unchanged } = event.data as T.PullsChange;
         void queryClient.invalidateQueries({ queryKey: ['pulls', project] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionOutput', project] });
         if (!unchanged) {
           void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
           // A pull request fixed brings its agent back to "Ready to review".
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
+        break;
+      }
+      case T.EventRemoteAgents: {
+        // One of the lead's agents on another machine moved: the fleet
+        // carries them (AgentRail's RemoteSection).
+        const { project } = event.data as T.RemoteAgentsChange;
+        void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
         break;
       }
       case T.EventGroup: {
@@ -211,6 +297,7 @@ export function connectEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ['review'] });
         void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
         void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
+        void queryClient.invalidateQueries({ queryKey: workKey });
         break;
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
@@ -218,13 +305,16 @@ export function connectEvents(queryClient: QueryClient): void {
         if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
-            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory } : a)),
+            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory, reclaimed: change.reclaimed, waitingForImage: change.waitingForImage } : a)),
           );
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });
         }
         // An agent whose machine was removed is a past agent now.
-        if (change.removed) void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+        if (change.removed) {
+          void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+        }
         if (change.state !== 'running') {
           void queryClient.invalidateQueries({ queryKey: ['browser', change.ref] });
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });
