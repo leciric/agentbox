@@ -15,7 +15,7 @@ import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
-import { SESSION_COLORS, sessionsSettled } from '../lib/sessions';
+import { SESSION_COLORS, sessionsSettled, sortTabs } from '../lib/sessions';
 
 export const PROJECT = 'agentbox';
 
@@ -2927,6 +2927,31 @@ function devSessions(project: string): T.LeadSession[] {
             { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', status: 'idle', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000), last: { kind: 'assistant', text: 'Drafted the three welcome screens.', at: at(900_000) } },
           ]
         : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'sky', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
+    // ?tabgroups=1: eleven sessions, two pinned, three tab groups (devGroups)
+    // and one loose, as the mockups had them; you are in Desktop UI's "Chat".
+    // ?tabgroups=flat: the same sessions in no group, as the row was before groups.
+    const tabgroups = new URLSearchParams(location.search).get('tabgroups');
+    if (project === PROJECT && (tabgroups === '1' || tabgroups === 'flat')) {
+      const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+      const old = { createdAt: at(7_200_000), activeAt: at(600_000) };
+      const s = (id: string, topic: string, color: string, more: Partial<T.LeadSession> = {}): T.LeadSession => ({
+        project, id, ref: id === 'main' ? `${project}/lead` : `${project}/lead.${id}`, topic, color, chat: 'ready', status: 'idle', agents: 0, ...old, ...more,
+      });
+      list = [
+        s('release', 'Release 0.17', 'rose', { pinned: true, status: 'needsYou', needsYou: 2, agents: 1 }),
+        s('inbox', 'Inbox triage', 'lilac', { pinned: true }),
+        s('main', 'Session tab groups', 'sky', { group: 'ui', status: 'working', chat: 'running', agents: 2 }),
+        s('sidebar', 'Sidebar drag order', 'mint', { group: 'ui', agents: 1, unread: true, last: { kind: 'assistant', text: 'Done.', at: at(60_000) } }),
+        s('light', 'Light theme contrast pass', 'peach', { group: 'ui' }),
+        s('wsl', 'WSL install flow', 'rose', { group: 'win', status: 'failed', chat: 'error', agents: 1 }),
+        s('nsis', 'Native installer (NSIS)', 'sky', { group: 'win', status: 'needsYou', needsYou: 1, agents: 1 }),
+        s('pipe', 'Named pipe relay', 'lilac', { group: 'win', status: 'working', chat: 'running', agents: 3 }),
+        s('agents-md', 'AGENTS.md rewrite', 'mint', { group: 'docs' }),
+        s('changelog', 'Changelog cleanup', 'peach', { group: 'docs', unread: true, last: { kind: 'assistant', text: 'Rewrote six lines.', at: at(120_000) } }),
+        s('oauth', 'OAuth expiry asks to log in', 'lilac', { agents: 1 }),
+      ];
+      if (tabgroups === 'flat') list = list.map((x) => ({ ...x, group: undefined }));
+    }
     // ?sessions=1: the project has only the one open, which shows no colour.
     if (new URLSearchParams(location.search).get('sessions') === '1') list = list.slice(0, 1);
     // ?sessionStatus=live: every session starts quiet, then moves through
@@ -2936,6 +2961,19 @@ function devSessions(project: string): T.LeadSession[] {
       startLiveSessions(project);
     }
     sessionsByProject.set(project, list);
+  }
+  return list;
+}
+
+// The chats' tab groups, by project: ?tabgroups=1 gives the fixtures'
+// project three; any other has none until one is made.
+const groupsByProject = new Map<string, T.LeadSessionGroup[]>();
+function devGroups(project: string): T.LeadSessionGroup[] {
+  let list = groupsByProject.get(project);
+  if (!list) {
+    const g = (id: string, name: string, color: string, position: number): T.LeadSessionGroup => ({ project, id, name, color, collapsed: true, position });
+    list = project === PROJECT && new URLSearchParams(location.search).get('tabgroups') === '1' ? [g('ui', 'Desktop UI', 'sky', 1), g('win', 'Windows', 'peach', 2), g('docs', 'Docs', 'mint', 3)] : [];
+    groupsByProject.set(project, list);
   }
   return list;
 }
@@ -3089,29 +3127,83 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     sessionsByProject.set(project, open.map((x) => (x.id === id ? next : x)));
     return json(next);
   }
-  const tabsOrder = (list: T.LeadSession[]) => [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  // As the daemon sorts the tabs (state.SortTabs), and keeps the groups.
+  const tabsOrder = (list: T.LeadSession[], project = PROJECT) => sortTabs(list, devGroups(project));
+  const dropEmptyGroups = (project: string) => {
+    const used = new Set([...devSessions(project), ...closedOf(project)].map((x) => x.group));
+    groupsByProject.set(project, devGroups(project).filter((g) => used.has(g.id)));
+  };
+  const groupsOrder = /^\/v1\/projects\/([^/]+)\/session-groups\/order$/.exec(path);
+  if (groupsOrder && method === 'PUT') {
+    const project = decodeURIComponent(groupsOrder[1]);
+    const ids = (body as T.LeadSessionGroupOrder).ids;
+    const had = devGroups(project);
+    const next = [...ids.flatMap((id) => had.filter((g) => g.id === id)), ...had.filter((g) => !ids.includes(g.id))].map((g, i) => ({ ...g, position: i + 1 }));
+    groupsByProject.set(project, next);
+    sessionsByProject.set(project, tabsOrder(devSessions(project), project));
+    return json(next);
+  }
+  const groupsList = /^\/v1\/projects\/([^/]+)\/session-groups$/.exec(path);
+  if (groupsList && method === 'GET') return json(devGroups(decodeURIComponent(groupsList[1])));
+  if (groupsList && method === 'POST') {
+    const project = decodeURIComponent(groupsList[1]);
+    const req = body as T.NewLeadSessionGroup;
+    const had = devGroups(project);
+    const used = new Set(had.map((g) => g.color));
+    const g: T.LeadSessionGroup = { project, id: `g${Date.now().toString(36)}`, name: req.name ?? '', color: req.color || (SESSION_COLORS.find((c) => !used.has(c)) ?? 'sky'), collapsed: true, position: had.length + 1 };
+    groupsByProject.set(project, [...had, g]);
+    sessionsByProject.set(project, tabsOrder(devSessions(project).map((x) => (req.sessions.includes(x.id) ? { ...x, group: g.id } : x)), project));
+    dropEmptyGroups(project);
+    return json(g);
+  }
+  const groupOne = /^\/v1\/projects\/([^/]+)\/session-groups\/([^/]+)$/.exec(path);
+  if (groupOne && (method === 'PATCH' || method === 'DELETE')) {
+    const [project, id] = [decodeURIComponent(groupOne[1]), decodeURIComponent(groupOne[2])];
+    if (method === 'DELETE') {
+      groupsByProject.set(project, devGroups(project).filter((g) => g.id !== id));
+      sessionsByProject.set(project, tabsOrder(devSessions(project).map((x) => (x.group === id ? { ...x, group: undefined } : x)), project));
+      return { status: 204, body: '', contentType: 'application/json' };
+    }
+    const patch = body as T.LeadSessionGroupPatch;
+    const next = devGroups(project).map((g) => (g.id === id ? { ...g, ...patch } : g));
+    groupsByProject.set(project, next);
+    return json(next.find((g) => g.id === id));
+  }
   const order = /^\/v1\/projects\/([^/]+)\/sessions\/order$/.exec(path);
   if (order && method === 'PUT') {
     const project = decodeURIComponent(order[1]);
     const ids = (body as T.LeadSessionOrder).ids;
     const had = devSessions(project);
-    const next = tabsOrder([...ids.flatMap((id) => had.filter((x) => x.id === id)), ...had.filter((x) => !ids.includes(x.id))]);
+    const next = tabsOrder([...ids.flatMap((id) => had.filter((x) => x.id === id)), ...had.filter((x) => !ids.includes(x.id))], project);
     sessionsByProject.set(project, next);
     return json(next);
   }
   const one = /^\/v1\/projects\/([^/]+)\/sessions\/([^/?]+)$/.exec(path);
   if (one && method === 'PATCH') {
     const [project, id] = [decodeURIComponent(one[1]), decodeURIComponent(one[2])];
-    const { topic, pinned } = body as T.LeadSessionPatch;
-    const next = tabsOrder(devSessions(project).map((x) => (x.id === id ? { ...x, ...(topic ? { topic, untitled: false } : {}), ...(pinned !== undefined ? { pinned } : {}) } : x)));
+    const { topic, pinned, group } = body as T.LeadSessionPatch;
+    const next = tabsOrder(
+      devSessions(project).map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              ...(topic ? { topic, untitled: false } : {}),
+              ...(pinned !== undefined ? { pinned, group: pinned ? undefined : x.group } : {}),
+              ...(group !== undefined && !x.pinned ? { group: group || undefined } : {}),
+            }
+          : x,
+      ),
+      project,
+    );
     sessionsByProject.set(project, next);
+    dropEmptyGroups(project);
     return json(next.find((x) => x.id === id));
   }
   const list = /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
   if (list && method === 'GET') return json(devSessions(decodeURIComponent(list[1])));
   if (list && method === 'POST') {
     const project = decodeURIComponent(list[1]);
-    const topic = (body as T.NewLeadSessionRequest).topic;
+    const { topic, group } = body as T.NewLeadSessionRequest;
     const base = topic?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
     const taken = new Set(devSessions(project).map((x) => x.id));
     let id = base;
@@ -3119,8 +3211,8 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     const now = new Date().toISOString();
     const used = new Set(devSessions(project).map((x) => x.color));
     const color = SESSION_COLORS.find((c) => !used.has(c)) ?? 'rose';
-    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
-    sessionsByProject.set(project, [...devSessions(project), s]);
+    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now, group: group || undefined };
+    sessionsByProject.set(project, tabsOrder([...devSessions(project), s], project));
     return json(s);
   }
   const seen = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/seen$/.exec(path);

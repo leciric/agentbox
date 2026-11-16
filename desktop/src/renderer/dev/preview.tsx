@@ -212,8 +212,10 @@
 //   &review=pairs           with ?app=, agent-15 holding before/after pairs to compare
 //   &review=big             with ?app=work, agent-41's pairs and screenshots at 1920×1080, 420×2000 and 3840×1080
 //   &review=aspect          with ?app=work, agent-41's phone (1080×1920, 1170×2532), square, 4:3 and 5760×1080 shots, a 4:3/16:9 pair, one unsized, a rotated recording
-//   ?concept=tabgroups&option=a|b|c  mocks: grouping the lead's session tabs
-//                           (dev/concepts/tabgroups.tsx)
+//   &tabgroups=1            with ?app=project, the chat's tabs in groups: two
+//                           pinned, three groups (Desktop UI holds the session
+//                           shown), one loose; &tabgroups=flat, the same
+//                           sessions in no group
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)
@@ -944,6 +946,7 @@ if (params.get('cache') === 'due') {
   seedCacheCard(queryClient);
   chooseSession(PROJECT, 'prod-login-500s');
 }
+if (params.get('tabgroups')) chooseSession(PROJECT, 'main');
 if (params.get('olddaemon') === '1') seedStaleDaemon();
 // ?settle=demo: the Onboarding copy session, its work all in, settles into
 // History a few seconds in, with its Undo toast.

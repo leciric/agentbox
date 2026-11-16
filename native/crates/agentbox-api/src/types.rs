@@ -5230,6 +5230,8 @@ pub struct LeadSession {
     pub parent: Option<LeadSessionParent>,
     #[serde(skip_serializing_if = "is_empty")]
     pub pinned: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub group: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5262,6 +5264,8 @@ pub struct NewLeadSessionRequest {
     pub continue_from: String,
     #[serde(rename = "forkFrom", skip_serializing_if = "Option::is_none")]
     pub fork_from: Option<LeadSessionFork>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub group: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5271,6 +5275,8 @@ pub struct LeadSessionPatch {
     pub topic: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5441,6 +5447,46 @@ pub struct LeadAccount {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LeadSessionOrder {
+    #[serde(deserialize_with = "nullable")]
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionGroup {
+    pub project: String,
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub collapsed: bool,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewLeadSessionGroup {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub color: String,
+    #[serde(deserialize_with = "nullable")]
+    pub sessions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionGroupPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionGroupOrder {
     #[serde(deserialize_with = "nullable")]
     pub ids: Vec<String>,
 }

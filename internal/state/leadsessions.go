@@ -82,6 +82,9 @@ type LeadSession struct {
 	// moved, which sits where it was opened. SortTabs reads both.
 	Pinned bool
 	Order  int
+	// Group is the tab group it is in (SessionGroup.ID), "" for none; a
+	// pinned session is in none (SetLeadSessionGroup).
+	Group string
 }
 
 // Snoozed reports whether the session is hidden from the tabs as of now.
@@ -359,7 +362,7 @@ func (s *Store) ColorLeadSessions(ctx context.Context, project string) error {
 }
 
 // leadSessionColumns is what scanLeadSession reads.
-const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, parent, parent_item, settled, snoozed_until, reopened_at, pinned, tab_order`
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, parent, parent_item, settled, snoozed_until, reopened_at, pinned, tab_order, tab_group`
 
 // LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
@@ -417,7 +420,7 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
 	var created, closed, snoozed, reopened int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Parent, &ls.ParentItem, &ls.Settled, &snoozed, &reopened, &ls.Pinned, &ls.Order); err != nil {
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Parent, &ls.ParentItem, &ls.Settled, &snoozed, &reopened, &ls.Pinned, &ls.Order, &ls.Group); err != nil {
 		return LeadSession{}, err
 	}
 	if snoozed != 0 {
@@ -716,6 +719,9 @@ func (s *Store) DeleteLeadSession(ctx context.Context, project, id string) ([]st
 			return nil, err
 		}
 	}
+	if err := dropEmptySessionGroups(ctx, tx, project); err != nil {
+		return nil, err
+	}
 	return freed, tx.Commit()
 }
 
@@ -796,14 +802,27 @@ const lastTab = `(SELECT CASE WHEN EXISTS (SELECT 1 FROM lead_sessions WHERE pro
 	THEN (SELECT max(tab_order) + 1 FROM lead_sessions WHERE project = ? AND id != ? AND closed_at = 0) ELSE 0 END)`
 
 // SortTabs puts open sessions in the order their tabs show: pinned first,
-// then where each was dragged to, then by when it was opened.
-func SortTabs(sessions []LeadSession) {
+// then each group's in the groups' order (SessionGroups), then the loose
+// ones; within each, where it was dragged to, then by when it was opened. A
+// session whose group isn't in groups counts as loose.
+func SortTabs(sessions []LeadSession, groups []SessionGroup) {
+	rank := make(map[string]int, len(groups))
+	for i, g := range groups {
+		rank[g.ID] = i + 1
+	}
+	// place is 0 for pinned, a group's rank, then one past the last group.
+	place := func(ls LeadSession) int {
+		if ls.Pinned {
+			return 0
+		}
+		if r, ok := rank[ls.Group]; ok && ls.Group != "" {
+			return r
+		}
+		return len(groups) + 1
+	}
 	slices.SortStableFunc(sessions, func(a, b LeadSession) int {
-		if a.Pinned != b.Pinned {
-			if a.Pinned {
-				return -1
-			}
-			return 1
+		if pa, pb := place(a), place(b); pa != pb {
+			return pa - pb
 		}
 		if a.Order != b.Order {
 			return a.Order - b.Order
@@ -817,15 +836,29 @@ func SortTabs(sessions []LeadSession) {
 
 // PinLeadSession pins a session's tab before the others, or unpins it. A
 // closed session keeps it, for when it is reopened.
+//
+// A pinned session is in no group: pinning takes it out of its own.
 func (s *Store) PinLeadSession(ctx context.Context, project, id string, pinned bool) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET pinned = ? WHERE project = ? AND id = ?`, pinned, project, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	set := `pinned = ?`
+	if pinned {
+		set += `, tab_group = ''`
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE lead_sessions SET `+set+` WHERE project = ? AND id = ?`, pinned, project, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
 	}
-	return nil
+	if err := dropEmptySessionGroups(ctx, tx, project); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SettleLeadSession is CloseLeadSession for a session that settled by itself
@@ -900,13 +933,17 @@ func (s *Store) WakeLeadSessions(ctx context.Context, now time.Time) (map[string
 // open sessions in their new order. One left out goes after them, in the
 // order it had; an id that isn't an open session of the project is an
 // error, so a list read before a session closed doesn't half apply. Pinned
-// tabs still come first (SortTabs).
+// tabs still come first, then the groups' (SortTabs).
 func (s *Store) OrderLeadSessions(ctx context.Context, project string, ids []string) error {
 	open, err := s.LeadSessions(ctx, project)
 	if err != nil {
 		return err
 	}
-	SortTabs(open)
+	groups, err := s.SessionGroups(ctx, project)
+	if err != nil {
+		return err
+	}
+	SortTabs(open, groups)
 	isOpen := map[string]bool{}
 	for _, ls := range open {
 		isOpen[ls.ID] = true

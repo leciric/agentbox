@@ -268,8 +268,12 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 	if err != nil {
 		return nil, err
 	}
+	groups, err := s.store.SessionGroups(ctx, project)
+	if err != nil {
+		return nil, err
+	}
 	if !closed {
-		state.SortTabs(sessions)
+		state.SortTabs(sessions, groups)
 	}
 	// A session imported from an archive made before colours has none.
 	if slices.ContainsFunc(sessions, func(ls state.LeadSession) bool { return ls.Color == "" }) {
@@ -280,7 +284,7 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 			return nil, err
 		}
 		if !closed {
-			state.SortTabs(sessions)
+			state.SortTabs(sessions, groups)
 		}
 	}
 	activity, err := activityOf(ctx, project)
@@ -321,7 +325,7 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		row := api.LeadSession{
 			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Color: ls.Color, Chat: chatState,
 			Agents: owned[ls.ID], Last: s.lastChatLine(ctx, lead),
-			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID], Pinned: ls.Pinned,
+			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID], Pinned: ls.Pinned, Group: ls.Group,
 		}
 		if ls.Closed() {
 			row.ClosedAt = &ls.ClosedAt
@@ -441,6 +445,11 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 			s.logf("starting %s's %s session on %s's settings: %v", project, ls.ID, from, err)
 		}
 	}
+	if req.Group != "" {
+		if err := s.store.SetLeadSessionGroup(r.Context(), project, ls.ID, req.Group); err != nil {
+			s.logf("opening %s's %s session in tab group %s: %v", project, ls.ID, req.Group, err)
+		}
+	}
 	if src.ID != "" {
 		item := ""
 		if fork {
@@ -551,15 +560,15 @@ func (s *Server) apiSession(ctx context.Context, project, id string) api.LeadSes
 }
 
 // renameSession answers PATCH /v1/projects/{project}/sessions/{session}: a
-// new topic, a pin, or both.
+// new topic, a pin, a tab group, or several.
 func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 	project, id := r.PathValue("project"), r.PathValue("session")
 	var req api.LeadSessionPatch
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	if req.Topic == "" && req.Pinned == nil {
-		return errors.New("a session's change is a topic, a pin, or both")
+	if req.Topic == "" && req.Pinned == nil && req.Group == nil {
+		return errors.New("a session's change is a topic, a pin or a tab group")
 	}
 	if req.Topic != "" {
 		if err := s.store.RenameLeadSession(r.Context(), project, id, req.Topic); err != nil {
@@ -573,6 +582,11 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.Pinned != nil {
 		if err := s.store.PinLeadSession(r.Context(), project, id, *req.Pinned); err != nil {
+			return err
+		}
+	}
+	if req.Group != nil {
+		if err := s.store.SetLeadSessionGroup(r.Context(), project, id, *req.Group); err != nil {
 			return err
 		}
 	}

@@ -169,3 +169,84 @@ func TestSessionPinsAndOrder(t *testing.T) {
 		t.Error("ordering a session that isn't open wasn't refused")
 	}
 }
+
+// Tab groups are kept by the daemon too: made of sessions, which the list
+// then says and sorts after the pinned ones; renamed, folded, reordered,
+// joined from a new session, refused a pinned one, and ungrouped.
+func TestSessionTabGroups(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, topic := range []string{"One", "Two", "Three"} {
+		s, err := d.client.NewLeadSession(ctx, "hello-stack", topic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, s.ID)
+	}
+	if _, err := d.client.PinLeadSession(ctx, "hello-stack", ids[0], true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.NewLeadSessionGroup(ctx, "hello-stack", api.NewLeadSessionGroup{Sessions: []string{ids[0]}}); err == nil {
+		t.Error("a pinned session joined a group")
+	}
+	ui, err := d.client.NewLeadSessionGroup(ctx, "hello-stack", api.NewLeadSessionGroup{Name: "UI", Sessions: []string{ids[2]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ui.Name != "UI" || ui.Color == "" || !ui.Collapsed || ui.Position != 1 {
+		t.Errorf("NewLeadSessionGroup() = %+v", ui)
+	}
+	list, err := d.client.LeadSessions(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pinned One, then UI's Three, then the loose ones.
+	if list[0].ID != ids[0] || list[1].ID != ids[2] || list[1].Group != ui.ID || list[2].Group != "" {
+		t.Errorf("sessions = %+v", list)
+	}
+
+	folded, name := false, "Desktop UI"
+	if g, err := d.client.UpdateLeadSessionGroup(ctx, "hello-stack", ui.ID, api.LeadSessionGroupPatch{Name: &name, Collapsed: &folded}); err != nil || g.Name != name || g.Collapsed {
+		t.Errorf("UpdateLeadSessionGroup() = %+v, %v", g, err)
+	}
+	opened, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{Group: ui.ID})
+	if err != nil || opened.Group != ui.ID {
+		t.Errorf("a session opened in the group = %+v, %v", opened, err)
+	}
+	docs, err := d.client.NewLeadSessionGroup(ctx, "hello-stack", api.NewLeadSessionGroup{Sessions: []string{ids[1]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := d.client.OrderLeadSessionGroups(ctx, "hello-stack", []string{docs.ID})
+	if err != nil || len(groups) != 2 || groups[0].ID != docs.ID {
+		t.Errorf("OrderLeadSessionGroups() = %+v, %v", groups, err)
+	}
+	if s, err := d.client.GroupLeadSession(ctx, "hello-stack", ids[1], ui.ID); err != nil || s.Group != ui.ID {
+		t.Errorf("GroupLeadSession() = %+v, %v", s, err)
+	}
+	// docs, emptied, went.
+	if groups, err := d.client.LeadSessionGroups(ctx, "hello-stack"); err != nil || len(groups) != 1 || groups[0].ID != ui.ID {
+		t.Errorf("LeadSessionGroups() = %+v, %v", groups, err)
+	}
+	if err := d.client.UngroupLeadSessions(ctx, "hello-stack", ui.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err = d.client.LeadSessions(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if s.Group != "" {
+			t.Errorf("%s is still in %s after ungrouping", s.ID, s.Group)
+		}
+	}
+	if err := d.client.UngroupLeadSessions(ctx, "hello-stack", ui.ID); err == nil {
+		t.Error("ungrouping a group that's gone wasn't refused")
+	}
+}

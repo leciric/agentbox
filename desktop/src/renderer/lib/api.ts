@@ -609,6 +609,17 @@ export const api = {
     call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { pinned } satisfies T.LeadSessionPatch).then(untitledTopic),
   orderLeadSessions: (name: string, ids: string[]) =>
     call<T.LeadSession[]>('PUT', `${project(name)}/sessions/order`, { ids } satisfies T.LeadSessionOrder).then((list) => list.map(untitledTopic)),
+  // The chat's tab groups (lib/tabGroups.ts): a group made of sessions,
+  // renamed, recoloured, folded or spread, ungrouped, reordered; and a
+  // session moved into one, or out with ''.
+  leadSessionGroups: (name: string) => call<T.LeadSessionGroup[]>('GET', `${project(name)}/session-groups`),
+  newLeadSessionGroup: (name: string, req: T.NewLeadSessionGroup) => call<T.LeadSessionGroup>('POST', `${project(name)}/session-groups`, req satisfies T.NewLeadSessionGroup),
+  updateLeadSessionGroup: (name: string, group: string, req: T.LeadSessionGroupPatch) =>
+    call<T.LeadSessionGroup>('PATCH', `${project(name)}/session-groups/${encodeURIComponent(group)}`, req satisfies T.LeadSessionGroupPatch),
+  ungroupLeadSessions: (name: string, group: string) => call<void>('DELETE', `${project(name)}/session-groups/${encodeURIComponent(group)}`),
+  orderLeadSessionGroups: (name: string, ids: string[]) => call<T.LeadSessionGroup[]>('PUT', `${project(name)}/session-groups/order`, { ids } satisfies T.LeadSessionGroupOrder),
+  groupLeadSession: (name: string, session: string, group: string) =>
+    call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { group } satisfies T.LeadSessionPatch).then(untitledTopic),
   // The sessions in the chat's history (closeLeadSession), the most recently
   // closed first; reopenLeadSession brings one back, deleteLeadSession removes
   // one, open or closed, for good.

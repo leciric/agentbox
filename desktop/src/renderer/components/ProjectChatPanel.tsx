@@ -7,7 +7,8 @@ import { api, sessionOfRef } from '../lib/api';
 import { chatReadyRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { inSession, pendingReveal, requestReveal, useChatOpenAt, useReveal, type Reveal } from '../lib/reveal';
-import { afterClose, awake, chooseSession, markSessionSeen, moveTab, neighbour, pickSession, sessionColor, showingSession, snoozedOf, sortTabs, useChosenSession, withSession } from '../lib/sessions';
+import { afterClose, awake, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, showingSession, snoozedOf, sortTabs, useChosenSession, withSession } from '../lib/sessions';
+import { jumpTo, moveBefore, rowSessions, tabRow, withGroup } from '../lib/tabGroups';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionJump, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { cn, errorMessage } from '../lib/utils';
@@ -118,7 +119,12 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   const chosen = useChosenSession(project);
   // The tabs are the sessions not snoozed; the snoozed wait at the row's end.
   const all = sessions.data ?? [];
-  const list = awake(all);
+  // The chat's tab groups (lib/tabGroups.ts), read again with the sessions.
+  const groupsQuery = useQuery({ queryKey: ['leadSessions', project, 'groups'], queryFn: () => api.leadSessionGroups(project), ...chatReadyRetry });
+  const groups = groupsQuery.data ?? [];
+  const row = tabRow(awake(all), groups);
+  // The tabs in the row's order, those folded into a group's menu too.
+  const list = rowSessions(row);
   const sleeping = snoozedOf(all);
   const current = pickSession(list, chosen);
   const color = sessionColor(list, current);
@@ -233,9 +239,54 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   const pin = useMutation({
     mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.pinLeadSession(project, id, pinned),
     onMutate: ({ id, pinned }) => {
-      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (had) => had && sortTabs(had.map((s) => (s.id === id ? { ...s, pinned } : s))));
+      // A pinned session leaves its group.
+      queryClient.setQueryData<T.LeadSession[]>(
+        ['leadSessions', project],
+        (had) => had && sortTabs(had.map((s) => (s.id === id ? { ...s, pinned, group: pinned ? undefined : s.group } : s)), groups),
+      );
     },
     onSettled: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  // Groups, kept by the daemon like pins: a session moved in or out shows
+  // there at once, and the answer settles it.
+  const groupsKey = ['leadSessions', project, 'groups'];
+  const failed = (err: unknown) => {
+    refresh();
+    toast.error(errorMessage(err));
+  };
+  const regroup = (id: string, group: string) => {
+    queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (had) => had && withGroup(had, id, group, groups));
+    api.groupLeadSession(project, id, group).then(refresh, failed);
+  };
+  const newGroup = (ids: string[]) =>
+    api.newLeadSessionGroup(project, { sessions: ids }).then(
+      (g) => {
+        queryClient.setQueryData<T.LeadSessionGroup[]>(groupsKey, (had) => [...(had ?? []), g]);
+        queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (had) => had?.map((s) => (ids.includes(s.id) ? { ...s, group: g.id } : s)));
+        refresh();
+        return g;
+      },
+      (err) => {
+        failed(err);
+        return undefined;
+      },
+    );
+  const updateGroup = (id: string, patch: T.LeadSessionGroupPatch) => {
+    queryClient.setQueryData<T.LeadSessionGroup[]>(groupsKey, (had) => had?.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+    api.updateLeadSessionGroup(project, id, patch).then(refresh, failed);
+  };
+  const ungroup = (id: string) => {
+    queryClient.setQueryData<T.LeadSessionGroup[]>(groupsKey, (had) => had?.filter((g) => g.id !== id));
+    api.ungroupLeadSessions(project, id).then(refresh, failed);
+  };
+  const orderGroups = (ids: string[]) => {
+    queryClient.setQueryData<T.LeadSessionGroup[]>(groupsKey, (had) => had && ids.flatMap((id) => had.filter((g) => g.id === id)));
+    api.orderLeadSessionGroups(project, ids).then((gs) => queryClient.setQueryData(groupsKey, gs), failed);
+  };
+  const addToGroup = useMutation({
+    mutationFn: (group: string) => api.newLeadSession(project, { from: current?.id, group }),
+    onSuccess: opened,
     onError: (err) => toast.error(errorMessage(err)),
   });
 
@@ -266,17 +317,22 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   useEffect(() => (shownId ? showingSession(project, shownId) : undefined), [project, shownId]);
 
   // The sessions' keys (lib/shortcuts.ts), while this chat is on screen.
-  const keys = useRef({ list, current, history, open: add.mutate, close: close.mutate });
-  keys.current = { list, current, history, open: add.mutate, close: close.mutate };
-  // Mod+1…9: the Nth tab, as a browser's.
+  const keys = useRef({ list, row, current, history, open: add.mutate, close: close.mutate });
+  keys.current = { list, row, current, history, open: add.mutate, close: close.mutate };
+  // The session of each group last on screen, which Mod+n on the group goes
+  // back to.
+  const lastInGroup = useRef<Record<string, string>>({});
+  if (current?.group) lastInGroup.current[current.group] = current.id;
+  // Mod+1…9: the Nth thing in the row, as a browser's tab; a group goes to
+  // its session last shown (lib/tabGroups jumpTo).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const n = sessionJump(event);
       if (n === undefined) return;
-      const { list, history } = keys.current;
+      const { row, current, history } = keys.current;
       event.preventDefault();
       event.stopPropagation();
-      const to = list[n - 1];
+      const to = jumpTo(row, n, current?.id, lastInGroup.current);
       if (!to) return;
       if (history) setHistory(false);
       showSession(project, to);
@@ -337,6 +393,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   const tabs = (
     <SessionTabs
       sessions={list}
+      groups={groups}
       current={current?.id}
       adding={add.isPending}
       closedCount={closedCount}
@@ -351,7 +408,13 @@ export function SessionChatPanel({ project, card, children }: { project: string;
       onHistory={() => openHistory()}
       onRename={(id, topic) => rename.mutate({ id, topic })}
       onPin={(id, pinned) => pin.mutate({ id, pinned })}
-      onMove={(id, to) => reorder(moveTab(list, id, to))}
+      onMove={(id, before) => reorder(moveBefore(list, id, before, groups))}
+      onGroup={regroup}
+      onNewGroup={newGroup}
+      onUpdateGroup={updateGroup}
+      onUngroup={ungroup}
+      onOrderGroups={orderGroups}
+      onAddToGroup={(group) => addToGroup.mutate(group)}
     />
   );
 
