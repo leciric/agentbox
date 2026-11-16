@@ -101,6 +101,10 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 		ClaudeAccount: account,
 		Interface:     state.InterfaceChat,
 		Role:          state.RoleLead,
+		// A new chat starts on the tool's full-access mode, where it has one
+		// (chat.wanted); a lead made before this keeps the Manual it has, and
+		// the composer's mode menu still changes it.
+		Autonomous: true,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		// Left by an interrupted create, or by a lead destroyed without git.

@@ -40,7 +40,7 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	}
 	return state.Agent{
 		Project: project, Name: state.LeadName, AI: agent.ChatTool,
-		Interface: state.InterfaceChat, Role: state.RoleLead,
+		Interface: state.InterfaceChat, Role: state.RoleLead, Autonomous: true,
 	}, nil
 }
 

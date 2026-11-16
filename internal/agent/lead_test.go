@@ -57,6 +57,9 @@ func TestEnsureLeadMakesNoMachineAndNoBranch(t *testing.T) {
 	if !a.IsLead() {
 		t.Errorf("EnsureLead() role = %q, want %q", a.Role, state.RoleLead)
 	}
+	if !a.Autonomous {
+		t.Errorf("a new lead isn't autonomous: its chat should start on full access")
+	}
 	if a.Branch != "" {
 		t.Errorf("Branch = %q: the lead commits nothing, so it has no branch", a.Branch)
 	}
