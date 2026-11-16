@@ -677,6 +677,19 @@ jobs:
 
       - run: go test ./internal/hostos ./internal/hostwsl/...
 
+      # Windows' install script (irm …/install.ps1 | iex), in PowerShell 7
+      # and in the Windows PowerShell 5.1 that line runs in, against a fake
+      # computer; then its checks against this runner, for real: it has to
+      # reach a verdict (0: can run AgentBox, 1: can't, and why).
+      - run: go test ./internal/installsh -run PowerShell
+
+      - name: install.ps1 -Check, on this runner
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File internal\installsh\install.ps1 -Check
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { exit 1 }
+          exit 0
+
       - run: go build -o bin/agentbox.exe ./cmd/agentbox
 
       - run: bin/agentbox.exe --version

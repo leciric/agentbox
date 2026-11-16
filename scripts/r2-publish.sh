@@ -9,7 +9,8 @@
 #                               first, in the shape of GitHub's release list
 #                               (internal/update reads it)
 #   index.html                  the same page, led by the stable release
-#   install.sh                  the Linux install script (internal/installsh), from
+#   install.ps1                 Windows' install script, beside it
+#   install.sh                  the Linux and Mac install script (internal/installsh), from
 #                               this checkout, with each stable release only
 #
 # The release workflow runs it after publishing a release, and the nightly
@@ -106,6 +107,9 @@ aws s3 cp "$tmp/pages/index.html" "s3://$bucket/index.html" \
 if ! [[ $tag =~ $nightly ]]; then
   echo "==> Writing install.sh"
   aws s3 cp "$(dirname "$0")/../internal/installsh/install.sh" "s3://$bucket/install.sh" \
+    --content-type 'text/plain; charset=utf-8' --cache-control 'max-age=300' --only-show-errors
+  echo "==> Writing install.ps1"
+  aws s3 cp "$(dirname "$0")/../internal/installsh/install.ps1" "s3://$bucket/install.ps1" \
     --content-type 'text/plain; charset=utf-8' --cache-control 'max-age=300' --only-show-errors
 fi
 

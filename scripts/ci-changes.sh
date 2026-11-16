@@ -89,6 +89,9 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
         [ -n "$f" ] || continue
         case "$f" in
           scripts/mac-sign.sh | scripts/agentbox.entitlements) macos=true; continue ;;
+          # Windows' install script, which only Windows PowerShell 5.1 runs
+          # the way `irm | iex` does.
+          internal/installsh/install.ps1 | internal/installsh/installps1_test.go) windows=true; continue ;;
         esac
         case "$f" in
           desktop/src/shared/api.ts | native/crates/agentbox-api/src/types.rs) f=internal/api/api.ts ;; # read by internal/api's test
