@@ -1664,6 +1664,26 @@ var migrations = []string{
 	// project_sections.description is a line about the section, '' for none:
 	// the sidebar shows it as the section's tooltip.
 	`ALTER TABLE project_sections ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
+	// A project's todo list (todos.go): what the user, or the lead, means to
+	// get done, in the order they put it. Not the task graph #250 dropped:
+	// no statuses, subtasks or blocking edges, and nothing writes a todo on
+	// its own. position is its place in the list, 1..n; job and agent are
+	// the agent a todo was handed to, once it was, done_at when it was
+	// checked off, 0 while it is open.
+	`CREATE TABLE todos (
+		id         TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		text       TEXT NOT NULL,
+		done       INTEGER NOT NULL DEFAULT 0,
+		position   INTEGER NOT NULL,
+		agent      TEXT NOT NULL DEFAULT '',
+		job        TEXT NOT NULL DEFAULT '',
+		created_by TEXT NOT NULL DEFAULT 'user',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		done_at    INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX todos_by_project ON todos (project, position)`,
 	// memories.source is where a memory came from: '' for AgentBox's own,
 	// 'repository' for one read from the project's checkout, a file under
 	// .agentbox/memories that a co-worker shared (internal/memory/repo.go);
@@ -2490,6 +2510,7 @@ var projectOwned = []string{
 	"agent_groups",
 	"pr_watches",
 	"pr_merge_when_green",
+	"todos",
 	"agent_goals",
 	"peer_agents",
 	"remote_agents",

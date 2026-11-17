@@ -20,6 +20,7 @@ pub use composer::ReviewCard;
 mod evidence;
 mod find;
 mod items;
+pub mod requests;
 pub mod rows;
 mod stream;
 
@@ -205,6 +206,9 @@ pub struct ChatView {
     /// A finished agent's review card over its composer (AgentReviewCard),
     /// handed in by the app, and the agent's media counts by kind for it.
     pub review_card: Option<ReviewCard>,
+    /// The credential and connector requests waiting on you here, over the
+    /// composer (requests.rs), made and kept up to date by the app.
+    pub requests: Option<Entity<requests::Requests>>,
     media_kinds: std::collections::BTreeMap<String, i64>,
     /// A past agent's chat: read-only, Continue and Delete where the
     /// composer was (ChatTab's readOnly).
@@ -355,6 +359,7 @@ impl ChatView {
             asleep: None,
             review_count: 0,
             review_card: None,
+            requests: None,
             media_kinds: Default::default(),
             past: false,
             closed: false,
@@ -954,10 +959,16 @@ impl ChatView {
         // A window around a found item takes no new items: Jump to latest
         // reads them.
         if self.newer && (ev.item.is_some() || ev.append.is_some()) {
-            if let Some(item) = &ev.item
-                && let Some(ix) = self.items.iter().position(|i| i.id == item.id)
-            {
-                self.items[ix] = item.clone();
+            if let Some(item) = &ev.item {
+                match self.items.iter().position(|i| i.id == item.id) {
+                    Some(ix) => self.items[ix] = item.clone(),
+                    // A permission request waits on you whatever is on
+                    // screen: its banner reads the items, so it joins them.
+                    None if item.kind == "permission" || item.agent_permission.is_some() => {
+                        self.items.push(item.clone())
+                    }
+                    None => {}
+                }
             }
             self.rebuild(cx);
             cx.notify();

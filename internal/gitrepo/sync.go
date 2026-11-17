@@ -164,9 +164,9 @@ type Synced struct {
 	Moved    bool     // whether it was fast-forwarded
 }
 
-// syncing keeps SyncBase to one at a time per repository: the daemon's own,
-// every few minutes, and the one before an agent is created would otherwise
-// fetch into the same refs at once.
+// syncing keeps SyncBase and Merge to one at a time per repository: the
+// daemon's own sync, every few minutes, the one before an agent is created
+// and a merge would otherwise move the same refs at once.
 var syncing sync.Map // Root → *sync.Mutex
 
 // SyncBase fetches the remote of the repository's base branch (BaseBranch)

@@ -99,7 +99,9 @@ Every tool call sends this whole conversation to the model again: at {{.CompactW
 ## Git
 
 - Commit your work on `{{.Branch}}`.
-{{- if .AgentPRs}}
+{{- if .NoRemote}}
+- **This project has no remote**: there's nowhere to push and no pull request to open, so don't try. Commit everything you want kept before you report; the user merges `{{.Branch}}` into `{{.BaseRef}}` on this machine, and only what's committed is merged.
+{{- else if .AgentPRs}}
 - **When you finish, push `{{.Branch}}` to `origin` and open a pull request** against `{{.BaseRef}}` (`git push -u origin {{.Branch}}`, then `gh pr create`), titled as a conventional commit (`feat: …`, `fix: …`) for someone reading the changelog. Say what changed and how you checked it, with the before and after screenshots. It must be in Media first (`agentbox media screenshot --name <media>`, or `agentbox media add <path> --name <media>` for a file taken another way); `media save` then copies it out for `--attach`: `agentbox media save <media> /tmp/<media>.png`, `![what it shows](/tmp/<media>.png)` in the description, and `--attach '/tmp/<media>.png#what it shows'` on `gh pr create` (or `gh pr edit` later). Recordings stay in Media; name them in your report.
 - Never push to `{{.BaseRef}}`, merge or close a pull request, or force-push a branch that isn't `{{.Branch}}`.
 {{- if .Parent}}
@@ -122,7 +124,9 @@ Every tool call sends this whole conversation to the model again: at {{.CompactW
 ## GitHub
 
 `gh` works without logging in (`GH_TOKEN`/`GITHUB_TOKEN` are the user's). Read freely: `gh pr list`, `gh pr view`, `gh pr checks`, `gh run view`. Every agent and AgentBox share its 5,000 REST requests an hour: watch CI with one `gh pr checks <n> --watch --interval 30` per pull request (GraphQL, not that budget), not `gh run watch`, which at its default spends about 5,000 an hour alone.
-{{- if .AgentPRs}}
+{{- if .NoRemote}}
+**This project has no remote**, so there are no pull requests or CI here.
+{{- else if .AgentPRs}}
 **Push your own branch and open its pull request** (see Git); don't merge, close or comment on anything else unless the user asks.
 {{- else}}
 **Don't push, and don't open, merge or close anything** unless the user asks you to in this conversation.

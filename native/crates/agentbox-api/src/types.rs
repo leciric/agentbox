@@ -61,6 +61,8 @@ pub struct Project {
     pub ios_forward_ports: Vec<i64>,
     #[serde(rename = "agentPRs")]
     pub agent_p_rs: bool,
+    #[serde(rename = "noRemote")]
+    pub no_remote: bool,
     #[serde(rename = "prWatch")]
     pub pr_watch: String,
     #[serde(rename = "syncBase")]
@@ -155,6 +157,35 @@ pub struct AddProjectRequest {
     pub create: bool,
     #[serde(rename = "commitFiles", skip_serializing_if = "is_empty")]
     pub commit_files: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub init: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkippedPath {
+    pub path: String,
+    pub bytes: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeAgentRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeAgentResult {
+    pub branch: String,
+    pub into: String,
+    pub commit: String,
+    #[serde(rename = "fastForward")]
+    pub fast_forward: bool,
+    #[serde(rename = "upToDate")]
+    pub up_to_date: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -188,6 +219,8 @@ pub struct CloneProjectRequest {
     pub create: bool,
     #[serde(rename = "commitFiles", skip_serializing_if = "is_empty")]
     pub commit_files: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub init: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1727,6 +1760,8 @@ pub struct ApiError {
     pub error: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub code: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub skipped: Vec<SkippedPath>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5056,6 +5091,75 @@ pub struct ScheduleChange {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Todo {
+    pub id: String,
+    pub project: String,
+    pub text: String,
+    pub done: bool,
+    pub position: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub job: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    #[serde(rename = "doneAt", skip_serializing_if = "Option::is_none")]
+    pub done_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoOrder {
+    #[serde(deserialize_with = "nullable")]
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoStartRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ai: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoStart {
+    pub todo: Todo,
+    pub job: Job,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoCounts {
+    #[serde(deserialize_with = "nullable")]
+    pub open: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoChange {
+    pub project: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChatAgentPermission {
     pub agent: String,
     pub r#ref: String,
@@ -6923,6 +7027,8 @@ pub const IMAGE_BUILDING: &str = "building";
 pub const IMAGE_BUILD_FAILED: &str = "failed";
 pub const IN_AGENT_SOCKET: &str = "/run/agentbox.sock";
 pub const ERROR_FOLDER_NOT_EMPTY: &str = "folder-not-empty";
+pub const ERROR_NOT_A_REPOSITORY: &str = "not-a-repository";
+pub const ERROR_MERGE_CONFLICT: &str = "merge-conflict";
 pub const ERROR_FOLDER_EXISTS: &str = "folder-exists";
 pub const ERROR_BAD_REPO_URL: &str = "bad-repo-url";
 pub const ERROR_PASSPHRASE_NEEDED: &str = "passphrase-needed";
@@ -6950,6 +7056,7 @@ pub const SESSION_WORKING: &str = "working";
 pub const SESSION_IDLE: &str = "idle";
 pub const EVENT_QUESTION: &str = "question";
 pub const EVENT_SCHEDULE: &str = "schedule";
+pub const EVENT_TODO: &str = "todo";
 pub const EVENT_AGENT_EVENT: &str = "agent.event";
 pub const REVIEW_REVIEWED: &str = "reviewed";
 pub const REVIEW_DISMISSED: &str = "dismissed";

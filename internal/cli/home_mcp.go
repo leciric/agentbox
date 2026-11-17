@@ -319,21 +319,26 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "add_project",
 			Description: "Add a project: a git repository already on this machine (path), or one cloned from a git " +
-				"URL first (url), into ~/src/<name> unless path says where. A folder must be the top of a " +
-				"repository with at least one commit.",
+				"URL first (url), into ~/src/<name> unless path says where. A folder that isn't a git repository " +
+				"is refused, saying what making it one would commit and leave out: tell the user, and only once " +
+				"they agree, call again with init, which runs git init there and commits its files.",
 			Schema: object(nil, map[string]any{
 				"path": str("the repository's folder; with url, the folder to clone into"),
 				"url":  str("a git URL to clone, like https://github.com/owner/repo"),
 				"name": str("the project's name: lowercase letters, digits and hyphens; the folder's or repository's name by default"),
+				"init": map[string]any{"type": "boolean", "description": "make path, a folder that isn't a git repository, one (git init, its files as the first commit); only once the user agreed"},
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ Path, URL, Name string }
+				var in struct {
+					Path, URL, Name string
+					Init            bool
+				}
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				p, err := c.HomeAddProject(ctx, api.HomeAddProjectRequest{Path: in.Path, URL: in.URL, Name: in.Name})
+				p, err := c.HomeAddProject(ctx, api.HomeAddProjectRequest{Path: in.Path, URL: in.URL, Name: in.Name, Init: in.Init})
 				if err != nil {
-					return "", err
+					return "", fmt.Errorf("%w%s", err, skippedLines(err))
 				}
 				return fmt.Sprintf("Added %s, at %s, on %s.", p.Name, p.Root, p.Branch), nil
 			},

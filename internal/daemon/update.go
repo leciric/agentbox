@@ -25,7 +25,10 @@ type updates struct {
 	mu        sync.Mutex
 	available *api.UpdateAvailable
 	checkedAt *time.Time
-	now       chan struct{} // pokes the loop to check at once, when the setting is turned on
+	// triedAt is when the last check went out, by the wall clock (no
+	// monotonic reading): zero until the first.
+	triedAt time.Time
+	now     chan struct{} // pokes the loop to check at once, when the setting is turned on
 	// sending holds one usage report at a time (sendUsage): two checks at
 	// once would both read the days not sent yet, and send them twice.
 	sending sync.Mutex
@@ -45,9 +48,12 @@ func (s *Server) watchUpdates(ctx context.Context) {
 		case <-time.After(delay):
 		}
 	}
-	tick := time.NewTicker(update.Interval)
+	tick := time.NewTicker(s.updateInterval())
 	defer tick.Stop()
 	for {
+		s.updates.mu.Lock()
+		s.updates.triedAt = time.Now().Round(0)
+		s.updates.mu.Unlock()
 		s.checkForUpdate(ctx)
 		select {
 		case <-ctx.Done():
@@ -55,6 +61,38 @@ func (s *Server) watchUpdates(ctx context.Context) {
 		case <-tick.C:
 		case <-s.updates.now:
 		}
+	}
+}
+
+func (s *Server) updateInterval() time.Duration {
+	return cmp.Or(s.cfg.UpdateInterval, update.Interval)
+}
+
+// checkIfOverdue pokes the loop when its last check went out longer ago than
+// the interval by the wall clock. A ticker runs on the monotonic clock, which
+// stands still while the computer (and the VM the daemon runs in) sleeps: a
+// laptop that slept through the night would otherwise wait up to another hour
+// of being awake before looking. Every read of the status is a chance to
+// notice, and the apps read it as their window comes back to the front.
+//
+// It is only as good as the VM's wall clock after a sleep. Lima (2.1 and
+// later) sets a Mac's guest clock from the host every 10 seconds, so there it
+// is right within seconds. Cloud Hypervisor's guest has only Debian's
+// systemd-timesyncd, which steps the clock at its next poll, up to about half
+// an hour later. The native app doesn't wait for that: it notices the sleep on
+// the host's own clocks and asks GET /v1/update/release, which checks at once
+// (native/crates/app/src/app/update_poll.rs).
+func (s *Server) checkIfOverdue() {
+	s.updates.mu.Lock()
+	tried := s.updates.triedAt
+	s.updates.mu.Unlock()
+	// Before the first check, the loop is on its way to one anyway.
+	if tried.IsZero() || time.Since(tried) < s.updateInterval() {
+		return
+	}
+	select {
+	case s.updates.now <- struct{}{}:
+	default:
 	}
 }
 
@@ -322,6 +360,7 @@ func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	s.checkIfOverdue()
 	return writeJSON(w, http.StatusOK, status)
 }
 

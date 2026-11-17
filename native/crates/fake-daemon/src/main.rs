@@ -10,6 +10,8 @@
 //!
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
+//! rewriting the file sends an update event, as a release the daemon's hourly
+//! check finds does (FAKE_CHANNEL=nightly for the nightly channel);
 //! FAKE_MOODS=1 holds the agents in one of every state their cards' monitors act out
 //! (working, asking, failed, ready, stopped), on each tool that has a character.
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
@@ -33,6 +35,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
 mod agents;
+mod asks;
 mod chat;
 mod desktop;
 mod notify;
@@ -936,6 +939,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
+    let req = match asks::route(&fake, req, &query).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
     let req = match notify::route(&fake, req, &query).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
@@ -1041,6 +1048,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     saved_at: now(),
                     ..Default::default()
                 }],
+                github: true,
+                github_accounts: asks::github_accounts(),
                 ..Default::default()
             },
         ),
@@ -1066,20 +1075,6 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "projects", p, "icon"]) if fake.icon(p).is_some() => {
             json(StatusCode::OK, &fake.icon(p).unwrap())
         }
-        // An open question from an agent, for the sidebar's "needs you".
-        (&Method::GET, ["v1", "projects", p, "questions"]) if fake.is_fake(p) => json(
-            StatusCode::OK,
-            &vec![Question {
-                id: "q1".into(),
-                project: p.to_string(),
-                agent: "agent-03".into(),
-                r#ref: format!("{p}/agent-03"),
-                question: "Should the reminders page paginate?".into(),
-                status: "open".into(),
-                created_at: now(),
-                ..Default::default()
-            }],
-        ),
         // A release to update the app to (FAKE_RELEASE, a JSON
         // api::UpdateRelease whose files a local server serves), for
         // testing the app's update in place; the daemon's update check
@@ -1088,21 +1083,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             json(StatusCode::OK, &fake_release().unwrap())
         }
         (&Method::GET, ["v1", "update"]) if fake_release().is_some() => {
-            let r = fake_release().unwrap();
-            json(
-                StatusCode::OK,
-                &UpdateStatus {
-                    current: std::env::var("FAKE_CURRENT").unwrap_or_else(|_| "0.17.0".into()),
-                    enabled: true,
-                    channel: "stable".into(),
-                    available: Some(UpdateAvailable {
-                        version: r.version,
-                        url: r.url,
-                    }),
-                    checked_at: Some(now()),
-                    ..Default::default()
-                },
-            )
+            json(StatusCode::OK, &fake_update().unwrap())
         }
         // The base image's state, which Settings → Setup shows: the real
         // daemon asks Incus for its snapshot, and has none here.
@@ -1669,9 +1650,20 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             } else {
                 (0..4).map(|i| history_item("lead", i)).collect()
             };
+            // The agents' permission cards it was given (asks.rs), as the
+            // daemon keeps them in the lead's conversation.
+            let (mut items, seq) = (items, 0);
+            let seq = match fake.chats.lock().unwrap().get(&format!("{p}/lead")) {
+                Some((s, _, kept)) => {
+                    items.extend(kept.iter().filter(|i| i.agent_permission.is_some()).cloned());
+                    *s
+                }
+                None => seq,
+            };
             json(
                 StatusCode::OK,
                 &ChatThread {
+                    seq,
                     agent: format!("{p}/lead"),
                     session: ChatSession {
                         state: CHAT_READY.into(),
@@ -1783,6 +1775,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     ev.item = Some(it.clone());
                 }
             });
+            asks::permission_answered(&fake, p, a, &item, &answer.option_id);
             Response::builder()
                 .status(StatusCode::NO_CONTENT)
                 .body(Full::new(Bytes::new()).boxed())
@@ -2190,6 +2183,45 @@ async fn upstream_pick_up(fake: Arc<Fake>) -> bool {
         .is_some_and(|p| p.pick_up_issues)
 }
 
+/// fake_update is the update check's status offering FAKE_RELEASE, on
+/// FAKE_CHANNEL (stable otherwise).
+fn fake_update() -> Option<UpdateStatus> {
+    let r = fake_release()?;
+    let current = std::env::var("FAKE_CURRENT").unwrap_or_else(|_| "0.17.0".into());
+    let channel = std::env::var("FAKE_CHANNEL").unwrap_or_else(|_| "stable".into());
+    Some(UpdateStatus {
+        nightly: current.contains("-nightly."),
+        current,
+        enabled: true,
+        channel,
+        available: Some(UpdateAvailable {
+            version: r.version,
+            url: r.url,
+        }),
+        checked_at: Some(now()),
+        ..Default::default()
+    })
+}
+
+/// watch_release tells the app when FAKE_RELEASE changes, with an update
+/// event, as the daemon does when its hourly check finds a new release.
+async fn watch_release(fake: Arc<Fake>) {
+    let Some(path) = std::env::var_os("FAKE_RELEASE") else {
+        return;
+    };
+    let mut last = std::fs::read(&path).ok();
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let now = std::fs::read(&path).ok();
+        if now != last {
+            last = now;
+            if let Some(status) = fake_update() {
+                fake.emit(EVENT_UPDATE, &status);
+            }
+        }
+    }
+}
+
 /// fake_release is the release FAKE_RELEASE names, if any.
 fn fake_release() -> Option<UpdateRelease> {
     let path = std::env::var_os("FAKE_RELEASE")?;
@@ -2292,6 +2324,7 @@ async fn main() -> Result<()> {
         tokio::spawn(resources::sample(fake.clone()));
     }
     tokio::spawn(panel::serve_preview());
+    tokio::spawn(watch_release(fake.clone()));
     loop {
         let (stream, _) = listener.accept().await?;
         let fake = fake.clone();
