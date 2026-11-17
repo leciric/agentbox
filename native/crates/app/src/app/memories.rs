@@ -719,7 +719,7 @@ impl AppView {
             .border_color(theme::emerald(400).opacity(0.3))
             .bg(theme::emerald(400).opacity(0.08))
             .child(
-                crate::icons::ic("git-commit-horizontal")
+                crate::icons::ic("git-branch")
                     .size(px(18.))
                     .text_color(theme::emerald(300)),
             )
