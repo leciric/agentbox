@@ -127,6 +127,7 @@ func (s *Store) Memories(ctx context.Context, project string, kinds []string) ([
 	if err := requireProject(project); err != nil {
 		return nil, err
 	}
+	s.syncRepo(ctx, project)
 	where := []string{"m.project = ?", live}
 	args := []any{project}
 	if len(kinds) > 0 {
@@ -223,7 +224,7 @@ const live = notSuperseded + ` AND m.resolved_at = 0`
 const memoryColumns = `m.id, m.project, m.kind, m.title, m.content, m.importance, m.created_at, m.updated_at,
 	m.supersedes_id, m.source_event_id, EXISTS (SELECT 1 FROM memories r WHERE r.supersedes_id = m.id),
 	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at, m.promotion, m.promotion_at,
-	m.confirmations, m.origin`
+	m.confirmations, m.origin, m.source, m.source_path`
 
 func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) ([]Memory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memories m `+clause, args...)
@@ -249,7 +250,7 @@ func scanMemory(rows scanner) (Memory, error) {
 	var resolved, referenced, decayed, mentioned, promoted int64
 	if err := rows.Scan(&m.ID, &m.Project, &m.Kind, &m.Title, &m.Content, &m.Importance,
 		&created, &updated, &supersedes, &source, &m.Superseded,
-		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Promotion, &promoted, &m.Confirmations, &m.Origin); err != nil {
+		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Promotion, &promoted, &m.Confirmations, &m.Origin, &m.Source, &m.SourcePath); err != nil {
 		return Memory{}, err
 	}
 	m.CreatedAt, m.UpdatedAt = attime(created), attime(updated)

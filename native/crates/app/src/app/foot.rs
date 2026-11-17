@@ -22,6 +22,8 @@ use crate::{media, theme, toasts};
 pub enum FootPage {
     Media,
     Jobs,
+    /// The current project's Memories page (memories.rs).
+    Memories,
 }
 
 /// A card's picture as made: its width and height, and the image.
@@ -176,6 +178,7 @@ impl AppView {
                 self.load_media_pages(cx);
             }
             FootPage::Jobs => self.load_jobs(cx),
+            FootPage::Memories => self.load_memories(cx),
         }
         cx.notify();
     }
@@ -1036,6 +1039,7 @@ impl AppView {
     pub(super) fn render_foot_page(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.side.page {
             Some(FootPage::Jobs) => self.render_jobs(cx),
+            Some(FootPage::Memories) => self.render_memories(cx),
             _ => div()
                 .relative()
                 .size_full()
@@ -2384,7 +2388,7 @@ fn human_bytes(n: i64) -> String {
 }
 
 /// enc escapes a query value.
-fn enc(s: &str) -> String {
+pub(super) fn enc(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -2398,6 +2402,16 @@ fn enc(s: &str) -> String {
 /// card is ui/card.tsx's Card: the `.panel` ground, rounded-2xl, a header
 /// (an icon in a ringed tile, the title, a description, an action) over
 /// the body the caller adds.
+/// jobs_card is card, for the other pages that lay out like Jobs.
+pub(super) fn jobs_card(
+    icon: Option<&'static str>,
+    title: String,
+    description: Option<String>,
+    action: Option<AnyElement>,
+) -> Stateful<Div> {
+    card(icon, title, description, action)
+}
+
 fn card(
     icon: Option<&'static str>,
     title: String,

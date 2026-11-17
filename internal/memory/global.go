@@ -70,9 +70,18 @@ func (s *Store) DeleteMemory(ctx context.Context, project, id string) error {
 	if err := requireProject(project); err != nil {
 		return err
 	}
-	if _, err := s.Memory(ctx, project, id); err != nil {
+	m, err := s.Memory(ctx, project, id)
+	if err != nil {
 		return err
 	}
+	// A shared memory is its file's: deleting the row would last until the
+	// next read imported the file again.
+	if m.Source == SourceRepository {
+		return fmt.Errorf("%s is shared through the repository: delete %s there, and it goes from every checkout that pulls it", id, m.SourcePath)
+	}
+	// What the deleted chain kept out of the import (AgentBox's copy wins)
+	// comes back from the repository at the next read.
+	defer s.forgetRepo(project)
 	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err

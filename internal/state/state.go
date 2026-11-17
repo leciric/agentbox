@@ -1684,6 +1684,13 @@ var migrations = []string{
 		done_at    INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX todos_by_project ON todos (project, position)`,
+	// memories.source is where a memory came from: '' for AgentBox's own,
+	// 'repository' for one read from the project's checkout, a file under
+	// .agentbox/memories that a co-worker shared (internal/memory/repo.go);
+	// source_path is that file, relative to the checkout. Imported rows are
+	// rewritten from their files, and go when their file does.
+	`ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE memories ADD COLUMN source_path TEXT NOT NULL DEFAULT ''`,
 	// A chat's tab groups (sessiongroups.go): each a button in the row with
 	// its sessions in a menu, or spread as tabs after it when not collapsed,
 	// in the order position says. lead_sessions.tab_group is the group a

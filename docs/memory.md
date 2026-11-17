@@ -27,6 +27,8 @@ flowchart LR
 - `consolidation.go` — the mechanical pass (duplicates, decay, exact merges) plus the `Pass`/
   `Stats` types logged to `consolidation_passes`.
 - `context.go` — the context builder.
+- `repo.go` — memories shared through the repository: the `.agentbox/memories` file format, the
+  import every read runs, and the export sharing commits.
 - `events.go`, `memories.go`, `artifacts.go`, `reports.go`, `working.go` — CRUD/query methods for
   each table.
 
@@ -173,6 +175,47 @@ every context has a "What holds in every project" section of them, after the ope
 within the same budget. A lead can supersede one (with scope `all` again) or resolve it; the user
 sees them in **Settings → Memory** and deletes them there. Decay, distillation and tidy never touch
 them.
+
+## Sharing memories through the repository
+
+A project's memory is on your machine. To give what its agents learned to the people you work with,
+share it through the project's repository: in the native app, open the project's **Memories** page
+(the brain button on the project's row in the sidebar, or the row's menu), tick some memories or
+press **Share all**.
+
+Sharing commits one Markdown file per memory, `.agentbox/memories/<id>.md`, on the branch
+`agentbox/memories` (your project's branch prefix, then `memories`). The commit is made without
+touching your checkout: whatever branch you are on, your files and your index stay as they were.
+Push the branch and open a pull request (the page shows the `git push` command); a co-worker
+reviews the memories like any other document. Sharing again adds to the same branch until it is
+merged, and starts from the base branch after that. The lead can share too, when you ask it to
+(`POST /v1/project/memory/share`).
+
+```markdown
+---
+id: mem_3f2a…
+kind: decision
+title: "Deploys happen on weekdays only"
+importance: 4
+created: 2026-11-16T09:30:00Z
+updated: 2026-11-16T09:30:00Z
+supersedes: ["mem_91c0…"]
+---
+
+Two Friday deploys broke the checkout. …
+```
+
+Whenever AgentBox reads a project's memory (the Memories page, `search_memory`, an agent's brief),
+it first reads the `.agentbox/memories` folder in the project's checkout, when it changed. Each file
+becomes a memory marked **from repository**, found and ranked like any other. Editing a file
+updates it; deleting the file removes it (AgentBox won't delete a shared memory itself — delete its
+file). A file with a broken frontmatter is skipped.
+
+**AgentBox's own copy wins.** When a file has the id of one of the project's own memories, or
+supersedes one of them, or one of them supersedes it, it is the same memory, and AgentBox keeps the
+one it has: it may have been corrected or resolved since the file was written. The file is skipped.
+A shared file that supersedes another shared file replaces it, as memories do. Memories for every
+project are yours and are never shared.
 
 ## The context builder
 
