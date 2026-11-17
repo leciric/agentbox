@@ -3,6 +3,7 @@ package gitrepo
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,6 +23,10 @@ type Repo struct {
 	GitDir string // the shared .git directory
 }
 
+// ErrNotARepo is Open's answer for a folder that isn't in a git repository.
+// Create makes one of it.
+var ErrNotARepo = errors.New("not a git repository")
+
 // Open finds the repository containing path. Inside a linked worktree it
 // resolves the main checkout.
 func Open(path string) (Repo, error) {
@@ -31,12 +36,38 @@ func Open(path string) (Repo, error) {
 	}
 	common, err := run(abs, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
-		return Repo{}, fmt.Errorf("%s is not inside a git repository", abs)
+		if _, statErr := os.Stat(abs); statErr != nil {
+			return Repo{}, fmt.Errorf("%s: %w", abs, statErr)
+		}
+		// Git failing isn't the same as there being no repository: one it
+		// can't read (dubious ownership, a format this git doesn't know, a
+		// broken .git file) is still somebody's history, and ErrNotARepo
+		// invites making a repository there. Only no .git at all says so.
+		if dotGit := DotGitAbove(abs); dotGit != "" {
+			return Repo{}, fmt.Errorf("%s is in a git repository that git can't open (%s): %w", abs, dotGit, err)
+		}
+		return Repo{}, fmt.Errorf("%s is not inside a git repository: %w", abs, ErrNotARepo)
 	}
 	if filepath.Base(common) != ".git" {
 		return Repo{}, fmt.Errorf("%s: bare repositories and submodules are not supported", abs)
 	}
 	return Repo{Root: filepath.Dir(common), GitDir: common}, nil
+}
+
+// DotGitAbove is the first .git, a folder or a file, at dir or any folder
+// above it, or "" when there is none.
+func DotGitAbove(dir string) string {
+	for {
+		p := filepath.Join(dir, ".git")
+		if _, err := os.Lstat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // Clone copies src into dest, a folder that mustn't exist yet, and opens the
@@ -62,6 +93,24 @@ func Clone(src Repo, dest string) (Repo, error) {
 		}
 	}
 	return Open(dest)
+}
+
+// HasRemote reports whether the repository has any remote at all. One that
+// has none, such as one made from a plain folder, has nowhere to push.
+func (r Repo) HasRemote() (bool, error) {
+	out, err := run(r.Root, "remote")
+	return out != "", err
+}
+
+// NoRemote reports whether root is a repository known to have no remote at
+// all; git failing to say counts as having one, which hides nothing.
+func NoRemote(root string) bool {
+	repo, err := Open(root)
+	if err != nil {
+		return false
+	}
+	has, err := repo.HasRemote()
+	return err == nil && !has
 }
 
 // HasCommits reports whether HEAD points to a commit.

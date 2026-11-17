@@ -33,6 +33,7 @@ export interface Project {
   nesting: boolean;
   iosForwardPorts: number[];
   agentPRs: boolean;
+  noRemote: boolean;
   prWatch: string;
   syncBase: boolean;
   settleHours: number;
@@ -83,6 +84,25 @@ export interface AddProjectRequest {
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
+  init?: boolean;
+}
+
+export interface SkippedPath {
+  path: string;
+  bytes: number;
+  reason: string;
+}
+
+export interface MergeAgentRequest {
+  message?: string;
+}
+
+export interface MergeAgentResult {
+  branch: string;
+  into: string;
+  commit: string;
+  fastForward: boolean;
+  upToDate: boolean;
 }
 
 export interface CloneProjectRequest {
@@ -99,6 +119,7 @@ export interface CloneProjectRequest {
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
+  init?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -992,6 +1013,7 @@ export interface Self {
 export interface Error {
   error: string;
   code?: string;
+  skipped?: SkippedPath[];
 }
 
 export interface TerminalResize {
@@ -4185,6 +4207,8 @@ export const ImageBuilding = "building";
 export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
+export const ErrorNotARepository = "not-a-repository";
+export const ErrorMergeConflict = "merge-conflict";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
 export const ErrorPassphraseNeeded = "passphrase-needed";

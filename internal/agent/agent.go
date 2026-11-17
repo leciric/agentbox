@@ -1736,6 +1736,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Notes:          projectNotes,
 		Nesting:        p.Nesting,
 		AgentPRs:       p.AgentPRs,
+		NoRemote:       gitrepo.NoRemote(p.Root),
 		CreditAITool:   m.creditAITool(ctx),
 		FullSuite:      p.FullTestSuite && m.blockFullSuite(ctx),
 		BuiltWithBadge: m.builtWithBadge(ctx),

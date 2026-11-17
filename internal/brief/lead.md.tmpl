@@ -209,7 +209,14 @@ it, which frees its memory. **Never retire one with uncommitted or unpushed
 work** — tell it to commit and push first. With nothing to do, reply with nothing more than "Nothing
 to do.".
 {{- end}}
-{{- if .AgentPRs}}
+{{- if .NoRemote}}
+
+**This project's repository has no remote**: nothing can be pushed, and there are no pull requests
+or CI. An agent's work lands by merging its branch here, on this machine: when the user asks for
+that, `agentbox merge {{.Project}}/<agent>` merges it into the branch it started from (the app's
+Merge button does the same). It refuses a conflict and changes nothing: then tell the agent to merge
+`{{.BaseRef}}` into its branch and resolve it, and merge again. Once it's merged, retire the agent.
+{{- else if .AgentPRs}}
 
 **This project's agents push their own branch and open their own pull request** when they finish.
 Don't push or open one for them: once an agent's pull request is open, retire it. If one finishes
@@ -232,7 +239,7 @@ there are.
 
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
-{{if .PRWatch}}
+{{if .NoRemote}}{{else if .PRWatch}}
 **AgentBox watches every agent's open pull request** until it is merged or closed. When one conflicts
 with its base, its checks fail or a reviewer asks for changes, AgentBox tells that agent to fix it —
 starting its machine if it was stopped — and tells you in a line; nothing to do unless the agent

@@ -61,6 +61,8 @@ pub struct Project {
     pub ios_forward_ports: Vec<i64>,
     #[serde(rename = "agentPRs")]
     pub agent_p_rs: bool,
+    #[serde(rename = "noRemote")]
+    pub no_remote: bool,
     #[serde(rename = "prWatch")]
     pub pr_watch: String,
     #[serde(rename = "syncBase")]
@@ -155,6 +157,35 @@ pub struct AddProjectRequest {
     pub create: bool,
     #[serde(rename = "commitFiles", skip_serializing_if = "is_empty")]
     pub commit_files: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub init: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkippedPath {
+    pub path: String,
+    pub bytes: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeAgentRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeAgentResult {
+    pub branch: String,
+    pub into: String,
+    pub commit: String,
+    #[serde(rename = "fastForward")]
+    pub fast_forward: bool,
+    #[serde(rename = "upToDate")]
+    pub up_to_date: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -188,6 +219,8 @@ pub struct CloneProjectRequest {
     pub create: bool,
     #[serde(rename = "commitFiles", skip_serializing_if = "is_empty")]
     pub commit_files: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub init: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1727,6 +1760,8 @@ pub struct ApiError {
     pub error: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub code: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub skipped: Vec<SkippedPath>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -6895,6 +6930,8 @@ pub const IMAGE_BUILDING: &str = "building";
 pub const IMAGE_BUILD_FAILED: &str = "failed";
 pub const IN_AGENT_SOCKET: &str = "/run/agentbox.sock";
 pub const ERROR_FOLDER_NOT_EMPTY: &str = "folder-not-empty";
+pub const ERROR_NOT_A_REPOSITORY: &str = "not-a-repository";
+pub const ERROR_MERGE_CONFLICT: &str = "merge-conflict";
 pub const ERROR_FOLDER_EXISTS: &str = "folder-exists";
 pub const ERROR_BAD_REPO_URL: &str = "bad-repo-url";
 pub const ERROR_PASSPHRASE_NEEDED: &str = "passphrase-needed";

@@ -24,6 +24,9 @@ pub struct DaemonError {
     pub code: String,
     /// status is the answer's HTTP status.
     pub status: u16,
+    /// skipped is ApiError.skipped: what making a folder a repository would
+    /// leave out of its first commit.
+    pub skipped: Vec<crate::types::SkippedPath>,
 }
 
 impl std::fmt::Display for DaemonError {
@@ -68,6 +71,20 @@ impl std::fmt::Display for NoDaemon {
 }
 
 impl std::error::Error for NoDaemon {}
+
+/// skipped_of is the daemon's Error.skipped for an error, empty for any other.
+pub fn skipped_of(e: &anyhow::Error) -> Vec<crate::types::SkippedPath> {
+    e.downcast_ref::<DaemonError>()
+        .map(|d| d.skipped.clone())
+        .unwrap_or_default()
+}
+
+/// message_of is what the daemon said for an error, without the path and
+/// status before it; any other error as it reads.
+pub fn message_of(e: &anyhow::Error) -> String {
+    e.downcast_ref::<DaemonError>()
+        .map_or_else(|| e.to_string(), |d| d.message.clone())
+}
 
 /// code_of is the daemon's code for an error, empty for any other.
 pub fn code_of(e: &anyhow::Error) -> &str {
@@ -220,15 +237,20 @@ impl Client {
                 return Err(NoDaemon(format!("connecting to the daemon: {why}")).into());
             }
             if !status.is_success() {
-                let (msg, code) = serde_json::from_slice::<ApiError>(&bytes)
-                    .map(|e| (e.error, e.code))
+                let (msg, code, skipped) = serde_json::from_slice::<ApiError>(&bytes)
+                    .map(|e| (e.error, e.code, e.skipped))
                     .unwrap_or_else(|_| {
-                        (String::from_utf8_lossy(&bytes).into_owned(), String::new())
+                        (
+                            String::from_utf8_lossy(&bytes).into_owned(),
+                            String::new(),
+                            Vec::new(),
+                        )
                     });
                 return Err(DaemonError {
                     text: format!("{path}: {status}: {msg}"),
                     message: msg,
                     code,
+                    skipped,
                     status: status.as_u16(),
                 }
                 .into());
@@ -641,6 +663,7 @@ mod tests {
                 message: String::new(),
                 code: String::new(),
                 status,
+                skipped: Vec::new(),
             }
             .into()
         };

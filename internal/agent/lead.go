@@ -566,6 +566,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		ClaudeAccounts:       accountNames,
 		CanSpawn:             socket != "",
 		AgentPRs:             p.AgentPRs,
+		NoRemote:             gitrepo.NoRemote(p.Root),
 		Notes:                projectNotes,
 		Recap:                recap,
 		NoteSuggestions:      suggestions,
