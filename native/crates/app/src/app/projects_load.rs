@@ -126,6 +126,9 @@ mod tests {
             shown(&ProjectsLoad::Failed(e.clone()), false),
             Shown::Error(e.clone())
         );
-        assert_eq!(shown(&ProjectsLoad::Failed(e.clone()), true), Shown::Error(e));
+        assert_eq!(
+            shown(&ProjectsLoad::Failed(e.clone()), true),
+            Shown::Error(e)
+        );
     }
 }
