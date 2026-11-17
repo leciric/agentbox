@@ -2253,9 +2253,7 @@ impl AppView {
     pub(super) fn mark_sent(&mut self, r#ref: &str, cx: &mut Context<Self>) {
         self.mark_session_running(r#ref);
         self.side.apply_agent(r#ref, None, Some("running"));
-        if let Some(a) = self.fleet.iter_mut().find(|a| a.r#ref == r#ref) {
-            a.busy = true;
-        }
+        super::agent_status::apply_chat_state(&mut self.fleet, r#ref, "running");
         cx.notify();
     }
 

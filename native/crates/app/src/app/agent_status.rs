@@ -399,6 +399,24 @@ pub fn mem_short(n: i64) -> String {
     }
 }
 
+/// apply_chat_state takes where an agent's chat now stands, from a chat event,
+/// into the project rail's copy of the agent: the chat state its row, tile and
+/// label read (chat_label, agent_st), and whether the chat is working. It
+/// answers whether anything changed. Without it the rail keeps what the last
+/// fleet read said, "Needs you" included, after the request is answered.
+pub fn apply_chat_state(fleet: &mut [FleetAgent], r#ref: &str, chat: &str) -> bool {
+    let Some(a) = fleet.iter_mut().find(|a| a.r#ref == r#ref) else {
+        return false;
+    };
+    let busy = chat == "running";
+    if a.chat == chat && a.busy == busy {
+        return false;
+    }
+    a.chat = chat.to_string();
+    a.busy = busy;
+    true
+}
+
 /// heavy is a machine using a lot: more than a core, or more than a quarter
 /// of the host's memory (terminalTail.ts heavy).
 pub fn heavy(cpu: Option<f64>, memory: Option<i64>, host: i64) -> bool {
@@ -436,6 +454,55 @@ mod tests {
         );
         assert_eq!(agent_st(&agent("paused", ""), false, false), St::Done);
         assert!(rank(&agent("running", "waiting")) < rank(&agent("stopped", "")));
+    }
+
+    fn fleet_agent(r#ref: &str, chat: &str) -> FleetAgent {
+        FleetAgent {
+            r#ref: r#ref.into(),
+            state: "running".into(),
+            chat: chat.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_answered_request_stops_showing_needs_you() {
+        let mut fleet = vec![
+            fleet_agent("p/agent-01", "waiting"),
+            fleet_agent("p/agent-02", "waiting"),
+        ];
+        assert_eq!(chat_label(&fleet[0]).1, Tone::Urgent);
+        assert_eq!(agent_st(&fleet[0], false, false), St::Needs);
+
+        // The request is answered: the chat event says it's working again.
+        assert!(apply_chat_state(&mut fleet, "p/agent-01", "running"));
+        assert_eq!(fleet[0].chat, "running");
+        assert!(fleet[0].busy);
+        assert_eq!(chat_label(&fleet[0]).1, Tone::Live);
+        assert_eq!(agent_st(&fleet[0], false, false), St::Working);
+
+        // Only that agent: the other still needs you.
+        assert_eq!(fleet[1].chat, "waiting");
+        assert!(!fleet[1].busy);
+        assert_eq!(chat_label(&fleet[1]).1, Tone::Urgent);
+
+        // And when its turn ends it's no longer busy, nor working.
+        assert!(apply_chat_state(&mut fleet, "p/agent-01", "ready"));
+        assert!(!fleet[0].busy);
+        assert_ne!(agent_st(&fleet[0], false, false), St::Working);
+    }
+
+    #[test]
+    fn a_chat_event_with_nothing_to_change_changes_nothing() {
+        let mut fleet = vec![fleet_agent("p/agent-01", "running")];
+        fleet[0].busy = true;
+        // The same state again, as a streamed message's events say it.
+        assert!(!apply_chat_state(&mut fleet, "p/agent-01", "running"));
+        // An agent of another project, or the lead, isn't on this rail.
+        assert!(!apply_chat_state(&mut fleet, "q/agent-01", "waiting"));
+        assert!(!apply_chat_state(&mut fleet, "p/lead", "waiting"));
+        assert_eq!(fleet[0].chat, "running");
+        assert!(fleet[0].busy);
     }
 
     #[test]
