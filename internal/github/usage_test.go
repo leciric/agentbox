@@ -136,6 +136,40 @@ func TestASpentBudgetSendsNothingUntilReset(t *testing.T) {
 	}
 }
 
+// A budget spent against one API root is forgotten with ForgetUsage(root):
+// a later stub given the same address starts on a budget of its own.
+func TestForgetUsageClearsASpentBudget(t *testing.T) {
+	var spent atomic.Bool
+	spent.Store(true)
+	reset := time.Now().Add(40 * time.Minute)
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if spent.Load() {
+			w.Header().Set("X-RateLimit-Limit", "5000")
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"API rate limit exceeded for user ID 1."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"number":224,"state":"open"}`))
+	}))
+	defer stub.Close()
+	c := Client{Token: "forget-token", BaseURL: stub.URL}
+	ctx := WithCaller(context.Background(), "merge")
+	if _, err := c.PullRequestByNumber(ctx, Repo{"acme", "app"}, 224); err == nil {
+		t.Fatal("the spent budget wasn't refused")
+	}
+	spent.Store(false)
+	var limited *RateLimitError
+	if _, err := c.PullRequestByNumber(ctx, Repo{"acme", "app"}, 224); !errors.As(err, &limited) {
+		t.Fatalf("before forgetting, err = %v, want the pause held", err)
+	}
+	ForgetUsage(stub.URL + "/")
+	if _, err := c.PullRequestByNumber(ctx, Repo{"acme", "app"}, 224); err != nil {
+		t.Errorf("after forgetting, err = %v, want the request sent", err)
+	}
+}
+
 // A background poll gives way while little is left; a person's click doesn't,
 // and pollers are told to spread out before it comes to that.
 func TestBackgroundReadsStandAsideWhenTheBudgetIsLow(t *testing.T) {
