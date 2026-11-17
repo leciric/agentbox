@@ -362,9 +362,42 @@ impl Requests {
     /// settled: it leaves the settled set too, which only bridges the moment
     /// between an answer and the next read.
     pub fn set(&mut self, list: Vec<Question>, cx: &mut Context<Self>) {
-        self.settled.retain(|id| list.iter().any(|q| &q.id == id));
         self.given = list;
+        self.prune();
         cx.notify();
+    }
+
+    /// prune forgets what was kept for a card whose requests are gone,
+    /// answered here or elsewhere (another window, the project's chat, the
+    /// phone) or cancelled: its sign-in and the poll behind it, what was typed
+    /// in it (the masked secret and token too), whether it was open and what
+    /// went wrong. Cards are keyed by what they ask for, so a later request
+    /// for the same secret or connector starts from an empty card.
+    fn prune(&mut self) {
+        let given = &self.given;
+        self.settled.retain(|id| given.iter().any(|q| &q.id == id));
+        let live: HashSet<String> = given.iter().map(target).collect();
+        let keep = |k: &String| live.contains(k);
+        self.open.retain(keep);
+        self.refusing.retain(keep);
+        self.adding.retain(keep);
+        self.busy.retain(keep);
+        self.errors.retain(|k, _| keep(k));
+        self.signing_in.retain(|k, _| keep(k));
+        self.fields.retain(|k, _| keep(k));
+        if self.signing_in.is_empty() {
+            // Dropping the task stops it.
+            self.poll = None;
+        }
+    }
+
+    /// live is whether any of a group's requests is still in the list: what
+    /// an answer or a sign-in coming back checks before it touches the card,
+    /// which prune may have forgotten (or given to a newer request) meanwhile.
+    fn live(&self, group: &[Question]) -> bool {
+        self.given
+            .iter()
+            .any(|q| group.iter().any(|g| g.id == q.id))
     }
 
     /// shown is what is drawn: the requests still waiting.
@@ -543,8 +576,11 @@ impl Requests {
                 }
             }
             this.update(cx, |this, cx| {
-                this.busy.remove(&key);
                 this.settled.extend(done);
+                if !this.live(&group) {
+                    return;
+                }
+                this.busy.remove(&key);
                 match err {
                     Some(e) => {
                         this.errors.insert(key.clone(), e);
@@ -633,6 +669,9 @@ impl Requests {
             }
             .await;
             this.update(cx, |this, cx| {
+                if !this.live(&group) {
+                    return;
+                }
                 this.busy.remove(&key);
                 match res {
                     Err(e) => {
@@ -687,6 +726,9 @@ impl Requests {
                 .post::<_, serde_json::Value>("/v1/auth/github", &req)
                 .await;
             this.update(cx, |this, cx| {
+                if !this.live(&group) {
+                    return;
+                }
                 this.busy.remove(&key);
                 match res {
                     Err(e) => {
@@ -1446,6 +1488,69 @@ mod tests {
         assert_eq!(groups[0].1.len(), 2);
         assert_eq!(groups[1].0, "secret:OPENAI_API_KEY");
         assert!(summary(&groups[0].1).contains("agent-2 and agent-1"));
+    }
+
+    /// A request answered elsewhere takes its card's state with it: the
+    /// sign-in and its poll, the open row, Refuse's form, the error. A later
+    /// request for the same thing (same key) starts from an empty card, and
+    /// another request's card is left as it was.
+    #[::core::prelude::v1::test]
+    fn a_request_answered_elsewhere_leaves_nothing_for_the_next_one() {
+        let mut secret = q(
+            "s1",
+            "agent-1",
+            CREDENTIAL_SECRET,
+            "pending",
+            "2026-11-01T10:00:00Z",
+        );
+        secret.secret_name = "OPENAI_API_KEY".into();
+        let mut notion = q(
+            "c1",
+            "agent-2",
+            QUESTION_CONNECTOR,
+            "pending",
+            "2026-11-01T10:01:00Z",
+        );
+        notion.connector = "notion".into();
+        let (s, n) = (target(&secret), target(&notion));
+        let mut r = Requests::new(Client::new("/nonexistent.sock"), true);
+        r.given = vec![secret.clone(), notion.clone()];
+        for k in [&s, &n] {
+            r.open.insert(k.clone());
+            r.refusing.insert(k.clone());
+            r.adding.insert(k.clone());
+            r.busy.insert(k.clone());
+            r.errors.insert(k.clone(), "boom".into());
+        }
+        r.signing_in
+            .insert(n.clone(), "https://example.com/authorize".into());
+        r.poll = Some(Task::ready(()));
+
+        // The secret is answered in another window: its card is forgotten,
+        // the connector's sign-in (and its poll) go on.
+        r.given = vec![notion.clone()];
+        r.prune();
+        for set in [&r.open, &r.refusing, &r.adding, &r.busy] {
+            assert!(!set.contains(&s) && set.contains(&n));
+        }
+        assert!(!r.errors.contains_key(&s) && r.errors.contains_key(&n));
+        assert!(r.signing_in.contains_key(&n) && r.poll.is_some());
+        assert!(!r.live(std::slice::from_ref(&secret)));
+
+        // The connector's request is cancelled mid sign-in: the poll stops.
+        r.given = Vec::new();
+        r.prune();
+        assert!(r.signing_in.is_empty() && r.poll.is_none());
+        assert!(r.open.is_empty() && r.errors.is_empty() && r.fields.is_empty());
+
+        // The agent asks for the same secret again: nothing carried over.
+        let mut again = secret.clone();
+        again.id = "s2".into();
+        r.given = vec![again.clone()];
+        r.prune();
+        assert_eq!(target(&again), s);
+        assert!(!r.open.contains(&s) && !r.refusing.contains(&s) && !r.errors.contains_key(&s));
+        assert!(r.live(std::slice::from_ref(&again)));
     }
 
     #[::core::prelude::v1::test]
