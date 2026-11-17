@@ -118,16 +118,6 @@ pub enum ChatAction {
     ReviewProject,
 }
 
-/// The picture shown over everything, zoomed.
-pub struct Zoom {
-    pub image: Arc<Image>,
-    pub name: String,
-    pub scale: f32,
-    pub pan: Point<Pixels>,
-    pub drag: Option<Point<Pixels>>,
-    pub focus: FocusHandle,
-}
-
 /// btn is a small button of the chat's: primary (the brand's) or not.
 pub(crate) fn btn(
     id: &'static str,
@@ -254,7 +244,6 @@ pub struct ChatView {
     checkpoints: HashMap<String, Checkpoint>,
     /// Pictures in the conversation, read once each (None while on the way).
     images: HashMap<String, Option<Arc<Image>>>,
-    pub zoom: Option<Zoom>,
     /// The background task opened over the chat (chat/background.rs).
     background: Option<background::Opened>,
     /// The conversation has items before those held, and a read of them is out.
@@ -384,7 +373,6 @@ impl ChatView {
             answering: Default::default(),
             checkpoints: Default::default(),
             images: Default::default(),
-            zoom: None,
             background: None,
             older: false,
             loading_older: false,
@@ -1088,26 +1076,6 @@ impl ChatView {
         .detach();
     }
 
-    pub fn open_zoom(
-        &mut self,
-        image: Arc<Image>,
-        name: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let focus = cx.focus_handle();
-        focus.focus(window, cx);
-        self.zoom = Some(Zoom {
-            image,
-            name,
-            scale: 1.,
-            pan: Point::default(),
-            drag: None,
-            focus,
-        });
-        cx.notify();
-    }
-
     /// render_hero is an empty lead chat's welcome, as ChatTab's Hero (and
     /// HomeHero): the tool's mark in a box, a title and a line under it.
     fn render_hero(&self, window: &Window) -> Option<AnyElement> {
@@ -1327,7 +1295,6 @@ impl Render for ChatView {
         }
         let view = cx.entity();
         let working = self.working();
-        let zoom = self.render_zoom(window, cx);
         let background = self.render_background(window, cx);
         let gutter = crate::app::controls::list_overflows(&self.list);
         v_flex()
@@ -1431,7 +1398,6 @@ impl Render for ChatView {
                     .child(self.render_composer(window, cx))
                     .child(crate::spot::spot("composer")),
             )
-            .children(zoom)
             .children(background)
     }
 }
