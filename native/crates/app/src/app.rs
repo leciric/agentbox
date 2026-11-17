@@ -29,6 +29,7 @@ mod office_entry;
 mod panel;
 mod past;
 mod presence;
+mod projects_load;
 pub(crate) mod pulls;
 mod recap;
 mod recap_card;
@@ -72,7 +73,10 @@ pub struct AppView {
     project: Option<String>,
     fleet: Vec<FleetAgent>,
     fleet_error: Option<SharedString>,
-    error: Option<SharedString>,
+    /// The sidebar's read of the projects (projects_load.rs), and the read
+    /// under way: a new one replaces (and so cancels) it.
+    projects_load: projects_load::ProjectsLoad,
+    _projects_read: Option<Task<()>>,
     connected: bool,
     /// The daemon's connection, and its start (connection.rs).
     conn: connection::Conn,
@@ -196,7 +200,8 @@ impl AppView {
             project: None,
             fleet: Vec::new(),
             fleet_error: None,
-            error: None,
+            projects_load: Default::default(),
+            _projects_read: None,
             connected: false,
             conn: Default::default(),
             stale: Default::default(),
@@ -467,10 +472,30 @@ impl AppView {
         .detach();
     }
 
-    fn load_projects(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// load_projects reads the projects, sending the read again while no
+    /// daemon answers it (projects_load.rs): at launch that's before the
+    /// daemon, or the VM it runs in, is up.
+    fn load_projects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.projects_load, projects_load::ProjectsLoad::Loaded) {
+            self.projects_load = projects_load::ProjectsLoad::Waiting;
+        }
         let client = self.client.clone();
-        cx.spawn_in(_window, async move |this, cx| {
-            let res = client.get::<Vec<Project>>("/v1/projects").await;
+        self._projects_read = Some(cx.spawn_in(window, async move |this, cx| {
+            let began = std::time::Instant::now();
+            let mut attempt = 0;
+            let res = loop {
+                let res = client.get::<Vec<Project>>("/v1/projects").await;
+                let Err(e) = &res else { break res };
+                attempt += 1;
+                let reachless = agentbox_api::client::not_ready(e);
+                let Ok(starting) = this.update(cx, |this, _| this.conn.starting.is_some()) else {
+                    return;
+                };
+                match projects_load::retry_after(attempt, began.elapsed(), reachless, starting) {
+                    Some(wait) => cx.background_executor().timer(wait).await,
+                    None => break res,
+                }
+            };
             this.update_in(cx, |this, window, cx| {
                 match res {
                     Ok(p) => {
@@ -484,7 +509,7 @@ impl AppView {
                                 this.load_sessions(n, cx);
                             }
                         }
-                        this.error = None;
+                        this.projects_load = projects_load::ProjectsLoad::Loaded;
                         bench::mark("projects-loaded");
                         if this.project.is_none() {
                             // The app opens on Home, as v2 does; a benchmark
@@ -550,13 +575,20 @@ impl AppView {
                             }
                         }
                     }
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    Err(e) => {
+                        this.projects_load = projects_load::ProjectsLoad::Failed(
+                            agentbox_i18n::tv(
+                                "native.sidebar.unreachable",
+                                &[("error", e.to_string().into())],
+                            )
+                            .into(),
+                        )
+                    }
                 }
                 cx.notify();
             })
             .ok();
-        })
-        .detach();
+        }));
     }
 
     fn load_fleet(&mut self, window: &mut Window, cx: &mut Context<Self>) {

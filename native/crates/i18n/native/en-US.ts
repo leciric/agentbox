@@ -189,4 +189,6 @@ export const enUSNative = {
   'native.tray.description': 'Closing the window hides it, and AgentBox stays in the tray (the menu bar on a Mac), where its icon counts the agents working and what waits for you. {keys} always quits, as does Quit AgentBox in the icon\'s menu and in the help menu.',
   'native.tray.noIcon': 'No tray icon is shown on this desktop right now, so closing the window quits. GNOME shows tray icons with the AppIndicator extension.',
   'native.tray.noMinimize': 'This desktop doesn\'t minimize windows, so closing the window quits.',
+  'native.sidebar.connecting': 'Starting AgentBox…',
+  'native.sidebar.unreachable': 'Couldn\'t load your projects: {error}',
 };
