@@ -2560,10 +2560,12 @@ impl AppView {
                             .child(crate::icons::of("⌖")),
                     ),
             );
+        // 16:10 of the panel's width, as RightPanel.tsx's aspect-[16/10]:
+        // it grows and shrinks with the panel (VncView fits the screen in).
         let screen = div()
             .relative()
             .w_full()
-            .h(px(335.))
+            .aspect_ratio(16. / 10.)
             .rounded_lg()
             .overflow_hidden()
             .border_1()
