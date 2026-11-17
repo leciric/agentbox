@@ -9,6 +9,7 @@ import { restoreLanguage } from './lib/i18n';
 import { restoreMode } from './lib/theme';
 import { currentWebTarget, followPhoneEvents, installWebBridge, lan } from './web/bridge';
 import { currentSession, NotPaired, pairFromURL } from './web/PhonePair';
+import { registerShell } from './web/pwa';
 import { SignIn } from './web/SignIn';
 
 installWebBridge();
@@ -31,8 +32,22 @@ async function start(): Promise<void> {
 }
 
 async function bootPhone(): Promise<void> {
+  registerShell();
   const paired = await pairFromURL();
-  const session = paired?.session ?? (await currentSession().catch(() => null));
+  // Not reaching the daemon isn't being unpaired: the installed app opens
+  // offline from its cache (web/sw.ts), and tries again once back online, or
+  // when it's opened again.
+  let unreachable: string | undefined;
+  const session =
+    paired?.session ??
+    (await currentSession().catch((err: unknown) => {
+      unreachable = err instanceof Error ? err.message : String(err);
+      window.addEventListener('online', () => location.reload());
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') location.reload();
+      });
+      return null;
+    }));
   if (session) {
     root?.unmount();
     root = undefined;
@@ -46,7 +61,7 @@ async function bootPhone(): Promise<void> {
   });
   root!.render(
     <StrictMode>
-      <NotPaired error={paired?.error} />
+      <NotPaired error={paired?.error} unreachable={unreachable} />
     </StrictMode>,
   );
 }
