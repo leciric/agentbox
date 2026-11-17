@@ -149,7 +149,7 @@ start_display() {
     # A snapshot taken while the display ran keeps its lock files.
     rm -f "/tmp/.X$display-lock" "/tmp/.X11-unix/X$display"
     setsid Xvnc ":$display" -geometry 540x1200 -depth 24 -desktop android \
-      -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared >"$state/android-display.log" 2>&1 </dev/null &
+      -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared -UseBlacklist=0 >"$state/android-display.log" 2>&1 </dev/null &
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the Android display didn't start: see $state/android-display.log" >&2; exit 1; }
     wait_for listening 5901 || { echo "the Android display's VNC server didn't start: see $state/android-display.log" >&2; exit 1; }
   fi

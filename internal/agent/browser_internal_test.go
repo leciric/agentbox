@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -22,9 +23,17 @@ func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
 		serve func(net.Conn)
 		want  bool
 	}{
-		"a VNC server greets":            {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.008\n")) }, true},
-		"something else answers":         {func(c net.Conn) { _, _ = c.Write([]byte("HTTP/1.1 200 OK\r\n")) }, false},
-		"the proxy accepts, then closes": {func(c net.Conn) {}, false},
+		"a VNC server greets and finishes the handshake": {func(c net.Conn) {
+			_, _ = c.Write([]byte("RFB 003.008\n"))
+			_, _ = io.ReadFull(c, make([]byte, 12))
+			_, _ = c.Write([]byte{1, 1})
+			_, _ = io.ReadFull(c, make([]byte, 1))
+			_, _ = c.Write([]byte{0, 0, 0, 0})
+		}, true},
+		"an old VNC server's greeting is enough": {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.003\n")) }, true},
+		"it greets, then hangs up mid-handshake": {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.008\n")) }, false},
+		"something else answers":                 {func(c net.Conn) { _, _ = c.Write([]byte("HTTP/1.1 200 OK\r\n")) }, false},
+		"the proxy accepts, then closes":         {func(c net.Conn) {}, false},
 	}
 	for name, c := range cases {
 		socket := filepath.Join(t.TempDir(), "vnc")

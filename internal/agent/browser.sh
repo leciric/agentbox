@@ -552,7 +552,7 @@ start)
     node=$(render_node)
     # shellcheck disable=SC2086 # a device path, or nothing
     setsid Xvnc "$DISPLAY" -geometry 1440x900 -depth 24 -desktop agentbox \
-      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared ${node:+-rendernode $node} >"$state/display.log" 2>&1 </dev/null &
+      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared -UseBlacklist=0 ${node:+-rendernode $node} >"$state/display.log" 2>&1 </dev/null &
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the display didn't start: see $state/display.log" >&2; exit 1; }
     wait_for listening 5900 || { echo "the VNC server didn't start: see $state/display.log" >&2; exit 1; }
   fi
