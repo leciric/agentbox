@@ -70,10 +70,18 @@ func (s *Server) updateInterval() time.Duration {
 
 // checkIfOverdue pokes the loop when its last check went out longer ago than
 // the interval by the wall clock. A ticker runs on the monotonic clock, which
-// stands still while the computer (or the VM the daemon runs in) sleeps: a
+// stands still while the computer (and the VM the daemon runs in) sleeps: a
 // laptop that slept through the night would otherwise wait up to another hour
 // of being awake before looking. Every read of the status is a chance to
 // notice, and the apps read it as their window comes back to the front.
+//
+// It is only as good as the VM's wall clock after a sleep. Lima (2.1 and
+// later) sets a Mac's guest clock from the host every 10 seconds, so there it
+// is right within seconds. Cloud Hypervisor's guest has only Debian's
+// systemd-timesyncd, which steps the clock at its next poll, up to about half
+// an hour later. The native app doesn't wait for that: it notices the sleep on
+// the host's own clocks and asks GET /v1/update/release, which checks at once
+// (native/crates/app/src/app/update_poll.rs).
 func (s *Server) checkIfOverdue() {
 	s.updates.mu.Lock()
 	tried := s.updates.triedAt
