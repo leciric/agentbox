@@ -89,13 +89,16 @@ fn shows(p: &MemoriesPage, words: &[String], m: &Memory) -> bool {
 }
 
 fn importance_dots(n: i64) -> impl IntoElement {
-    h_flex().flex_none().gap(px(3.)).children((1..=5).map(move |i| {
-        div().size(px(6.)).rounded_full().bg(if i <= n {
-            theme::accent()
-        } else {
-            theme::surface_strong()
-        })
-    }))
+    h_flex()
+        .flex_none()
+        .gap(px(3.))
+        .children((1..=5).map(move |i| {
+            div().size(px(6.)).rounded_full().bg(if i <= n {
+                theme::accent()
+            } else {
+                theme::surface_strong()
+            })
+        }))
 }
 
 fn repo_badge() -> AnyElement {
@@ -115,7 +118,11 @@ fn repo_badge() -> AnyElement {
 }
 
 /// tick is a checkbox: a rounded square, filled with a check when on.
-fn tick(id: impl Into<ElementId>, on: bool, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
+fn tick(
+    id: impl Into<ElementId>,
+    on: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     div()
         .id(id)
         .flex_none()
@@ -143,7 +150,12 @@ fn tick(id: impl Into<ElementId>, on: bool, on_click: impl Fn(&ClickEvent, &mut 
 
 impl AppView {
     /// open_memories opens the project's Memories page in the middle.
-    pub(super) fn open_memories(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_memories(
+        &mut self,
+        project: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.project.as_deref() != Some(project.as_str()) {
             self.select_project(project.clone(), window, cx);
         }
@@ -158,7 +170,8 @@ impl AppView {
         }
         p.shared = None;
         if p.search.is_none() {
-            let search = cx.new(|cx| InputState::new(window, cx).placeholder(t("native.memories.search")));
+            let search =
+                cx.new(|cx| InputState::new(window, cx).placeholder(t("native.memories.search")));
             let sub = cx.subscribe(&search, |this: &mut Self, s, ev: &InputEvent, cx| {
                 if matches!(ev, InputEvent::Change) {
                     this.memories.q = s.read(cx).value().trim().to_lowercase();
@@ -181,7 +194,13 @@ impl AppView {
             .projects
             .iter()
             .find(|p| &p.name == name)
-            .map(|p| if p.display_name.is_empty() { p.name.clone() } else { p.display_name.clone() })
+            .map(|p| {
+                if p.display_name.is_empty() {
+                    p.name.clone()
+                } else {
+                    p.display_name.clone()
+                }
+            })
             .unwrap_or_else(|| name.clone());
         format!("{display} › {}", t("native.memories.title"))
     }
@@ -192,7 +211,10 @@ impl AppView {
             return;
         }
         let client = self.client.clone();
-        let path = format!("/v1/projects/{}/memory/memories", super::foot::enc(&project));
+        let path = format!(
+            "/v1/projects/{}/memory/memories",
+            super::foot::enc(&project)
+        );
         cx.spawn(async move |this, cx| {
             let res = client.get::<Vec<Memory>>(&path).await;
             this.update(cx, |this, cx| {
@@ -204,7 +226,10 @@ impl AppView {
                     Ok(list) => {
                         // What was ticked or open and is gone stops being so.
                         p.selected.retain(|id| list.iter().any(|m| &m.id == id));
-                        if p.open.as_ref().is_some_and(|id| !list.iter().any(|m| &m.id == id)) {
+                        if p.open
+                            .as_ref()
+                            .is_some_and(|id| !list.iter().any(|m| &m.id == id))
+                        {
                             p.open = None;
                         }
                         if p.open.is_none() {
@@ -227,7 +252,11 @@ impl AppView {
             return;
         }
         let body = ShareMemoriesRequest {
-            ids: if all { Vec::new() } else { p.selected.iter().cloned().collect() },
+            ids: if all {
+                Vec::new()
+            } else {
+                p.selected.iter().cloned().collect()
+            },
             all,
         };
         p.sharing = true;
@@ -262,9 +291,17 @@ impl AppView {
         };
         let words: Vec<String> = p.q.split_whitespace().map(str::to_string).collect();
         let items: Vec<&Memory> = all.iter().filter(|m| shows(p, &words, m)).collect();
-        let open = p.open.as_ref().and_then(|id| all.iter().find(|m| &m.id == id));
-        let own_shown: Vec<String> = items.iter().filter(|m| !from_repo(m)).map(|m| m.id.clone()).collect();
-        let all_ticked = !own_shown.is_empty() && own_shown.iter().all(|id| p.selected.contains(id));
+        let open = p
+            .open
+            .as_ref()
+            .and_then(|id| all.iter().find(|m| &m.id == id));
+        let own_shown: Vec<String> = items
+            .iter()
+            .filter(|m| !from_repo(m))
+            .map(|m| m.id.clone())
+            .collect();
+        let all_ticked =
+            !own_shown.is_empty() && own_shown.iter().all(|id| p.selected.contains(id));
         let from_repo_n = all.iter().filter(|m| from_repo(m)).count();
 
         let list = v_flex()
@@ -279,8 +316,13 @@ impl AppView {
             .map(|el| match &p.list {
                 None => el.child(super::panel::loading("memories-page")),
                 Some(Err(e)) => el.child(div().p_3().child(controls::error_line(e.clone()))),
-                Some(Ok(l)) if l.is_empty() => el.child(self.memories_empty(t("native.memories.empty.title"), t("native.memories.empty.body"))),
-                Some(Ok(_)) if items.is_empty() => el.child(self.memories_empty(t("native.memories.noMatch"), String::new())),
+                Some(Ok(l)) if l.is_empty() => el.child(self.memories_empty(
+                    t("native.memories.empty.title"),
+                    t("native.memories.empty.body"),
+                )),
+                Some(Ok(_)) if items.is_empty() => {
+                    el.child(self.memories_empty(t("native.memories.noMatch"), String::new()))
+                }
                 Some(Ok(_)) => el.children(items.iter().map(|m| self.memory_list_row(m, cx))),
             });
 
@@ -301,7 +343,8 @@ impl AppView {
 
         let right = super::foot::jobs_card(
             open.map(|_| "file-text"),
-            open.map(|m| m.title.clone()).unwrap_or_else(|| t("native.memories.pick")),
+            open.map(|m| m.title.clone())
+                .unwrap_or_else(|| t("native.memories.pick")),
             None,
             None,
         )
@@ -346,7 +389,13 @@ impl AppView {
             .text_center()
             .child(div().text_color(theme::primary()).child(title))
             .when(!body.is_empty(), |el| {
-                el.child(div().max_w(px(380.)).text_sm().text_color(theme::muted()).child(body))
+                el.child(
+                    div()
+                        .max_w(px(380.))
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(body),
+                )
             })
             .into_any_element()
     }
@@ -369,7 +418,10 @@ impl AppView {
         kinds.extend(KINDS.iter().map(|k| Choice::new(*k, kind_label(k))));
         let mut importance = vec![Choice::new("", t("native.memories.importance.any"))];
         importance.extend((2..=5i64).map(|n| {
-            Choice::new(n.to_string(), tv("native.memories.importance.least", &[("n", n.into())]))
+            Choice::new(
+                n.to_string(),
+                tv("native.memories.importance.least", &[("n", n.into())]),
+            )
         }));
         h_flex()
             .flex_none()
@@ -414,7 +466,12 @@ impl AppView {
             .into_any_element()
     }
 
-    fn memories_share_bar(&self, own_shown: &[String], all_ticked: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn memories_share_bar(
+        &self,
+        own_shown: &[String],
+        all_ticked: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let p = &self.memories;
         let n = p.selected.len();
         let shown = own_shown.to_vec();
@@ -461,7 +518,10 @@ impl AppView {
             )
             .child(controls::button_busy(
                 "memories-share-selected",
-                tv("native.memories.share.selectedButton", &[("count", n.into())]),
+                tv(
+                    "native.memories.share.selectedButton",
+                    &[("count", n.into())],
+                ),
                 Btn::Primary,
                 p.sharing,
                 n == 0,
@@ -526,14 +586,21 @@ impl AppView {
                     ))
                 }
             })
-            .child(super::settings::kit::badge(kind_label(&m.kind), kind_color(&m.kind)))
+            .child(super::settings::kit::badge(
+                kind_label(&m.kind),
+                kind_color(&m.kind),
+            ))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(if on { theme::title() } else { theme::secondary() })
+                    .text_color(if on {
+                        theme::title()
+                    } else {
+                        theme::secondary()
+                    })
                     .child(m.title.clone()),
             )
             .when(repo, |el| el.child(repo_badge()))
@@ -552,12 +619,18 @@ impl AppView {
     }
 
     fn memory_detail(&self, m: &Memory) -> AnyElement {
-        let mut facts = vec![tv("native.memories.created", &[("when", time_ago(&m.created_at).into())])];
+        let mut facts = vec![tv(
+            "native.memories.created",
+            &[("when", time_ago(&m.created_at).into())],
+        )];
         if m.updated_at != m.created_at && !m.updated_at.is_empty() {
             let when = time_ago(&m.updated_at);
             facts.push(tv("memory.updatedAgo", &[("when", (&when).into())]));
         }
-        facts.push(tv("native.memories.importance.of", &[("n", m.importance.into())]));
+        facts.push(tv(
+            "native.memories.importance.of",
+            &[("n", m.importance.into())],
+        ));
         v_flex()
             .gap_3()
             .child(
@@ -565,7 +638,10 @@ impl AppView {
                     .flex_wrap()
                     .gap_2()
                     .items_center()
-                    .child(super::settings::kit::badge(kind_label(&m.kind), kind_color(&m.kind)))
+                    .child(super::settings::kit::badge(
+                        kind_label(&m.kind),
+                        kind_color(&m.kind),
+                    ))
                     .when(from_repo(m), |el| el.child(repo_badge()))
                     .child(importance_dots(m.importance))
                     .child(
@@ -585,9 +661,12 @@ impl AppView {
                             .child(t("native.memories.noContent"))
                             .into_any_element()
                     } else {
-                        TextView::markdown(SharedString::from(format!("memory-body-{}", m.id)), m.content.clone())
-                            .selectable(true)
-                            .into_any_element()
+                        TextView::markdown(
+                            SharedString::from(format!("memory-body-{}", m.id)),
+                            m.content.clone(),
+                        )
+                        .selectable(true)
+                        .into_any_element()
                     }),
             )
             .child(
@@ -600,9 +679,14 @@ impl AppView {
                     .font_family(theme::MONO)
                     .text_color(theme::faint())
                     .child(m.id.clone())
-                    .when(!m.source_path.is_empty(), |el| el.child(m.source_path.clone()))
+                    .when(!m.source_path.is_empty(), |el| {
+                        el.child(m.source_path.clone())
+                    })
                     .when(!m.supersedes_id.is_empty(), |el| {
-                        el.child(tv("native.memories.supersedes", &[("id", (&m.supersedes_id).into())]))
+                        el.child(tv(
+                            "native.memories.supersedes",
+                            &[("id", (&m.supersedes_id).into())],
+                        ))
                     }),
             )
             .into_any_element()
@@ -610,11 +694,17 @@ impl AppView {
 
     fn share_result(&self, s: &ShareMemoriesResult, cx: &mut Context<Self>) -> AnyElement {
         let title = if s.unchanged {
-            tv("native.memories.shared.unchanged", &[("branch", (&s.branch).into())])
+            tv(
+                "native.memories.shared.unchanged",
+                &[("branch", (&s.branch).into())],
+            )
         } else {
             tv(
                 "native.memories.shared.title",
-                &[("count", s.files.len().into()), ("branch", (&s.branch).into())],
+                &[
+                    ("count", s.files.len().into()),
+                    ("branch", (&s.branch).into()),
+                ],
             )
         };
         h_flex()
@@ -649,7 +739,10 @@ impl AppView {
                         div()
                             .text_size(theme::text::CAPTION)
                             .text_color(theme::muted())
-                            .child(tv("native.memories.shared.body", &[("base", (&s.base).into())])),
+                            .child(tv(
+                                "native.memories.shared.body",
+                                &[("base", (&s.base).into())],
+                            )),
                     )
                     .child(
                         div()
@@ -681,7 +774,7 @@ impl AppView {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{MEMORY_SOURCE_REPOSITORY, MemoriesPage, Memory, shows};
 
     fn mem(id: &str, kind: &str, importance: i64, source: &str, title: &str) -> Memory {
         Memory {
