@@ -26,6 +26,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/bridgecheck"
 	"agentbox/internal/credentials"
+	"agentbox/internal/github"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
@@ -263,6 +264,11 @@ func (d testDaemon) setGitHub(t *testing.T, stubURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A stub's address is a closed one's reused: it starts on a budget of
+	// its own, not on a rate limit an earlier test's stub ran out, and
+	// leaves none behind.
+	github.ForgetUsage(stubURL)
+	t.Cleanup(func() { github.ForgetUsage(stubURL) })
 	d.gitHub.Store(u)
 }
 

@@ -637,6 +637,53 @@ type LeadSession struct {
 	// Pinned keeps its tab before the others. The open sessions come in their
 	// tabs' order: pinned first, then as they were dragged, then as opened.
 	Pinned bool `json:"pinned,omitempty"`
+	// Group is the tab group it is in (LeadSessionGroup.ID), absent for
+	// none. Pinned sessions are in none; a group's sessions come after the
+	// pinned ones in the groups' order, and the loose ones after them all.
+	Group string `json:"group,omitempty"`
+}
+
+// LeadSessionGroup is one of a chat's tab groups (GET
+// /v1/projects/{project}/session-groups): a button in the row above the
+// chat, its sessions (LeadSession.Group) in its menu. It goes once no
+// session, open or closed, is in it; one whose sessions are all closed is
+// listed but has no tabs to show.
+type LeadSessionGroup struct {
+	Project string `json:"project"`
+	ID      string `json:"id"`
+	// Name is "" until the user names it.
+	Name string `json:"name"`
+	// Color is one of the sessions' colours (LeadSession.Color).
+	Color string `json:"color"`
+	// Collapsed folds its sessions into its button's menu; false spreads
+	// them as tabs after it.
+	Collapsed bool `json:"collapsed"`
+	// Position is where it sits among the groups, from 1.
+	Position int `json:"position"`
+}
+
+// NewLeadSessionGroup is POST /v1/projects/{project}/session-groups: a group
+// of open, unpinned sessions, at least one, which leave any group they were
+// in. Color "" picks one no other group has while one is free.
+type NewLeadSessionGroup struct {
+	Name     string   `json:"name,omitempty"`
+	Color    string   `json:"color,omitempty"`
+	Sessions []string `json:"sessions"`
+}
+
+// LeadSessionGroupPatch is PATCH /v1/projects/{project}/session-groups/{group}:
+// what it leaves out stays as it is.
+type LeadSessionGroupPatch struct {
+	Name      *string `json:"name,omitempty"`
+	Color     *string `json:"color,omitempty"`
+	Collapsed *bool   `json:"collapsed,omitempty"`
+}
+
+// LeadSessionGroupOrder is PUT /v1/projects/{project}/session-groups/order:
+// the chat's groups in the order their buttons were dragged into. One left
+// out goes after them.
+type LeadSessionGroupOrder struct {
+	IDs []string `json:"ids"`
 }
 
 // Where a chat session stands (LeadSession.Status), the first that applies.
@@ -752,13 +799,18 @@ type NewLeadSessionRequest struct {
 	// to and including the message, and its lead told what was said there.
 	// The agents stay the other session's. Not with ContinueFrom.
 	ForkFrom *LeadSessionFork `json:"forkFrom,omitempty"`
+	// Group is a tab group (LeadSessionGroup.ID) the new session opens in.
+	Group string `json:"group,omitempty"`
 }
 
-// LeadSessionPatch renames a session, pins or unpins it, or both; what it
-// leaves out stays as it is.
+// LeadSessionPatch renames a session, pins or unpins it, or moves it into a
+// tab group (Group, a LeadSessionGroup.ID) or out of one (""); what it leaves
+// out stays as it is. Pinning takes it out of its group, and a pinned one
+// can't join one.
 type LeadSessionPatch struct {
-	Topic  string `json:"topic,omitempty"`
-	Pinned *bool  `json:"pinned,omitempty"`
+	Topic  string  `json:"topic,omitempty"`
+	Pinned *bool   `json:"pinned,omitempty"`
+	Group  *string `json:"group,omitempty"`
 }
 
 // LeadSessionOrder is PUT /v1/projects/{project}/sessions/order: the chat's

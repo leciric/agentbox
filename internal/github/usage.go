@@ -146,6 +146,21 @@ var usage = struct {
 	by map[string]*account
 }{by: map[string]*account{}}
 
+// ForgetUsage drops what is known of every token's budget against the API
+// root base: its counts, its rates and any pause. A test's stub server is a
+// root of its own, at an address a later stub may be given once it closes,
+// which must not inherit a budget the earlier one ran out.
+func ForgetUsage(base string) {
+	base = strings.TrimRight(base, "/")
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+	for key := range usage.by {
+		if _, root, _ := strings.Cut(key, " "); strings.TrimRight(root, "/") == base {
+			delete(usage.by, key)
+		}
+	}
+}
+
 // Fingerprint names a token without giving it away: what Usage reports an
 // account under.
 func Fingerprint(token string) string {

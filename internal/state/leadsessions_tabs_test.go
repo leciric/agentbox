@@ -17,7 +17,11 @@ func tabIDs(t *testing.T, st *state.Store, project string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.SortTabs(open)
+	groups, err := st.SessionGroups(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.SortTabs(open, groups)
 	var ids []string
 	for _, ls := range open {
 		ids = append(ids, ls.ID)

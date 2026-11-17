@@ -3127,5 +3127,26 @@
     "query": "app=cockpit&theme=dark&click=[data-cockpit-tile=\"storefront/agent-4\"]",
     "width": 2560,
     "height": 1440
+  },
+  {
+    "id": "tabgroups-dark",
+    "description": "The chat's session tabs in groups: two pinned, three group buttons (Desktop UI joined to the session shown), a loose tab — dark",
+    "query": "app=project&tabgroups=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "tabgroups-light",
+    "description": "The chat's session tabs in groups — light",
+    "query": "app=project&tabgroups=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "tabgroups-narrow-dark",
+    "description": "The grouped tabs in a 440px window: group buttons without names, pinned tabs as icons — dark",
+    "query": "app=project&tabgroups=1&theme=dark",
+    "width": 440,
+    "height": 800
   }
 ]

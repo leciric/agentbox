@@ -108,18 +108,25 @@ export function neighbour(sessions: readonly T.LeadSession[], id: string | undef
 }
 
 // sortTabs is the open sessions in their tabs' order, as the daemon sorts them
-// (state.SortTabs): the pinned first, each group in the order it had.
-export const sortTabs = (sessions: readonly T.LeadSession[]): T.LeadSession[] => [...sessions].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+// (state.SortTabs): the pinned first, then each tab group's in the groups'
+// order, then the loose ones, each lot in the order it had. A session whose
+// group isn't in groups counts as loose.
+export function sortTabs(sessions: readonly T.LeadSession[], groups: readonly T.LeadSessionGroup[] = []): T.LeadSession[] {
+  const rank = new Map(groups.map((g, i) => [g.id, i + 1]));
+  const place = (s: T.LeadSession): number => (s.pinned ? 0 : (rank.get(s.group ?? '') ?? groups.length + 1));
+  return [...sessions].sort((a, b) => place(a) - place(b));
+}
 
 // moveTab is the tabs with id dragged to index to (of the tabs as they were),
-// kept on its side of the pinned ones: a pinned tab dropped among the others
-// goes last of the pinned, an unpinned one dropped among them first after.
-export function moveTab(sessions: readonly T.LeadSession[], id: string, to: number): T.LeadSession[] {
+// kept on its side of the pinned ones and in its group: a pinned tab dropped
+// among the others goes last of the pinned, an unpinned one dropped among
+// them first after, and so with a group's.
+export function moveTab(sessions: readonly T.LeadSession[], id: string, to: number, groups: readonly T.LeadSessionGroup[] = []): T.LeadSession[] {
   const from = sessions.findIndex((s) => s.id === id);
   if (from < 0) return [...sessions];
   const rest = sessions.filter((s) => s.id !== id);
   const at = Math.max(0, Math.min(from < to ? to - 1 : to, rest.length));
-  return sortTabs([...rest.slice(0, at), sessions[from], ...rest.slice(at)]);
+  return sortTabs([...rest.slice(0, at), sessions[from], ...rest.slice(at)], groups);
 }
 
 // afterClose is the session to show once id is closed: the one beside it.

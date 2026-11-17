@@ -123,6 +123,49 @@ func (c *Client) OrderLeadSessions(ctx context.Context, project string, ids []st
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/sessions/order", LeadSessionOrder{IDs: ids}, &out)
 }
 
+// LeadSessionGroups lists a chat's tab groups in their order.
+func (c *Client) LeadSessionGroups(ctx context.Context, project string) ([]LeadSessionGroup, error) {
+	var out []LeadSessionGroup
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/session-groups", nil, &out)
+}
+
+// NewLeadSessionGroup makes a tab group of sessions.
+func (c *Client) NewLeadSessionGroup(ctx context.Context, project string, req NewLeadSessionGroup) (LeadSessionGroup, error) {
+	var out LeadSessionGroup
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/session-groups", req, &out)
+}
+
+// UpdateLeadSessionGroup renames, recolours, folds or spreads a tab group.
+func (c *Client) UpdateLeadSessionGroup(ctx context.Context, project, group string, req LeadSessionGroupPatch) (LeadSessionGroup, error) {
+	var out LeadSessionGroup
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/session-groups/"+url.PathEscape(group), req, &out)
+}
+
+// UngroupLeadSessions deletes a tab group, leaving its sessions loose tabs.
+func (c *Client) UngroupLeadSessions(ctx context.Context, project, group string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/session-groups/"+url.PathEscape(group), nil, nil)
+}
+
+// OrderLeadSessionGroups keeps the order a chat's groups were dragged into,
+// and answers its groups in it.
+func (c *Client) OrderLeadSessionGroups(ctx context.Context, project string, ids []string) ([]LeadSessionGroup, error) {
+	var out []LeadSessionGroup
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/session-groups/order", LeadSessionGroupOrder{IDs: ids}, &out)
+}
+
+// PatchLeadSession changes a session as patch says: its topic, its pin, its
+// tab group, or several at once, all or none.
+func (c *Client) PatchLeadSession(ctx context.Context, project, session string, patch LeadSessionPatch) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), patch, &out)
+}
+
+// GroupLeadSession moves a session into a tab group, or with "" out of one.
+func (c *Client) GroupLeadSession(ctx context.Context, project, session, group string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Group: &group}, &out)
+}
+
 // ClosedLeadSessions lists the sessions in a project chat's history.
 func (c *Client) ClosedLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
 	var out []LeadSession

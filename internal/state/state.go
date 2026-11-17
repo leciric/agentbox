@@ -1691,6 +1691,21 @@ var migrations = []string{
 	// rewritten from their files, and go when their file does.
 	`ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE memories ADD COLUMN source_path TEXT NOT NULL DEFAULT ''`,
+	// A chat's tab groups (sessiongroups.go): each a button in the row with
+	// its sessions in a menu, or spread as tabs after it when not collapsed,
+	// in the order position says. lead_sessions.tab_group is the group a
+	// session is in, '' for none; a closed one keeps it for when it is
+	// reopened, and a group goes once no session is in it.
+	`CREATE TABLE lead_session_groups (
+		project   TEXT NOT NULL,
+		id        TEXT NOT NULL,
+		name      TEXT NOT NULL DEFAULT '',
+		color     TEXT NOT NULL DEFAULT '',
+		collapsed INTEGER NOT NULL DEFAULT 1,
+		position  INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (project, id)
+	)`,
+	`ALTER TABLE lead_sessions ADD COLUMN tab_group TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2515,6 +2530,7 @@ var projectOwned = []string{
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",
+	"lead_session_groups",
 	"lead_session_ids",
 	"lead_session_seen",
 	"agent_queue",

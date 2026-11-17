@@ -3207,6 +3207,7 @@ export interface LeadSession {
   snoozedUntil?: string;
   parent?: LeadSessionParent;
   pinned?: boolean;
+  group?: string;
 }
 
 export interface LeadSessionParent {
@@ -3226,11 +3227,13 @@ export interface NewLeadSessionRequest {
   from?: string;
   continueFrom?: string;
   forkFrom?: LeadSessionFork;
+  group?: string;
 }
 
 export interface LeadSessionPatch {
   topic?: string;
   pinned?: boolean;
+  group?: string;
 }
 
 export interface AgentSessionRequest {
@@ -3333,6 +3336,31 @@ export interface LeadAccount {
 }
 
 export interface LeadSessionOrder {
+  ids: string[];
+}
+
+export interface LeadSessionGroup {
+  project: string;
+  id: string;
+  name: string;
+  color: string;
+  collapsed: boolean;
+  position: number;
+}
+
+export interface NewLeadSessionGroup {
+  name?: string;
+  color?: string;
+  sessions: string[];
+}
+
+export interface LeadSessionGroupPatch {
+  name?: string;
+  color?: string;
+  collapsed?: boolean;
+}
+
+export interface LeadSessionGroupOrder {
   ids: string[];
 }
 
