@@ -34,16 +34,17 @@ use super::{Entry, Group, group};
 use crate::theme;
 
 /// A connector the catalog offers (lib/connectors.ts's connectorPresets).
-struct Preset {
-    label: &'static str,
-    name: &'static str,
-    url: &'static str,
+#[derive(Debug, PartialEq)]
+pub(crate) struct Preset {
+    pub(crate) label: &'static str,
+    pub(crate) name: &'static str,
+    pub(crate) url: &'static str,
     /// secret is (its name, the header it goes in, how to make one), for a
     /// server that takes a token rather than a browser sign-in.
-    secret: Option<(&'static str, &'static str, &'static str)>,
+    pub(crate) secret: Option<(&'static str, &'static str, &'static str)>,
 }
 
-const PRESETS: [Preset; 5] = [
+pub(crate) const PRESETS: [Preset; 5] = [
     Preset {
         label: "Notion",
         name: "notion",
