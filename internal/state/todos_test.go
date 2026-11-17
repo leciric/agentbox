@@ -73,16 +73,25 @@ func TestTodosAreCheckedOffAndHandedToAnAgent(t *testing.T) {
 	s := openSearchStore(t)
 	ctx := context.Background()
 	now := time.UnixMilli(time.Now().UnixMilli())
-	td, err := s.AddTodo(ctx, Todo{ID: "a", Project: "p", Text: "ship it", CreatedBy: "lead", CreatedAt: now, UpdatedAt: now})
-	if err != nil {
+	if _, err := s.AddTodo(ctx, Todo{ID: "a", Project: "p", Text: "ship it", CreatedBy: "lead", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddTodo(ctx, Todo{ID: "b", Project: "p", Text: "then this", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	td.Done, td.DoneAt, td.Job = true, now, "job1"
-	if err := s.UpdateTodo(ctx, td); err != nil {
+	if ok, err := s.ClaimTodo(ctx, "p", "a", "", "", "claim:1", now); !ok || err != nil {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	if err := s.SetTodoJob(ctx, "p", "a", "claim:1", "job1"); err != nil {
 		t.Fatal(err)
+	}
+	done := true
+	if _, flipped, err := s.PatchTodo(ctx, "p", "a", TodoPatch{Done: &done}, now); err != nil || !flipped {
+		t.Fatalf("checked off: %v %v", flipped, err)
+	}
+	// Checked off again: nothing changes, done_at included.
+	if got, flipped, _ := s.PatchTodo(ctx, "p", "a", TodoPatch{Done: &done}, now.Add(time.Hour)); flipped || !got.DoneAt.Equal(now) {
+		t.Fatalf("checked off twice: %v %+v", flipped, got)
 	}
 	if ok, err := s.SetTodoAgent(ctx, "p", "job1", "agent-03"); !ok || err != nil {
 		t.Fatalf("set agent: %v %v", ok, err)
@@ -99,7 +108,65 @@ func TestTodosAreCheckedOffAndHandedToAnAgent(t *testing.T) {
 	if err != nil || len(counts) != 1 || counts["p"] != 1 {
 		t.Fatalf("counts %v, %v", counts, err)
 	}
-	if err := s.UpdateTodo(ctx, Todo{ID: "a", Project: "other"}); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.PatchTodo(ctx, "other", "a", TodoPatch{Done: &done}, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("another project's: %v", err)
+	}
+}
+
+// An edit made from a copy read before a start leaves the start's job and
+// agent alone: it writes only what it changes.
+func TestPatchingATodoKeepsWhoItWentTo(t *testing.T) {
+	s := openSearchStore(t)
+	ctx := context.Background()
+	now := time.UnixMilli(time.Now().UnixMilli())
+	if _, err := s.AddTodo(ctx, Todo{ID: "a", Project: "p", Text: "ship it", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ClaimTodo(ctx, "p", "a", "", "", "claim:1", now); !ok || err != nil {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	if err := s.SetTodoJob(ctx, "p", "a", "claim:1", "job1"); err != nil {
+		t.Fatal(err)
+	}
+	text, done := "ship it on Friday", true
+	got, _, err := s.PatchTodo(ctx, "p", "a", TodoPatch{Text: &text, Done: &done}, now)
+	if err != nil || got.Text != text || !got.Done || got.Job != "job1" {
+		t.Fatalf("patched: %+v, %v", got, err)
+	}
+	if ok, _ := s.SetTodoAgent(ctx, "p", "job1", "agent-03"); !ok {
+		t.Fatal("the job's agent wasn't recorded after the edit")
+	}
+	reopen := false
+	if got, _, _ = s.PatchTodo(ctx, "p", "a", TodoPatch{Done: &reopen}, now); got.Agent != "agent-03" || got.Done || !got.DoneAt.IsZero() {
+		t.Fatalf("reopened: %+v", got)
+	}
+}
+
+// Of two claims made from the same reading, one lands; a failed start gives
+// the todo back as it was.
+func TestOnlyOneClaimOnATodoLands(t *testing.T) {
+	s := openSearchStore(t)
+	ctx := context.Background()
+	now := time.UnixMilli(time.Now().UnixMilli())
+	if _, err := s.AddTodo(ctx, Todo{ID: "a", Project: "p", Text: "x", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.ClaimTodo(ctx, "p", "a", "", "", "claim:1", now)
+	second, err2 := s.ClaimTodo(ctx, "p", "a", "", "", "claim:2", now)
+	if err != nil || err2 != nil || !first || second {
+		t.Fatalf("claims: %v %v (%v %v)", first, second, err, err2)
+	}
+	// The second's release finds nothing of its own to give back.
+	if err := s.ReleaseTodo(ctx, "p", "a", "claim:2", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.TodoByID(ctx, "p", "a"); got.Job != "claim:1" {
+		t.Fatalf("job = %q, want the first claim's", got.Job)
+	}
+	if err := s.ReleaseTodo(ctx, "p", "a", "claim:1", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.ClaimTodo(ctx, "p", "a", "", "", "claim:3", now); !ok {
+		t.Fatal("a released todo couldn't be claimed again")
 	}
 }

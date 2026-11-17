@@ -61,18 +61,78 @@ func (s *Store) AddTodo(ctx context.Context, t Todo) (Todo, error) {
 	return t, tx.Commit()
 }
 
-// UpdateTodo rewrites a todo's text, whether it is done, and who it went to.
-// Its place in the list changes only by ReorderTodos.
-func (s *Store) UpdateTodo(ctx context.Context, t Todo) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE todos SET text = ?, done = ?, job = ?, agent = ?, updated_at = ?, done_at = ? WHERE id = ? AND project = ?`,
-		t.Text, t.Done, t.Job, t.Agent, t.UpdatedAt.UnixMilli(), msOrZero(t.DoneAt), t.ID, t.Project)
+// TodoPatch is what a change to a todo sets; nil fields are left as they
+// are, so a change never writes back a column someone else changed meanwhile
+// (an edit racing a start would otherwise clear the agent it was given).
+type TodoPatch struct {
+	Text *string
+	Done *bool
+}
+
+// PatchTodo changes only what patch sets, and returns the todo as it now is,
+// with whether its done state changed. Checking off sets done_at; reopening
+// clears it; checking off one that is done already leaves done_at alone.
+func (s *Store) PatchTodo(ctx context.Context, project, id string, patch TodoPatch, now time.Time) (Todo, bool, error) {
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
-		return err
+		return Todo{}, false, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("todo %s: %w", t.ID, ErrNotFound)
+	defer func() { _ = tx.Rollback() }()
+	var was bool
+	if err := tx.QueryRowContext(ctx, `SELECT done FROM todos WHERE id = ? AND project = ?`, id, project).Scan(&was); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Todo{}, false, fmt.Errorf("todo %s: %w", id, ErrNotFound)
+		}
+		return Todo{}, false, err
 	}
-	return nil
+	if patch.Text != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE todos SET text = ?, updated_at = ? WHERE id = ? AND project = ?`, *patch.Text, now.UnixMilli(), id, project); err != nil {
+			return Todo{}, false, err
+		}
+	}
+	flipped := patch.Done != nil && *patch.Done != was
+	if flipped {
+		doneAt := int64(0)
+		if *patch.Done {
+			doneAt = now.UnixMilli()
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE todos SET done = ?, done_at = ?, updated_at = ? WHERE id = ? AND project = ?`, *patch.Done, doneAt, now.UnixMilli(), id, project); err != nil {
+			return Todo{}, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Todo{}, false, err
+	}
+	t, err := s.TodoByID(ctx, project, id)
+	return t, flipped, err
+}
+
+// ClaimTodo hands a todo to whoever is about to start an agent for it, if it
+// is still with the job and agent the caller saw (job, agent): a compare and
+// swap, so of two starts at once only one claims it. claim takes the job's
+// place until the job exists (SetTodoJob) or the start gives up
+// (ReleaseTodo).
+func (s *Store) ClaimTodo(ctx context.Context, project, id, job, agent, claim string, now time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE todos SET job = ?, agent = '', updated_at = ? WHERE id = ? AND project = ? AND job = ? AND agent = ?`,
+		claim, now.UnixMilli(), id, project, job, agent)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SetTodoJob puts the job a claim started in the claim's place.
+func (s *Store) SetTodoJob(ctx context.Context, project, id, claim, job string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE todos SET job = ? WHERE id = ? AND project = ? AND job = ?`, job, id, project, claim)
+	return err
+}
+
+// ReleaseTodo gives a claimed todo back its job and agent from before, when
+// the start it was claimed for failed.
+func (s *Store) ReleaseTodo(ctx context.Context, project, id, claim, job, agent string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE todos SET job = ?, agent = ? WHERE id = ? AND project = ? AND job = ?`, job, agent, id, project, claim)
+	return err
 }
 
 // SetTodoAgent records the agent a todo's job made, if the todo is still

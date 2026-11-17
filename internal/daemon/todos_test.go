@@ -2,10 +2,14 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 func todoTexts(list []api.Todo) string {
@@ -117,6 +121,16 @@ func TestATodoStartsAnAgent(t *testing.T) {
 	if _, err := d.client.StartTodo(ctx, "hello-stack", todo.ID, api.TodoStartRequest{}); err == nil {
 		t.Fatal("started twice while its agent was being made")
 	}
+	// Edited and checked off while its agent is being made: the todo keeps
+	// its job, so the agent is still recorded on it, and it still can't be
+	// started a second time.
+	edited, err := d.client.UpdateTodo(ctx, "hello-stack", todo.ID, api.TodoRequest{Text: str("Add a dark mode toggle, in Settings"), Done: new(true)})
+	if err != nil || edited.Job != started.Job.ID || !edited.Done {
+		t.Fatalf("edited mid-start: %+v, %v", edited, err)
+	}
+	if _, err := d.client.StartTodo(ctx, "hello-stack", todo.ID, api.TodoStartRequest{}); err == nil {
+		t.Fatal("started twice after an edit")
+	}
 	job := waitJobDone(t, d, started.Job.ID)
 	if job.Status != api.JobSucceeded {
 		t.Fatalf("job %s: %s", job.Status, job.Error)
@@ -133,5 +147,78 @@ func TestATodoStartsAnAgent(t *testing.T) {
 	}
 	if _, err := d.client.StartTodo(ctx, "hello-stack", todo.ID, api.TodoStartRequest{}); err == nil || !strings.Contains(err.Error(), agent) {
 		t.Fatalf("started again while %s has it: %v", agent, err)
+	}
+}
+
+// Starts of one todo at the same moment make one agent: the rest are refused
+// before they create anything.
+func TestSimultaneousStartsMakeOneAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: runningAgents01And02})
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	todo, err := d.client.AddTodo(ctx, "hello-stack", "Add a dark mode toggle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const starts = 8
+	var wg sync.WaitGroup
+	gate := make(chan struct{})
+	jobs := make(chan string, starts)
+	refused := make(chan error, starts)
+	for range starts {
+		wg.Go(func() {
+			<-gate
+			res, err := d.client.StartTodo(ctx, "hello-stack", todo.ID, api.TodoStartRequest{AI: "none"})
+			if err != nil {
+				refused <- err
+				return
+			}
+			jobs <- res.Job.ID
+		})
+	}
+	close(gate)
+	wg.Wait()
+	close(jobs)
+	close(refused)
+	var made []string
+	for j := range jobs {
+		made = append(made, j)
+	}
+	if len(made) != 1 {
+		t.Fatalf("%d starts made jobs %v, want one", starts, made)
+	}
+	for err := range refused {
+		if !strings.Contains(err.Error(), "already") && !strings.Contains(err.Error(), "still being made") {
+			t.Errorf("refused for another reason: %v", err)
+		}
+	}
+	if j := waitJobDone(t, d, made[0]); j.Status != api.JobSucceeded {
+		t.Fatalf("job %s: %s", j.Status, j.Error)
+	}
+	list, _ := d.client.Todos(ctx, "hello-stack")
+	if list[0].Job != made[0] {
+		t.Fatalf("the todo's job is %q, want %q", list[0].Job, made[0])
+	}
+}
+
+// A claim left by a start that never made its job (the daemon stopped in
+// between) holds the todo for a while, then lets it start again; the API
+// never shows it as a job.
+func TestAStaleClaimLetsATodoStartAgain(t *testing.T) {
+	t.Parallel()
+	d, _ := oneProject(t)
+	now := time.Now()
+	claimed := state.Todo{ID: "a", Project: "web", Job: fmt.Sprintf("%s%d-x", todoClaim, now.UnixMilli())}
+	if err := d.srv.todoTaken(context.Background(), claimed, now.Add(time.Second)); err == nil {
+		t.Error("a fresh claim didn't hold the todo")
+	}
+	if err := d.srv.todoTaken(context.Background(), claimed, now.Add(staleClaim+time.Second)); err != nil {
+		t.Errorf("a stale claim still holds the todo: %v", err)
+	}
+	if got := toAPITodo(claimed); got.Job != "" {
+		t.Errorf("the API shows the claim as job %q", got.Job)
 	}
 }

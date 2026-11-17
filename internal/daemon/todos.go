@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,11 @@ func toAPITodo(t state.Todo) api.Todo {
 	out := api.Todo{
 		ID: t.ID, Project: t.Project, Text: t.Text, Done: t.Done, Position: t.Position, Job: t.Job, Agent: t.Agent,
 		CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
+	if strings.HasPrefix(out.Job, todoClaim) {
+		// A start's claim, for the moment before its job exists: not a job
+		// anyone can look up.
+		out.Job = ""
 	}
 	if !t.DoneAt.IsZero() {
 		at := t.DoneAt
@@ -104,31 +110,28 @@ func (s *Server) addTodo(createdBy string) func(http.ResponseWriter, *http.Reque
 }
 
 func (s *Server) updateTodo(w http.ResponseWriter, r *http.Request) error {
-	t, err := s.store.TodoByID(r.Context(), r.PathValue("project"), r.PathValue("id"))
-	if err != nil {
-		return err
-	}
 	var req api.TodoRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	now := nowMilli()
-	event := ""
+	patch := state.TodoPatch{Done: req.Done}
 	if req.Text != nil {
-		if t.Text, err = todoText(req.Text); err != nil {
+		text, err := todoText(req.Text)
+		if err != nil {
 			return err
 		}
+		patch.Text = &text
 	}
-	if req.Done != nil && *req.Done != t.Done {
-		t.Done = *req.Done
-		t.DoneAt, event = now, "todo_done"
-		if !t.Done {
-			t.DoneAt, event = time.Time{}, "todo_reopened"
-		}
-	}
-	t.UpdatedAt = now
-	if err := s.store.UpdateTodo(r.Context(), t); err != nil {
+	t, flipped, err := s.store.PatchTodo(r.Context(), r.PathValue("project"), r.PathValue("id"), patch, nowMilli())
+	if err != nil {
 		return err
+	}
+	event := ""
+	switch {
+	case flipped && t.Done:
+		event = "todo_done"
+	case flipped:
+		event = "todo_reopened"
 	}
 	s.todoChanged(r.Context(), t, event)
 	return writeJSON(w, http.StatusOK, toAPITodo(t))
@@ -170,41 +173,75 @@ func (s *Server) reorderTodos(w http.ResponseWriter, r *http.Request) error {
 // first line the agent's title. A todo already with an agent that is still
 // there, or whose agent is still being made, is refused; one whose agent
 // failed to start, or is gone, can be started again.
+//
+// Two starts at once make one agent: each claims the todo with a compare and
+// swap on the job and agent it read (state.ClaimTodo) before it creates
+// anything, and only one claim lands.
 func (s *Server) startTodo(byLead bool) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		ctx := r.Context()
-		t, err := s.store.TodoByID(ctx, r.PathValue("project"), r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		if err := s.todoTaken(ctx, t); err != nil {
-			return err
-		}
 		var req api.TodoStartRequest
 		if err := readJSON(r, &req); err != nil {
 			return err
 		}
-		create := api.CreateAgentRequest{Project: t.Project, Title: titleFrom(t.Text), Task: t.Text, AI: req.AI, Model: req.Model, Effort: req.Effort}
-		job, err := s.createAgentJob(ctx, create, byLead)
+		t, err := s.store.TodoByID(ctx, r.PathValue("project"), r.PathValue("id"))
 		if err != nil {
 			return err
 		}
-		t.Job, t.Agent, t.UpdatedAt = job.ID, "", nowMilli()
-		if err := s.store.UpdateTodo(ctx, t); err != nil {
+		if err := s.todoTaken(ctx, t, time.Now()); err != nil {
+			return err
+		}
+		now := nowMilli()
+		claim := fmt.Sprintf("%s%d-%s", todoClaim, now.UnixMilli(), newID())
+		ok, err := s.store.ClaimTodo(ctx, t.Project, t.ID, t.Job, t.Agent, claim, now)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("todo %s is being started already: %w", t.ID, state.ErrExists)
+		}
+		create := api.CreateAgentRequest{Project: t.Project, Title: titleFrom(t.Text), Task: t.Text, AI: req.AI, Model: req.Model, Effort: req.Effort}
+		job, err := s.createAgentJob(ctx, create, byLead)
+		if err != nil {
+			if rerr := s.store.ReleaseTodo(s.background(), t.Project, t.ID, claim, t.Job, t.Agent); rerr != nil {
+				s.logf("todos: giving back %s/%s after a failed start: %v", t.Project, t.ID, rerr)
+			}
+			return err
+		}
+		if err := s.store.SetTodoJob(s.background(), t.Project, t.ID, claim, job.ID); err != nil {
+			return err
+		}
+		go s.nameTodoAgent(s.background(), t.Project, job.ID)
+		if t, err = s.store.TodoByID(ctx, t.Project, t.ID); err != nil {
 			return err
 		}
 		s.todoChanged(ctx, t, "todo_started")
-		go s.nameTodoAgent(s.background(), t.Project, job.ID)
 		return writeJSON(w, http.StatusAccepted, api.TodoStart{Todo: toAPITodo(t), Job: job})
 	}
 }
 
+// todoClaim starts the job column of a todo whose start has claimed it and
+// not yet made its job, followed by when (Unix ms).
+const todoClaim = "claim:"
+
+// staleClaim is how long a claim holds a todo: a start whose daemon died
+// between claiming and making its job leaves one behind, which must not keep
+// the todo from ever starting again.
+const staleClaim = 2 * time.Minute
+
 // todoTaken refuses to start a todo again while what it was handed to is
 // still at it.
-func (s *Server) todoTaken(ctx context.Context, t state.Todo) error {
+func (s *Server) todoTaken(ctx context.Context, t state.Todo, now time.Time) error {
 	if t.Agent != "" {
 		if _, err := s.store.Agent(ctx, t.Project, t.Agent); err == nil {
 			return fmt.Errorf("todo %s is %s's already: %w", t.ID, t.Agent, state.ErrExists)
+		}
+		return nil
+	}
+	if at, ok := strings.CutPrefix(t.Job, todoClaim); ok {
+		ms, _, _ := strings.Cut(at, "-")
+		if when, err := strconv.ParseInt(ms, 10, 64); err == nil && now.Sub(time.UnixMilli(when)) < staleClaim {
+			return fmt.Errorf("todo %s is being started already: %w", t.ID, state.ErrExists)
 		}
 		return nil
 	}
