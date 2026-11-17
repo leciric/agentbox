@@ -44,6 +44,7 @@ func (r Results) Empty() bool {
 // matching no memory at all, and the memories are the part that was worth
 // asking for.
 func (s *Store) Search(ctx context.Context, project, query string, limit int) (Results, error) {
+	s.syncRepo(ctx, project)
 	limit = limitOf(limit)
 	out, err := s.searchBM25(ctx, project, query, rerankPoolFor(limit))
 	if err != nil {

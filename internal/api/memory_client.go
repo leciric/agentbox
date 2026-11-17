@@ -116,6 +116,13 @@ func (m *MemoryClient) DeleteMemory(ctx context.Context, id string) error {
 	return m.c.do(ctx, http.MethodDelete, m.base+"/memories/"+url.PathEscape(id), nil, nil)
 }
 
+// Share commits memories to the project's repository, on a branch of their
+// own (ShareMemoriesResult).
+func (m *MemoryClient) Share(ctx context.Context, req ShareMemoriesRequest) (ShareMemoriesResult, error) {
+	var out ShareMemoriesResult
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/share", req, &out)
+}
+
 // Search looks through the project's memories, events and reports.
 func (m *MemoryClient) Search(ctx context.Context, query string, limit int) (MemorySearchResults, error) {
 	var out MemorySearchResults

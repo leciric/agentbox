@@ -168,6 +168,11 @@ type Memory struct {
 	// Origin is where an AgentBox-wide memory was written: the project whose
 	// chat or user wrote it, or the Home chat's key. Empty for a project's own.
 	Origin string `json:"origin,omitempty"`
+	// Source is where it came from: "" for AgentBox's own, SourceRepository
+	// for one read from the project's checkout (repo.go), and SourcePath is
+	// that file, relative to the checkout.
+	Source     string `json:"source,omitempty"`
+	SourcePath string `json:"sourcePath,omitempty"`
 	// Superseded is true when a later memory names this one. It is derived,
 	// not stored: supersedes_id is the only record, so the two can't disagree.
 	Superseded bool `json:"superseded,omitempty"`

@@ -295,6 +295,7 @@ func (s *Store) BuildContext(ctx context.Context, req ContextRequest) (Context, 
 	if req.For == "" {
 		req.For = ForTool
 	}
+	s.syncRepo(ctx, req.Project)
 	budget := BudgetTokens(req.Budget)
 
 	working, err := s.WorkingMemory(ctx, req.Project)

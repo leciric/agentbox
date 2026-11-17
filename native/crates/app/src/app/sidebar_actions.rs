@@ -890,6 +890,11 @@ impl AppView {
                     PopupMenuItem::new(t("group.menu.fanOut"))
                         .icon(crate::icons::ic("split"))
                         .on_click(act(|this, n, window, cx| this.open_fan_out(n, window, cx))),
+                )
+                .item(
+                    PopupMenuItem::new(t("native.memories.title"))
+                        .icon(crate::icons::ic("brain"))
+                        .on_click(act(|this, n, window, cx| this.open_memories(n, window, cx))),
                 );
             if others {
                 menu = menu.item(

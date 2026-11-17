@@ -159,6 +159,9 @@ var memoryRoutes = []struct {
 	// Tidying resolves a whole store's worth of open items at once, which is
 	// the user's to decide (agentbox memory tidy).
 	{http.MethodPost, "/tidy", "tidy", false, true},
+	// Sharing commits to the project's repository (memoryshare.go): the
+	// user's, from the app, or the lead's when the user asks it to.
+	{http.MethodPost, "/share", "share", false, false},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
@@ -200,6 +203,17 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 				return err
 			}
 			return writeJSON(w, http.StatusCreated, apiEvent(out))
+
+		case "share":
+			var req api.ShareMemoriesRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			out, err := s.shareMemories(ctx, m, who.project, req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, out)
 
 		case "memories":
 			memories, err := m.Memories(ctx, who.project, kindsOf(r))
@@ -558,6 +572,7 @@ func apiMemory(m memory.Memory) api.Memory {
 		ResolvedAt: m.ResolvedAt, ResolvedBy: m.ResolvedBy,
 		ReferencedAt: m.ReferencedAt, DecayedAt: m.DecayedAt, Confirmations: m.Confirmations,
 		Promotion: m.Promotion, PromotionAt: m.PromotionAt,
+		Source: m.Source, SourcePath: m.SourcePath,
 	}
 }
 
