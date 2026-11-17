@@ -16,7 +16,7 @@
 // and the agent's BrowserTab, AndroidTab, IOSTab, TerminalTab and
 // LiveDesktop. What it decides is in lib/cockpit.ts.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppWindow, ArrowUpRight, Check, ChevronDown, CircleDot, Focus, Hand, Layers, LoaderCircle, MessageSquare, Monitor, Smartphone, SquareTerminal, TabletSmartphone, TriangleAlert } from 'lucide-react';
+import { AppWindow, ArrowUpRight, Check, ChevronDown, CircleAlert, CircleDot, Focus, Hand, Layers, LoaderCircle, MessageSquare, Monitor, Smartphone, SquareTerminal, TabletSmartphone, TriangleAlert } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -24,6 +24,8 @@ import { api } from '../../lib/api';
 import { chatKey, fetchThread } from '../../lib/chat';
 import { feedOf, fitWall, loadHidden, onlyShown, saveHidden, shownProjects, stagedOf, toggleShown, visualOf, type FeedRow, type Level, type Visual } from '../../lib/cockpit';
 import { useT } from '../../lib/i18n';
+import { leadOn } from '../../lib/leadRunner';
+import { editSending, retrySending, useSending } from '../../lib/sending';
 import { terminalLines } from '../../lib/terminalTail';
 import { cn } from '../../lib/utils';
 import type { DeskModel, DeskTone } from '../../office/model';
@@ -285,6 +287,19 @@ function River({ projects, shown, office, onFocus }: { projects: readonly T.Proj
   const targetProject = projects.find((p) => p.name === target);
   const targetInfo = refs.find((r) => r.project === target)?.info;
   const targetThread = threads[shown.indexOf(target ?? '')]?.data;
+  // The lead as the chat runs it: its session says which tool, and account,
+  // the composer is for (ChatTab does the same).
+  const targetAgent = targetProject && targetInfo ? leadOn(leadAgentFrom(targetProject, targetInfo), targetThread?.session) : undefined;
+
+  // A message that didn't go, taken back to change: into its own lead's
+  // composer, which has to be the one showing first.
+  const [editing, setEditing] = useState<{ project: string; key: string }>();
+  useEffect(() => {
+    if (editing && editing.project === target && targetAgent) {
+      editSending(editing.key);
+      setEditing(undefined);
+    }
+  }, [editing, target, targetAgent]);
 
   // The feed stays at its newest message, unless scrolled up to read.
   const scroller = useRef<HTMLDivElement>(null);
@@ -327,6 +342,19 @@ function River({ projects, shown, office, onFocus }: { projects: readonly T.Proj
             )}
           </div>
         ))}
+        {refs.map(({ project, info }) =>
+          info ? (
+            <NotSent
+              key={info.ref}
+              chatRef={info.ref}
+              project={projectOf(project)?.displayName || project}
+              onEdit={(key) => {
+                setChosen(project);
+                setEditing({ project, key });
+              }}
+            />
+          ) : null,
+        )}
       </div>
       <div className="flex flex-col gap-1.5 border-t border-line-faint px-3 pb-2 pt-2" data-cockpit-composer>
         <Menu>
@@ -353,10 +381,38 @@ function River({ projects, shown, office, onFocus }: { projects: readonly T.Proj
             })}
           </MenuContent>
         </Menu>
-        {targetProject && targetInfo ? <Composer key={targetInfo.ref} agent={leadAgentFrom(targetProject, targetInfo)} thread={targetThread} disabled={false} onSent={() => (atEnd.current = true)} /> : null}
+        {targetInfo && targetAgent ? <Composer key={targetInfo.ref} agent={targetAgent} thread={targetThread} disabled={false} onSent={() => (atEnd.current = true)} /> : null}
       </div>
     </>
   );
+}
+
+// NotSent is what you sent a lead from the feed that didn't reach it: the
+// text, why, and the chat timeline's two ways on (lib/sending.ts), to send
+// it again as it was or to take it back into the composer and change it.
+function NotSent({ chatRef, project, onEdit }: { chatRef: string; project: string; onEdit: (key: string) => void }) {
+  const t = useT();
+  const failed = useSending(chatRef).filter((s) => s.error);
+  return failed.map((s) => (
+    <div key={s.key} className="flex flex-col gap-1 rounded-md border-l-2 border-rose-400/60 bg-rose-400/5 py-1.5 pl-3 pr-2" data-cockpit-not-sent={chatRef}>
+      <span className="flex items-center gap-1.5 text-caption">
+        <span className="font-semibold text-title">{project}</span>
+        <span className="text-faint">·</span>
+        <span className="text-muted">{t('cockpit.you')}</span>
+      </span>
+      <span className="line-clamp-3 text-ui text-primary [overflow-wrap:anywhere]">{s.text}</span>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption">
+        <CircleAlert className="size-3.5 shrink-0 text-rose-300" />
+        <span className="min-w-0 break-words text-rose-300">{t('chat.composer.notSent', { error: s.error ?? '' })}</span>
+        <button type="button" className="rounded-md px-1.5 py-0.5 font-medium text-rose-100 transition hover:bg-rose-400/15" onClick={() => retrySending(s.key)}>
+          {t('chat.sending.retry')}
+        </button>
+        <button type="button" className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised" onClick={() => onEdit(s.key)}>
+          {t('chat.sending.edit')}
+        </button>
+      </span>
+    </div>
+  ));
 }
 
 // RiverRow is one message, tagged with its project; long ones fold.

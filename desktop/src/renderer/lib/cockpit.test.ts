@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { feedOf, fitWall, onlyShown, shownProjects, stagedOf, toggleShown, visualOf } from './cockpit.ts';
+import { feedOf, fitWall, onlyShown, shownHidden, shownProjects, stagedOf, toggleShown, visualOf } from './cockpit.ts';
 
 const item = (id: string, kind: string, at: string, extra: Partial<T.ChatItem> = {}): T.ChatItem => ({ id, turn: 't', kind, text: id, createdAt: at, updatedAt: at, ...extra });
 
@@ -72,4 +72,20 @@ test('the wall fits every agent at the biggest size, else scrolls at the smalles
   // Forty don't fit at any size: as many 300px columns as there's room for.
   assert.equal(fitWall(40, 1000, 400), 3);
   assert.equal(fitWall(0, 1000, 400), 1);
+});
+
+test('a filter that shows every project after the visible one went away toggles what it shows', () => {
+  // a and b hidden, c the only one shown; then c goes away.
+  let hidden = toggleShown(['a', 'b', 'c'], toggleShown(['a', 'b', 'c'], new Set(), 'a'), 'b');
+  assert.deepEqual(shownProjects(['a', 'b', 'c'], hidden), ['c']);
+  const all = ['a', 'b'];
+  assert.deepEqual(shownProjects(all, hidden), ['a', 'b'], 'both show');
+  assert.deepEqual([...shownHidden(all, hidden)], []);
+  // Clicking a, shown checked, hides a, not b.
+  hidden = toggleShown(all, hidden, 'a');
+  assert.deepEqual(shownProjects(all, hidden), ['b']);
+  // Only, on the same stale choice, keeps the one clicked.
+  assert.deepEqual(shownProjects(all, onlyShown(all, new Set(['a', 'b', 'c']), 'a')), ['a']);
+  // A project gone since it was hidden doesn't count.
+  assert.deepEqual([...shownHidden(['a', 'b'], new Set(['x', 'a']))], ['a']);
 });

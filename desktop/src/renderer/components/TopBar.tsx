@@ -213,6 +213,7 @@ function CockpitButton({ on, onClick }: { on: boolean; onClick: () => void }) {
       <button
         type="button"
         aria-pressed={on}
+        aria-label={t('cockpit.button')}
         onClick={onClick}
         className={cn(
           'flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-ui transition',

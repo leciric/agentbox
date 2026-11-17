@@ -39,8 +39,18 @@ export const shownProjects = (all: readonly string[], hidden: ReadonlySet<string
   return shown.length > 0 ? shown : [...all];
 };
 
+// shownHidden is what the filter hides as it shows it: only projects there
+// are, and none at all once that would be every one of them (shownProjects
+// shows them all then). Toggles start from it, so a click changes the
+// project clicked as it looks, not a stale choice behind it.
+export function shownHidden(all: readonly string[], hidden: ReadonlySet<string>): Set<string> {
+  const there = all.filter((n) => hidden.has(n));
+  return there.length < all.length ? new Set(there) : new Set();
+}
+
 // toggleShown turns a project on or off in the filter, never the last one off.
-export function toggleShown(all: readonly string[], hidden: ReadonlySet<string>, name: string): Set<string> {
+export function toggleShown(all: readonly string[], given: ReadonlySet<string>, name: string): Set<string> {
+  const hidden = shownHidden(all, given);
   const next = new Set(hidden);
   if (next.has(name)) next.delete(name);
   else if (shownProjects(all, hidden).filter((n) => n !== name).length > 0) next.add(name);
@@ -49,8 +59,8 @@ export function toggleShown(all: readonly string[], hidden: ReadonlySet<string>,
 
 // onlyShown keeps just one project in the filter; on the one already alone,
 // it shows them all again.
-export function onlyShown(all: readonly string[], hidden: ReadonlySet<string>, name: string): Set<string> {
-  const shown = shownProjects(all, hidden);
+export function onlyShown(all: readonly string[], given: ReadonlySet<string>, name: string): Set<string> {
+  const shown = shownProjects(all, shownHidden(all, given));
   if (shown.length === 1 && shown[0] === name) return new Set();
   return new Set(all.filter((n) => n !== name));
 }

@@ -229,12 +229,15 @@ export function App({ initial }: { initial?: View } = {}) {
     [queryClient],
   );
 
-  const select = (next: View) => {
+  // back: going back to a view (Settings' Back, leaving the cockpit) rather
+  // than into it, which keeps where the Office's and the cockpit's own ways
+  // back go.
+  const select = (next: View, { back = false }: { back?: boolean } = {}) => {
     setSettingsLink(undefined);
     // The Office covers the window; its Back returns to where you were.
     // (Coming back to it from a page it opened keeps where you were before.)
-    if (next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
-    if (next.kind === "cockpit" && view.kind !== "cockpit") beforeCockpit.current = view;
+    if (!back && next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
+    if (!back && next.kind === "cockpit" && view.kind !== "cockpit") beforeCockpit.current = view;
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
     const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
@@ -257,7 +260,7 @@ export function App({ initial }: { initial?: View } = {}) {
   // leaves it, back to where it was entered from. Turned off in Settings
   // meanwhile, it leaves too.
   const cockpitOn = appSettings.data?.cockpitMode === true;
-  const leaveCockpit = () => select(beforeCockpit.current.kind === "cockpit" ? { kind: "home" } : beforeCockpit.current);
+  const leaveCockpit = () => select(beforeCockpit.current.kind === "cockpit" ? { kind: "home" } : beforeCockpit.current, { back: true });
   const leaveCockpitRef = useRef(leaveCockpit);
   leaveCockpitRef.current = leaveCockpit;
   const inCockpit = view.kind === "cockpit";
@@ -299,7 +302,7 @@ export function App({ initial }: { initial?: View } = {}) {
   const beforeSettings = useRef<View>({ kind: "home" });
   if (view.kind !== "settings") beforeSettings.current = view;
   useEffect(() => {
-    const close = () => select(beforeSettings.current);
+    const close = () => select(beforeSettings.current, { back: true });
     window.addEventListener(closeSettingsEvent, close);
     return () => window.removeEventListener(closeSettingsEvent, close);
   });
