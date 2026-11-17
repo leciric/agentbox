@@ -187,6 +187,8 @@ export const ptBRNative = {
   'native.tray.description': 'Fechar a janela a esconde, e o AgentBox fica na bandeja (a barra de menus no Mac), onde o ícone conta os agentes trabalhando e o que espera por você. {keys} sempre encerra, assim como Sair do AgentBox no menu do ícone e no menu de ajuda.',
   'native.tray.noIcon': 'Nenhum ícone de bandeja aparece neste ambiente agora, então fechar a janela encerra o app. O GNOME mostra ícones de bandeja com a extensão AppIndicator.',
   'native.tray.noMinimize': 'Este ambiente não minimiza janelas, então fechar a janela encerra o app.',
+  'native.sidebar.connecting': 'Iniciando o AgentBox…',
+  'native.sidebar.unreachable': 'Não foi possível carregar seus projetos: {error}',
   'native.todos.title': 'Tarefas',
   'native.todos.open': 'Lista de tarefas',
   'native.todos.add': 'Adicionar uma tarefa',

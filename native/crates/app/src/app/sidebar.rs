@@ -16,6 +16,7 @@ use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use super::AppView;
+use super::projects_load;
 use super::sidebar_actions::Place;
 use crate::theme;
 
@@ -568,6 +569,11 @@ impl AppView {
         let idle_open = self.side.idle_open || nothing_else || !query.is_empty();
         let hidden_open = self.side.hidden_open || !query.is_empty();
         let nothing = !self.projects.is_empty() && shown.is_empty();
+        let list_state = projects_load::shown(&self.projects_load, !self.projects.is_empty());
+        let load_error = match &list_state {
+            projects_load::Shown::Error(e) => Some(e.clone()),
+            _ => None,
+        };
         let dragging = cx.has_active_drag();
         let no_rest = rest.is_empty();
         let in_section = !self.side.sections.is_empty();
@@ -623,7 +629,18 @@ impl AppView {
                             .child(self.home_row(cx))
                             .children(self.office_row(cx))
                             .child(self.filter_bar(cx))
-                            .when(self.projects.is_empty(), |el| {
+                            .when(list_state == projects_load::Shown::Starting, |el| {
+                                el.child(
+                                    div()
+                                        .id("projects-starting")
+                                        .mx_3()
+                                        .p_3()
+                                        .text_sm()
+                                        .text_color(theme::faint())
+                                        .child(t("native.sidebar.connecting")),
+                                )
+                            })
+                            .when(list_state == projects_load::Shown::AddFirst, |el| {
                                 el.child(
                                     div()
                                         .id("add-first")
@@ -753,7 +770,7 @@ impl AppView {
                                         .child(t("v2.sidebar.nothingMatches")),
                                 )
                             })
-                            .when_some(self.error.clone(), |el, e| {
+                            .when_some(load_error, |el, e| {
                                 el.child(div().p_4().text_xs().text_color(theme::error()).child(e))
                             }),
                     ),
