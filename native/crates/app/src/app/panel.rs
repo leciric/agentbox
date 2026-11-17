@@ -2562,11 +2562,18 @@ impl AppView {
                             .child(crate::icons::of("⌖")),
                     ),
             );
-        // 16:10 of the panel's width, as RightPanel.tsx's aspect-[16/10]:
-        // it grows and shrinks with the panel (VncView fits the screen in).
+        // 16:10 of the panel's width, as RightPanel.tsx's aspect-[16/10],
+        // but never taller than the room under the toolbar: a wide panel in
+        // a short window would push the screen's bottom out of sight (Electron
+        // does). max_h_full is the height its holder is shrunk to, and taffy
+        // carries it through the aspect ratio to the width, so the box stays
+        // 16:10 and narrows, centred by its auto margins. VncView fits the
+        // remote screen in.
         let screen = div()
             .relative()
             .w_full()
+            .max_h_full()
+            .mx_auto()
             .aspect_ratio(16. / 10.)
             .rounded_lg()
             .overflow_hidden()
@@ -2658,11 +2665,15 @@ impl AppView {
             Vec::new()
         };
         let r = a.r#ref.clone();
+        // CaptureStrip's flex-1 min-h-40: the rest of the panel's height, and
+        // as tall as its captures (GPUI scrolls only as far as its children's
+        // boxes reach, not what overflows them, so it grows from its content
+        // rather than from 0 and never shrinks).
         let strip = v_flex()
-            .flex_1()
+            .flex_grow_1()
+            .flex_shrink_0()
             .min_h(px(160.))
             .px_3()
-            .pt_3()
             .pb_3()
             .child(
                 h_flex()
@@ -2751,16 +2762,25 @@ impl AppView {
                     )
                 }
             });
-        div()
+        // RightPanel's flex flex-col overflow-y-auto. The toolbar and the
+        // screen are one block at most the panel's height (max_h_full of the
+        // scroll box's): past that the screen's holder gives way (min_h_0)
+        // and the screen in it with it, so the whole screen is always in
+        // view; the captures are below, scrolled to.
+        v_flex()
             .id("panel-desktop")
             .size_full()
             .overflow_y_scroll()
             .child(
                 v_flex()
+                    .flex_none()
+                    .max_h_full()
                     .child(toolbar)
-                    .child(div().px_3().child(screen))
-                    .child(strip),
+                    // The strip's pt-3 is here, so a screen the panel's
+                    // height holds back still has it under it.
+                    .child(div().min_h_0().px_3().pb_3().child(screen)),
             )
+            .child(strip)
             .into_any_element()
     }
 
