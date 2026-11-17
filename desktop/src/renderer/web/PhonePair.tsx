@@ -172,14 +172,20 @@ function Scanner({ onClose }: { onClose: () => void }) {
     void (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-        if (stopped) return;
+        if (stopped) {
+          // Cancelled while the camera was starting: cleanup ran before there was a stream to stop.
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         const v = video.current!;
         v.srcObject = stream;
         await v.play();
         const read = await qrReader();
         const tick = async () => {
           if (stopped) return;
-          const secret = pairSecretOf((await read(v).catch(() => null)) ?? '');
+          const found = (await read(v).catch(() => null)) ?? '';
+          if (stopped) return; // cancelled while it was reading
+          const secret = pairSecretOf(found);
           if (secret) pairWith(secret);
           else timer = setTimeout(() => void tick(), 200);
         };
