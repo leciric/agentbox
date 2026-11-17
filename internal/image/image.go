@@ -375,7 +375,9 @@ const readyTimeout = 2 * time.Minute
 // 800 MB, most of it already compressed, and so most of what the published
 // image weighed beyond its contents. apt's package lists stay, so
 // `apt-get install` works without an update first.
-var dropCaches = "apt-get clean && rm -rf /home/" + Placeholder.Name + "/.cache/mise"
+func dropCaches(user string) string {
+	return "apt-get clean && rm -rf /home/" + user + "/.cache/mise"
+}
 
 const scrubMachineID = "truncate -s0 /etc/machine-id && rm -f /var/lib/dbus/machine-id"
 
@@ -588,7 +590,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}
 	return all(
 		func() error {
-			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+dropCaches+" && "+scrubMachineID)
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+dropCaches(Placeholder.Name)+" && "+scrubMachineID)
 			return err
 		},
 		func() error { return inc.Stop(ctx, next) },
