@@ -127,6 +127,27 @@ pub struct Sidebar {
     _poll: Task<()>,
 }
 
+/// is_idle is whether group-idle sends a project to the idle dock: nothing
+/// running, nobody asking, and its lead not in a turn (Electron's workingNow
+/// counts the lead too).
+fn is_idle(group_idle: bool, c: &Counts, lead_working: bool) -> bool {
+    group_idle && c.running == 0 && c.asks == 0 && !lead_working
+}
+
+/// rank_of is byAttention's bucket: what needs you, then to review, then
+/// working (its agents, or its lead in a turn), then the rest.
+fn rank_of(c: &Counts, to_review: usize, lead_working: bool) -> u8 {
+    if c.asks + c.failed > 0 {
+        0
+    } else if to_review > 0 {
+        1
+    } else if c.working > 0 || lead_working {
+        2
+    } else {
+        3
+    }
+}
+
 impl Sidebar {
     pub fn new(window: &mut Window, cx: &mut Context<AppView>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(t("v2.filters.search")));
@@ -519,10 +540,11 @@ impl AppView {
         for p in shown.iter().copied().filter(|p| !placed.contains(&p.name)) {
             if hidden.contains(&p.name) && self.project.as_deref() != Some(&p.name) {
                 hid.push(p);
-            } else if group_idle
-                && self.counts(&p.name).running == 0
-                && self.counts(&p.name).asks == 0
-            {
+            } else if is_idle(
+                group_idle,
+                &self.counts(&p.name),
+                self.project_sessions(&p.name).0,
+            ) {
                 idle.push(p);
             } else {
                 rest.push(p);
@@ -548,16 +570,11 @@ impl AppView {
             rest.sort_by(by_name);
         }
         let rank = |p: &Project| {
-            let c = self.counts(&p.name);
-            if c.asks + c.failed > 0 {
-                0
-            } else if self.to_review(&p.name) > 0 {
-                1
-            } else if c.working > 0 {
-                2
-            } else {
-                3
-            }
+            rank_of(
+                &self.counts(&p.name),
+                self.to_review(&p.name),
+                self.project_sessions(&p.name).0,
+            )
         };
         rest.sort_by_key(|p| rank(p));
         idle.sort_by(|a, b| recent(b).cmp(&recent(a)).then_with(|| by_name(a, b)));
@@ -1308,5 +1325,33 @@ pub(super) fn ago(time: &str) -> String {
             "panel.list.agoDays",
             &[("n", ((secs / 86400) as usize).into())],
         ),
+    }
+}
+
+#[cfg(test)]
+mod lead_working_tests {
+    use super::{is_idle, rank_of, Counts};
+
+    #[test]
+    fn a_working_lead_ranks_as_working_and_is_never_idle() {
+        let c = Counts::default();
+        assert_eq!(rank_of(&c, 0, true), 2);
+        assert_eq!(rank_of(&c, 0, false), 3);
+        assert!(!is_idle(true, &c, true));
+        assert!(is_idle(true, &c, false));
+        assert!(!is_idle(false, &c, false));
+        // Louder states still win.
+        assert_eq!(
+            rank_of(
+                &Counts {
+                    asks: 1,
+                    ..Default::default()
+                },
+                0,
+                true
+            ),
+            0
+        );
+        assert_eq!(rank_of(&c, 1, true), 1);
     }
 }
