@@ -191,7 +191,9 @@ func validID(id string) bool {
 		return false
 	}
 	for _, r := range id {
-		if !(r == '_' || r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+		switch {
+		case r == '_', r == '-', r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		default:
 			return false
 		}
 	}
