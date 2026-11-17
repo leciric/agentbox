@@ -89,6 +89,8 @@ type testConfig struct {
 	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
+	// updateInterval is Config.UpdateInterval; zero is update.Interval.
+	updateInterval time.Duration
 	// npmRegistry is Config.NPMRegistry; empty is a port nothing listens on.
 	npmRegistry string
 	// loginCallbackUnreachable is the daemon's: a browser that can't reach
@@ -173,6 +175,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
 		NPMRegistry:      cmp.Or(tc.npmRegistry, "http://127.0.0.1:1"),
 		UpdateStartDelay: -1,
+		UpdateInterval:   tc.updateInterval,
 		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:        gh.URL,
 		// Every fake connector server listens on loopback.

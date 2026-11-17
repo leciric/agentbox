@@ -70,6 +70,9 @@ type Config struct {
 	// UpdateStartDelay is how long after start the first update check waits:
 	// update.StartDelay when zero, none when negative (tests).
 	UpdateStartDelay time.Duration
+	// UpdateInterval is how often the update check goes out after the
+	// first: update.Interval when zero (tests shorten it).
+	UpdateInterval time.Duration
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string

@@ -263,6 +263,11 @@ impl AppView {
             // Out of focus, what loops holds still; back in front, it plays
             // again, and what the toasts said is on screen.
             crate::motion::set_live(this.alerts.active);
+            if this.alerts.active {
+                // Back from another window, or from sleep: what the update
+                // check found meanwhile (update_poll.rs).
+                this.poll_update(super::update_poll::Reason::Focus, cx);
+            }
             window.refresh();
             cx.notify();
         });
@@ -302,6 +307,7 @@ impl AppView {
 
     fn poll_alerts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = Instant::now();
+        self.poll_update(super::update_poll::Reason::Tick, cx);
         for id in notices::take_clicks() {
             if let Some(go) = self.alerts.pending.remove(&id) {
                 self.go(go, window, cx);

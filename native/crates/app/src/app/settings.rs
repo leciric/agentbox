@@ -95,7 +95,7 @@ pub struct SettingsPage {
     more: HashSet<&'static str>,
     settings: Option<Settings>,
     theme: Option<Theme>,
-    update: Option<UpdateStatus>,
+    pub(super) update: Option<UpdateStatus>,
     /// fields are the page's text fields, by name: Accounts' forms and the
     /// number fields of Models, Agents and Resources.
     fields: HashMap<&'static str, Entity<InputState>>,
@@ -514,6 +514,9 @@ impl AppView {
                 let page = &mut this.settings_page;
                 page.settings = s.ok().or(page.settings.take());
                 page.update = up.ok().or(page.update.take());
+                if let Some(u) = page.update.clone() {
+                    this.side.update = Some(u);
+                }
                 if let Ok(th) = th {
                     page.theme = Some(th);
                 }
@@ -543,20 +546,6 @@ impl AppView {
         }
         self.settings_page.theme = Some(th);
         cx.notify();
-    }
-
-    pub(super) fn reload_update(&mut self, cx: &mut Context<Self>) {
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            if let Ok(up) = client.get::<UpdateStatus>("/v1/update").await {
-                this.update(cx, |this, cx| {
-                    this.settings_page.update = Some(up);
-                    cx.notify();
-                })
-                .ok();
-            }
-        })
-        .detach();
     }
 
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -650,7 +639,7 @@ impl AppView {
                 }
                 // The daemon checks again on a new channel; read what it found.
                 if channel {
-                    this.reload_update(cx);
+                    this.load_update(cx);
                 }
                 this.watch_claude_code(cx);
                 cx.notify();
