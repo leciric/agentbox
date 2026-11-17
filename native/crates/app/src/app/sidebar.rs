@@ -1330,7 +1330,7 @@ pub(super) fn ago(time: &str) -> String {
 
 #[cfg(test)]
 mod lead_working_tests {
-    use super::{is_idle, rank_of, Counts};
+    use super::{Counts, is_idle, rank_of};
 
     #[test]
     fn a_working_lead_ranks_as_working_and_is_never_idle() {
