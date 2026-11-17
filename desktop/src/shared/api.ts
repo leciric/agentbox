@@ -3054,6 +3054,48 @@ export interface ScheduleChange {
   project: string;
 }
 
+export interface Todo {
+  id: string;
+  project: string;
+  text: string;
+  done: boolean;
+  position: number;
+  job?: string;
+  agent?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt?: string;
+}
+
+export interface TodoRequest {
+  text?: string;
+  done?: boolean;
+}
+
+export interface TodoOrder {
+  ids: string[];
+}
+
+export interface TodoStartRequest {
+  ai?: string;
+  model?: string;
+  effort?: string;
+}
+
+export interface TodoStart {
+  todo: Todo;
+  job: Job;
+}
+
+export interface TodoCounts {
+  open: Record<string, number>;
+}
+
+export interface TodoChange {
+  project: string;
+}
+
 export interface ChatAgentPermission {
   agent: string;
   ref: string;
@@ -4236,6 +4278,7 @@ export const SessionWorking = "working";
 export const SessionIdle = "idle";
 export const EventQuestion = "question";
 export const EventSchedule = "schedule";
+export const EventTodo = "todo";
 export const EventAgentEvent = "agent.event";
 export const ReviewReviewed = "reviewed";
 export const ReviewDismissed = "dismissed";

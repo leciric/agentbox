@@ -227,6 +227,10 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 	s.scheduleRoutes("/v1/project", "lead", func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, withProject(fn))
 	})
+	// The project's todo list (todos.go): the lead's todos tool.
+	s.todoRoutes("/v1/project", true, func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		mux.HandleFunc(pattern, withProject(fn))
+	})
 	mux.HandleFunc("GET /v1/project/questions", withProject(s.leadQuestions))
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))

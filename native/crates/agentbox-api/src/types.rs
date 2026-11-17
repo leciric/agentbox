@@ -5091,6 +5091,75 @@ pub struct ScheduleChange {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Todo {
+    pub id: String,
+    pub project: String,
+    pub text: String,
+    pub done: bool,
+    pub position: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub job: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    #[serde(rename = "doneAt", skip_serializing_if = "Option::is_none")]
+    pub done_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoOrder {
+    #[serde(deserialize_with = "nullable")]
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoStartRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ai: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoStart {
+    pub todo: Todo,
+    pub job: Job,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoCounts {
+    #[serde(deserialize_with = "nullable")]
+    pub open: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TodoChange {
+    pub project: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChatAgentPermission {
     pub agent: String,
     pub r#ref: String,
@@ -6959,6 +7028,7 @@ pub const SESSION_WORKING: &str = "working";
 pub const SESSION_IDLE: &str = "idle";
 pub const EVENT_QUESTION: &str = "question";
 pub const EVENT_SCHEDULE: &str = "schedule";
+pub const EVENT_TODO: &str = "todo";
 pub const EVENT_AGENT_EVENT: &str = "agent.event";
 pub const REVIEW_REVIEWED: &str = "reviewed";
 pub const REVIEW_DISMISSED: &str = "dismissed";
