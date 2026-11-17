@@ -48,3 +48,24 @@ func TestTestPolicy(t *testing.T) {
 		t.Error("on, and the project allows them: blocked")
 	}
 }
+
+// Cockpit mode is offered only once somebody turns it on, and it stays as
+// they left it.
+func TestCockpitModeSetting(t *testing.T) {
+	t.Parallel()
+	d, _, _ := skillsDaemon(t)
+	ctx := context.Background()
+	got, err := d.client.Settings(ctx)
+	if err != nil || got.CockpitMode {
+		t.Fatalf("settings %v, %v: want cockpitMode off", got.CockpitMode, err)
+	}
+	if got, err = d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{CockpitMode: new(true)}); err != nil || !got.CockpitMode {
+		t.Fatalf("turning it on: %v, %v", got.CockpitMode, err)
+	}
+	if got, err = d.client.Settings(ctx); err != nil || !got.CockpitMode {
+		t.Fatalf("after turning it on: %v, %v", got.CockpitMode, err)
+	}
+	if got, err = d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{CockpitMode: new(false)}); err != nil || got.CockpitMode {
+		t.Fatalf("turning it off: %v, %v", got.CockpitMode, err)
+	}
+}

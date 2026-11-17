@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/paths"
 	"agentbox/internal/state"
 )
 
@@ -593,5 +595,71 @@ func TestPhoneAppWithABearerToken(t *testing.T) {
 	}
 	if code, _ := app.do("GET", "/lan/session", "", auth...); code != http.StatusUnauthorized {
 		t.Errorf("GET /lan/session after unpairing = %d", code)
+	}
+}
+
+// The files that install the web app on a phone's home screen are served as
+// what they are, and its service worker with the version it belongs to.
+func TestServeLANWebInstallFiles(t *testing.T) {
+	dir := t.TempDir()
+	s := &Server{cfg: Config{Paths: paths.Paths{Data: dir}}}
+	install := func(version string, files map[string]string) {
+		for name, body := range files {
+			path := filepath.Join(dir, "lan-web", version, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "lan-web", "current"), []byte(version+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.serveLANWeb(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+	install("1.0.0-abc", map[string]string{
+		"web.html":              "<html><head></head></html>",
+		"manifest.webmanifest":  `{"name":"AgentBox"}`,
+		"icon-192.png":          "\x89PNG",
+		"icon.svg":              "<svg/>",
+		"sw.js":                 `const v="__AGENTBOX_LAN_WEB_VERSION__";caches.open("agentbox-shell-"+"__AGENTBOX_LAN_WEB_VERSION__")`,
+		"assets/web-abc.js":     "console.log(1)",
+		"assets/web-abc.js.map": "{}",
+	})
+	for _, c := range []struct{ path, typ, body string }{
+		{"/manifest.webmanifest", "application/manifest+json", `{"name":"AgentBox"}`},
+		{"/icon-192.png", "image/png", "\x89PNG"},
+		{"/icon.svg", "image/svg+xml", "<svg/>"},
+		{"/sw.js", "text/javascript; charset=utf-8", `const v="1.0.0-abc";caches.open("agentbox-shell-"+"1.0.0-abc")`},
+	} {
+		w := get(c.path)
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != c.typ || w.Body.String() != c.body {
+			t.Errorf("GET %s = %d %q %q, want %q %q", c.path, w.Code, w.Header().Get("Content-Type"), w.Body.String(), c.typ, c.body)
+		}
+		if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Errorf("GET %s: Cache-Control %q", c.path, cc)
+		}
+	}
+	// One the version doesn't have isn't the page in its place.
+	if w := get("/icon-1024.png"); w.Code != http.StatusNotFound {
+		t.Errorf("GET a missing icon = %d %q", w.Code, w.Body.String())
+	}
+	// Everything else is still the page.
+	if w := get("/web.html.png/../x"); !strings.Contains(w.Body.String(), "<html>") {
+		t.Errorf("GET a page = %d %q", w.Code, w.Body.String())
+	}
+
+	// A new version is a new worker.
+	install("1.1.0-def", map[string]string{"web.html": "<html></html>", "sw.js": `"__AGENTBOX_LAN_WEB_VERSION__"`})
+	if w := get("/sw.js"); w.Body.String() != `"1.1.0-def"` {
+		t.Errorf("GET /sw.js after an update = %q", w.Body.String())
+	}
+	if w := get("/manifest.webmanifest"); w.Code != http.StatusNotFound {
+		t.Errorf("GET another version's manifest = %d", w.Code)
 	}
 }

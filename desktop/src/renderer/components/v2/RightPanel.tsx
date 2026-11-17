@@ -745,7 +745,7 @@ function ViewTitle({ view, after }: { view: PanelView; after?: ReactNode }) {
 }
 
 // useWake starts a stopped agent or resumes a paused one.
-function useWake(agent: T.Agent) {
+export function useWake(agent: T.Agent) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.agentAction(agent.ref, agent.state === 'paused' ? 'resume' : 'start'),

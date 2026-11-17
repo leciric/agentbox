@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Gauge, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { BusyMarks } from './BusyMarks';
@@ -33,6 +33,7 @@ export function TopBar({
   navDocksAtXl,
   onSearch,
   machine,
+  cockpit,
 }: {
   view: View;
   onSelect: (view: View) => void;
@@ -47,6 +48,9 @@ export function TopBar({
   // machine is AgentBox's machine being made in the background, after the
   // first run, whose own rail shows it until then.
   machine?: MachineState;
+  // cockpit is cockpit mode's button, while Settings → Experimental offers
+  // it: on while the cockpit is open; toggle goes in, or back out.
+  cockpit?: { on: boolean; toggle: () => void };
 }) {
   const t = useT();
   // While the machine is being made there's no daemon to reconnect to: the
@@ -87,6 +91,9 @@ export function TopBar({
       break;
     case 'office':
       crumbs.push({ label: t('office.title') });
+      break;
+    case 'cockpit':
+      crumbs.push({ label: t('cockpit.title') });
       break;
     case 'work':
       if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
@@ -160,6 +167,7 @@ export function TopBar({
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <TopSlot />
+        {cockpit && <CockpitButton on={cockpit.on} onClick={cockpit.toggle} />}
         {onSearch && <SearchButton onClick={onSearch} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
@@ -196,6 +204,30 @@ export function TopBar({
 // that has reset since shows no number rather than one that describes a
 // window that is over. Its countdowns tick every minute: the query's refetch
 // leaves them alone while the reading is unchanged.
+// CockpitButton goes into cockpit mode, and pressed, back out of it (as Escape
+// does) to where it was entered from.
+function CockpitButton({ on, onClick }: { on: boolean; onClick: () => void }) {
+  const t = useT();
+  return (
+    <Tip label={on ? t('cockpit.leave') : t('cockpit.enter')}>
+      <button
+        type="button"
+        aria-pressed={on}
+        aria-label={t('cockpit.button')}
+        onClick={onClick}
+        className={cn(
+          'flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-ui transition',
+          on ? 'border-brand-400/60 bg-brand-500/15 text-title' : 'border-line-strong text-muted hover:bg-surface-raised hover:text-primary',
+        )}
+        data-cockpit-button
+      >
+        <Gauge className="size-4" />
+        <span className="hidden sm:inline">{t('cockpit.button')}</span>
+      </button>
+    </Tip>
+  );
+}
+
 // The search palette's way in for the pointer, with its shortcut on it.
 function SearchButton({ onClick }: { onClick: () => void }) {
   const t = useT();

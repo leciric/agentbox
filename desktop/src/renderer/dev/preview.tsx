@@ -261,6 +261,9 @@
 //                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
+//   ?app=cockpit            cockpit mode (components/cockpit), on, over the
+//                           Office's projects (dev/cockpit.tsx); &cockpit=off
+//                           opens Home with it off, to turn on in Settings
 //   ?app=office             the Office (components/office), with Storefront's and
 //                           Quill's agents too (dev/office.ts); &office=1 with
 //                           any ?app= puts it, and them, in the sidebar
@@ -368,7 +371,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -388,6 +391,7 @@ import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
 import { setUiOffice } from '../lib/uiOffice';
 import { seedOffice, stubProjectChats } from './office';
+import { seedCockpit } from './cockpit';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -806,7 +810,11 @@ if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
   // ?app=office: more projects' agents, at their desks (dev/office.ts).
-  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
+  if (appView === 'office' || appView === 'cockpit' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
+  // ?app=cockpit: cockpit mode on, with drawn desktops and every lead talking
+  // (dev/cockpit.tsx); &cockpit=1 turns it on anywhere, &cockpit=off leaves it off.
+  if ((appView === 'cockpit' && params.get('cockpit') !== 'off') || params.get('cockpit') === '1') setCockpitMode(true);
+  if (appView === 'cockpit') seedCockpit(queryClient);
   // ?app=office&walk=<ref>: once the Office is up, walk to that desk (or a
   // project's lead, project/lead), and with &then=room step back to its
   // room's view, or with &then=e open it: screenshots without clicking through.
@@ -1757,6 +1765,7 @@ if (phoneMode === 'frame') {
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'office' ? { kind: 'office' }
+    : appView === 'cockpit' ? (params.get('cockpit') === 'off' ? { kind: 'home' } : { kind: 'cockpit' })
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

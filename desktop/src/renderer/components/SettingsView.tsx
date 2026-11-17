@@ -1226,6 +1226,20 @@ function InstalledSettings({
       scope: "installation",
       groups: [
         {
+          id: "experimental-ui",
+          title: t("settings.group.experimental-ui.title"),
+          entries: [
+            {
+              id: "cockpit-mode",
+              description: t("settings.cockpitMode.description"),
+              label: t("settings.entry.cockpit-mode.label"),
+              keywords: t("settings.entry.cockpit-mode.keywords"),
+              modified: changed((s) => s.cockpitMode),
+              render: () => <CockpitModeSetting />,
+            },
+          ],
+        },
+        {
           id: "experimental-tests",
           title: t("settings.group.experimental-tests.title"),
           entries: [
@@ -2390,6 +2404,38 @@ export function BlockFullSuite() {
           aria-label={t("settings.entry.block-full-suite.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.blockFullSuite ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// CockpitModeSetting offers cockpit mode (components/cockpit) in the top bar:
+// every project's lead in one feed beside a live wall of every agent, for
+// very wide screens. Experimental, off unless turned on.
+export function CockpitModeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (cockpitMode: boolean) => api.updateSettings({ cockpitMode }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.cockpit-mode.label")}
+      htmlFor="cockpit-mode"
+      description={t("settings.cockpitMode.description")}
+      details={t("settings.cockpitMode.details")}
+      control={
+        <Switch
+          id="cockpit-mode"
+          data-cockpit-mode
+          aria-label={t("settings.entry.cockpit-mode.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.cockpitMode ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

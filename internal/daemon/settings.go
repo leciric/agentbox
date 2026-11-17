@@ -431,6 +431,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.CockpitMode != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingCockpitMode, *req.CockpitMode); err != nil {
+			return err
+		}
+	}
 	if req.BlockFullSuite != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingBlockFullSuite, *req.BlockFullSuite); err != nil {
 			return err
@@ -700,6 +705,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	cockpitMode, err := s.store.Flag(r.Context(), state.SettingCockpitMode)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	vmGPU := s.vmGPU(agentGPU)
 	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
@@ -839,6 +848,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
 		BlockFullSuite:       blockFullSuite,
+		CockpitMode:          cockpitMode,
 		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,

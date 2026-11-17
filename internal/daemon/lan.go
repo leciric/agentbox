@@ -934,6 +934,34 @@ func lanRouteOf(method, path string) lanRoute {
 // content's hash in it, so it can be kept for good.
 var lanWebAsset = regexp.MustCompile(`^/assets/[A-Za-z0-9._-]+$`)
 
+// lanWebFile is a file at the web app's root, besides its page: what installs
+// it on a phone's home screen, its manifest and icons, by their types.
+var lanWebFile = regexp.MustCompile(`^/[A-Za-z0-9][A-Za-z0-9._-]*\.(webmanifest|png|svg)$`)
+
+var lanWebTypes = map[string]string{
+	"webmanifest": "application/manifest+json",
+	"png":         "image/png",
+	"svg":         "image/svg+xml",
+}
+
+// lanWorkerVersion stands for the web app's version in its service worker
+// (desktop/src/renderer/web/sw.ts), which names its cache after it.
+const lanWorkerVersion = "__AGENTBOX_LAN_WEB_VERSION__"
+
+// serveLANWorker serves the web app's service worker with the version it
+// belongs to written in: a phone that has another version's worker finds this
+// one different, installs it, and drops what the other one kept.
+func serveLANWorker(w http.ResponseWriter, root, version string) {
+	b, err := os.ReadFile(filepath.Join(root, "sw.js"))
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(bytes.ReplaceAll(b, []byte(lanWorkerVersion), []byte(version)))
+}
+
 func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -949,6 +977,19 @@ func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	root := filepath.Join(s.lanWebDir(), version)
 	if lanWebAsset.MatchString(r.URL.Path) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(r.URL.Path)))
+		return
+	}
+	if r.URL.Path == "/sw.js" {
+		serveLANWorker(w, root, version)
+		return
+	}
+	if m := lanWebFile.FindStringSubmatch(r.URL.Path); m != nil {
+		// Not named by their content, so asked again each time; and typed
+		// here, as nosniff has the browser go by the type alone and Go's
+		// table has no .webmanifest.
+		w.Header().Set("Content-Type", lanWebTypes[m[1]])
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(r.URL.Path)))
 		return
 	}
