@@ -2,6 +2,7 @@ package incus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -109,7 +110,17 @@ func wait(ctx context.Context, op incusclient.Operation, err error) error {
 	}
 	for {
 		if err := op.WaitContext(ctx); err != nil {
-			return err
+			// Incus's own /wait gives up with ctx's deadline, a moment
+			// before ctx does, and answers that as an error of its own
+			// ("context deadline exceeded", status 200): the error is ctx's,
+			// so callers can tell a deadline from a failure.
+			if !serverWaitTimedOut(err) {
+				return err
+			}
+			if err := ended(ctx); err != nil {
+				return err
+			}
+			continue
 		}
 		if op.Get().StatusCode.IsFinal() {
 			return nil
@@ -118,6 +129,13 @@ func wait(ctx context.Context, op incusclient.Operation, err error) error {
 			return err
 		}
 	}
+}
+
+// serverWaitTimedOut reports whether err is Incus's /wait giving up on its
+// timeout rather than the operation failing.
+func serverWaitTimedOut(err error) bool {
+	var status api.StatusError
+	return errors.As(err, &status) && status.Status() == http.StatusOK && strings.Contains(err.Error(), context.DeadlineExceeded.Error())
 }
 
 // isNotFound reports whether Incus answered 404: an instance, snapshot or

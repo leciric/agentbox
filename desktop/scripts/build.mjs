@@ -46,8 +46,8 @@ writeFileSync(
       short_name: 'AgentBox',
       start_url: './',
       display: 'standalone',
-      background_color: '#07070b',
-      theme_color: '#07070b',
+      background_color: '#0e0e10',
+      theme_color: '#0e0e10',
       icons: [
         { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' },
         { src: 'icon.png', type: 'image/png', purpose: 'any' },

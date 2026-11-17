@@ -84,6 +84,27 @@ func (f *fakeUsage) sentEvents() map[string][]map[string]any {
 	return out
 }
 
+// mixedBatches is how many of the reports it kept hold health events beside
+// others.
+func (f *fakeUsage) mixedBatches() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, report := range f.events {
+		list, _ := report["events"].([]any)
+		batches := map[string]bool{}
+		for _, e := range list {
+			ev, _ := e.(map[string]any)
+			name, _ := ev["name"].(string)
+			batches[eventBatch(name)] = true
+		}
+		if len(batches) > 1 {
+			n++
+		}
+	}
+	return n
+}
+
 func (f *fakeUsage) answerEvents(status int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

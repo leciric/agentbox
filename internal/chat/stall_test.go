@@ -58,7 +58,7 @@ func TestProgressFollowsTheAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := waitProgress(t, m, "the tool call", func(p Progress, ok bool) bool { return ok && p.ToolRunning })
-	if !p.LastProgress.Equal(clock) || p.Turn == "" || p.Waiting || p.Stalled != nil {
+	if !p.LastProgress.Equal(clock) || p.Turn == "" || p.Waiting || p.Stalled != nil || p.RunningTool != "go test ./..." {
 		t.Fatalf("progress = %+v", p)
 	}
 
@@ -204,5 +204,69 @@ func TestLostIsCalledWhenTheToolExitsMidTurn(t *testing.T) {
 	m.Wait() // for any report still on its way
 	if l := got(); len(l) != 1 {
 		t.Errorf("lost = %q, want only the first", l)
+	}
+}
+
+// An adapter whose stdin was cut answers the prompt "cancelled", with its
+// tool call still running, and exits: the turn reads as over, but the agent
+// stopped mid-work. That is lost too, and ResumeLost carries the turn on.
+func TestATurnCutOffThenAnExitIsLost(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var lost []string
+	var prompts []string
+	f := newFakeTool(func(f *fakeTool, s, text string) acp.PromptResponse {
+		mu.Lock()
+		prompts = append(prompts, text)
+		mu.Unlock()
+		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"npx eslint .","kind":"execute","status":"in_progress"}`)
+		return acp.PromptResponse{StopReason: "cancelled"}
+	})
+	m, _ := newManager(t, openStore(t), f)
+	m.Lost = func(a state.Agent, why string) {
+		mu.Lock()
+		defer mu.Unlock()
+		lost = append(lost, why)
+	}
+	count := func() (int, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(lost), len(prompts)
+	}
+	if _, err := m.Send(testAgent, "lint it"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
+	f.crash()
+	deadline := time.Now().Add(5 * time.Second)
+	for n, _ := count(); n == 0 && time.Now().Before(deadline); n, _ = count() {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n, _ := count(); n != 1 {
+		t.Fatalf("lost %d times, want once", n)
+	}
+
+	f.setTurn(func(f *fakeTool, s, text string) acp.PromptResponse {
+		mu.Lock()
+		prompts = append(prompts, text)
+		mu.Unlock()
+		return answerHello(f, s, text)
+	})
+	ok, err := m.ResumeLost(testAgent)
+	if err != nil || !ok {
+		t.Fatalf("ResumeLost = %t, %v", ok, err)
+	}
+	th := waitThread(t, m, testAgent, "the resumed turn", turnsEnded(2))
+	notice := false
+	for _, it := range th.Items {
+		notice = notice || (it.Kind == "notice" && it.Text == lostNotice)
+	}
+	if !notice {
+		t.Error("the conversation doesn't say the turn was resumed")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "stopped unexpectedly") {
+		t.Errorf("prompts = %q, want the resumed turn's too", prompts)
 	}
 }

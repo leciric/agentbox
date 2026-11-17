@@ -109,9 +109,9 @@ try {
   mkdirSync(media, { recursive: true });
   mkdirSync(join(work, 'bin'), { recursive: true });
   execFileSync('go', ['build', '-o', bin, './cmd/agentbox'], { cwd: root });
-  // The hub is its own program, in leciric/agentbox-hub (D44).
+  // The hub is its own program, in hub/ (D44).
   const hubBin = process.env.AGENTBOX_HUB_BIN;
-  if (!hubBin || !existsSync(hubBin)) throw new Error('build agentbox-hub in leciric/agentbox-hub, and set AGENTBOX_HUB_BIN to it');
+  if (!hubBin || !existsSync(hubBin)) throw new Error('build the hub (go build -o bin/agentbox-hub ./hub/cmd/agentbox-hub), and set AGENTBOX_HUB_BIN to it');
   if (!existsSync(join(desktop, 'out/web/index.html'))) throw new Error('build the app first: npm --prefix desktop run build');
   xvfb = await startXvfb({ width: 1440, height: 900 });
 

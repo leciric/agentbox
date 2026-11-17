@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentbox/internal/acp"
+	"agentbox/internal/state"
 )
 
 // Process is a running ACP adapter.
@@ -19,6 +22,43 @@ type Process struct {
 	Wait func() error
 	// Stderr returns the end of what the process wrote to stderr.
 	Stderr func() string
+	// Killed, when set, says what killed the process once it has exited,
+	// when it wasn't its own doing ("killed: out of memory, …"); "" when
+	// nothing did. A turn it ends fails with that rather than a closed pipe.
+	Killed func() string
+
+	// Set for an adapter running somewhere the agent's paths don't reach —
+	// the Home chat's on the user's computer (package homehost): its sessions
+	// start in Cwd rather than the agent's worktree, with MCPServers rather
+	// than none, as its tool's configuration there doesn't name AgentBox's.
+	Cwd        string
+	MCPServers []acp.McpServer
+	// Notice, when set, is said in the chat as the adapter starts: where it
+	// runs, when that changed.
+	Notice string
+	// Moved says it runs on another machine than the adapter before it, which
+	// keeps the session: it starts a new one, told the conversation.
+	Moved bool
+	// Auth, when set, is sent as authenticate once the adapter has answered
+	// initialize, before any session: how a Gemini CLI API key reaches the
+	// tool without being in its environment.
+	Auth *acp.AuthenticateRequest
+}
+
+// sessionCwd is where a session of a's on proc starts.
+func sessionCwd(proc *Process, a state.Agent) string {
+	if proc != nil && proc.Cwd != "" {
+		return proc.Cwd
+	}
+	return a.Worktree
+}
+
+// sessionMCP is the MCP servers a session on proc starts with.
+func sessionMCP(proc *Process) []acp.McpServer {
+	if proc != nil && proc.MCPServers != nil {
+		return proc.MCPServers
+	}
+	return []acp.McpServer{}
 }
 
 // StartCommand starts cmd as an ACP adapter, which speaks over its stdin and stdout.
@@ -105,3 +145,120 @@ func lastLine(s string) string {
 	}
 	return line
 }
+
+// failureLine is the line of a failed adapter's stderr that says what went
+// wrong: usually its last line, but a version manager ends its error with a
+// line that only says how to get more ("mise ERROR Run with --verbose or
+// MISE_VERBOSE=1 for more information"), and the line that names the failure
+// comes before it.
+func failureLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	var last string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || moreInfo(line) {
+			continue
+		}
+		if last == "" {
+			last = line
+		}
+		// mise's own error, which may be followed by advice on how to fix it.
+		if strings.HasPrefix(line, "mise ERROR") {
+			return lastLine(line)
+		}
+	}
+	if last == "" {
+		return lastLine(s)
+	}
+	return lastLine(last)
+}
+
+// moreInfo is a line that only points at more output.
+func moreInfo(line string) bool {
+	return strings.Contains(line, "Run with --verbose") || strings.Contains(line, "MISE_VERBOSE=1")
+}
+
+// Remote is an adapter running somewhere StartCommand can't reach as a local
+// process: in an agent's machine, through Incus' API (incus.Proc).
+type Remote interface {
+	Wait() error
+	Kill()
+}
+
+// NewTail is a writer for a Remote's stderr that keeps what StartRemote's
+// Process.Stderr gives back: the end of it.
+func NewTail() io.Writer { return &tail{max: 16 << 10} }
+
+// StartRemote is StartCommand for a Remote that is already running, with its
+// stdin and stdout, and its stderr going to stderr, from NewTail.
+func StartRemote(stdin io.WriteCloser, stdout io.ReadCloser, r Remote, stderr io.Writer) *Process {
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = r.Wait()
+		close(done)
+	}()
+	var once sync.Once
+	return &Process{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stop: func() {
+			once.Do(func() {
+				_ = stdin.Close()
+				select {
+				case <-done:
+				case <-time.After(3 * time.Second):
+					r.Kill()
+					<-done
+				}
+			})
+		},
+		Wait: func() error {
+			<-done
+			return waitErr
+		},
+		Stderr: stderr.(*tail).String,
+	}
+}
+
+// killedWait is how long a turn whose output closed waits for its adapter
+// to exit, to say what killed it.
+const killedWait = 3 * time.Second
+
+// killedWhy is what killed proc (Process.Killed), once it has exited; "" when
+// nothing did, or it hasn't exited within killedWait.
+func killedWhy(proc *Process) string {
+	if proc == nil || proc.Killed == nil {
+		return ""
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = proc.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(killedWait):
+		return ""
+	}
+	return proc.Killed()
+}
+
+// killedTurn is the error a turn fails with when its adapter's output closed
+// under it (err): "<tool> was killed: out of memory, …" when something killed
+// it, which is still acp.ErrClosed to errors.Is; err otherwise.
+func killedTurn(proc *Process, tool string, err error) error {
+	why := killedWhy(proc)
+	if why == "" {
+		return err
+	}
+	return &killedError{msg: tool + " was " + why, err: err}
+}
+
+type killedError struct {
+	msg string
+	err error
+}
+
+func (e *killedError) Error() string { return e.msg }
+func (e *killedError) Unwrap() error { return e.err }

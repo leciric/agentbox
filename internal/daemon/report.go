@@ -68,38 +68,51 @@ func (s *Server) sendReport(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	if req.Kind == api.ReportKindError {
-		if on, err := s.store.FlagOn(ctx, state.SettingErrorReports); err != nil || !on {
-			return cmp.Or(err, errors.New("automatic error reports are off: turn them on in Settings, General"))
+		if err := s.errorReportsAllowed(ctx); err != nil {
+			return err
 		}
-		if os.Getenv("DO_NOT_TRACK") == "1" {
-			return errors.New("automatic error reports aren't sent while DO_NOT_TRACK=1 is set")
-		}
-	}
-	red := s.redactor()
-	message, err := report.CleanMessage(red, req.Kind, req.Message)
-	if err != nil {
-		return err
 	}
 	if len(req.Sections) > report.MaxSections {
 		return fmt.Errorf("a report has at most %d sections", report.MaxSections)
 	}
-	sections, err := report.Clean(red, req.Sections)
-	if err != nil {
-		return err
-	}
-	install, err := s.installID(ctx)
-	if err != nil {
-		return err
-	}
-	u := update.NewRequest(install, Version)
-	id, err := report.Send(ctx, s.cfg.UpdateURL, report.Payload{
-		Install: u.Install, Version: u.Version, OS: u.OS, Arch: u.Arch, Kind: req.Kind, Message: message, Sections: sections,
-	})
+	id, err := s.sendReportOf(ctx, req.Kind, req.Message, req.Sections)
 	if err != nil {
 		return err
 	}
 	s.logf("sent a %s report: %s", req.Kind, id)
 	return writeJSON(w, http.StatusOK, api.ReportSent{ID: id})
+}
+
+// errorReportsAllowed is why an error report may not be sent, or nil.
+func (s *Server) errorReportsAllowed(ctx context.Context) error {
+	if on, err := s.store.FlagOn(ctx, state.SettingErrorReports); err != nil || !on {
+		return cmp.Or(err, errors.New("automatic error reports are off: turn them on in Settings, General"))
+	}
+	if os.Getenv("DO_NOT_TRACK") == "1" {
+		return errors.New("automatic error reports aren't sent while DO_NOT_TRACK=1 is set")
+	}
+	return nil
+}
+
+// sendReportOf redacts a report and sends it, and is the server's ID for it.
+func (s *Server) sendReportOf(ctx context.Context, kind, message string, sections []api.ReportSection) (string, error) {
+	red := s.redactor()
+	message, err := report.CleanMessage(red, kind, message)
+	if err != nil {
+		return "", err
+	}
+	sections, err = report.Clean(red, sections)
+	if err != nil {
+		return "", err
+	}
+	install, err := s.installID(ctx)
+	if err != nil {
+		return "", err
+	}
+	u := update.NewRequest(install, Version)
+	return report.Send(ctx, s.cfg.UpdateURL, report.Payload{
+		Install: u.Install, Version: u.Version, OS: u.OS, Arch: u.Arch, Kind: kind, Message: message, Sections: sections,
+	})
 }
 
 // reportSections are the daemon's own sections: the system, its log, and the

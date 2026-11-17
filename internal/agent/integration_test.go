@@ -61,7 +61,7 @@ func TestAgentsOnIncus(t *testing.T) {
 	if owner := info.Sys().(*syscall.Stat_t).Uid; int(owner) != f.m.User.UID {
 		t.Errorf("file written by the agent is owned by uid %d, want %d", owner, f.m.User.UID)
 	}
-	if diff, err := f.m.Diff(a, true); err != nil || !strings.Contains(diff, "from-agent") {
+	if diff, err := f.m.Diff(a, nil, true); err != nil || !strings.Contains(diff, "from-agent") {
 		t.Errorf("Diff() = %q, %v; want it to list from-agent", diff, err)
 	}
 	if err := f.m.Destroy(ctx, a, agent.DestroyOptions{}); err == nil || !strings.Contains(err.Error(), "uncommitted") {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -147,6 +148,10 @@ type ContextRequest struct {
 	// agents a memory reached. Empty for a brief that is only being shown,
 	// which reaches nobody.
 	Agent string
+	// Session is the chat session whose lead reads it, for a build ForLead:
+	// its own narrative and what it is working on, rather than Main's. ""
+	// is Main.
+	Session string
 }
 
 // ContextSection is one part of a built context, and what it cost.
@@ -296,6 +301,7 @@ func (s *Store) BuildContext(ctx context.Context, req ContextRequest) (Context, 
 	if err != nil {
 		return Context{}, err
 	}
+	working = working.ForSession(req.Session)
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		query = strings.TrimSpace(working.Goal + " " + working.CurrentTask)
@@ -356,7 +362,7 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 	// The newest narrative of the project's chat: the one memory that is a
 	// story rather than a fact, superseded by each compaction so there is
 	// only ever one (D73).
-	story, err := s.LatestFrom(ctx, req.Project, KindEpisodic, EventConversationCompacted)
+	story, err := s.LatestFrom(ctx, req.Project, sessionLead(req.Session), KindEpisodic, EventConversationCompacted)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
@@ -608,6 +614,9 @@ func workingLines(w WorkingMemory) (string, int) {
 	}
 	add("Goal", w.Goal)
 	add("Working on", w.CurrentTask)
+	for _, id := range slices.Sorted(maps.Keys(w.Sessions)) {
+		add("Working on in the "+id+" session", w.Sessions[id])
+	}
 	add("Agents on it", strings.Join(w.ActiveAgents, ", "))
 	add("In the way", strings.Join(w.Blockers, "; "))
 	add("Notes", w.Notes)

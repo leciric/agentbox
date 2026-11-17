@@ -91,10 +91,10 @@ function usePlayer(a: TAgent, start = 0, speed = 24, until = length(a)) {
   useEffect(() => setT(start), [a, start]);
   useEffect(() => {
     if (!playing) return;
-    let last = performance.now();
-    let raf = requestAnimationFrame(function tick(now) {
-      const dt = (now - last) / 1000;
-      last = now;
+    const clock = { last: performance.now() };
+    const frame = { id: requestAnimationFrame(function tick(now) {
+      const dt = (now - clock.last) / 1000;
+      clock.last = now;
       setT((v) => {
         const next = v + dt * speed;
         if (next >= until) {
@@ -103,9 +103,9 @@ function usePlayer(a: TAgent, start = 0, speed = 24, until = length(a)) {
         }
         return next;
       });
-      raf = requestAnimationFrame(tick);
-    });
-    return () => cancelAnimationFrame(raf);
+      frame.id = requestAnimationFrame(tick);
+    }) };
+    return () => cancelAnimationFrame(frame.id);
   }, [playing, speed, until]);
   // Play at the end starts over.
   const play = (on: boolean) => {
@@ -532,20 +532,19 @@ function Slideshow({ start, onClose }: { start: number; onClose: () => void }) {
   useEffect(() => setP(0), [i]);
   useEffect(() => {
     if (paused) return;
-    let last = performance.now();
-    let v = at.current;
-    let raf = requestAnimationFrame(function tick(now) {
-      v += (now - last) / 1000 / hold;
-      last = now;
-      if (v >= 1) {
+    const clock = { last: performance.now(), v: at.current };
+    const frame = { id: requestAnimationFrame(function tick(now) {
+      clock.v += (now - clock.last) / 1000 / hold;
+      clock.last = now;
+      if (clock.v >= 1) {
         if (i + 1 < slides.length) setI(i + 1);
         else setP(1);
         return;
       }
-      setP(v);
-      raf = requestAnimationFrame(tick);
-    });
-    return () => cancelAnimationFrame(raf);
+      setP(clock.v);
+      frame.id = requestAnimationFrame(tick);
+    }) };
+    return () => cancelAnimationFrame(frame.id);
   }, [paused, hold, i]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {

@@ -14,11 +14,26 @@ import (
 // doesn't wait for it: creating one syncs first too.
 const baseSyncInterval = 5 * time.Minute
 
+// baseSyncIdle is how often a project nobody views is synced, or every
+// project while the computer is on battery or hot (presence.go). A new agent
+// still syncs first, so it never starts from a stale base.
+const baseSyncIdle = 30 * time.Minute
+
+// baseSyncDue is whether a project last synced at last is due at now.
+func baseSyncDue(last, now time.Time, idle bool) bool {
+	if idle {
+		// Within a tick of it, so a 30-minute wait isn't stretched to 35.
+		return !now.Before(last.Add(baseSyncIdle - baseSyncInterval/2))
+	}
+	return true
+}
+
 // syncBases keeps every project's base branch up to date with its remote,
 // once at startup and then every baseSyncInterval.
 func (s *Server) syncBases(ctx context.Context) {
 	ticker := time.NewTicker(baseSyncInterval)
 	defer ticker.Stop()
+	synced := map[string]time.Time{}
 	for {
 		projects, err := s.store.Projects(ctx)
 		if err != nil && ctx.Err() == nil {
@@ -28,8 +43,12 @@ func (s *Server) syncBases(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if !p.BaseSyncOff {
+			// A fetch writes into the repository on the shared home, and may
+			// move a checked-out base: not while the share is short of files
+			// (share.go). The next round does it.
+			if !p.BaseSyncOff && !s.shareBusy() && baseSyncDue(synced[p.Name], time.Now(), s.presence.idle(p.Name)) {
 				s.syncBase(ctx, p)
+				synced[p.Name] = time.Now()
 			}
 		}
 		select {
@@ -42,13 +61,16 @@ func (s *Server) syncBases(ctx context.Context) {
 
 // syncBase does it for one project. A failure is logged when it first
 // happens and when it changes, not every few minutes while a remote stays
-// out of reach.
+// out of reach. It fetches from GitHub with the project's account, as its
+// agents do, not with the user's credential helper: in the VM, the home is
+// the host's, and its gitconfig names a gh that isn't there.
 func (s *Server) syncBase(ctx context.Context, p state.Project) {
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
 		return
 	}
-	synced, err := repo.SyncBase(ctx)
+	token, _ := s.manager(nil).GitHubToken(p) // without one, the user's own credential helper
+	synced, err := repo.SyncBase(ctx, token)
 	if ctx.Err() != nil {
 		return
 	}

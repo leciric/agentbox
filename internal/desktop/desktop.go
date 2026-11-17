@@ -59,9 +59,10 @@ const (
 	// chains, so a move across a 4K display doesn't spawn an enormous line.
 	maxMoveSteps = 40
 	// moveDuration is roughly how long one animated move takes, start to
-	// finish, regardless of distance: quick enough that a click still feels
-	// immediate, slow enough that a recording shows the pointer travelling.
-	moveDuration = 300 * time.Millisecond
+	// finish, regardless of distance: slow enough that a reviewer follows the
+	// pointer to what it clicks, quick enough that a click still feels
+	// immediate.
+	moveDuration = 400 * time.Millisecond
 )
 
 // Running reports whether the agent's display is up.

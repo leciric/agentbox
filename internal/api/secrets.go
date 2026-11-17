@@ -27,12 +27,34 @@ type Secret struct {
 	// says that the tool won't use it while signed in to an account: AgentBox
 	// keeps it out of the tool's own environment (internal/toolcreds).
 	Warning string `json:"warning,omitempty"`
+	// LeadManaged, for a project secret, means the project's lead keeps it
+	// fresh and may fulfil agents' credential requests for it with the stored
+	// value, by name (questions fulfil): it never reads the value either.
+	LeadManaged bool `json:"leadManaged"`
 }
 
 // SetSecretRequest is the body of PUT .../secrets/{name}. Value is the only
 // place a value appears in this API, and only ever on the way in.
+// LeadManaged, when set, marks a project secret as the lead's to keep
+// fresh, or not; left out, a new secret isn't and a stored one stays as it
+// was, so a lead refreshing the value doesn't have to say it again.
 type SetSecretRequest struct {
-	Value string `json:"value"`
+	Value       string `json:"value"`
+	LeadManaged *bool  `json:"leadManaged,omitempty"`
+}
+
+// SecretSettingsRequest is the body of PATCH .../projects/{project}/secrets/{name}:
+// what can change about a project secret without giving its value again.
+type SecretSettingsRequest struct {
+	LeadManaged bool `json:"leadManaged"`
+}
+
+// FulfilCredentialResponse is what the lead learns from fulfilling an
+// agent's request for a lead-managed secret: the answered request and when
+// the value the agent now has was stored. Never the value.
+type FulfilCredentialResponse struct {
+	Question   Question  `json:"question"`
+	ValueSetAt time.Time `json:"valueSetAt"`
 }
 
 // BrowserCookies is a project's browser cookie import, as the app and the
@@ -66,11 +88,43 @@ type BrowserProfile struct {
 	Engine      string `json:"engine"`
 	Name        string `json:"name"`
 	Keyring     string `json:"keyring,omitempty"`
+	// AppBound is set for a Chromium profile on Windows, whose cookies are
+	// sealed with app-bound encryption the daemon in the VM can't open: the
+	// desktop app reads them on the host (main/browsercookies.ts) and seals
+	// them through ImportDecryptedCookiesRequest, not ImportFromBrowserRequest.
+	AppBound bool `json:"appBound,omitempty"`
+	// ProfileDir is the profile's sub-directory (Default, Profile 1, …), which
+	// the host passes to the browser as --profile-directory when it reads an
+	// app-bound profile.
+	ProfileDir string `json:"profileDir,omitempty"`
 }
 
 // BrowserProfiles is the browsers found installed on the host.
 type BrowserProfiles struct {
 	Profiles []BrowserProfile `json:"profiles"`
+}
+
+// ImportedCookie is one cookie the desktop app read and decrypted on the host
+// (a Windows app-bound browser, over CDP) for the daemon to seal. Its fields
+// are the DevTools Storage cookie shape, as cookieimport.Cookie. Value is a
+// secret: it is sealed like one and never shown again.
+type ImportedCookie struct {
+	Domain   string `json:"domain"`
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Path     string `json:"path"`
+	Expires  int64  `json:"expires,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	HTTPOnly bool   `json:"httpOnly,omitempty"`
+	SameSite string `json:"sameSite,omitempty"`
+}
+
+// ImportDecryptedCookiesRequest seals cookies the desktop app already read and
+// decrypted on the host, for a Windows app-bound browser the daemon in the VM
+// can't open itself. Source names the browser and profile, for the card.
+type ImportDecryptedCookiesRequest struct {
+	Source  string           `json:"source"`
+	Cookies []ImportedCookie `json:"cookies"`
 }
 
 // ImportFromBrowserRequest imports every cookie of one installed browser

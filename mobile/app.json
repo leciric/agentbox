@@ -26,7 +26,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "dev.agentbox.mobile",
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -46,6 +47,7 @@
       "expo-secure-store",
       "expo-image",
       "expo-localization",
+      "expo-notifications",
       [
         "expo-build-properties",
         {
@@ -59,6 +61,11 @@
     "backgroundColor": "#0b0b10",
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     }
   }
 }

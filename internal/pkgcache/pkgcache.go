@@ -1,7 +1,7 @@
 // Package pkgcache is the package managers' caches every agent shares: one
 // directory in AgentBox's VM, mounted into each agent at the same path
-// (agent/pkgcache.go), that pnpm, npm, Yarn, Go, pip, uv, Corepack and
-// Playwright download into. A dependency, a module or a browser several agents
+// (agent/pkgcache.go), that pnpm, npm, Yarn, Go, pip, uv, Corepack,
+// Playwright and Electron download into. A dependency, a module or a browser several agents
 // need is downloaded once, and outlives the agents that downloaded it.
 //
 // Agents write into it themselves, through their own package managers: the
@@ -23,7 +23,17 @@
 //   - pip's HTTP cache and wheels are written to a temporary file then
 //     renamed, and uv locks its cache;
 //   - Playwright locks its browsers' directory while it installs, and
-//     Corepack downloads into a temporary directory it renames.
+//     Corepack downloads into a temporary directory it renames;
+//   - Electron's downloader (@electron/get) writes a zip to a temporary
+//     directory and renames it into the cache;
+//   - Cargo serializes its downloads and unpacking with lock files in
+//     CARGO_HOME (.package-cache, .package-cache-mutate). Its registry and
+//     git directories are shared without the rest of CARGO_HOME (installed
+//     binaries, credentials, config), so each agent's lock files are links
+//     to the same ones here, and every agent's Cargo takes the one lock, as
+//     several Cargos sharing a CARGO_HOME do. Its automatic clean-up is off
+//     (CARGO_CACHE_AUTO_CLEAN_FREQUENCY): it goes by what one agent used, and
+//     would delete what others use; the eviction here does that job.
 //
 // Two caches are left out on purpose. Yarn 1's cache unpacks a package straight
 // into its final directory and deletes one it finds incomplete, so two agents
@@ -36,10 +46,12 @@ package pkgcache
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +72,15 @@ const (
 	Uv         = "uv"
 	Playwright = "ms-playwright"
 	Corepack   = "corepack"
+	Electron   = "electron"
+	// Cargo's registry and git sources, which each agent's ~/.cargo links to
+	// (agent/pkgcache.go), and the lock files Cargo serializes them with.
+	Cargo         = "cargo"
+	CargoIndex    = "cargo/registry/index"
+	CargoCrates   = "cargo/registry/cache"
+	CargoSources  = "cargo/registry/src"
+	CargoGitDB    = "cargo/git/db"
+	CargoCheckout = "cargo/git/checkouts"
 )
 
 // unit says how much of a subdirectory goes at once when it's evicted.
@@ -106,6 +127,20 @@ var parts = []part{
 	{Playwright, 1},
 	// v1/<package manager>/<version>.
 	{Corepack, 2},
+	// Electron's binaries, one directory a download's URL: Electron 44 and
+	// later fetch theirs when first run, ~120 MB an agent otherwise.
+	{Electron, 1},
+	// Cargo: registry/index/<registry> is a sparse index's cache, or a git
+	// repository for a git index, whole either way; registry/cache holds
+	// one .crate a file, fetched again when missing; registry/src unpacks
+	// each crate into <registry>/<crate>-<version>, re-unpacked when its
+	// .cargo-ok is gone; git/db is one bare repository a source, and
+	// git/checkouts one directory a revision of it.
+	{CargoIndex, 1},
+	{CargoCrates, eachFile},
+	{CargoSources, 2},
+	{CargoGitDB, 1},
+	{CargoCheckout, 2},
 }
 
 // Dirs are the subdirectories the tools are pointed at, which Prepare makes.
@@ -127,6 +162,12 @@ type Cache struct {
 	// Room, when set, is how many more bytes the disk can take before it's at
 	// its floor. Below it, Trim evicts until the disk is above it again.
 	Room func() int64
+	// Busy, when set, says an agent may be installing into or building with
+	// the caches right now (a heavy run is under way). Trim leaves them
+	// alone then, unless they hold more than BusyCeiling times Max: with
+	// many agents there is always one at work, and waiting for none would
+	// never trim.
+	Busy func() bool
 	// Owner, when set, is who the directories Prepare makes belong to: the
 	// agents' user, when the daemon runs as root.
 	Owner *[2]int
@@ -138,10 +179,34 @@ type Cache struct {
 	// now is time.Now, which tests replace.
 	now func() time.Time
 
-	mu    sync.Mutex // held through a walk
-	size  atomic.Int64
-	sized atomic.Bool
+	mu sync.Mutex // held through a walk
+	// walked is when Trim last measured the caches, by clock.
+	walked time.Time
+	size   atomic.Int64
+	sized  atomic.Bool
+	// parts is what each tool's directory held when last measured.
+	partsMu sync.Mutex
+	held    []PartSize
 }
+
+// PartSize is how much one tool's directory holds, as Dirs names them.
+type PartSize struct {
+	Dir   string
+	Bytes int64
+}
+
+// BusyCeiling is how far over Max the caches may grow while Busy says an
+// agent is at work, before Trim evicts anyway.
+const BusyCeiling = 1.5
+
+// BusyRemeasure is how long Trim goes on trusting the caches' last measured
+// size while agents are at work, rather than walking them again.
+const BusyRemeasure = time.Hour
+
+// SupersededAfter is how long a browser version that a newer one of the same
+// browser replaced is left unused before Trim drops it, whatever the caches
+// hold: no project that moved to the newer one reads it.
+const SupersededAfter = 7 * 24 * time.Hour
 
 // DefaultRecent is how long Trim leaves a piece alone after it was last used:
 // a download in progress is younger than that.
@@ -187,7 +252,9 @@ func (c *Cache) Size() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.sized.Load() {
-		c.measured(sum(c.pieces()))
+		all := c.pieces()
+		c.measuredParts(all)
+		c.measured(sum(all))
 	}
 	return c.size.Load()
 }
@@ -197,6 +264,37 @@ func (c *Cache) measured(n int64) {
 	c.sized.Store(true)
 }
 
+// Breakdown is what each tool's directory held when last measured, biggest
+// first, empty ones left out.
+func (c *Cache) Breakdown() []PartSize {
+	c.Size()
+	c.partsMu.Lock()
+	defer c.partsMu.Unlock()
+	return slices.Clone(c.held)
+}
+
+func (c *Cache) measuredParts(all []piece) {
+	by := map[string]int64{}
+	for _, p := range all {
+		by[p.part] += p.size
+	}
+	var out []PartSize
+	for dir, n := range by {
+		if n > 0 {
+			out = append(out, PartSize{Dir: dir, Bytes: n})
+		}
+	}
+	slices.SortFunc(out, func(a, b PartSize) int {
+		if a.Bytes != b.Bytes {
+			return int(b.Bytes - a.Bytes)
+		}
+		return strings.Compare(a.Dir, b.Dir)
+	})
+	c.partsMu.Lock()
+	c.held = out
+	c.partsMu.Unlock()
+}
+
 // Trim measures the caches, and evicts what was used longest ago while they
 // hold more than Max, to nine tenths of it so that the next few downloads
 // don't need another trim, or while the disk is below its floor. It returns
@@ -204,16 +302,67 @@ func (c *Cache) measured(n int64) {
 func (c *Cache) Trim() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// A heavy run under way, and the caches not far over their cap when last
+	// measured: not even measured again. A walk of the caches reads every
+	// file's metadata (160,000 files, half a minute to two, on one user's
+	// VM), disk work of its own while agents are at theirs, only to skip.
+	// Measured again at least every BusyRemeasure, so caches that grow
+	// while agents are always at work are still trimmed past BusyCeiling.
+	if c.Busy != nil && c.sized.Load() && c.Max != nil && c.clock().Sub(c.walked) < BusyRemeasure {
+		if limit := c.Max(); limit > 0 && float64(c.size.Load()) <= float64(limit)*BusyCeiling && c.Busy() {
+			c.logf("package cache: skipped, an agent has a heavy run going; held %s of %s when last measured", bytesWords(c.size.Load()), bytesWords(limit))
+			return 0
+		}
+	}
+	start := time.Now()
+	c.walked = c.clock()
 	all := c.pieces()
+	walked := fmt.Sprintf("walked %d pieces in %s, %d unreadable", len(all), time.Since(start).Round(time.Millisecond), walkErrors.Load())
 	size := sum(all)
+	before := size
 	c.measured(size)
+	c.measuredParts(all)
+	defer func() { c.measuredParts(all) }()
 	defer func() { c.measured(size) }()
 	limit := int64(0)
 	if c.Max != nil {
 		limit = c.Max()
 	}
 	if limit <= 0 {
+		c.logf("package cache: off, holds %s (%s)", bytesWords(size), walked)
 		return 0
+	}
+	if c.Busy != nil && c.Busy() && float64(size) <= float64(limit)*BusyCeiling {
+		c.logf("package cache: skipped, an agent has a heavy run going; holds %s of %s (%s)", bytesWords(size), bytesWords(limit), walked)
+		return 0
+	}
+	recent := c.Recent
+	if recent == 0 {
+		recent = DefaultRecent
+	}
+	now := c.clock()
+	cutoff := now.Add(-recent)
+	var freed int64
+	evict := func(p piece) bool {
+		if err := removeAll(p.path); err != nil {
+			c.logf("package cache: evicting %s: %v", p.path, err)
+			return false
+		}
+		size -= p.size
+		freed += p.size
+		for i := range all {
+			if all[i].path == p.path {
+				all = slices.Delete(all, i, i+1)
+				break
+			}
+		}
+		return true
+	}
+	// Browsers a newer version replaced, and nothing has read for a week.
+	for _, p := range slices.Clone(all) {
+		if p.superseded && p.used.Before(now.Add(-SupersededAfter)) {
+			evict(p)
+		}
 	}
 	target := size
 	if size > limit {
@@ -225,28 +374,67 @@ func (c *Cache) Trim() int64 {
 		}
 	}
 	if target >= size {
-		return 0
+		c.logf("package cache: holds %s of %s, nothing to evict; freed %s (%s)", bytesWords(size), bytesWords(limit), bytesWords(freed), walked)
+		return freed
 	}
-	slices.SortFunc(all, func(a, b piece) int { return a.used.Compare(b.used) })
-	recent := c.Recent
-	if recent == 0 {
-		recent = DefaultRecent
-	}
-	cutoff := c.clock().Add(-recent)
-	var freed int64
-	for _, p := range all {
+	// Replaced browsers go before anything else that's as old.
+	slices.SortStableFunc(all, func(a, b piece) int {
+		if a.superseded != b.superseded && !a.used.Equal(never) && !b.used.Equal(never) {
+			if a.superseded {
+				return -1
+			}
+			return 1
+		}
+		return a.used.Compare(b.used)
+	})
+	for _, p := range slices.Clone(all) {
 		if size <= target || p.used.After(cutoff) {
 			break
 		}
-		if err := removeAll(p.path); err != nil {
-			c.logf("package cache: evicting %s: %v", p.path, err)
-			continue
-		}
-		size -= p.size
-		freed += p.size
+		evict(p)
 	}
+	line := fmt.Sprintf("package cache: held %s of %s, now %s, evicted %s (%s)", bytesWords(before), bytesWords(limit), bytesWords(size), bytesWords(freed), walked)
+	if size > target && len(all) > 0 {
+		// It couldn't get down: say what stopped it.
+		oldest := all[0]
+		line += fmt.Sprintf("; short of %s, the oldest piece left, %s, was used %s ago", bytesWords(target), oldest.path, now.Sub(oldest.used).Round(time.Second))
+	}
+	c.logf("%s", line)
 	return freed
 }
+
+// Wait is how long until the caches are next measured, every being the
+// usual wait: six times as long while they held under four fifths of their cap
+// when last measured, since a walk is disk work of its own. A disk nearing
+// its floor asks for a trim sooner anyway.
+func (c *Cache) Wait(every time.Duration) time.Duration {
+	if !c.sized.Load() || c.Max == nil {
+		return every
+	}
+	if limit := c.Max(); limit > 0 && c.size.Load() < limit/5*4 {
+		return 6 * every
+	}
+	return every
+}
+
+// bytesWords is a size for the log.
+func bytesWords(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for rest := n / unit; rest >= unit; rest /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// RemoveAll removes a file or a directory, read-only directories included:
+// Go's module cache makes its module trees read-only, and a plain os.RemoveAll
+// fails on them with "permission denied".
+func RemoveAll(path string) error { return removeAll(path) }
 
 // Clear empties every cache, and makes their directories again.
 func (c *Cache) Clear() error {
@@ -260,7 +448,9 @@ func (c *Cache) Clear() error {
 	for _, e := range entries {
 		errs = append(errs, removeAll(filepath.Join(c.Dir, e.Name())))
 	}
-	c.measured(sum(c.pieces()))
+	all := c.pieces()
+	c.measured(sum(all))
+	c.measuredParts(all)
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
@@ -286,6 +476,10 @@ type piece struct {
 	path string
 	size int64
 	used time.Time
+	// part is the tool's directory it's in; "" for what's in none.
+	part string
+	// superseded is a browser version a newer one of the same browser replaced.
+	superseded bool
 }
 
 func sum(all []piece) int64 {
@@ -298,7 +492,12 @@ func sum(all []piece) int64 {
 
 // pieces walks the caches, every byte in them counted in exactly one piece.
 // What's in Dir but in no part is counted in one that's never evicted.
+// walkErrors counts what a walk of the caches couldn't read, for the log; the
+// walks are one at a time, under Cache.mu.
+var walkErrors atomic.Int64
+
 func (c *Cache) pieces() []piece {
+	walkErrors.Store(0)
 	var out []piece
 	roots := map[string]bool{}
 	for _, p := range parts {
@@ -306,11 +505,19 @@ func (c *Cache) pieces() []piece {
 	}
 	for _, p := range parts {
 		root := filepath.Join(c.Dir, p.dir)
-		out = append(out, partPieces(root, p.unit, func(path string) bool { return path != root && roots[path] })...)
+		got := partPieces(root, p.unit, func(path string) bool { return path != root && roots[path] })
+		for i := range got {
+			got[i].part = p.dir
+		}
+		if p.dir == Playwright {
+			markSuperseded(got)
+		}
+		out = append(out, got...)
 	}
 	stray := piece{used: never}
 	_ = filepath.WalkDir(c.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		if d.IsDir() && roots[path] {
@@ -325,6 +532,34 @@ func (c *Cache) pieces() []piece {
 		out = append(out, stray)
 	}
 	return out
+}
+
+// markSuperseded marks each browser version's directory (chromium-1187) when
+// the cache has a newer one of the same browser (chromium-1194). Which
+// versions the pinned tools use isn't written down anywhere but in the
+// browsers' own directories; the newest of each is what the most recent
+// Playwright wanted.
+func markSuperseded(pieces []piece) {
+	newest := map[string]int{}
+	rev := func(p piece) (string, int, bool) {
+		name := filepath.Base(p.path)
+		i := strings.LastIndex(name, "-")
+		if i <= 0 {
+			return "", 0, false
+		}
+		n, err := strconv.Atoi(name[i+1:])
+		return name[:i], n, err == nil
+	}
+	for _, p := range pieces {
+		if name, n, ok := rev(p); ok && n > newest[name] {
+			newest[name] = n
+		}
+	}
+	for i, p := range pieces {
+		if name, n, ok := rev(p); ok && n < newest[name] {
+			pieces[i].superseded = true
+		}
+	}
 }
 
 // never is when a piece that's never evicted was last used: after
@@ -342,6 +577,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 	case eachFile:
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				walkErrors.Add(1)
 				return nil
 			}
 			if d.IsDir() {
@@ -352,6 +588,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 			}
 			info, err := d.Info()
 			if err != nil {
+				walkErrors.Add(1)
 				return nil
 			}
 			p := piece{path: path, size: diskSize(info), used: lastUsed(info)}
@@ -372,6 +609,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 		walk = func(dir string, depth int) {
 			entries, err := os.ReadDir(dir)
 			if err != nil {
+				walkErrors.Add(1)
 				return
 			}
 			for _, e := range entries {
@@ -398,6 +636,7 @@ func tree(root string, skip func(string) bool) piece {
 	var p piece
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		if d.IsDir() && path != root && skip(path) {
@@ -410,6 +649,7 @@ func tree(root string, skip func(string) bool) piece {
 		}
 		info, err := d.Info()
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		p.size += diskSize(info)

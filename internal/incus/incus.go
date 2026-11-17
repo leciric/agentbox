@@ -149,6 +149,8 @@ type Instance struct {
 	ExpandedConfig map[string]string `json:"expanded_config"`
 	// Devices are the instance's own devices, without its profiles'.
 	Devices map[string]map[string]string `json:"devices"`
+	// LastUsedAt is when the instance was last started.
+	LastUsedAt time.Time `json:"last_used_at"`
 }
 
 type InstanceState struct {
@@ -220,6 +222,30 @@ func (c Client) Instances(ctx context.Context) ([]Instance, error) {
 	return instances, nil
 }
 
+// Statuses is every instance's status (Running, Stopped, Frozen...), by
+// name: Instances without each one's state, which Incus has to gather from
+// the kernel for every instance and which is most of what a listing costs it
+// and the daemon. For loops that only ask what runs (DiskWriters).
+func (c Client) Statuses(ctx context.Context) (map[string]string, error) {
+	out := map[string]string{}
+	if c.cli() {
+		instances, err := c.Instances(ctx)
+		for _, inst := range instances {
+			out[inst.Name] = inst.Status
+		}
+		return out, err
+	}
+	var list []api.Instance
+	err := c.do(ctx, []string{"list", "--format", "json", "--fast"}, func(s incusclient.InstanceServer) (err error) {
+		list, err = s.GetInstances(api.InstanceTypeAny)
+		return err
+	})
+	for _, inst := range list {
+		out[inst.Name] = inst.Status
+	}
+	return out, err
+}
+
 // Instance returns one instance with its state, or ErrNotFound.
 func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
 	if !c.cli() {
@@ -257,6 +283,7 @@ func instanceOf(full *api.InstanceFull) Instance {
 		Config:         full.Config,
 		ExpandedConfig: full.ExpandedConfig,
 		Devices:        full.Devices,
+		LastUsedAt:     full.LastUsedAt,
 	}
 	if st := full.State; st != nil {
 		inst.State = &InstanceState{}

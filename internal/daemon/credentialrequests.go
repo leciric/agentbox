@@ -21,6 +21,13 @@ import (
 // to the user: the lead can't answer it, and nobody types the value into a
 // chat. The user answers from the app, the daemon puts the credential where
 // the agent reads it, and what the agent is told is only the outcome.
+//
+// One exception: a project secret the user marked as managed by the lead (a
+// token the lead's own script refreshes). A request for it wakes the lead,
+// which refreshes the value through `agentbox secrets set` (stdin) and then
+// fulfils the request by name, from the stored value: the lead gives no
+// value and is shown none, so the value still never passes through a model.
+// The user's card stays answerable, and whoever answers first wins.
 
 // envFile is where an agent's shell picks its credentials up, as the agent
 // knows it: ~/.config/agentbox/env, which sources the secrets file after it.
@@ -72,6 +79,11 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	if q.Text == "" {
 		return state.Question{}, errors.New("no reason: say what failed and what you need the credential for, so the user can decide")
 	}
+	return s.askUser(ctx, a, q)
+}
+
+// askUser puts a request in front of the user and waits for the answer.
+func (s *Server) askUser(ctx context.Context, a state.Agent, q state.Question) (state.Question, error) {
 	// An agent waits on one call at a time, so one it made before this is
 	// gone, or about to be: its card would only wait for nothing.
 	s.cancelCredentialRequests(ctx, a.Project, a.Name, "The agent asked again, and that request replaces this one.")
@@ -85,15 +97,21 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 		return state.Question{}, err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "credential_requested", map[string]any{
-		"kind": q.Kind, "name": q.SecretName, "reason": q.Text,
+		"kind": q.Kind, "name": q.SecretName, "ports": q.Ports, "reason": q.Text,
 	}, "")
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
+	s.wakeSessionOf(ctx, a, "asks for a credential")
 	s.notifyQuestion(ctx, q, a.Title)
 	s.logf("%s asks the user for %s: %s", a.Ref(), credentialWanted(q), q.Text)
 	// The lead is told, so it knows why the agent is waiting, but not woken:
-	// there is nothing it can do about it.
-	s.tellLead(ctx, a.Project, credentialNotice(q), false)
+	// there is nothing it can do about it, unless the secret is its own to
+	// keep fresh.
+	if s.leadManaged(ctx, q) {
+		s.credentialTell(ctx, a, leadManagedNotice(q), true)
+	} else {
+		s.credentialTell(ctx, a, credentialNotice(q), false)
+	}
 
 	// A request is only waiting while the call behind it is: when the call is
 	// gone — interrupted, its session or machine gone — so is the request.
@@ -144,6 +162,8 @@ func credentialWanted(q state.Question) string {
 		return "the secret $" + q.SecretName
 	case state.QuestionConnector:
 		return "the connector " + q.Connector
+	case state.QuestionIOSPorts:
+		return "leave to forward " + portsWords(q.Ports) + " to the Mac"
 	}
 	return "a GitHub account"
 }
@@ -152,6 +172,70 @@ func credentialNotice(q state.Question) string {
 	return fmt.Sprintf("%s asked the user for %s: %s\n\nOnly the user can answer this, from the card in the app, "+
 		"and it waits until they do. You can't answer it, and don't ask anybody for the value in this chat.",
 		q.Agent, credentialWanted(q), q.Text)
+}
+
+// leadManaged reports whether a request is for a secret of its project the
+// lead keeps fresh, and so may fulfil.
+func (s *Server) leadManaged(ctx context.Context, q state.Question) bool {
+	if q.Kind != state.QuestionSecret {
+		return false
+	}
+	sec, err := s.store.Secret(ctx, q.Project, "", q.SecretName)
+	return err == nil && sec.LeadManaged
+}
+
+func leadManagedNotice(q state.Question) string {
+	return fmt.Sprintf("%s asked for the secret $%s: %s\n\n$%s is managed by you: the user lets you fulfil requests for it. "+
+		"Refresh it first if it may be stale, the way you keep it fresh, piping the new value into "+
+		"`agentbox secrets set %s %s --value-stdin` so it is never an argument or in your output, then call "+
+		"questions fulfil (id %s): the agent gets the stored value by name. Never put the value in this chat. "+
+		"The user can still answer it from their card; whichever answer comes first is the one the agent gets.",
+		q.Agent, q.SecretName, q.Text, q.SecretName, q.Project, q.SecretName, q.ID)
+}
+
+// leadFulfilCredential is the lead answering an agent's request for a secret
+// it manages, from the value stored now. It names the request and nothing
+// else: there is no value in the request, the response, or anything the
+// lead's chat is shown.
+func (s *Server) leadFulfilCredential(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	q, err := s.store.Question(ctx, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	if q.Project != r.PathValue("project") {
+		return fmt.Errorf("question %s: %w", q.ID, state.ErrNotFound)
+	}
+	if q.Kind != state.QuestionSecret {
+		if q.Credential() {
+			return errOnlyTheUser(q)
+		}
+		return fmt.Errorf("question %s asks for a decision, not a secret: answer it with questions answer", q.ID)
+	}
+	sec, err := s.store.Secret(ctx, q.Project, "", q.SecretName)
+	if errors.Is(err, state.ErrNotFound) || (err == nil && !sec.LeadManaged) {
+		return fmt.Errorf("$%s isn't managed by you: only the user can answer %s's request for it, in the app. "+
+			"Don't ask for the value in chat", q.SecretName, q.Agent)
+	} else if err != nil {
+		return err
+	}
+	if !q.Waiting() {
+		return fmt.Errorf("question %s was already %s", q.ID, q.Status)
+	}
+	// An agent's own secret of the name wins over the project's in its
+	// environment, so fulfilling with the project's would change nothing.
+	if _, err := s.store.Secret(ctx, q.Project, q.Agent, q.SecretName); err == nil {
+		return fmt.Errorf("%s has its own $%s, which the user set and which wins over the project's: only the user can answer this one", q.Ref(), q.SecretName)
+	}
+	if err := s.deliver(ctx, q.Project, ""); err != nil {
+		return err
+	}
+	s.logf("%s's request for %s is fulfilled by the lead from the stored value", q.Ref(), credentialWanted(q))
+	answered, err := s.answerQuestion(ctx, q.ID, secretOutcome(q.SecretName), "lead")
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, api.FulfilCredentialResponse{Question: toAPIQuestion(answered), ValueSetAt: sec.UpdatedAt})
 }
 
 // answerCredential is the user's answer, from the app.
@@ -188,13 +272,16 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 		return q, fmt.Errorf("question %s was already %s", q.ID, q.Status)
 	}
 	given := 0
-	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse, req.Connector != ""} {
+	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse, req.Connector != "", req.Allow} {
 		if set {
 			given++
 		}
 	}
 	if given != 1 {
-		return q, errors.New("answer with one of a GitHub account, a value, or a refusal")
+		return q, errors.New("answer with one of a GitHub account, a value, leave, or a refusal")
+	}
+	if ios := q.Kind == state.QuestionIOSPorts; (ios && !req.Allow && !req.Refuse) || (!ios && req.Allow) {
+		return q, errors.New("allow answers an iOS ports request, which is answered with allow or a refusal")
 	}
 	var outcome string
 	switch {
@@ -204,6 +291,11 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 			outcome += ": " + why
 		}
 		outcome += ". Carry on without it, and don't ask for it again in chat; say in your final message what it was needed for."
+	case q.Kind == state.QuestionIOSPorts:
+		if err := s.allowIOSPorts(ctx, q.Project, q.Ports); err != nil {
+			return q, err
+		}
+		outcome = iosPortsAllowed
 	case q.Kind == state.QuestionGitHub:
 		if req.GitHubAccount == "" {
 			return q, errors.New("this request is for a GitHub account: pick one")
@@ -219,13 +311,20 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 		if err := s.giveSecret(ctx, q, req.Value); err != nil {
 			return q, err
 		}
-		outcome = fmt.Sprintf("It's in $%s now, for every agent of this project. A shell that started before this doesn't "+
-			"have it: run `. %s` in the command that needs it. Use it by name, and never print its value.", q.SecretName, envFile)
-		if warning := toolcreds.Warning(q.SecretName); warning != "" {
-			outcome += " " + warning
-		}
+		outcome = secretOutcome(q.SecretName)
 	}
 	return s.answerQuestion(ctx, q.ID, outcome, "user")
+}
+
+// secretOutcome is what an agent is told once the secret it asked for is in
+// its environment: where, never what.
+func secretOutcome(name string) string {
+	outcome := fmt.Sprintf("It's in $%s now, for every agent of this project. A shell that started before this doesn't "+
+		"have it: run `. %s` in the command that needs it. Use it by name, and never print its value.", name, envFile)
+	if warning := toolcreds.Warning(name); warning != "" {
+		outcome += " " + warning
+	}
+	return outcome
 }
 
 // giveGitHubAccount makes an account the project's, the way the project's

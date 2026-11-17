@@ -31,7 +31,7 @@ export function MentionChip({ name, children }: { name: string; children: ReactN
       )}
       data-pip-mention={name}
     >
-      <span className={cn('size-1.5 shrink-0 self-center rounded-full', mentions.live.has(name) ? 'animate-pulse bg-emerald-400' : 'bg-faint')} />
+      <span className={cn('size-1.5 shrink-0 self-center rounded-full', mentions.live.has(name) ? 'animate-working bg-emerald-400' : 'bg-faint')} />
       {children}
       <PanelRight className="size-3 self-center text-subtle" />
     </button>

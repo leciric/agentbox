@@ -6,7 +6,10 @@ import type * as T from '../../shared/api.ts';
 
 export type Walk = { item: T.ReviewItem; order: string[]; trail: T.ReviewItem[] };
 
-export const startWalk = (items: readonly T.ReviewItem[]): Walk | null => (items.length ? { item: items[0], order: items.map((i) => i.ref), trail: [] } : null);
+// startWalk begins on first when it waits (a notification's agent), else on
+// the first agent waiting.
+export const startWalk = (items: readonly T.ReviewItem[], first?: string): Walk | null =>
+  items.length ? { item: items.find((i) => i.ref === first) ?? items[0], order: items.map((i) => i.ref), trail: [] } : null;
 
 export function queueOf(order: readonly string[], live: readonly T.ReviewItem[]): string[] {
   const seen = new Set(order);

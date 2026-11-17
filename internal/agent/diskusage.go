@@ -21,6 +21,8 @@ const pool = "default"
 type DiskUsageItem struct {
 	Label string
 	Bytes int64
+	Kind  string // api.DiskItemBaseImage and so on; "" for an agent or a project
+	Name  string
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
@@ -43,7 +45,10 @@ type DiskUsage struct {
 // state.db and the daemon log from the host filesystem. It is meant to be
 // called when asked, not kept warm on a poll: a full pass walks every
 // worktree and every media directory on the host.
-func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
+//
+// extra are categories the caller measured itself (the daemon's caches),
+// sorted and totalled with the rest.
+func (m *Manager) DiskUsage(ctx context.Context, extra ...DiskUsageCategory) (DiskUsage, error) {
 	projects, err := m.Store.Projects(ctx)
 	if err != nil {
 		return DiskUsage{}, err
@@ -62,20 +67,20 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	bases := DiskUsageCategory{Kind: api.DiskBases, Label: "Base images and saved bases"}
 	if used, err := m.Incus.VolumeUsage(ctx, pool, image.Base); err == nil {
-		bases.Items = append(bases.Items, DiskUsageItem{Label: "Base image", Bytes: used})
+		bases.Items = append(bases.Items, DiskUsageItem{Label: "Base image", Bytes: used, Kind: api.DiskItemBaseImage})
 	}
 	for _, p := range projects {
 		if used, err := m.Incus.VolumeUsage(ctx, pool, ProjectBaseInstance(p.Name)); err == nil {
-			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base", Bytes: used})
+			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base", Bytes: used, Kind: api.DiskItemProjectBase, Name: p.Name})
 		}
 		if used, err := m.Incus.VolumeUsage(ctx, pool, PreviousBaseInstance(p.Name)); err == nil {
-			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base (previous)", Bytes: used})
+			bases.Items = append(bases.Items, DiskUsageItem{Label: p.Name + " base (previous)", Bytes: used, Kind: api.DiskItemPreviousBase, Name: p.Name})
 		}
 	}
 
 	worktrees := DiskUsageCategory{Kind: api.DiskWorktrees, Label: "Worktrees"}
 	for _, a := range agents {
-		if a.Worktree == "" {
+		if a.Worktree == "" || m.shareBusy() {
 			continue
 		}
 		if size, err := dirSize(a.Worktree); err == nil {
@@ -92,16 +97,17 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	state := DiskUsageCategory{Kind: api.DiskState, Label: "state.db and logs"}
 	if info, err := os.Stat(m.Paths.StateDB()); err == nil {
-		state.Items = append(state.Items, DiskUsageItem{Label: "state.db", Bytes: info.Size()})
+		state.Items = append(state.Items, DiskUsageItem{Label: "state.db", Bytes: info.Size(), Kind: api.DiskItemStateDB})
 	}
 	if info, err := os.Stat(m.Paths.DaemonLog()); err == nil {
-		state.Items = append(state.Items, DiskUsageItem{Label: "daemon.log", Bytes: info.Size()})
+		state.Items = append(state.Items, DiskUsageItem{Label: "daemon.log", Bytes: info.Size(), Kind: api.DiskItemDaemonLog})
 	}
 
-	categories := []DiskUsageCategory{machines, bases, worktrees, media, state}
+	categories := append([]DiskUsageCategory{machines, bases, worktrees, media, state}, extra...)
 	var total int64
 	for i := range categories {
 		sortItemsDesc(categories[i].Items)
+		categories[i].Bytes = 0
 		for _, it := range categories[i].Items {
 			categories[i].Bytes += it.Bytes
 		}
@@ -116,6 +122,10 @@ func sortItemsDesc(items []DiskUsageItem) {
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Bytes > items[j].Bytes })
 }
 
+// errShareBusy is a worktree not measured: walking it would cost virtiofsd
+// a file for each of its files while the shared home is short of them.
+var errShareBusy = errors.New("not measured while the shared home is close to its limit of open files")
+
 // AgentDisk is one agent's two sizes, each with its own error, so a machine
 // Incus can't read still shows its worktree.
 type AgentDisk struct {
@@ -123,6 +133,12 @@ type AgentDisk struct {
 	MachineErr  error
 	Worktree    int64
 	WorktreeErr error
+}
+
+// MachineDisk is the bytes an agent's machine holds on the pool, without the
+// walk of its worktree AgentDisk adds.
+func (m *Manager) MachineDisk(ctx context.Context, a state.Agent) (int64, error) {
+	return m.Incus.VolumeUsage(ctx, pool, a.Instance)
 }
 
 // AgentDisk measures one agent: its machine's root disk, the bytes its
@@ -135,6 +151,8 @@ func (m *Manager) AgentDisk(ctx context.Context, a state.Agent) AgentDisk {
 	d.Machine, d.MachineErr = m.Incus.VolumeUsage(ctx, pool, a.Instance)
 	if a.Worktree == "" {
 		d.WorktreeErr = errors.New(a.Ref() + " has no worktree")
+	} else if m.shareBusy() {
+		d.WorktreeErr = errShareBusy
 	} else {
 		d.Worktree, d.WorktreeErr = dirSize(a.Worktree)
 	}

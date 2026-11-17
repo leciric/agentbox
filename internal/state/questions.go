@@ -33,6 +33,10 @@ const (
 	// QuestionConnector is an agent asking the user to connect a connector
 	// it needs (request_connector): answered when the user has, or refuses.
 	QuestionConnector = "connector"
+	// QuestionIOSPorts is an agent's agentbox ios forward asking the user to
+	// let the project's agents forward Ports to the Mac: answered when the
+	// user allows them, or refuses.
+	QuestionIOSPorts = "ios_ports"
 )
 
 type Question struct {
@@ -46,10 +50,12 @@ type Question struct {
 	// ConnectorURL where its server is.
 	Connector    string
 	ConnectorURL string
-	Text         string
-	Context      string // what the agent was doing, for whoever answers
-	Status       string
-	Answer       string
+	// Ports are the ports an iOS ports request asks for.
+	Ports   []int
+	Text    string
+	Context string // what the agent was doing, for whoever answers
+	Status  string
+	Answer  string
 	// AnsweredBy is "lead" or "user"; Escalation is why the lead passed it on.
 	AnsweredBy string
 	Escalation string
@@ -66,13 +72,13 @@ func (q Question) Credential() bool { return q.Kind != QuestionDecision }
 // Waiting reports whether somebody still has to answer.
 func (q Question) Waiting() bool { return q.Status == QuestionPending || q.Status == QuestionEscalated }
 
-const questionColumns = `id, project, agent, kind, secret_name, connector, connector_url, text, context, status, answer, answered_by, escalation, created_at, answered_at`
+const questionColumns = `id, project, agent, kind, secret_name, connector, connector_url, text, context, status, answer, answered_by, escalation, created_at, answered_at, ports`
 
 func (s *Store) AddQuestion(ctx context.Context, q Question) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.ID, q.Project, q.Agent, q.Kind, q.SecretName, q.Connector, q.ConnectorURL, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
-		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt))
+		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt), joinPorts(q.Ports))
 	return err
 }
 
@@ -215,10 +221,12 @@ func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) 
 	for rows.Next() {
 		var q Question
 		var created, answered int64
+		var ports string
 		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Kind, &q.SecretName, &q.Connector, &q.ConnectorURL, &q.Text, &q.Context, &q.Status,
-			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered); err != nil {
+			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered, &ports); err != nil {
 			return nil, err
 		}
+		q.Ports = splitPorts(ports)
 		q.CreatedAt = time.UnixMilli(created)
 		if answered > 0 {
 			q.AnsweredAt = time.UnixMilli(answered)

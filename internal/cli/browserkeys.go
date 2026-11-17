@@ -39,6 +39,7 @@ var macKeychain = map[string]struct{ service, account string }{
 	"brave":    {"Brave Safe Storage", "Brave"},
 	"msedge":   {"Microsoft Edge Safe Storage", "Microsoft Edge"},
 	"vivaldi":  {"Vivaldi Safe Storage", "Vivaldi"},
+	"arc":      {"Arc Safe Storage", "Arc"},
 }
 
 func runQuiet(ctx context.Context, name string, args ...string) string {

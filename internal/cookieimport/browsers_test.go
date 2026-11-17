@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -241,6 +242,65 @@ func TestChromiumExpiryAndSameSite(t *testing.T) {
 	for id, want := range map[int]string{0: "None", 1: "Lax", 2: "Strict", -1: ""} {
 		if got := chromiumSameSite(id); got != want {
 			t.Errorf("chromiumSameSite(%d) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func TestReadChromiumOnMacUsesKeychainForV10(t *testing.T) {
+	const keychain = "mac-keychain-pass"
+	home := t.TempDir()
+	future := chromiumMicros(time.Now().Add(24 * time.Hour))
+	// Chrome, Arc and a second Chrome profile, laid out as on a Mac.
+	roots := map[string]string{
+		"chrome": filepath.Join(home, "Library", "Application Support", "Google", "Chrome"),
+		"arc":    filepath.Join(home, "Library", "Application Support", "Arc", "User Data"),
+	}
+	for _, root := range roots {
+		writeChromiumProfile(t, root, 24, func(add func(host, name, plain string, enc []byte, expiresUTC int64, secure, httpOnly, samesite int, topFrame string)) {
+			add("a.example", "s", "", chromiumSeal(t, "v10", keychain, "a.example", "macval", chromiumIterMac, 24), future, 0, 0, 0, "")
+		})
+	}
+	// Chrome's "Profile 2", named in Local State.
+	p2 := filepath.Join(roots["chrome"], "Profile 2")
+	if err := os.MkdirAll(filepath.Join(p2, "Network"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(roots["chrome"], "Default", "Network", "Cookies"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p2, "Network", "Cookies"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := `{"profile":{"info_cache":{"Default":{"name":"Person 1"},"Profile 2":{"name":"Work"}}}}`
+	if err := os.WriteFile(filepath.Join(roots["chrome"], "Local State"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	profiles := FindProfiles(home)
+	byName := map[string]Profile{}
+	for _, p := range profiles {
+		byName[p.BrowserName+"/"+p.Name] = p
+		if p.goos != "darwin" {
+			t.Errorf("%s found under goos %q, want darwin", p.Name, p.goos)
+		}
+	}
+	for _, want := range []string{"Google Chrome/Person 1", "Google Chrome/Work", "Arc/Person 1"} {
+		if _, ok := byName[want]; !ok {
+			t.Fatalf("missing profile %q in %v", want, byName)
+		}
+	}
+	if byName["Arc/Person 1"].Keyring != "arc" {
+		t.Errorf("arc keyring = %q", byName["Arc/Person 1"].Keyring)
+	}
+	for name, p := range byName {
+		cookies, _, err := ReadProfile(home, p.ID, keychain, time.Now())
+		if err != nil || len(cookies) != 1 || cookies[0].Value != "macval" {
+			t.Errorf("%s: cookies=%+v err=%v", name, cookies, err)
+		}
+		// The user denied the Keychain prompt: a clear error, not "no cookies".
+		_, skipped, err := ReadProfile(home, p.ID, "", time.Now())
+		if !errors.Is(err, ErrKeychainDenied) || skipped != 1 {
+			t.Errorf("%s denied: skipped=%d err=%v", name, skipped, err)
 		}
 	}
 }

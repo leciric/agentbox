@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"agentbox/internal/homehost"
 )
 
 // Main is the agentbox command on Windows: the `wsl` commands and the relay
@@ -19,6 +21,10 @@ func Main(args []string, version string) int {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
 		fmt.Printf("agentbox version %s\n", version)
 		return 0
+	}
+	// The Home chat's tool runs here on Windows, for the daemon in the distro.
+	if len(args) > 0 && args[0] == "home-host" {
+		return homehost.Main(args[1:], version)
 	}
 	if len(args) == 0 || (args[0] != "wsl" && args[0] != "relay" && !vmCommand(args)) {
 		d, err := New()
@@ -80,8 +86,35 @@ Projects live on the distro's disk: clone them there (agentbox wsl shell).`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newShellCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInstallCmd(), newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newShellCmd(), newUpgradeCmd(), newDeleteCmd())
 	return root
+}
+
+// newInstallCmd is `agentbox wsl install`: WSL itself, which takes an
+// administrator, where `init` and everything after it don't.
+func newInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install WSL itself, with one administrator prompt (wsl --install --no-distribution)",
+		Long: `Installs WSL, and Windows' Virtual Machine Platform, which WSL 2 needs: what
+"wsl --install --no-distribution" does in a PowerShell opened as administrator, behind one
+prompt from Windows. When Windows has to restart to finish it says so, and exits with status 3.
+Then: agentbox wsl init.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			d, _ := distro()
+			err := d.InstallWSL(cmd.Context())
+			if errors.Is(err, ErrRestartWindows) {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err)
+				return exitCode(restartExit)
+			}
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "WSL is installed. Next: agentbox wsl init")
+			return nil
+		},
+	}
 }
 
 func newInitCmd() *cobra.Command {
@@ -94,7 +127,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := d.Init(cmd.Context()); err != nil {
+			if err := d.initNoting(cmd.Context()); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), `AgentBox's distro, %s, is ready. Next:
@@ -267,5 +300,7 @@ func RunRelay(ctx context.Context, d *Distro, in io.Reader, out io.Writer) error
 		return err
 	}
 	r := &Relay{Distro: d}
+	go r.runLAN(ctx)
+	go r.reportHostLoad(ctx, d.progress)
 	return r.Serve(ctx, ln)
 }

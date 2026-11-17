@@ -7,17 +7,20 @@ export const Tabs = TabsPrimitive.Root;
 export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
   return (
     <TabsPrimitive.List
-      className={cn('inline-flex items-center gap-0.5 rounded-xl border border-line bg-surface-faint p-1', className)}
+      className={cn('inline-flex items-center gap-0.5 rounded-lg bg-surface p-0.5', className)}
       {...props}
     />
   );
 }
 
+// data-tab names the tab for styles.css, which gives each its own hue under
+// Dracula.
 export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
+      data-tab={props.value}
       className={cn(
-        'relative inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium text-muted transition-all hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=active]:bg-surface-strong data-[state=active]:text-title data-[state=active]:shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_4px_12px_-6px_var(--ab-shadow-deep)] [&_svg]:size-[15px]',
+        'relative inline-flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 text-ui font-medium text-muted transition-all hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=active]:bg-surface-strong data-[state=active]:text-title data-[state=active]:shadow-[0_1px_2px_var(--ab-shadow-soft)] [&_svg]:size-[15px]',
         className,
       )}
       {...props}

@@ -1,6 +1,6 @@
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Handshake } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import type * as T from '../../../shared/api';
+import * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -15,26 +15,31 @@ export function openProject(project: string) {
 }
 
 // ProjectMessageCard is a message between this project's lead and another
-// project's (message_project, reply_project), or an alignment between them
+// project's (message_project), or an alignment between them
 // settled: the same message shows in both chats, each from its own side, with
-// the other project's name and a link there.
+// the other project's name and a link there. The Home chat asks a project's
+// lead through the same threads (T.HomeProject): the lead's chat shows the
+// question as from the Home chat, and the Home chat the lead's answer.
 export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
   const t = useT();
   const pm = item.projectMessage!;
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const name = projects.data?.find((p) => p.name === pm.project)?.displayName || pm.project;
+  const home = pm.project === T.HomeProject;
+  const name = home ? t('chat.project.homeName') : projects.data?.find((p) => p.name === pm.project)?.displayName || pm.project;
   const incoming = pm.direction === 'in';
   const settled = pm.kind === 'settled';
   const title = settled
     ? t('chat.project.settled', { project: name })
-    : pm.kind === 'reply'
+    : home
+      ? t(incoming ? 'chat.project.fromHome' : 'chat.project.replyToHome')
+      : pm.kind === 'reply'
       ? t(incoming ? 'chat.project.replyFrom' : 'chat.project.replyTo', { project: name })
       : t(incoming ? 'chat.project.from' : 'chat.project.to', { project: name });
   const Icon = settled ? Handshake : incoming ? ArrowDownLeft : ArrowUpRight;
   return (
     <div
       className={cn(
-        'mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-[13px]',
+        'mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-ui',
         settled ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-violet-500/30 bg-violet-500/[0.06]',
         !incoming && !settled && 'ml-8',
       )}
@@ -47,11 +52,11 @@ export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
         <span className="min-w-0 truncate font-medium text-primary" title={t('chat.project.hop', { n: pm.hop + 1 })}>
           {title}
         </span>
-        {pm.topic && !settled && <span className="min-w-0 truncate rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11.5px] text-violet-200">{t('chat.project.aligning', { topic: pm.topic })}</span>}
-        {pm.expectsReply && !pm.topic && <span className="rounded-md bg-surface-strong px-1.5 py-0.5 text-[11.5px] text-tertiary">{t('chat.project.expectsReply')}</span>}
+        {pm.topic && !settled && <span className="min-w-0 truncate rounded-md bg-violet-500/15 px-1.5 py-0.5 text-caption text-violet-200">{t('chat.project.aligning', { topic: pm.topic })}</span>}
+        {pm.expectsReply && !pm.topic && <span className="rounded-md bg-surface-strong px-1.5 py-0.5 text-caption text-tertiary">{t('chat.project.expectsReply')}</span>}
         <button
           type="button"
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary"
+          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-subtle transition hover:bg-surface-strong hover:text-primary"
           onClick={() => openProject(pm.project)}
           data-open-project={pm.project}
         >
@@ -59,7 +64,7 @@ export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
           <ExternalLink className="size-3.5" />
         </button>
       </div>
-      {settled && <p className="mt-1 text-[12px] text-emerald-200/80">{pm.topic ? `${pm.topic} · ${t('chat.project.agreed')}` : t('chat.project.agreed')}</p>}
+      {settled && <p className="mt-1 text-caption text-emerald-200/80">{pm.topic ? `${pm.topic} · ${t('chat.project.agreed')}` : t('chat.project.agreed')}</p>}
       <div className="mt-1.5 min-w-0 break-words text-secondary" data-chat-text>
         <Markdown text={item.text ?? ''} />
       </div>

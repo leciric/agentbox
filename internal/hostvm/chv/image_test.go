@@ -66,8 +66,10 @@ func TestUserData(t *testing.T) {
 		"kernel.keys.maxkeys = 2000\n",
 		"sysctl -q --system ||",
 		"path: /etc/agentbox/vm\n",
-		`[ "${n:-0}" -gt 200000 ] || exit 0`,
-		"systemctl enable --now agentbox-trim-share-inodes.timer\n",
+		`elif [ "$n" -gt 200000 ]; then`,
+		`elif [ $((n - prev)) -gt 15000 ]; then`,
+		"systemctl disable --now agentbox-trim-share-inodes.timer || true\n",
+		"systemctl restart agentbox-trim-share-inodes.service\n",
 		"      host=/home/lint/.ssh\n      vm=/home/lint.linux/.ssh\n",
 		"      Include $host/config\n",
 		"RequiresMountsFor=/home/lint\n",
@@ -92,7 +94,7 @@ func TestUserData(t *testing.T) {
 		cmd := exec.Command("python3", "-c", `import sys, yaml
 d = yaml.safe_load(sys.stdin)
 assert d["users"][0]["name"] == "lint", d["users"]
-assert len(d["write_files"]) == 16, len(d["write_files"])
+assert len(d["write_files"]) == 15, len(d["write_files"])
 assert d["runcmd"] == [["/usr/local/lib/agentbox/provision.sh"]]
 assert d["bootcmd"][0][:5] == ["cloud-init-per", "instance", "agentbox-user", "sh", "-c"]
 `)

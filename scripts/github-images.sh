@@ -3,7 +3,8 @@
 # every other image release:
 #
 #   release image-<version>, a prerelease, never latest, with
-#   agentbox-base-<arch>.tar.gz.000, .001, …  the image, in parts under GitHub's 2 GiB cap
+#   agentbox-base-<arch>.tar.zst.000, …       the image, compressed with zstd, in parts
+#   agentbox-base-<arch>.tar.gz.000, …        the same gzipped, while image.gzipUntil says
 #   image-<arch>.json                         what it is
 #   packages-<arch>.txt                       its Debian packages, with versions
 #   SOURCES-<arch>.md                         where their sources are, the tools' licenses

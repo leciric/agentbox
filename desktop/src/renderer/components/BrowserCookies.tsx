@@ -28,9 +28,9 @@ function SiteList({ sites, label }: { sites: T.CookieDomain[]; label: string }) 
   return (
     <ul className="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line-faint bg-surface-faint p-2" aria-label={label}>
       {sites.map((s) => (
-        <li key={s.domain} className="flex min-w-0 items-center gap-2.5 px-2 py-1 text-[13px]">
+        <li key={s.domain} className="flex min-w-0 items-center gap-2.5 px-2 py-1 text-ui">
           <span className="min-w-0 truncate font-mono text-primary">{s.domain}</span>
-          <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{s.cookies}</span>
+          <span className="ml-auto shrink-0 text-caption text-subtle">{s.cookies}</span>
         </li>
       ))}
     </ul>
@@ -51,7 +51,7 @@ export function BrowserCookiesCard({ project }: { project: string }) {
       {info.error && <Notice>{errorMessage(info.error)}</Notice>}
       {imported ? (
         <div className="grid gap-3" data-browser-cookies="imported">
-          <p className="text-[12.5px] leading-relaxed text-subtle">
+          <p className="text-ui leading-relaxed text-subtle">
             {imported.importedAt
               ? t('agent.cookies.summary', { count: imported.cookies, when: timeAgo(imported.importedAt), source: imported.source || imported.format })
               : t('agent.cookies.summaryNoTime', { count: imported.cookies, source: imported.source || imported.format })}
@@ -70,7 +70,7 @@ export function BrowserCookiesCard({ project }: { project: string }) {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3" data-browser-cookies="none">
-          <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.none')}</p>
+          <p className="text-ui leading-relaxed text-subtle">{t('agent.cookies.none')}</p>
           <Button variant="secondary" className="ml-auto" onClick={() => setImporting(true)} disabled={info.isPending}>
             <Upload />
             {t('agent.cookies.import')}
@@ -124,8 +124,20 @@ function ImportCookiesDialog({
   const list = profiles.data?.profiles ?? [];
   const chosen = list.find((p) => p.id === picked);
   const importBrowser = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!chosen) throw new Error(t('agent.cookies.pickBrowser'));
+      // Chrome, Edge and Brave on Windows seal their cookies so only the
+      // browser can open them: the host reads them by launching the browser
+      // itself, then we seal the decrypted cookies here. Every other browser
+      // the daemon reads itself in the VM.
+      if (chosen.appBound) {
+        const result = await window.agentbox.extractBrowserCookies(chosen.browser, chosen.profileDir ?? '');
+        if ('error' in result) {
+          throw new Error(t(`agent.cookies.appBound.${result.error}` as Parameters<typeof t>[0]));
+        }
+        const source = chosen.name && chosen.name !== chosen.browserName ? `${chosen.browserName} — ${chosen.name}` : chosen.browserName;
+        return api.importDecryptedCookies(project, source, result.cookies);
+      }
       return api.importFromBrowser(project, chosen);
     },
     onSuccess: async (result) => {
@@ -146,12 +158,12 @@ function ImportCookiesDialog({
         <div className="grid gap-4">
           <Field label={t('agent.cookies.fromBrowser')} htmlFor="cookie-browser" hint={t('agent.cookies.fromBrowserHint')}>
             {profiles.isPending ? (
-              <div className="flex items-center gap-2 text-[13px] text-subtle">
+              <div className="flex items-center gap-2 text-ui text-subtle">
                 <LoaderCircle className="size-4 animate-spin" />
                 {t('agent.cookies.findingBrowsers')}
               </div>
             ) : list.length === 0 ? (
-              <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
+              <p className="text-ui leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
             ) : (
               <div className="flex items-center gap-2">
                 <Select
@@ -179,6 +191,8 @@ function ImportCookiesDialog({
                 </Button>
               </div>
             )}
+            {/* Reading an app-bound browser launches it briefly, which needs it closed. */}
+            {chosen?.appBound && <p className="mt-2 text-caption leading-relaxed text-subtle" data-appbound-hint>{t('agent.cookies.appBound.hint')}</p>}
             {profiles.error && <Notice>{errorMessage(profiles.error)}</Notice>}
             {importBrowser.error && <Notice>{errorMessage(importBrowser.error)}</Notice>}
           </Field>
@@ -198,17 +212,32 @@ function ImportCookiesDialog({
 
 // FileImport is the fallback: an export the user made, pasted or picked as a
 // file, with the sites it holds ticked (or typed) before importing. It stays
-// for browsers AgentBox can't read (Chrome on Windows), and for exports of a
-// browser not installed here.
-function FileImport({ project, onImported, onClose }: { project: string; onImported: () => Promise<unknown>; onClose: () => void }) {
+// for a browser not installed here, and for when reading one directly doesn't
+// work out.
+function FileImport({
+  project,
+  onImported,
+  onClose,
+  startOpen = false,
+}: {
+  project: string;
+  onImported: () => Promise<unknown>;
+  onClose: () => void;
+  startOpen?: boolean;
+}) {
   const t = useT();
   const [exported, setExported] = useState('');
   const [fileName, setFileName] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [preview, setPreview] = useState<T.BrowserCookiesPreview | null>(null);
   const [pickedSites, setPickedSites] = useState<Set<string>>(new Set());
   const [typed, setTyped] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // The browsers are found after the dialog opens, so this can turn true late.
+  useEffect(() => {
+    if (startOpen) setOpen(true);
+  }, [startOpen]);
 
   const read = useMutation({
     mutationFn: (text: string) => api.previewBrowserCookies(project, text),
@@ -244,7 +273,7 @@ function FileImport({ project, onImported, onClose }: { project: string; onImpor
 
   if (!open) {
     return (
-      <button type="button" className="justify-self-start text-[12.5px] text-subtle underline-offset-2 hover:underline" onClick={() => setOpen(true)} data-file-import-toggle>
+      <button type="button" className="justify-self-start text-ui text-subtle underline-offset-2 hover:underline" onClick={() => setOpen(true)} data-file-import-toggle>
         {t('agent.cookies.orFromFile')}
       </button>
     );
@@ -257,7 +286,7 @@ function FileImport({ project, onImported, onClose }: { project: string; onImpor
           <Textarea
             id="cookie-export"
             rows={4}
-            className="font-mono text-[12px]"
+            className="font-mono text-caption"
             placeholder={'# Netscape HTTP Cookie File\n.github.com\tTRUE\t/\tTRUE\t1799999999\t_octo\t…'}
             spellCheck={false}
             autoComplete="off"
@@ -295,16 +324,16 @@ function FileImport({ project, onImported, onClose }: { project: string; onImpor
 
       {preview && (
         <div className="grid gap-2">
-          <p className="text-[12.5px] text-subtle">
+          <p className="text-ui text-subtle">
             {t('agent.cookies.preview', { count: preview.cookies, format: preview.format, sites: preview.domains.length })}
           </p>
           <ul className="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line-faint bg-surface-faint p-2" aria-label={t('agent.cookies.sites')}>
             {preview.domains.map((d) => (
               <li key={d.domain}>
-                <label className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-surface-raised">
+                <label className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-ui hover:bg-surface-raised">
                   <input type="checkbox" checked={pickedSites.has(d.domain)} onChange={() => toggle(d.domain)} />
                   <span className="min-w-0 truncate font-mono text-primary">{d.domain}</span>
-                  <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{d.cookies}</span>
+                  <span className="ml-auto shrink-0 text-caption text-subtle">{d.cookies}</span>
                 </label>
               </li>
             ))}
@@ -317,7 +346,7 @@ function FileImport({ project, onImported, onClose }: { project: string; onImpor
       </Field>
 
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
-      <p className="text-[12px] leading-relaxed text-subtle">{t('agent.cookies.warning')}</p>
+      <p className="text-caption leading-relaxed text-subtle">{t('agent.cookies.warning')}</p>
 
       <Button
         variant="primary"

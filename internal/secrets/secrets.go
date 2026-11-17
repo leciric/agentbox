@@ -80,6 +80,9 @@ type Secret struct {
 	Agent     string // empty for a project secret
 	Name      string
 	UpdatedAt time.Time
+	// LeadManaged is a project secret the project's lead keeps fresh and may
+	// fulfil agents' requests for (state.Secret.LeadManaged).
+	LeadManaged bool
 }
 
 // Scope is state.ScopeProject or state.ScopeAgent.
@@ -187,6 +190,15 @@ func validateValue(secretName, value string) error {
 	return nil
 }
 
+// SetLeadManaged lets the project's lead answer agents' requests for one of
+// the project's own secrets, or stops it.
+func (s Store) SetLeadManaged(ctx context.Context, project, secretName string, managed bool) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	return s.State.SetSecretLeadManaged(ctx, project, secretName, managed)
+}
+
 // Remove forgets one secret. Running agents lose it the next time their file is
 // written, which is what the daemon does right after this.
 func (s Store) Remove(ctx context.Context, project, agent, secretName string) error {
@@ -229,7 +241,7 @@ func without(stored []state.Secret) []Secret {
 		if !envName.MatchString(sec.Name) {
 			continue // AgentBox's own, like the browser cookies
 		}
-		out = append(out, Secret{Project: sec.Project, Agent: sec.Agent, Name: sec.Name, UpdatedAt: sec.UpdatedAt})
+		out = append(out, Secret{Project: sec.Project, Agent: sec.Agent, Name: sec.Name, UpdatedAt: sec.UpdatedAt, LeadManaged: sec.LeadManaged})
 	}
 	return out
 }

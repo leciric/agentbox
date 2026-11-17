@@ -438,3 +438,32 @@ func TestReports(t *testing.T) {
 		t.Error("a report with no agent was accepted")
 	}
 }
+
+// A list's rows read their agents' newest reports at once.
+func TestLatestReports(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	for _, r := range []memory.Report{
+		{Project: "pawly", Agent: "agent-01", Summary: "First."},
+		{Project: "pawly", Agent: "agent-01", Summary: "Second.", Status: memory.StatusPartial},
+		{Project: "pawly", Agent: "agent-02", Summary: "Other."},
+		{Project: "other", Agent: "agent-01", Summary: "Another project's."},
+	} {
+		if _, err := s.AddReport(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.LatestReports(ctx, [][2]string{{"pawly", "agent-01"}, {"pawly", "agent-03"}, {"other", "agent-01"}})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("LatestReports = %v, %v; want two agents'", got, err)
+	}
+	if r := got[[2]string{"pawly", "agent-01"}]; r.Summary != "Second." || r.Status != memory.StatusPartial {
+		t.Errorf("pawly/agent-01's latest = %+v, want its second", r)
+	}
+	if r := got[[2]string{"other", "agent-01"}]; r.Summary != "Another project's." {
+		t.Errorf("other/agent-01's latest = %+v", r)
+	}
+	if got, err := s.LatestReports(ctx, nil); err != nil || len(got) != 0 {
+		t.Errorf("no agents = %v, %v", got, err)
+	}
+}

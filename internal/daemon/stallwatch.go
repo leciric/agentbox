@@ -21,7 +21,9 @@ import (
 //
 //   - nothing from its adapter: every ACP message it sends while the turn
 //     runs, a subagent's included, restarts the turn's clock (chat.Progress);
-//   - and, while one of its tool calls runs, no work on its machine either:
+//   - and, while one of its tool calls runs (a subagent's counts, and is
+//     named in the notice: one hung in a background subagent showed as no
+//     call at all), no work on its machine either:
 //     a build or a test suite can rightly run for longer than stallAfter
 //     with nothing to say, and its CPU is what shows it working. That is read
 //     from the machine's cgroup, not from Incus, so it answers when incusd
@@ -170,16 +172,20 @@ func (s *Server) machineBusyAt(ref, instance, turn string, now time.Time) time.T
 // is woken to look at it.
 func (s *Server) agentStalled(ctx context.Context, a state.Agent, p chat.Progress, from, now time.Time) {
 	quiet := now.Sub(from)
-	s.logf("stall watch: %s has made no progress for %s, %s into its turn (a tool call running: %t)",
-		a.Ref(), shortDuration(quiet), shortDuration(now.Sub(p.StartedAt)), p.ToolRunning)
+	running := "no tool call running"
+	if p.ToolRunning {
+		running = "running " + p.RunningTool
+	}
+	s.logf("stall watch: %s has made no progress for %s, %s into its turn (%s)",
+		a.Ref(), shortDuration(quiet), shortDuration(now.Sub(p.StartedAt)), running)
 	s.captureEvent(ctx, a.Project, a.Name, "agent_stalled", map[string]any{
-		"quiet_minutes": int(quiet / time.Minute), "turn_minutes": int(now.Sub(p.StartedAt) / time.Minute), "tool_running": p.ToolRunning,
+		"quiet_minutes": int(quiet / time.Minute), "turn_minutes": int(now.Sub(p.StartedAt) / time.Minute), "tool_running": p.ToolRunning, "tool": p.RunningTool,
 	}, "")
 	s.record(ctx, api.AgentEvent{
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentStalled, Summary: "No progress for " + shortDuration(quiet), At: now,
 	})
-	s.stallTell(ctx, a.Project, stallNotice(a, p, from, now))
+	s.stallTell(ctx, a, stallNotice(a, p, from, now))
 }
 
 // stallNotice is what the project's chat is told about a stalled agent.
@@ -191,6 +197,9 @@ func stallNotice(a state.Agent, p chat.Progress, from, now time.Time) string {
 	silent := "its AI tool has sent nothing"
 	if p.ToolRunning {
 		silent = "a tool call is running, but its AI tool has sent nothing and its machine has done no work"
+		if p.RunningTool != "" {
+			silent = fmt.Sprintf("a tool call is running (%s), but its AI tool has sent nothing and its machine has done no work", p.RunningTool)
+		}
 	}
 	return fmt.Sprintf("[stall] %s looks stuck: its turn has run %s, and for the last %s %s. "+
 		"Its machine may be locked up or out of reach (Incus hung, the machine frozen), or its AI tool wedged. "+
@@ -205,7 +214,13 @@ func stallNotice(a state.Agent, p chat.Progress, from, now time.Time) string {
 // rather than stopped, and it stopped in the middle of its work: the project's
 // chat is woken to see to it, the way it is for a stall.
 func (s *Server) agentLost(a state.Agent, why string) {
-	s.recordError(errAdapterCrashed, a.AI)
+	if s.stopExpected(a.Ref()) {
+		// Cut off along with its machine, which somebody stopped on purpose
+		// (expectStop): nobody needs to see to it.
+		s.logf("%s: its AI tool exited as it was stopped on purpose: %s", a.Ref(), headWords(why, 200))
+		return
+	}
+	s.recordError(errAdapterCrashed, a.AI, s.lostClass(a, why), s.errorReason(why, agentNames(a)...))
 	s.setOutcome(a, api.AgentOutcomeFailed, headWords(why, 200))
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second)
 	defer cancel()
@@ -214,15 +229,47 @@ func (s *Server) agentLost(a state.Agent, why string) {
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentChatLost, Outcome: api.AgentOutcomeFailed, Summary: headWords(why, 200), At: time.Now(),
 	})
-	s.stallTell(ctx, a.Project, lostNotice(a, why))
+	resumed := s.resumeLost(a)
+	s.stallTell(ctx, a, lostNotice(a, why, resumed))
+}
+
+// lostResumeEvery is how often an agent's lost turn is resumed by itself: once
+// gets it past a stall that broke its connection; a tool that dies again
+// soon after is left for the project's chat to see to.
+const lostResumeEvery = 30 * time.Minute
+
+// resumeLost carries on a's lost turn, unless one of its turns was already
+// resumed so in the last lostResumeEvery, and reports whether it will.
+func (s *Server) resumeLost(a state.Agent) bool {
+	s.lostMu.Lock()
+	if s.lostResumed == nil {
+		s.lostResumed = map[string]time.Time{}
+	}
+	if last, ok := s.lostResumed[a.Ref()]; ok && time.Since(last) < lostResumeEvery {
+		s.lostMu.Unlock()
+		return false
+	}
+	s.lostResumed[a.Ref()] = time.Now()
+	s.lostMu.Unlock()
+	time.Sleep(s.lostResumeDelay)
+	ok, err := s.chat.ResumeLost(a)
+	if err != nil {
+		s.logf("chat %s: resuming its lost turn: %v", a.Ref(), err)
+	}
+	return ok
 }
 
 // lostNotice is what the project's chat is told about an agent whose AI tool
 // exited mid-turn.
-func lostNotice(a state.Agent, why string) string {
+func lostNotice(a state.Agent, why string, resumed bool) string {
 	name := a.Name
 	if a.Title != "" {
 		name = fmt.Sprintf("%s (%q)", a.Name, a.Title)
+	}
+	if resumed {
+		return fmt.Sprintf("[chat lost] %s stopped in the middle of its turn: %s. AgentBox started its AI tool again and resumed the turn once; "+
+			"look with read_agent that it carries on. If it stops again it is left stopped, for you to see to.",
+			name, headWords(why, 300))
 	}
 	return fmt.Sprintf("[chat lost] %s stopped in the middle of its turn: %s. Nothing is running on it now. "+
 		"Look with read_agent; tell_agent starts its AI tool again with your message, to carry on from where it stopped.",

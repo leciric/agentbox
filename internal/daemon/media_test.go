@@ -86,6 +86,7 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"clip.mp4":          "hello video",
+		"clip.unedited.mp4": "raw video",
 		"report/index.html": "<h1>12 passed</h1>",
 		"report/data/a.js":  "ok",
 	} {
@@ -94,7 +95,7 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 		}
 	}
 	for _, item := range []state.Media{
-		{ID: "clip", Kind: "recording", Name: "clip", File: "item/clip.mp4", Mime: "video/mp4", Meta: "{}"},
+		{ID: "clip", Kind: "recording", Name: "clip", File: "item/clip.mp4", Mime: "video/mp4", Meta: `{"raw":"clip.unedited.mp4"}`},
 		{ID: "report", Kind: "report", Name: "report", File: "item/report", Meta: `{"entry":"index.html"}`},
 	} {
 		item.Project, item.Agent, item.Source, item.CreatedAt = a.Project, a.Name, "agent", time.Now()
@@ -148,6 +149,13 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 	code, whole, h := getWithHeaders("/v1/media/clip/file", "")
 	if code != http.StatusOK || whole != "hello video" || h.Get("Accept-Ranges") != "bytes" || h.Get("Content-Type") != "video/mp4" {
 		t.Errorf("the whole video = %d %q, Accept-Ranges %q, Content-Type %q; want 200, bytes and video/mp4", code, whole, h.Get("Accept-Ranges"), h.Get("Content-Type"))
+	}
+	// An edited recording's original is beside it; an item with none has none.
+	if code, body := get("/v1/media/clip/file?raw=1", ""); code != http.StatusOK || body != "raw video" {
+		t.Errorf("the unedited original = %d %q", code, body)
+	}
+	if code, _ := get("/v1/media/report/file?raw=1", ""); code != http.StatusNotFound {
+		t.Errorf("the original of an item with none answered %d, want 404", code)
 	}
 	if code, body := get("/v1/media/report/file", ""); code != http.StatusOK || !strings.Contains(body, "12 passed") {
 		t.Errorf("the report's entry = %d %q", code, body)

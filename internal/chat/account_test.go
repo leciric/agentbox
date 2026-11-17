@@ -51,11 +51,15 @@ func TestAnIdleChatRestartsOnItsNewAccount(t *testing.T) {
 	}
 	waitThread(t, m, a, "the first turn", turnsEnded(1))
 	a.ClaudeAccount = "new"
-	m.AccountChanged(a)
+	if note := m.AccountChanged(a); !strings.Contains(note, "restarts on it and resumes this conversation") {
+		t.Errorf("AccountChanged said %q", note)
+	}
 	th := waitThread(t, m, a, "the restarted session", sessionReady)
 	checkMoved(t, f, th)
 	// Telling it again changes nothing: it is on that account already.
-	m.AccountChanged(a)
+	if note := m.AccountChanged(a); note != "" {
+		t.Errorf("AccountChanged on the same account said %q", note)
+	}
 	if _, err := m.Send(a, "and now?"); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +67,26 @@ func TestAnIdleChatRestartsOnItsNewAccount(t *testing.T) {
 	if n := len(f.launchedOn()); n != 2 {
 		t.Errorf("the adapter started %d times, want 2", n)
 	}
+}
+
+// TestACodexAgentRestartsOnItsNewAccount: switch_agent_account's path for a
+// tool other than Claude Code, whose account is its CodexAccount.
+func TestACodexAgentRestartsOnItsNewAccount(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(answerHello)
+	f.resume = true
+	m, _ := newManager(t, openStore(t), f)
+	a := testAgent
+	a.AI, a.CodexAccount = "codex", "old"
+	if _, err := m.Send(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "the first turn", turnsEnded(1))
+	a.CodexAccount = "new"
+	if note := m.AccountChanged(a); !strings.Contains(note, `the Codex account "new"`) {
+		t.Errorf("AccountChanged said %q", note)
+	}
+	checkMoved(t, f, waitThread(t, m, a, "the restarted session", sessionReady))
 }
 
 // TestABusyChatRestartsOnItsNewAccountBeforeItsNextTurn: a restart would end
@@ -120,7 +144,9 @@ func TestALimitedChatCarriesOnAtOnceOnItsNewAccount(t *testing.T) {
 	}
 	f.setPromptErr(nil)
 	a.ClaudeAccount = "new"
-	m.AccountChanged(a)
+	if note := m.AccountChanged(a); !strings.Contains(note, "without waiting for the old account's limit") {
+		t.Errorf("AccountChanged said %q", note)
+	}
 	th := waitThread(t, m, a, "the resumed turn", turnsEnded(2))
 	checkMoved(t, f, th)
 	if prompts := f.called(acp.MethodSessionPrompt); len(prompts) != 2 || !strings.Contains(string(prompts[1]), resumeNudge) {

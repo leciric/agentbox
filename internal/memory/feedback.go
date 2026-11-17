@@ -32,7 +32,7 @@ const (
 	FeedbackWrong = "wrong"
 	// FeedbackStale is a memory that was true and no longer is. An open
 	// item marked stale is resolved too: a problem that is over is closed,
-	// which is what resolve_memory would have done.
+	// which is what the lead's resolved verdict does.
 	FeedbackStale = "stale"
 	// FeedbackHelpful is a memory that saved its reader the work.
 	FeedbackHelpful = "helpful"

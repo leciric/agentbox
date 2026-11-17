@@ -23,6 +23,17 @@ func (m *Manager) Hold(a state.Agent, text string, images ...api.ChatImageUpload
 
 // HoldMessage is Hold for a message with files as well as pictures.
 func (m *Manager) HoldMessage(a state.Agent, msg api.ChatMessageRequest) (api.ChatItem, error) {
+	return m.hold(a, msg, api.ChatAsideWaking)
+}
+
+// HoldStarting is HoldMessage for an agent whose machine is still being made:
+// the message is marked starting, and the daemon releases it once the agent
+// is ready, after the task it was made with.
+func (m *Manager) HoldStarting(a state.Agent, msg api.ChatMessageRequest) (api.ChatItem, error) {
+	return m.hold(a, msg, api.ChatAsideStarting)
+}
+
+func (m *Manager) hold(a state.Agent, msg api.ChatMessageRequest, delivery string) (api.ChatItem, error) {
 	text := strings.TrimSpace(msg.Text)
 	if text == "" && len(msg.Images) == 0 && len(msg.Files) == 0 {
 		return api.ChatItem{}, errors.New("the message is empty")
@@ -43,7 +54,7 @@ func (m *Manager) HoldMessage(a state.Agent, msg api.ChatMessageRequest) (api.Ch
 		return clone(*c.aside(text, sent)), nil
 	}
 	it := c.add("aside", c.lastTurn())
-	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaking
+	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, delivery
 	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent})
 	c.flush(true)
 	return clone(*it), nil

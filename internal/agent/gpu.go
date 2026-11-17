@@ -31,9 +31,11 @@ import (
 //     Windows driver's user-mode half in /usr/lib/wsl/lib and /usr/lib/wsl/drivers,
 //     both mounted read-only. Mesa's d3d12 gallium driver (in Debian's
 //     libgl1-mesa-dri) renders OpenGL on it once LD_LIBRARY_PATH finds
-//     libd3d12.so and libdxcore.so; there is no DRM render node, so the
-//     desktop renders through Mesa's software winsys (drisw) with d3d12 under
-//     it, and copies each frame into Xvnc.
+//     libd3d12.so and libdxcore.so; there is no DRM render node, so a program
+//     renders through Mesa's software winsys (drisw) with d3d12 under it,
+//     reading each frame back. The desktop and its Chromium don't: they kept
+//     Windows' GPU busy enough to reset its driver (TDR), so browser.sh keeps
+//     them on llvmpipe and SwiftShader, and only what agents run uses d3d12.
 //   - A DRM render node (GPURender): an Incus gpu device; the desktop's Xvnc
 //     takes it with -rendernode, so its clients get DRI3. The Mac's VM
 //     (virtio-gpu) is one; agentbox-vgpu-driver, the Venus driver it built
@@ -57,8 +59,7 @@ const (
 const OldVMReason = "started by an older AgentBox"
 
 // The devices "GPU for agents" adds. vgpuDevice is the GPU itself; the others
-// go with /dev/dxg. agentbox-vgpu-driver is the macOS code's (vgpudriver.go),
-// which gpuSteps adds beside a render node.
+// go with /dev/dxg, or with a Mac's render node (vgpudriver.go).
 const (
 	vgpuDevice        = "agentbox-vgpu"
 	vgpuLibDevice     = "agentbox-vgpu-wsl-lib"
@@ -67,22 +68,30 @@ const (
 )
 
 // vgpuDevices are every device this file adds, to take off when it is off.
-var vgpuDevices = []string{vgpuDevice, vgpuLibDevice, vgpuDriversDevice, vgpuProfileDevice}
+var vgpuDevices = []string{vgpuDevice, vgpuLibDevice, vgpuDriversDevice, vgpuProfileDevice, vgpuDriverDevice, vgpuChromiumDevice}
 
 // Where WSL puts the GPU and its driver, in its distro: variables for tests,
 // which point them at files of their own. wslLib holds libd3d12.so and
 // libdxcore.so; wslDrivers the GPU vendor's user-mode driver, which
 // libdxcore loads from there.
 var (
-	dxgPath        = "/dev/dxg"
-	wslLib         = "/usr/lib/wsl/lib"
-	wslDrivers     = "/usr/lib/wsl/drivers"
-	renderNodeGlob = "/dev/dri/renderD*"
+	dxgPath    = "/dev/dxg"
+	wslLib     = "/usr/lib/wsl/lib"
+	wslDrivers = "/usr/lib/wsl/drivers"
+	// RenderNodeGlob finds the VM's render nodes; daemon tests point it at
+	// /dev/null.
+	RenderNodeGlob = "/dev/dri/renderD*"
 	// vmGPUStatusFile is where the Linux VM's supervisor says what GPU the
 	// host has for it, and why the VM has none (chv.GPUStatus, written to
 	// chv's guestGPUFile).
 	vmGPUStatusFile = "/run/agentbox-vm-gpu.json"
 )
+
+// VMGPUReasonFile is where Setup on a Mac says why a VM made without krunkit
+// (vz, or Lima's qemu) has no GPU and what gives it one, for Settings: the
+// daemon can't tell its VM's type from inside it. {"vmType": …, "reason": …},
+// written by hostvm's writeGPUReason.
+var VMGPUReasonFile = "/usr/local/share/agentbox/vm-gpu.json"
 
 // gpuProfilePath is where the agent's login shells read gpuProfile from.
 const gpuProfilePath = "/etc/profile.d/agentbox-gpu.sh"
@@ -129,7 +138,7 @@ func FindVMGPU() VMGPU {
 		}
 		return VMGPU{Kind: GPUDXG, Node: dxgPath}
 	}
-	nodes, _ := filepath.Glob(renderNodeGlob)
+	nodes, _ := filepath.Glob(RenderNodeGlob)
 	sort.Strings(nodes)
 	venus := VenusVM()
 	for _, node := range nodes {
@@ -151,7 +160,26 @@ func FindVMGPU() VMGPU {
 	if gpu, ok := hostGPU(); ok {
 		return gpu
 	}
+	if reason := macVMReason(); reason != "" {
+		return VMGPU{Reason: reason}
+	}
 	return VMGPU{Reason: "AgentBox's VM has no GPU to give agents"}
+}
+
+// macVMReason is why a Mac's VM has no GPU, as Setup wrote it
+// (VMGPUReasonFile), or "".
+func macVMReason() string {
+	b, err := os.ReadFile(VMGPUReasonFile)
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal(b, &st) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSpace(st.Reason), ".")
 }
 
 // pciIDs is a PCI vendor:device pair, as MESA_VK_DEVICE_SELECT takes it.
@@ -268,7 +296,7 @@ func (gpu VMGPU) devices(profile string) []gpuDevice {
 			source := filepath.Join(filepath.Dir(profile), "vulkan-"+strings.ReplaceAll(gpu.Vulkan, ":", "-")+".sh")
 			ds = append(ds, gpuDevice{vgpuProfileDevice, "disk", []string{"source=" + source, "path=" + gpuProfilePath, "readonly=true"}, vulkanProfile(gpu.Vulkan)})
 		}
-		return ds
+		return append(ds, venusDevices(filepath.Join(filepath.Dir(profile), "venus-chromium.sh"))...)
 	}
 	return nil
 }
@@ -335,8 +363,7 @@ func (m *Manager) gpuSteps(instance string, want VMGPU, devices map[string]map[s
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, instance, name) })
 		}
 	}
-	// A Mac's VM has its own Venus driver to go with its render node.
-	return append(steps, vgpuDriverSteps(instance, devices, want.Kind == GPURender)...)
+	return steps
 }
 
 // settleGPU gives one instance the GPU it should have, as it starts or is

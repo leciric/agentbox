@@ -6,8 +6,10 @@ import (
 	"os"
 
 	"agentbox/internal/cli"
+	"agentbox/internal/homehost"
 	"agentbox/internal/hostvm"
 	"agentbox/internal/hostwsl"
+	"agentbox/internal/iossim"
 )
 
 func main() {
@@ -15,6 +17,16 @@ func main() {
 	// tools running here, with no daemon or VM involved.
 	if len(os.Args) > 1 && os.Args[1] == "machines" {
 		os.Exit(cli.Execute())
+	}
+	// `agentbox home-host` is the user's computer's, wherever the daemon runs:
+	// it runs the Home chat's AI tool there, for the daemon (homehost).
+	if len(os.Args) > 1 && os.Args[1] == "home-host" {
+		os.Exit(homehost.Main(os.Args[2:], cli.Version()))
+	}
+	// The iOS Simulator's helper runs beside the simulator, on the Mac,
+	// which the front end starts there (internal/iossim).
+	if len(os.Args) > 1 && os.Args[1] == iossim.HelperCommand {
+		os.Exit(iossim.Main(os.Args[2:], cli.Version()))
 	}
 	// `agentbox snap` and `agentbox browser-cookies` are the user's machine's
 	// too, VM or not: the window they capture and the export they read are

@@ -17,7 +17,7 @@ import (
 // toolNames are the AI tools a server can be imported from, as people know them.
 var toolNames = map[string]string{
 	"claude": "Claude Code", "claude-desktop": "Claude Desktop", "codex": "Codex",
-	"opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI",
+	"opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI", "copilot": "GitHub Copilot CLI",
 }
 
 func newConnectorImportCmd(a *app) *cobra.Command {
@@ -25,8 +25,8 @@ func newConnectorImportCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import <project | --global> [NAME...]",
 		Short: "Add the MCP servers your own AI tools have as connectors",
-		Long: `Looks for the MCP servers Claude Code, Claude Desktop, Codex, OpenCode, Cursor
-and Gemini CLI have in your home, and adds the remote ones as connectors: all
+		Long: `Looks for the MCP servers Claude Code, Claude Desktop, Codex, OpenCode, Cursor,
+Gemini CLI and GitHub Copilot CLI have in your home, and adds the remote ones as connectors: all
 that can be, or the NAMEs given. --dry-run lists what it found and adds nothing.
 
 A connector is a remote server over streamable HTTP. A server your AI tool runs

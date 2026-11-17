@@ -63,3 +63,34 @@ test('orderProjects without grouping keeps one stable list that activity never r
   const later = orderProjects(input({ groupIdle: false, active: new Set(['gamma']) }));
   assert.deepEqual(names(later.rest), ['alpha', 'beta', 'delta', 'gamma']);
 });
+
+test('a project with a draft stays out of Idle like an active one, and a pin keeps its place', () => {
+  const names = (ps: T.Project[]) => ps.map((p) => p.name);
+  let out = orderProjects(input({ active: new Set(['beta']), drafts: new Set(['delta']) }));
+  assert.deepEqual(names(out.rest).sort(), ['beta', 'delta']);
+  assert.deepEqual(names(out.idle).sort(), ['alpha', 'gamma']);
+  out = orderProjects(input({ active: new Set(), drafts: new Set(['alpha']), pins: ['gamma'] }));
+  assert.deepEqual(names(out.pinned), ['gamma']);
+  assert.deepEqual(names(out.rest), ['alpha']);
+  out = orderProjects(input({ active: new Set(), drafts: new Set() }));
+  assert.equal(out.rest.length, 0);
+});
+
+test('with groupIdle off the rest follow the user\'s order, new projects last by name', () => {
+  const out = orderProjects(input({ groupIdle: false, manual: ['gamma', 'alpha', 'gone'] }));
+  assert.deepEqual(names(out.rest), ['gamma', 'alpha', 'beta', 'delta']);
+  assert.deepEqual(out.idle, []);
+});
+
+test('with no manual order the rest are by name; pins stay out of it', () => {
+  assert.deepEqual(names(orderProjects(input({ groupIdle: false })).rest), ['alpha', 'beta', 'delta', 'gamma']);
+  const out = orderProjects(input({ groupIdle: false, pins: ['gamma'], manual: ['gamma', 'delta'] }));
+  assert.deepEqual(names(out.pinned), ['gamma']);
+  assert.deepEqual(names(out.rest), ['delta', 'alpha', 'beta']);
+});
+
+test('with groupIdle on a manual order changes nothing: activity sorts', () => {
+  const out = orderProjects(input({ manual: ['delta', 'alpha', 'beta', 'gamma'] }));
+  assert.deepEqual(names(out.rest), ['gamma', 'beta', 'alpha']);
+  assert.deepEqual(names(out.idle), ['delta']);
+});

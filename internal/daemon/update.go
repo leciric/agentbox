@@ -37,6 +37,7 @@ type updates struct {
 // Every failure is dropped without a word: a machine offline, or a server that
 // is down, is no reason to tell anyone anything.
 func (s *Server) watchUpdates(ctx context.Context) {
+	s.pinNightlyChannel(ctx)
 	if delay := cmp.Or(s.cfg.UpdateStartDelay, update.StartDelay); delay > 0 {
 		select {
 		case <-ctx.Done():
@@ -54,6 +55,22 @@ func (s *Server) watchUpdates(ctx context.Context) {
 		case <-tick.C:
 		case <-s.updates.now:
 		}
+	}
+}
+
+// pinNightlyChannel stores the nightly channel for a nightly build whose
+// install never chose one. Without it the channel follows the running version,
+// so installing the stable release the nightly channel offers would drop the
+// install to stable. A stored channel, whichever it is, is left alone.
+func (s *Server) pinNightlyChannel(ctx context.Context) {
+	if !update.IsNightly(Version) {
+		return
+	}
+	if c, err := s.store.Setting(ctx, state.SettingUpdateChannel); err != nil || update.ValidChannel(c) {
+		return
+	}
+	if err := s.store.SetSetting(ctx, state.SettingUpdateChannel, update.ChannelNightly); err != nil {
+		s.logf("keeping the nightly update channel: %v", err)
 	}
 }
 
@@ -111,7 +128,7 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 	}
 	now := time.Now()
 	var available *api.UpdateAvailable
-	if offer, ok := update.Offer(channel, Version, stable, nightly); ok {
+	if offer, ok := update.Offer(channel, Version, stable, nightly, s.leavingNightly(ctx, channel)); ok {
 		available = &api.UpdateAvailable{Version: offer.Version, URL: offer.URL}
 	}
 	s.updates.mu.Lock()
@@ -233,11 +250,36 @@ func (s *Server) updateChannel(ctx context.Context) (string, error) {
 	return c, nil
 }
 
+// settingLeftNightly is the nightly build its user switched to the stable
+// channel. Only that build is offered the latest stable although it's a lower
+// version (update.Offer's leaving): a stored "stable" alone doesn't say the
+// user asked to go back, since it may have been chosen on a stable build
+// before a nightly was installed over it.
+const settingLeftNightly = "update_left_nightly"
+
+// leavingNightly says whether this build is a nightly its user switched to
+// the stable channel.
+func (s *Server) leavingNightly(ctx context.Context, channel string) bool {
+	if channel != update.ChannelStable || !update.IsNightly(Version) {
+		return false
+	}
+	left, err := s.store.Setting(ctx, settingLeftNightly)
+	return err == nil && left == Version
+}
+
 // setUpdateChannel is the channel changing: what the last check found was for
-// the other one, so it is forgotten, and a check goes out at once.
+// the other one, so it is forgotten, and a check goes out at once. Switching
+// a nightly build to stable is the one way to be offered a lower version.
 func (s *Server) setUpdateChannel(ctx context.Context, channel string) error {
 	if !update.ValidChannel(channel) {
 		return fmt.Errorf("updateChannel must be %q or %q", update.ChannelStable, update.ChannelNightly)
+	}
+	left := ""
+	if channel == update.ChannelStable && update.IsNightly(Version) {
+		left = Version
+	}
+	if err := s.store.SetSetting(ctx, settingLeftNightly, left); err != nil {
+		return err
 	}
 	if err := s.store.SetSetting(ctx, state.SettingUpdateChannel, channel); err != nil {
 		return err
@@ -314,7 +356,7 @@ func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error 
 		if channel == update.ChannelNightly {
 			nightly = latest
 		}
-		if offer, ok := update.Offer(channel, Version, stable, nightly); ok {
+		if offer, ok := update.Offer(channel, Version, stable, nightly, s.leavingNightly(ctx, channel)); ok {
 			available := &api.UpdateAvailable{Version: offer.Version, URL: offer.URL}
 			s.updates.mu.Lock()
 			changed := !sameUpdate(s.updates.available, available)

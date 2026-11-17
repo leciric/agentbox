@@ -81,6 +81,34 @@ func TestEnsureZramDoesNothingWhenItIsOnAlready(t *testing.T) {
 	}
 }
 
+func TestEnsureZramAddsTheRestBesideAQuarterMadeEarlier(t *testing.T) {
+	t.Parallel()
+	// An earlier daemon gave this 16 GiB VM a quarter, 4 GiB, now in use.
+	f := newFakeZram(t, "/dev/zram0 partition 4194300 4194300 100\n")
+	writeCgroupFile(t, filepath.Join(f.root, "sys/class/zram-control/hot_add"), "")
+	writeCgroupFile(t, filepath.Join(f.root, "sys/block/zram0/disksize"), "4294967296\n")
+	did, err := ensureZram(f.host(), 16*gib/ZramShare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "cat /sys/class/zram-control/hot_add|mkswap /dev/zram1|swapon -p 100 /dev/zram1"; strings.Join(f.ran, "|") != want {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if got := f.wrote["/sys/block/zram1/disksize"]; got != "4294971392" {
+		t.Errorf("sized the new device %s, want the 4 GiB that makes half", got)
+	}
+	if !strings.Contains(did, "more zram swap (/dev/zram1, beside /dev/zram0)") {
+		t.Errorf("said %q", did)
+	}
+}
+
+func TestZramIsHalfTheVM(t *testing.T) {
+	t.Parallel()
+	if got := 18 * gib / ZramShare; got != 9*gib {
+		t.Errorf("an 18 GiB VM gets %d of zram, want half", got)
+	}
+}
+
 func TestEnsureZramAddsADeviceWhenTheModulesAreTaken(t *testing.T) {
 	t.Parallel()
 	f := newFakeZram(t, "")

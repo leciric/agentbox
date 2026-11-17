@@ -320,12 +320,15 @@ type MemorySearchResults struct {
 // WorkingMemory is what a project is doing right now: one small document,
 // kept current rather than appended to.
 type WorkingMemory struct {
-	Goal         string    `json:"goal,omitempty"`
-	CurrentTask  string    `json:"currentTask,omitempty"`
-	ActiveAgents []string  `json:"activeAgents,omitempty"`
-	Blockers     []string  `json:"blockers,omitempty"`
-	Notes        string    `json:"notes,omitempty"`
-	UpdatedAt    time.Time `json:"updatedAt,omitzero,omitempty"`
+	Goal         string   `json:"goal,omitempty"`
+	CurrentTask  string   `json:"currentTask,omitempty"`
+	ActiveAgents []string `json:"activeAgents,omitempty"`
+	Blockers     []string `json:"blockers,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+	// Sessions is what the chat's other sessions are working on, by session
+	// id, as one session reads it: CurrentTask is its own.
+	Sessions  map[string]string `json:"sessions,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt,omitzero,omitempty"`
 }
 
 // WorkingMemoryPatch changes what it names and leaves the rest alone. An empty

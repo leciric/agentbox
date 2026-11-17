@@ -546,7 +546,7 @@ func TestAFinishTheLeadDidNotAskForDoesNotWakeIt(t *testing.T) {
 	// The lead asks, through its own socket; that finish wakes it. The
 	// agent's tool can't start here, and the failed turn that leaves is
 	// beside the point.
-	d.srv.stallTell = func(context.Context, string, string) {}
+	d.srv.stallTell = func(context.Context, state.Agent, string) {}
 	leadClient := api.NewClient(d.srv.leadSocketPath("hello-stack"))
 	if _, err := leadClient.TellAgent(ctx, "agent-01", "Add a test for the second page."); err != nil {
 		t.Fatal(err)

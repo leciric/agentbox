@@ -36,8 +36,14 @@ import (
 //
 // A project whose memory is empty gets "", and the section isn't rendered at
 // all. That is every project before its first compaction.
-func (m *Manager) leadRecap(ctx context.Context, project string) (string, error) {
-	built, err := m.buildContext(ctx, project, "", memory.ForLead, "")
+func (m *Manager) leadRecap(ctx context.Context, a state.Agent) (string, error) {
+	budget, err := m.contextBudget(ctx, a.Project)
+	if err != nil {
+		return "", err
+	}
+	built, err := m.memory().BuildContext(ctx, memory.ContextRequest{
+		Project: a.Project, Budget: budget, For: memory.ForLead, Session: a.Session(),
+	})
 	if err != nil {
 		return "", err
 	}

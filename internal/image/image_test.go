@@ -35,7 +35,11 @@ func fakeIncus(t *testing.T, extra string) *fake {
 case "$1" in
 %s
   list) echo '[{"name":"agentbox-base-next","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]' ;;
-  query) echo '["/1.0/instances/agentbox-base/snapshots/generic","/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  query) case "$*" in
+    *recover/validate*) echo '{"UnknownVolumes":null,"DependencyErrors":null}' ;;
+    *storage-pools*) echo '[]' ;;
+    *) echo '["/1.0/instances/agentbox-base/snapshots/generic","/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  esac ;;
 esac
 exit 0
 `, f.log, extra)
@@ -377,6 +381,11 @@ func TestBuildRunsTheSystemScript(t *testing.T) {
 	if pushed >= provisioned || provisioned >= removed {
 		t.Errorf("out of order:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
+	// apt's and mise's downloads don't stay in the image, the published one
+	// included.
+	if cleaned := inc.ran(t, "apt-get clean && rm -rf /home/agent/.cache/mise &&"); cleaned != removed {
+		t.Errorf("the caches should go with the scripts:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
 }
 
 const refreshAgent = "ab-organic-agent-07"
@@ -467,4 +476,73 @@ func TestCatchUpNothingToDo(t *testing.T) {
 	if _, err := os.Stat(inc.log); err == nil {
 		t.Errorf("incus was run:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
+}
+
+// recovering answers the queries of taking back volumes Incus lost track of:
+// unknown is what /internal/recover/validate finds.
+func recovering(unknown string) string {
+	return `  query) case "$*" in
+    *recover/validate*) echo '{"UnknownVolumes":[` + unknown + `],"DependencyErrors":null}' ;;
+    *recover/import*) echo '{}' ;;
+    *storage-pools*) echo '[{"name":"default","driver":"btrfs","config":{"source":"/var/lib/incus/storage-pools/default"}}]' ;;
+    *) echo '["/1.0/instances/agentbox-base/snapshots/generic","/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  esac ;;`
+}
+
+const lostNext = `{"name":"agentbox-base-next","pool":"default","project":"default","snapshotCount":1,"type":"container"}`
+
+// baseThenNext lists only the base until a copy makes agentbox-base-next.
+const baseThenNext = `  copy) touch "$(dirname "$0")/copied" ;;
+  list) if [ -e "$(dirname "$0")/copied" ]; then echo '[{"name":"agentbox-base"},{"name":"agentbox-base-next","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]'; else echo '[{"name":"agentbox-base"}]'; fi ;;
+`
+
+// An update interrupted mid-copy can leave agentbox-base-next's storage behind
+// with Incus no longer knowing the instance: every later copy then fails with
+// "Cannot create volume, already exists". It's taken back and deleted first.
+func TestUpdateToolsClearsACopyIncusLostTrackOf(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+recovering(lostNext))
+	var log bytes.Buffer
+	_ = image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	imported := inc.ran(t, "/internal/recover/import")
+	deleted := inc.ran(t, "delete|--force|agentbox-base-next|")
+	copied := inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
+	if imported >= deleted || deleted >= copied {
+		t.Errorf("the lost copy should be taken back and deleted before copying again:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+}
+
+// Incus takes back every volume it lost at once: one that isn't the image's
+// stops it, and says what to do.
+func TestALostVolumeNotTheImagesIsLeftAlone(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+recovering(lostNext+`,{"name":"someone-else","pool":"default","project":"default","snapshotCount":0,"type":"container"}`))
+	var log bytes.Buffer
+	err := image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	if err == nil || !strings.Contains(err.Error(), "someone-else") || !strings.Contains(err.Error(), "incus admin recover") {
+		t.Fatalf("UpdateTools() = %v, want it to name the other lost volume", err)
+	}
+	inc.neverRan(t, "/internal/recover/import")
+	inc.neverRan(t, "copy|")
+}
+
+// Recovering asks Incus' admin API. When that isn't there (an older Incus, a
+// user who isn't its admin), an update goes on as it did before it asked.
+func TestAnUpdateGoesOnWhenIncusCantBeAskedWhatItLost(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+`  query) case "$*" in
+    *recover/validate*) echo "not authorized" >&2; exit 1 ;;
+    *storage-pools*) echo '[{"name":"default","driver":"btrfs","config":{}}]' ;;
+    *) echo '["/1.0/instances/agentbox-base/snapshots/generic","/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  esac ;;`)
+	var log bytes.Buffer
+	_ = image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
+	inc.neverRan(t, "/internal/recover/import")
+}
+
+// A lost volume of the same name in another Incus project isn't the image's.
+func TestALostCopyInAnotherProjectIsLeftAlone(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+recovering(`{"name":"agentbox-base-next","pool":"default","project":"elsewhere","snapshotCount":0,"type":"container"}`))
+	var log bytes.Buffer
+	_ = image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	inc.neverRan(t, "/internal/recover/import")
+	inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
 }

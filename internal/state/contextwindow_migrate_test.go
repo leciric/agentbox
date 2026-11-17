@@ -36,7 +36,7 @@ func TestCappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`,
-		SettingClaudeModelWindows, `{"opus":200000,"default":200000,"sonnet":1000000,"claude-fable-5-1":1000000}`); err != nil {
+		SettingClaudeModelWindows, `{"opus":200000,"default":200000,"sonnet":1000000,"claude-fable-5-2":1000000}`); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -50,8 +50,8 @@ func TestCappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Seen) != 2 || w.Seen["sonnet"] != ClaudeFullWindow || w.Seen["claude-fable-5-1"] != ClaudeFullWindow {
-		t.Errorf("Seen = %v after the upgrade, want only sonnet and claude-fable-5-1 at 1M", w.Seen)
+	if len(w.Seen) != 2 || w.Seen["sonnet"] != ClaudeFullWindow || w.Seen["claude-fable-5-2"] != ClaudeFullWindow {
+		t.Errorf("Seen = %v after the upgrade, want only sonnet and claude-fable-5-2 at 1M", w.Seen)
 	}
 	for _, model := range []string{"opus", "default", "sonnet"} {
 		if got, want := w.ContextWindows(model, 200_000), []int64{200_000, ClaudeFullWindow}; !slices.Equal(got, want) {
@@ -121,7 +121,7 @@ func TestUncappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`,
-		SettingClaudeModelWindows, `{"default":1000000,"opus":200000,"sonnet":200000,"haiku":200000,"claude-fable-5-1":1000000}`); err != nil {
+		SettingClaudeModelWindows, `{"default":1000000,"opus":200000,"sonnet":200000,"haiku":200000,"claude-fable-5-2":1000000}`); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -135,10 +135,10 @@ func TestUncappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Seen) != 3 || w.Seen["default"] != ClaudeFullWindow || w.Seen["haiku"] != ClaudeShortWindow || w.Seen["claude-fable-5-1"] != ClaudeFullWindow {
-		t.Errorf("Seen = %v after the upgrade, want default and claude-fable-5-1 at 1M and haiku at 200k", w.Seen)
+	if len(w.Seen) != 3 || w.Seen["default"] != ClaudeFullWindow || w.Seen["haiku"] != ClaudeShortWindow || w.Seen["claude-fable-5-2"] != ClaudeFullWindow {
+		t.Errorf("Seen = %v after the upgrade, want default and claude-fable-5-2 at 1M and haiku at 200k", w.Seen)
 	}
-	for _, model := range []string{"opus", "sonnet", "claude-fable-5-1"} {
+	for _, model := range []string{"opus", "sonnet", "claude-fable-5-2"} {
 		if got, want := w.ContextWindows(model, 200_000), []int64{200_000, ClaudeFullWindow}; !slices.Equal(got, want) {
 			t.Errorf("ContextWindows(%q) = %v, want %v", model, got, want)
 		}

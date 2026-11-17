@@ -27,7 +27,7 @@ test('a hidden project leaves its list, Idle included, and comes back while it i
 test('the sidebar reads pinned and active at the top, then Idle and Hidden docked at the bottom, whatever is pinned, hidden or on screen', () => {
   const projects = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name, createdAt: '2026-01-01T00:00:00Z' }) as T.Project);
   const read = (pins: string[], active: string[], hidden: string[]) => {
-    const got = arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name, groupIdle: true }), { hidden }, new Set(active));
+    const got = { ...arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name, groupIdle: true }), { hidden }, new Set(active)), sections: [] };
     const { top, dock } = sections(got);
     return { top: top.map((s) => names(got[s])), dock: dock.map((s) => names(got[s])) };
   };
@@ -38,6 +38,10 @@ test('the sidebar reads pinned and active at the top, then Idle and Hidden docke
   // With nothing above it, Idle is the list, at the top; Hidden stays docked.
   assert.deepEqual(read([], [], ['f']), { top: [['a', 'b', 'c', 'd', 'e']], dock: [['f']] });
   assert.deepEqual(sections({ pinned: [], rest: [], idle: [], hidden: [] }), { top: [], dock: [] });
+  // The user's sections go between the pins and the rest, and with any shown
+  // Idle isn't the list: it docks.
+  assert.deepEqual(sections({ pinned: ['a'], sections: ['s'], rest: ['b'], idle: ['c'], hidden: [] }), { top: ['pinned', 'sections', 'rest'], dock: ['idle'] });
+  assert.deepEqual(sections({ pinned: [], sections: ['s'], rest: [], idle: ['c'], hidden: ['d'] }), { top: ['sections'], dock: ['idle', 'hidden'] });
 });
 
 test('hiding a pinned project unpins it, so it lands in Hidden', () => {

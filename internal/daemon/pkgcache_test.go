@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"agentbox/internal/api"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,5 +75,37 @@ func TestPackageCacheDirIsEmptyWhileOff(t *testing.T) {
 	}
 	if dir := d.srv.packageCacheDir(ctx); dir != "" {
 		t.Errorf("off: %q", dir)
+	}
+}
+
+// Diagnostics say what each cache holds, and the caches are left alone while
+// a heavy run is on.
+func TestPackageCacheDiagnosticsAndHeavyRuns(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	file := filepath.Join(d.srv.cfg.Paths.PackageCache(), pkgcache.GoBuild, "aa", "x-d")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.packageCache = d.srv.newPackageCache()
+	w := httptest.NewRecorder()
+	if err := d.srv.diagnosticsPackageCache(w, httptest.NewRequest(http.MethodGet, "/v1/diagnostics/package-cache", nil)); err != nil {
+		t.Fatal(err)
+	}
+	var out api.DiagnosticsPackageCache
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.On || out.Bytes < 8192 || out.MaxBytes <= 0 || len(out.Parts) != 1 || out.Parts[0].Name != pkgcache.GoBuild {
+		t.Errorf("diagnostics: %+v", out)
+	}
+	if d.srv.heavyRunActive() {
+		t.Error("a heavy run is active in a daemon with none")
+	}
+	if d.srv.packageCache.Busy == nil {
+		t.Error("the caches don't ask whether an agent is at work")
 	}
 }

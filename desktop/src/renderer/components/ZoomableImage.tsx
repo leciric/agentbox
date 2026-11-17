@@ -133,7 +133,7 @@ export function ZoomableImage({ src, alt }: { src: string; alt: string }) {
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
         />
       </div>
-      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-lg border border-line bg-surface/90 p-0.5 shadow-md backdrop-blur">
+      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-lg border border-line bg-surface/90 p-0.5 shadow-pop backdrop-blur">
         <Tip label={t('agent.mediaTab.zoomOut')}>
           <Button size="icon-sm" variant="ghost" aria-label={t('agent.mediaTab.zoomOut')} disabled={view.scale <= 1} onClick={() => zoomAt(view.scale / STEP, 0, 0)}>
             <Minus />

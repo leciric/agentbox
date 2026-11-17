@@ -12,9 +12,14 @@ Every agent's container starts life as a clone of a shared Incus snapshot, `agen
 (`image.go`). `agentbox image build`, or Setup's **Build base image**, makes it and snapshots it as
 `agentbox-base/ready`:
 
-- **With no optional component**, it downloads the image AgentBox publishes for that version from the
-  `image-<version>` release at `https://github.com/leciric/agentbox/releases`, joins its parts, checks
-  them against the release's `SHA256SUMS`, and imports it into Incus. That image is Debian 13 with
+- **With no optional component**, it downloads the image AgentBox publishes for that version from
+  `https://downloads.agentbox.linting.dev/images/`, or from the `image-<version>` release at
+  `https://github.com/leciric/agentbox/releases` when that fails, a few parts at a time, checks them
+  against the release's `SHA256SUMS`, joins them and imports the image into Incus. It is compressed
+  with zstd, which Incus unpacks several times faster than gzip. A download that is interrupted
+  (the connection drops, AgentBox restarts or the build is cancelled) carries on from where it got to
+  the next time. `AGENTBOX_IMAGES_URL` in the daemon's environment points it somewhere else (several
+  URLs, separated by spaces, are tried in order). That image is Debian 13 with
   [`provision.sh`](../internal/image/provision.sh) applied and every tool in `tools.txt` except
   Claude Code, its ACP adapter and Cursor's SDK, which AgentBox may not redistribute: the machine
   installs those itself, at their `tools.txt` versions, before making the image its own.
@@ -60,7 +65,10 @@ Run inside the container before it's snapshotted:
   screen;
 - [mise](https://mise.jdx.dev), and through it the tools pinned in `tools.txt` that every agent
   gets: Go, Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
-  requested;
+  requested. OpenCode 2 is not in `tools.txt` or the image: each agent installs its npm
+  platform package at its first OpenCode 2 start (needs the network then) and links it as `opencode2`
+  in the user's `~/.local/bin`, the host's lead does the same the first time it needs it, and the
+  installation setting `opencode_version` chooses which one agents and the project chat run;
 - a placeholder user, `agent` (UID/GID 1000), in the `sudo` and `docker` groups;
 - a check at the end that every pinned tool actually reports the version it was asked to install.
 

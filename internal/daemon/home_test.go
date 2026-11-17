@@ -118,7 +118,7 @@ func TestHomeSocket(t *testing.T) {
 	if _, err := home.HomeAgentChat(ctx, "hello-stack", state.LeadName); err == nil {
 		t.Error("HomeAgentChat(lead) read a project's chat as if it were an agent")
 	}
-	if err := home.HomeTellLead(ctx, "nope", "hello"); err == nil {
+	if _, err := home.HomeTellLead(ctx, "nope", "hello"); err == nil {
 		t.Error("HomeTellLead(nope) told a project that doesn't exist")
 	}
 

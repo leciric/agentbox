@@ -44,7 +44,7 @@ const searchThreshold = 8;
 // one is typed into or picked from. The model pickers use it for their own
 // menus too.
 export const selectTrigger =
-  'flex h-9 w-full items-center gap-2 rounded-lg border border-line-strong bg-sunken px-3 text-left text-sm text-primary shadow-[inset_0_1px_2px_var(--ab-shadow-soft)] transition-colors hover:border-line-vivid focus-visible:border-brand-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50 data-[state=open]:border-brand-400/60';
+  'flex h-9 w-full items-center gap-2 rounded-lg border border-line-strong bg-sunken px-3 text-left text-sm text-primary transition-colors hover:border-line-vivid focus-visible:border-brand-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50 data-[state=open]:border-brand-400/60';
 
 // Select replaces the native <select> with a Menu-based combobox that matches
 // the app's own visual language, while keeping the native element's shape:
@@ -105,7 +105,7 @@ export function Select({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder={t('common.search')}
-              className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+              className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
             />
           </div>
         )}
@@ -119,7 +119,7 @@ export function Select({
             {option.label}
           </MenuItem>
         ))}
-        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('shell.ui.noMatch', { query: query.trim() })}</div>}
+        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-caption text-subtle">{t('shell.ui.noMatch', { query: query.trim() })}</div>}
       </MenuContent>
     </Menu>
   );

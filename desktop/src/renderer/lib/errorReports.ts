@@ -2,9 +2,10 @@
 // window or of the main process. Each one goes to the main process's log
 // (main/applog.ts), where a problem report finds it. Beyond that, nothing is
 // sent once the user turned them off (Settings.ErrorReports, on by default):
-// each new error is sent by
-// itself, as a report of kind "error" through the daemon, which redacts it
-// like any report (internal/report).
+// each new error is sent by itself, as a report of kind "error", through the
+// main process (main/reportqueue.ts, which caps them a run and keeps them
+// while the daemon can't be reached) to the daemon, which redacts it like
+// any report (internal/report).
 import type * as T from '../../shared/api';
 import { describeError, frames, type DescribedError } from '../../shared/errors.ts';
 
@@ -15,10 +16,6 @@ export interface UncaughtError extends DescribedError {
 // noise are errors that say nothing is wrong: Chrome's ResizeObserver
 // warnings, which reach window.onerror though nothing threw.
 const noise = [/^ResizeObserver loop/];
-
-// The most error reports one run of the app sends: a broken loop shouldn't
-// send a report a second.
-export const maxPerSession = 5;
 
 // fromEvent is a window's uncaught error, from window.onerror's event or
 // an unhandled rejection's.
@@ -32,21 +29,19 @@ export function fromEvent(event: ErrorEvent | PromiseRejectionEvent): UncaughtEr
 
 export type Decision = 'send' | 'ignore';
 
-// ErrorReporter decides what each uncaught error leads to: sent or nothing, because it's noise, was already handled in this run, or
-// this run sent enough.
+// ErrorReporter decides what each uncaught error leads to: sent or nothing,
+// because it's noise, was already handled by this window, or the user has
+// them off. With no daemon to ask, it's sent: the main process keeps it until
+// there is one, which drops it if they're off.
 export class ErrorReporter {
   private seen = new Set<string>();
-  private sent = 0;
 
   decide(err: UncaughtError, settings: Pick<T.Settings, 'errorReports'> | undefined): Decision {
     if (noise.some((re) => re.test(err.message))) return 'ignore';
     const key = signature(err);
     if (this.seen.has(key)) return 'ignore';
     this.seen.add(key);
-    if (!settings) return 'ignore'; // no daemon to send it through
-    if (!settings.errorReports || this.sent >= maxPerSession) return 'ignore';
-    this.sent++;
-    return 'send';
+    return settings?.errorReports === false ? 'ignore' : 'send';
   }
 }
 

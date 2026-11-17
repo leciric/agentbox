@@ -49,10 +49,11 @@ provision:
       mkdir -p /etc/agentbox
       echo darwin >/etc/agentbox/vm
       # agentbox host setup installs Incus; the daemon itself needs git, and
-      # the rule below needs nft.
-      if ! command -v git >/dev/null || ! command -v nft >/dev/null; then
+      # gh to sign in to GitHub with (github.GHLogin), and the rule below
+      # needs nft. Every boot, so a VM made before gh was here gets it too.
+      if ! command -v git >/dev/null || ! command -v nft >/dev/null || ! command -v gh >/dev/null; then
         apt-get update -q
-        apt-get install -y -q git ca-certificates nftables
+        apt-get install -y -q git ca-certificates nftables gh
       fi
       # Lima reaches the Mac's own 127.0.0.1 at host.lima.internal (192.168.5.2
       # with the networking it sets up by default). The VM needs that; agents
