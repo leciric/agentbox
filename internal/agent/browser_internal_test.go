@@ -32,6 +32,12 @@ func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
 			_, _ = c.Write([]byte{1, 1})
 			_, _ = io.ReadFull(c, make([]byte, 1))
 			_, _ = c.Write([]byte{0, 0, 0, 0})
+			_, _ = io.ReadFull(c, make([]byte, 1))
+		}, true},
+		"a server that blacklisted us is still up": {func(c net.Conn) {
+			_, _ = c.Write([]byte("RFB 003.008\n"))
+			_, _ = io.ReadFull(c, make([]byte, 12))
+			_, _ = c.Write([]byte{0, 0, 0, 0, 3, 'n', 'o', '!'})
 		}, true},
 		"an old VNC server's greeting is enough": {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.003\n")) }, true},
 		"it greets, then hangs up mid-handshake": {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.008\n")) }, false},

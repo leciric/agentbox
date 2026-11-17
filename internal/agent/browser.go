@@ -301,8 +301,13 @@ func vncHandshakes(conn net.Conn) bool {
 		return false
 	}
 	var n [1]byte
-	if _, err := io.ReadFull(conn, n[:]); err != nil || n[0] == 0 {
+	if _, err := io.ReadFull(conn, n[:]); err != nil {
 		return false
+	}
+	if n[0] == 0 {
+		// No security types, then the reason: a server that has blacklisted
+		// us. It is up, and browser.sh restarts it without the blacklist.
+		return true
 	}
 	types := make([]byte, n[0])
 	if _, err := io.ReadFull(conn, types); err != nil || !slices.Contains(types, 1) {
@@ -313,7 +318,12 @@ func vncHandshakes(conn net.Conn) bool {
 		return false
 	}
 	var result [4]byte
-	_, err := io.ReadFull(conn, result[:])
+	if _, err := io.ReadFull(conn, result[:]); err != nil {
+		return false
+	}
+	// ClientInit (shared) as well: a client that leaves before it is, to an
+	// Xvnc without -UseBlacklist=0, one that failed to get in.
+	_, err := conn.Write([]byte{1})
 	return err == nil
 }
 
