@@ -242,6 +242,7 @@ export interface Settings {
   usageStats: boolean;
   agentGPU: boolean;
   blockFullSuite: boolean;
+  cockpitMode: boolean;
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
@@ -329,6 +330,7 @@ export interface UpdateSettingsRequest {
   usageStats?: boolean;
   agentGPU?: boolean;
   blockFullSuite?: boolean;
+  cockpitMode?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;

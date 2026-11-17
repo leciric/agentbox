@@ -3,7 +3,7 @@
 // its data, read from the queries the rest of the app keeps live, and what's
 // over the canvas: a top bar, a tray of who needs you, the desk you're at
 // and its chat in place, and the controls. It covers the whole window.
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ChevronUp, ClipboardList, Flag, GitPullRequest, Keyboard, LoaderCircle, Maximize2, MessageSquare, Scan, X } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -13,12 +13,10 @@ import { api } from '../../lib/api';
 import { agentChatStatus } from '../../lib/chatActivity';
 import { chatKey, lastLineOf, peekThread } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
-import { useReviewHead } from '../../lib/inboxPages';
-import { useReviewing } from '../../lib/reviewAlert';
-import { useAgentCounts } from '../../lib/useAgentCounts';
 import { cn } from '../../lib/utils';
 import { floorsOf } from '../../office/layout';
-import { deskOf, leadRef, officeModel, plain, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
+import { useOffice } from '../../office/useOffice';
+import { deskOf, leadRef, plain, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
 import type { OfficeScene } from '../../office/scene';
 import type { BoardScreen, Screen } from '../../office/textures';
 import { ChatTab } from '../chat/ChatTab';
@@ -53,38 +51,6 @@ function useReducedMotion(): boolean {
     return () => m.removeEventListener('change', on);
   }, []);
   return on;
-}
-
-// useOffice reads what the Office shows: the same queries the sidebar and the
-// panels read, so it says what they say and moves when they do.
-function useOffice(): { model: OfficeModel; loaded: boolean; agents: ReadonlyMap<string, T.Agent>; review: readonly T.ReviewItem[]; fleets: ReadonlyMap<string, T.Fleet | undefined> } {
-  const counts = useAgentCounts();
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const names = (projects.data ?? []).map((p) => p.name);
-  const fleets = useQueries({ queries: names.map((name) => ({ queryKey: ['fleet', name], queryFn: () => api.fleet(name), refetchInterval: 30_000 })) });
-  const questions = useQueries({ queries: names.map((name) => ({ queryKey: ['questions', name], queryFn: () => api.questions(name) })) });
-  const chats = useQueries({ queries: names.map((name) => ({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), refetchInterval: 60_000 })) });
-  const reviewing = useReviewing();
-  const head = useReviewHead(reviewing);
-  const review = useMemo(() => (reviewing ? (head.data?.items ?? []) : []), [reviewing, head.data]);
-  // Keys of what changed, so the maps are made again only when a query's
-  // data does, not on every render.
-  const namesKey = names.join('\n');
-  const fleetKey = fleets.map((f) => f.dataUpdatedAt).join(',');
-  const qKey = questions.map((q) => q.dataUpdatedAt).join(',');
-  const chatKeyAll = chats.map((c) => `${c.dataUpdatedAt}:${c.data?.chat ?? ''}:${c.data?.last?.at ?? ''}`).join(',');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fleetMap = useMemo(() => new Map(names.map((n, i) => [n, fleets[i]?.data])), [namesKey, fleetKey]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const qMap = useMemo(() => new Map(names.map((n, i) => [n, Array.isArray(questions[i]?.data) ? questions[i].data : undefined])), [namesKey, qKey]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const leadMap = useMemo(() => new Map(names.map((n, i) => [n, chats[i]?.data])), [namesKey, chatKeyAll]);
-  const model = useMemo(
-    () => officeModel({ projects: projects.data ?? [], rows: counts.rows, fleets: fleetMap, questions: qMap, leads: leadMap, review }),
-    [projects.data, counts.rows, fleetMap, qMap, leadMap, review],
-  );
-  const agents = useMemo(() => new Map(counts.rows.map((r) => [r.agent.ref, r.agent])), [counts.rows]);
-  return { model, loaded: counts.loaded && !!projects.data, agents, review, fleets: fleetMap };
 }
 
 // modelOf is the model a chat runs on, as its menu names it.

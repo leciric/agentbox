@@ -704,6 +704,11 @@ type Settings struct {
 	// the tests of what it changed to run instead, unless its project allows
 	// them (Project.FullTestSuite). Experimental, off unless turned on.
 	BlockFullSuite bool `json:"blockFullSuite"`
+	// CockpitMode says whether the desktop app's top bar offers cockpit
+	// mode: every project's lead in one feed beside a live wall of every
+	// agent, and one project's agent on a big stage. Experimental, off unless
+	// turned on.
+	CockpitMode bool `json:"cockpitMode"`
 	// VMGPU is the GPU AgentBox's VM has to give agents.
 	VMGPU VMGPU `json:"vmGPU"`
 	// ErrorReports says whether the app sends a report of each uncaught error
@@ -938,6 +943,8 @@ type UpdateSettingsRequest struct {
 	AgentGPU *bool `json:"agentGPU,omitempty"`
 	// BlockFullSuite turns refusing agents' whole test suites on or off.
 	BlockFullSuite *bool `json:"blockFullSuite,omitempty"`
+	// CockpitMode turns offering cockpit mode on or off.
+	CockpitMode *bool `json:"cockpitMode,omitempty"`
 	// ErrorReports turns automatic error reports on or off.
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.

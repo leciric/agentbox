@@ -2160,7 +2160,10 @@
     "query": "app=project&pins=storefront&sections=1&theme=dark",
     "width": 1280,
     "height": 900,
-    "click": ["[data-v2-section=work] [aria-haspopup=menu]", "[data-v2-section-colour-menu]"]
+    "click": [
+      "[data-v2-section=work] [aria-haspopup=menu]",
+      "[data-v2-section-colour-menu]"
+    ]
   },
   {
     "id": "window-v2-sections-edit-dark",
@@ -2168,7 +2171,10 @@
     "query": "app=project&pins=storefront&sections=1&theme=dark",
     "width": 1280,
     "height": 900,
-    "click": ["[data-v2-section=work] [aria-haspopup=menu]", "[data-v2-edit-section-item]"]
+    "click": [
+      "[data-v2-section=work] [aria-haspopup=menu]",
+      "[data-v2-edit-section-item]"
+    ]
   },
   {
     "id": "window-v2-sections-tooltip-light",
@@ -3079,5 +3085,47 @@
     "height": 900,
     "wait": 1500,
     "hover": "[data-busy=\"host\"]"
+  },
+  {
+    "id": "window-cockpit-all-3440",
+    "description": "Cockpit mode at 3440×1440, every project: the filter and what needs you, the leads' feed, the wall of agents — dark",
+    "query": "app=cockpit&theme=dark",
+    "width": 3440,
+    "height": 1440
+  },
+  {
+    "id": "window-cockpit-focus-3440",
+    "description": "Cockpit mode at 3440×1440, focused on Storefront: its lead, agent-4 on the stage, the rest in the strip — dark",
+    "query": "app=cockpit&theme=dark&click=[data-cockpit-tile=\"storefront/agent-4\"]",
+    "width": 3440,
+    "height": 1440
+  },
+  {
+    "id": "window-cockpit-all-5120",
+    "description": "Cockpit mode at 5120×1440, every project: the filter and what needs you, the leads' feed, the wall of agents — dark",
+    "query": "app=cockpit&theme=dark",
+    "width": 5120,
+    "height": 1440
+  },
+  {
+    "id": "window-cockpit-focus-5120",
+    "description": "Cockpit mode at 5120×1440, focused on Storefront: its lead, agent-4 on the stage, the rest in the strip — dark",
+    "query": "app=cockpit&theme=dark&click=[data-cockpit-tile=\"storefront/agent-4\"]",
+    "width": 5120,
+    "height": 1440
+  },
+  {
+    "id": "window-cockpit-all-2560",
+    "description": "Cockpit mode at 2560×1440, every project: the filter and what needs you, the leads' feed, the wall of agents — dark",
+    "query": "app=cockpit&theme=dark",
+    "width": 2560,
+    "height": 1440
+  },
+  {
+    "id": "window-cockpit-focus-2560",
+    "description": "Cockpit mode at 2560×1440, focused on Storefront: its lead, agent-4 on the stage, the rest in the strip — dark",
+    "query": "app=cockpit&theme=dark&click=[data-cockpit-tile=\"storefront/agent-4\"]",
+    "width": 2560,
+    "height": 1440
   }
 ]
