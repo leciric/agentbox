@@ -58,6 +58,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'notifications', group: 'settings.group.notifications.title', id: 'notify-dnd', label: 'notify.dnd.title', keywords: 'notify.dnd.keywords' },
   { section: 'notifications', group: 'settings.group.notifications.title', id: 'notify-kinds', label: 'settings.entry.notify-kinds.label', keywords: 'settings.entry.notify-kinds.keywords' },
   { section: 'notifications', group: 'settings.group.notifications.title', id: 'notify-volume', label: 'settings.reviewSound.volume', keywords: 'settings.entry.review-sound.keywords' },
+  { section: 'experimental', group: 'settings.group.experimental-ui.title', id: 'cockpit-mode', label: 'settings.entry.cockpit-mode.label', keywords: 'settings.entry.cockpit-mode.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-tests.title', id: 'block-full-suite', label: 'settings.entry.block-full-suite.label', keywords: 'settings.entry.block-full-suite.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'idle-reclaim', label: 'settings.idleReclaim.label', keywords: 'settings.entry.idle-reclaim.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'agent-freeze', label: 'settings.entry.agent-freeze.label', keywords: 'settings.entry.agent-freeze.keywords' },

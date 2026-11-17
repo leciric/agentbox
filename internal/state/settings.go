@@ -248,6 +248,10 @@ const (
 	// project allows them (Project.FullTestSuite). Experimental: off until
 	// somebody turns it on (Flag).
 	SettingBlockFullSuite = "block_full_suite"
+	// SettingCockpitMode says whether the desktop app offers cockpit mode, a
+	// view of every project's lead and agent at once for very wide screens.
+	// Experimental: off until somebody turns it on (Flag).
+	SettingCockpitMode = "cockpit_mode"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a

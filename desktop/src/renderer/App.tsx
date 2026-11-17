@@ -84,6 +84,7 @@ import { WorkPage } from "./components/WorkView";
 import { RecapView } from "./components/RecapView";
 import type { WorkFilter } from "./lib/work";
 import { OfficeView } from "./components/office/OfficeView";
+import { CockpitView, isCockpitEscape } from "./components/cockpit/CockpitView";
 
 export type View =
   | { kind: "home" }
@@ -104,7 +105,10 @@ export type View =
   // A group of agents given one task, side by side (components/groups).
   | { kind: "group"; id: string }
   // The Office (lib/uiOffice.ts): a 3D room with a desk for every agent.
-  | { kind: "office" };
+  | { kind: "office" }
+  // Cockpit mode (components/cockpit), experimental behind
+  // Settings.cockpitMode: every project's lead and agent at once.
+  | { kind: "cockpit" };
 
 // initial is the view the app opens on: Home, except in the dev preview
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
@@ -116,6 +120,8 @@ export function App({ initial }: { initial?: View } = {}) {
   useEffect(() => startPresence(), []);
   usePresence(presenceOf(view));
   const beforeOffice = useRef<View>({ kind: "home" });
+  // Where cockpit mode was entered from, which leaving it returns to.
+  const beforeCockpit = useRef<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   // "clone" opens the dialog on its Clone from link tab.
   const [addingProject, setAddingProject] = useState<boolean | "clone">(false);
@@ -223,11 +229,15 @@ export function App({ initial }: { initial?: View } = {}) {
     [queryClient],
   );
 
-  const select = (next: View) => {
+  // back: going back to a view (Settings' Back, leaving the cockpit) rather
+  // than into it, which keeps where the Office's and the cockpit's own ways
+  // back go.
+  const select = (next: View, { back = false }: { back?: boolean } = {}) => {
     setSettingsLink(undefined);
     // The Office covers the window; its Back returns to where you were.
     // (Coming back to it from a page it opened keeps where you were before.)
-    if (next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
+    if (!back && next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
+    if (!back && next.kind === "cockpit" && view.kind !== "cockpit") beforeCockpit.current = view;
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
     const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
@@ -245,6 +255,26 @@ export function App({ initial }: { initial?: View } = {}) {
     setView(next);
     setNavOpen(false);
   };
+
+  // Cockpit mode: the top bar's button goes in and out of it, and Escape
+  // leaves it, back to where it was entered from. Turned off in Settings
+  // meanwhile, it leaves too.
+  const cockpitOn = appSettings.data?.cockpitMode === true;
+  const leaveCockpit = () => select(beforeCockpit.current.kind === "cockpit" ? { kind: "home" } : beforeCockpit.current, { back: true });
+  const leaveCockpitRef = useRef(leaveCockpit);
+  leaveCockpitRef.current = leaveCockpit;
+  const inCockpit = view.kind === "cockpit";
+  useEffect(() => {
+    if (!inCockpit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isCockpitEscape(e)) leaveCockpitRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inCockpit]);
+  useEffect(() => {
+    if (inCockpit && appSettings.data && !appSettings.data.cockpitMode) leaveCockpitRef.current();
+  }, [inCockpit, appSettings.data]);
 
   // A group's card in a lead chat, or its chip, opens the Compare view.
   const selectRef = useRef(select);
@@ -272,7 +302,7 @@ export function App({ initial }: { initial?: View } = {}) {
   const beforeSettings = useRef<View>({ kind: "home" });
   if (view.kind !== "settings") beforeSettings.current = view;
   useEffect(() => {
-    const close = () => select(beforeSettings.current);
+    const close = () => select(beforeSettings.current, { back: true });
     window.addEventListener(closeSettingsEvent, close);
     return () => window.removeEventListener(closeSettingsEvent, close);
   });
@@ -624,7 +654,7 @@ export function App({ initial }: { initial?: View } = {}) {
   const navDocksAtXl = panelBeside;
   const shell = (
     <div className="flex h-full">
-      <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
+      <div className={cn("hidden", !inCockpit && (navDocksAtXl ? "xl:flex" : "lg:flex"))}>
         <SidebarV2
           view={view}
           onSelect={select}
@@ -659,9 +689,10 @@ export function App({ initial }: { initial?: View } = {}) {
           machine={firstRun || machineRun.state === "idle" ? undefined : machine}
           view={view}
           onSelect={select}
-          onOpenNav={() => setNavOpen(true)}
+          onOpenNav={inCockpit ? undefined : () => setNavOpen(true)}
           navDocksAtXl={navDocksAtXl}
           onSearch={() => openSearch()}
+          cockpit={cockpitOn || inCockpit ? { on: inCockpit, toggle: () => (inCockpit ? leaveCockpit() : select({ kind: "cockpit" })) } : undefined}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -743,6 +774,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
+                {view.kind === "cockpit" && <CockpitView onSelect={select} />}
                 {view.kind === "office" && <OfficeView onSelect={select} onBack={() => select(beforeOffice.current.kind === "office" ? { kind: "home" } : beforeOffice.current)} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <MediaView heading onSelect={select} />}
@@ -773,7 +805,7 @@ export function App({ initial }: { initial?: View } = {}) {
           </main>
           {/* The right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {!fullPage && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
+          {!fullPage && !inCockpit && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
         </div>
       </div>
       <AddProjectDialog

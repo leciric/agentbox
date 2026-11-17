@@ -190,8 +190,9 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         {/* Keeps your mouse and keyboard away from the browser until you take control. */}
         {connected && !pointer && <div className="absolute inset-0" data-view-guard />}
         {standIn ? (
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full">{standIn(agent)}</div>
+          // Fits the screen whole, as the live view does.
+          <div className="absolute inset-0 flex items-center justify-center [container-type:size]">
+            <div className="w-[min(100cqw,160cqh)]">{standIn(agent)}</div>
           </div>
         ) : !desktopUp && (
           <div className="absolute inset-0 flex items-center justify-center">

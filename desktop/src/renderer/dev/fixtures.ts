@@ -1868,6 +1868,7 @@ let defaultsSettings = {
   usageStats: true,
   agentGPU: false,
   blockFullSuite: false,
+  cockpitMode: false,
   // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
   // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
   // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
@@ -1945,6 +1946,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.lastAgentPick !== undefined) next.lastAgentPick = req.lastAgentPick;
   if (req.mergeWhenGreen !== undefined) next.mergeWhenGreen = req.mergeWhenGreen;
   if (req.firstRunDone) next.firstRun = false;
+  if (req.cockpitMode !== undefined) next.cockpitMode = req.cockpitMode;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultLeadEffort !== undefined) next.defaultLeadEffort = req.defaultLeadEffort;
@@ -2017,6 +2019,12 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   // that is the same object it already holds.
   defaultsSettings = next;
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+}
+
+// setCockpitMode turns cockpit mode on or off in the fixture's settings
+// (?app=cockpit, &cockpit=1).
+export function setCockpitMode(on: boolean): void {
+  defaultsSettings = { ...defaultsSettings, cockpitMode: on };
 }
 
 // seedDefaults puts defaultsSettings where the Settings components read them.
@@ -2619,7 +2627,7 @@ export function installDevBridge(): void {
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/github/repos' && firstRunRepos) return { status: 200, body: JSON.stringify(firstRunRepos), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/doctor' && firstRunDoctor) return { status: 200, body: JSON.stringify(firstRunDoctor), contentType: 'application/json' };
-      if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/settings' && (defaultsSettings.claudeCodeUpdate || defaultsSettings.cockpitMode)) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
       const sessions = sessionsRequest(method, path, body);

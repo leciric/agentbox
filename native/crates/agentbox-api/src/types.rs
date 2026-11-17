@@ -445,6 +445,8 @@ pub struct Settings {
     pub agent_gpu: bool,
     #[serde(rename = "blockFullSuite")]
     pub block_full_suite: bool,
+    #[serde(rename = "cockpitMode")]
+    pub cockpit_mode: bool,
     #[serde(rename = "vmGPU")]
     pub vm_gpu: VMGPU,
     #[serde(rename = "errorReports")]
@@ -633,6 +635,8 @@ pub struct UpdateSettingsRequest {
     pub agent_gpu: Option<bool>,
     #[serde(rename = "blockFullSuite", skip_serializing_if = "Option::is_none")]
     pub block_full_suite: Option<bool>,
+    #[serde(rename = "cockpitMode", skip_serializing_if = "Option::is_none")]
+    pub cockpit_mode: Option<bool>,
     #[serde(rename = "errorReports", skip_serializing_if = "Option::is_none")]
     pub error_reports: Option<bool>,
     #[serde(rename = "prWatch", skip_serializing_if = "Option::is_none")]
