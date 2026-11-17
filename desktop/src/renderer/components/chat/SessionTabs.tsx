@@ -328,7 +328,9 @@ export function SessionTabs({
               aria-expanded={open}
               aria-label={t('sessions.group.label', { name, count: members.length })}
               title={tight >= 2 ? name : undefined}
-              tabIndex={here && g.collapsed ? -1 : 0}
+              // Always reachable from the keyboard, the group of the session
+              // on screen too: its menu holds the group's own controls.
+              tabIndex={0}
               data-session-group-button={g.id}
               data-drop-kind="group"
               data-drop-id={g.id}
@@ -355,7 +357,7 @@ export function SessionTabs({
               {g.collapsed ? <ChevronDown className="size-3 text-subtle" /> : <ChevronRight className="size-3 text-subtle" />}
             </button>
           </PopoverAnchor>
-          <PopoverContent align="start" className="w-72 p-1" data-session-group-menu={g.id} onOpenAutoFocus={(e) => menu?.editing || e.preventDefault()}>
+          <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-72 overflow-y-auto p-1" data-session-group-menu={g.id} onOpenAutoFocus={(e) => menu?.editing || e.preventDefault()}>
             <GroupMenu
               group={g}
               sessions={members}

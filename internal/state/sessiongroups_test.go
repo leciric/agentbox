@@ -115,9 +115,13 @@ func TestSessionGroups(t *testing.T) {
 		t.Errorf("updating a group that isn't there = %v", err)
 	}
 
-	// b joins ui, last; pinned a can't; moving e out empties docs, which goes.
+	// b joins ui, last, though it opened before c and d and no tab was ever
+	// dragged; pinned a can't; moving e out empties docs, which goes.
 	if err := st.SetLeadSessionGroup(ctx, "web", "b", ui.ID); err != nil {
 		t.Fatal(err)
+	}
+	if got := tabIDs(t, st, "web"); !slices.Equal(got, []string{"a", "e", "c", "d", "b"}) {
+		t.Errorf("tabs, b moved into ui = %v", got)
 	}
 	if err := st.SetLeadSessionGroup(ctx, "web", "a", ui.ID); err == nil {
 		t.Error("a pinned session joined a group")

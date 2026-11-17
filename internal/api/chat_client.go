@@ -153,6 +153,13 @@ func (c *Client) OrderLeadSessionGroups(ctx context.Context, project string, ids
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/session-groups/order", LeadSessionGroupOrder{IDs: ids}, &out)
 }
 
+// PatchLeadSession changes a session as patch says: its topic, its pin, its
+// tab group, or several at once, all or none.
+func (c *Client) PatchLeadSession(ctx context.Context, project, session string, patch LeadSessionPatch) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), patch, &out)
+}
+
 // GroupLeadSession moves a session into a tab group, or with "" out of one.
 func (c *Client) GroupLeadSession(ctx context.Context, project, session, group string) (LeadSession, error) {
 	var out LeadSession

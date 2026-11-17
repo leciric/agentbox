@@ -16,6 +16,7 @@ import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
 import { SESSION_COLORS, sessionsSettled, sortTabs } from '../lib/sessions';
+import { withGroup } from '../lib/tabGroups';
 
 export const PROJECT = 'agentbox';
 
@@ -3164,6 +3165,8 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     if (method === 'DELETE') {
       groupsByProject.set(project, devGroups(project).filter((g) => g.id !== id));
       sessionsByProject.set(project, tabsOrder(devSessions(project).map((x) => (x.group === id ? { ...x, group: undefined } : x)), project));
+      // The closed ones leave it too, so the history doesn't name it.
+      closedByProject.set(project, closedOf(project).map((x) => (x.group === id ? { ...x, group: undefined } : x)));
       return { status: 204, body: '', contentType: 'application/json' };
     }
     const patch = body as T.LeadSessionGroupPatch;
@@ -3184,19 +3187,21 @@ function sessionsRequest(method: string, path: string, body: unknown) {
   if (one && method === 'PATCH') {
     const [project, id] = [decodeURIComponent(one[1]), decodeURIComponent(one[2])];
     const { topic, pinned, group } = body as T.LeadSessionPatch;
-    const next = tabsOrder(
+    const changed = tabsOrder(
       devSessions(project).map((x) =>
         x.id === id
           ? {
               ...x,
               ...(topic ? { topic, untitled: false } : {}),
               ...(pinned !== undefined ? { pinned, group: pinned ? undefined : x.group } : {}),
-              ...(group !== undefined && !x.pinned ? { group: group || undefined } : {}),
             }
           : x,
       ),
       project,
     );
+    // Moved into a group or out of one, it goes last of its new lot, as the
+    // daemon puts it (lib/tabGroups withGroup).
+    const next = group !== undefined && changed.find((x) => x.id === id)?.group !== (group || undefined) ? withGroup(changed, id, group, devGroups(project)) : changed;
     sessionsByProject.set(project, next);
     dropEmptyGroups(project);
     return json(next.find((x) => x.id === id));

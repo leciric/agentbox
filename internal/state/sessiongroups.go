@@ -267,6 +267,13 @@ func (s *Store) SetLeadSessionGroup(ctx context.Context, project, id, group stri
 			}
 			return err
 		}
+		// Moved in by hand, it goes last of the group's tabs: while the tabs
+		// were never dragged, all at 0 and in the order they opened, that
+		// order is written down first, or one opened earlier would sort
+		// before the group's own.
+		if err := numberTabs(ctx, tx, project); err != nil {
+			return err
+		}
 		if err := joinSessionGroup(ctx, tx, project, id, group); err != nil {
 			return err
 		}
@@ -275,6 +282,23 @@ func (s *Store) SetLeadSessionGroup(ctx context.Context, project, id, group stri
 		return err
 	}
 	return tx.Commit()
+}
+
+// numberTabs gives a chat's open sessions the tab order they have, by when
+// they opened, while none has one of its own (lastTab).
+func numberTabs(ctx context.Context, tx *sql.Tx, project string) error {
+	var ordered bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM lead_sessions WHERE project = ? AND closed_at = 0 AND tab_order > 0)`, project).Scan(&ordered); err != nil {
+		return err
+	}
+	if ordered {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE lead_sessions SET tab_order = (
+		SELECT count(*) FROM lead_sessions o WHERE o.project = lead_sessions.project AND o.closed_at = 0
+			AND (o.created_at, o.id) <= (lead_sessions.created_at, lead_sessions.id))
+		WHERE project = ? AND closed_at = 0`, project)
+	return err
 }
 
 // joinSessionGroup puts an open, unpinned session in group, after the tabs

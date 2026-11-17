@@ -219,6 +219,29 @@ func TestSessionTabGroups(t *testing.T) {
 	if err != nil || opened.Group != ui.ID {
 		t.Errorf("a session opened in the group = %+v, %v", opened, err)
 	}
+	// A session asked for in a group that isn't there isn't opened loose.
+	before, err := d.client.LeadSessions(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{Group: "nope"}); err == nil {
+		t.Errorf("a session was opened in a group that isn't there: %+v", s)
+	}
+	if after, err := d.client.LeadSessions(ctx, "hello-stack"); err != nil || len(after) != len(before) {
+		t.Errorf("sessions after the refused open = %d, %v; want %d", len(after), err, len(before))
+	}
+	// Pinning and joining at once is refused whole: the pin isn't kept.
+	pin, into := true, ui.ID
+	if _, err := d.client.PatchLeadSession(ctx, "hello-stack", ids[1], api.LeadSessionPatch{Pinned: &pin, Group: &into}); err == nil {
+		t.Error("a session was pinned into a group")
+	}
+	if list, err := d.client.LeadSessions(ctx, "hello-stack"); err == nil {
+		for _, s := range list {
+			if s.ID == ids[1] && (s.Pinned || s.Group != "") {
+				t.Errorf("the refused patch left %+v", s)
+			}
+		}
+	}
 	docs, err := d.client.NewLeadSessionGroup(ctx, "hello-stack", api.NewLeadSessionGroup{Sessions: []string{ids[1]}})
 	if err != nil {
 		t.Fatal(err)

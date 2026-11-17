@@ -423,6 +423,13 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 			req.Topic = src.Topic
 		}
 	}
+	// A tab group to open it in must be there first: a session opened loose
+	// for want of it would be a session the caller didn't ask for.
+	if req.Group != "" {
+		if _, err := s.store.SessionGroup(r.Context(), project, req.Group); err != nil {
+			return err
+		}
+	}
 	// Asked before the new one exists, which would be the most recent.
 	from := req.From
 	if from == "" {
@@ -447,7 +454,12 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.Group != "" {
 		if err := s.store.SetLeadSessionGroup(r.Context(), project, ls.ID, req.Group); err != nil {
-			s.logf("opening %s's %s session in tab group %s: %v", project, ls.ID, req.Group, err)
+			// The group went meanwhile: take back the session, which nothing
+			// has written to yet.
+			if _, derr := s.store.DeleteLeadSession(r.Context(), project, ls.ID); derr != nil {
+				s.logf("taking back %s's %s session, not opened in tab group %s: %v", project, ls.ID, req.Group, derr)
+			}
+			return err
 		}
 	}
 	if src.ID != "" {
@@ -569,6 +581,27 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.Topic == "" && req.Pinned == nil && req.Group == nil {
 		return errors.New("a session's change is a topic, a pin or a tab group")
+	}
+	// What can refuse is checked before anything is written, so a refused
+	// patch changes nothing: a pinned session joins no group.
+	if req.Group != nil && *req.Group != "" {
+		ls, err := s.store.LeadSession(r.Context(), project, id)
+		if err != nil {
+			return err
+		}
+		pinned := ls.Pinned
+		if req.Pinned != nil {
+			pinned = *req.Pinned
+		}
+		if pinned {
+			return fmt.Errorf("session %s of %s is pinned: a pinned session can't join a tab group, unpin it first", id, project)
+		}
+		if ls.Closed() {
+			return fmt.Errorf("session %s of %s is closed: reopen it first", id, project)
+		}
+		if _, err := s.store.SessionGroup(r.Context(), project, *req.Group); err != nil {
+			return err
+		}
 	}
 	if req.Topic != "" {
 		if err := s.store.RenameLeadSession(r.Context(), project, id, req.Topic); err != nil {
