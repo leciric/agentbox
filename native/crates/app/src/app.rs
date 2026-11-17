@@ -13,6 +13,7 @@ use gpui_component::{h_flex, v_flex};
 mod add_project;
 pub(crate) mod agent;
 mod alerts;
+mod cockpit;
 pub use alerts::initial_bounds;
 mod agent_settings;
 pub(crate) mod agent_status;
@@ -141,6 +142,8 @@ pub struct AppView {
     /// and whether it's open over the window now.
     office: Option<Entity<crate::office::OfficeView>>,
     office_open: bool,
+    /// Cockpit mode (cockpit.rs): over the page and the panel while open.
+    cockpit: cockpit::Cockpit,
     /// The review, over everything, while it's open.
     review: Option<Entity<review::ReviewView>>,
     /// The open project's pull requests, and the one open over the window.
@@ -183,6 +186,7 @@ impl AppView {
             || self.work.is_some()
             || self.media_open()
             || self.office_open
+            || self.cockpit.open
             || self.first_run_open()
             || self.onboarding_open()
     }
@@ -247,6 +251,7 @@ impl AppView {
             work: None,
             office: None,
             office_open: false,
+            cockpit: Default::default(),
             review: None,
             pulls,
             toasts: crate::toasts::init(cx),
@@ -487,9 +492,11 @@ impl AppView {
             return;
         }
         let client = self.client.clone();
-        cx.spawn_in(window, async move |_, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if let Ok(s) = client.get::<agentbox_api::Settings>("/v1/settings").await {
                 agentbox_i18n::set_language(&s.language);
+                this.update(cx, |this, _| this.cockpit.offered = s.cockpit_mode)
+                    .ok();
                 cx.update(|window, _| window.refresh()).ok();
             }
         })
@@ -596,6 +603,11 @@ impl AppView {
                             // AGENTBOX_NATIVE_OFFICE=1 opens the Office at start (checks, recordings).
                             if std::env::var_os("AGENTBOX_NATIVE_OFFICE").is_some() {
                                 this.open_office(window, cx);
+                            }
+                            // AGENTBOX_NATIVE_COCKPIT=1 opens cockpit mode at start;
+                            // =<project> or =<project>/<agent> focused there.
+                            if let Ok(at) = std::env::var("AGENTBOX_NATIVE_COCKPIT") {
+                                this.open_cockpit_at(&at, window, cx);
                             }
                         }
                     }
@@ -1351,6 +1363,12 @@ impl Render for AppView {
                 .child(self.toasts.clone())
                 .into_any_element();
         }
+        // Cockpit mode, turned off in Settings while open, closes.
+        if self.cockpit.open && !self.cockpit_offered() {
+            self.leave_cockpit(cx);
+        }
+        let cockpit_open = self.cockpit.open;
+        let cockpit = cockpit_open.then(|| self.render_cockpit(window, cx));
         let overlay = self.render_new_task(cx);
         let full_page = self.cut_off() || self.first_run_open();
         let lead_view = self.open == "lead"
@@ -1449,6 +1467,15 @@ impl Render for AppView {
                 // confirmation, a popover.
                 if ev.keystroke.key == "escape" && this.dismiss_top(cx) {
                     cx.stop_propagation();
+                } else if ev.keystroke.key == "escape"
+                    && !ev.keystroke.modifiers.modified()
+                    && this.cockpit.open
+                {
+                    // Escape leaves cockpit mode, back where it was entered
+                    // (a terminal's or a controlled desktop's own keys stop
+                    // before here).
+                    this.leave_cockpit(cx);
+                    cx.stop_propagation();
                 }
                 // Ctrl+D opens the panel on the agents' list, and folds it
                 // when it's there (panel_shortcut; a terminal's or a
@@ -1481,7 +1508,7 @@ impl Render for AppView {
                         cx.listener(|this, _: &MouseUpEvent, _, cx| this.drag_end(cx)),
                     )
             })
-            .when(self.sidebar_docked(), |el| {
+            .when(self.sidebar_docked() && !self.cockpit.open, |el| {
                 el.child(self.render_sidebar(cx))
             })
             // TopBar over the page and the panel, as Electron's shell.
@@ -1491,139 +1518,145 @@ impl Render for AppView {
                     .min_w_0()
                     .h_full()
                     .child(self.render_top_bar(cx))
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .h_full()
-                                    .when(!self.connected && self.conn.answered, |el| {
-                                        el.child(self.render_offline_notice())
-                                    })
-                                    .when_some(
-                                        self.render_stale_notice(cx).filter(|_| self.connected),
-                                        |el, notice| el.child(notice),
-                                    )
-                                    .when(
-                                        !self.settings
-                                            && self.work.is_none()
-                                            && self.side.page.is_none()
-                                            && self.chat.is_some()
-                                            && !full_page,
-                                        |el| {
-                                            el.children(self.render_agent_header(cx))
-                                                .children(self.render_past_header(cx))
-                                                .children(self.render_machine_bar(cx))
-                                                .when(!lead_view, |el| {
-                                                    el.children(self.render_session_tabs(cx)).when(
-                                                        !no_session,
-                                                        |el| {
-                                                            el.children(
-                                                                self.render_session_header(cx),
-                                                            )
-                                                        },
-                                                    )
-                                                })
-                                        },
-                                    )
-                                    .child(
-                                        self.lead_frame(
-                                            lead_view,
-                                            no_session,
-                                            div()
-                                                .relative()
-                                                .flex_1()
-                                                .min_h_0()
-                                                // A page taking another's place fades
-                                                // up (Electron's animate-fade-in per view).
-                                                .child(crate::motion::fade_in(
-                                                    div().size_full().child(match &self.chat {
-                                                        _ if self.cut_off() => {
-                                                            self.render_unreachable(cx)
-                                                        }
-                                                        _ if self.first_run_open() => {
-                                                            self.render_first_run(cx)
-                                                        }
-                                                        _ if self.settings => {
-                                                            self.render_settings(cx)
-                                                        }
-                                                        _ if self.work.is_some() => {
-                                                            self.render_work(cx)
-                                                        }
-                                                        _ if self.side.page.is_some() => {
-                                                            self.render_foot_page(cx)
-                                                        }
-                                                        Some(_)
-                                                            if lead_view
-                                                                && self.sessions.history =>
-                                                        {
-                                                            self.render_history(cx)
-                                                        }
-                                                        Some(_) if no_session => {
-                                                            self.render_no_session(cx)
-                                                        }
-                                                        Some(_)
-                                                            if self.open != "lead"
-                                                                && self.agent.page
-                                                                    == Some(
-                                                                        agent::Page::Snapshots,
-                                                                    ) =>
-                                                        {
-                                                            self.render_snapshots(cx)
-                                                        }
-                                                        Some(_)
-                                                            if self.open != "lead"
-                                                                && self.agent.page
-                                                                    == Some(
-                                                                        agent::Page::Settings,
-                                                                    ) =>
-                                                        {
-                                                            self.render_agent_settings(cx)
-                                                        }
-                                                        Some(chat) => {
-                                                            chat.clone().into_any_element()
-                                                        }
-                                                        None => div()
-                                                            .size_full()
-                                                            .flex()
-                                                            .items_center()
-                                                            .justify_center()
-                                                            .text_color(theme::faint())
-                                                            .when(self.projects.is_empty(), |el| {
-                                                                el.child(t(
+                    .when_some(cockpit, |el, c| {
+                        el.child(div().flex_1().min_h_0().min_w_0().child(c))
+                    })
+                    .when(!cockpit_open, |el| {
+                        el.child(
+                            h_flex()
+                                .flex_1()
+                                .min_h_0()
+                                .min_w_0()
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .h_full()
+                                        .when(!self.connected && self.conn.answered, |el| {
+                                            el.child(self.render_offline_notice())
+                                        })
+                                        .when_some(
+                                            self.render_stale_notice(cx).filter(|_| self.connected),
+                                            |el, notice| el.child(notice),
+                                        )
+                                        .when(
+                                            !self.settings
+                                                && self.work.is_none()
+                                                && self.side.page.is_none()
+                                                && self.chat.is_some()
+                                                && !full_page,
+                                            |el| {
+                                                el.children(self.render_agent_header(cx))
+                                                    .children(self.render_past_header(cx))
+                                                    .children(self.render_machine_bar(cx))
+                                                    .when(!lead_view, |el| {
+                                                        el.children(self.render_session_tabs(cx))
+                                                            .when(!no_session, |el| {
+                                                                el.children(
+                                                                    self.render_session_header(cx),
+                                                                )
+                                                            })
+                                                    })
+                                            },
+                                        )
+                                        .child(
+                                            self.lead_frame(
+                                                lead_view,
+                                                no_session,
+                                                div()
+                                                    .relative()
+                                                    .flex_1()
+                                                    .min_h_0()
+                                                    // A page taking another's place fades
+                                                    // up (Electron's animate-fade-in per view).
+                                                    .child(crate::motion::fade_in(
+                                                        div().size_full().child(match &self.chat {
+                                                            _ if self.cut_off() => {
+                                                                self.render_unreachable(cx)
+                                                            }
+                                                            _ if self.first_run_open() => {
+                                                                self.render_first_run(cx)
+                                                            }
+                                                            _ if self.settings => {
+                                                                self.render_settings(cx)
+                                                            }
+                                                            _ if self.work.is_some() => {
+                                                                self.render_work(cx)
+                                                            }
+                                                            _ if self.side.page.is_some() => {
+                                                                self.render_foot_page(cx)
+                                                            }
+                                                            Some(_)
+                                                                if lead_view
+                                                                    && self.sessions.history =>
+                                                            {
+                                                                self.render_history(cx)
+                                                            }
+                                                            Some(_) if no_session => {
+                                                                self.render_no_session(cx)
+                                                            }
+                                                            Some(_)
+                                                                if self.open != "lead"
+                                                                    && self.agent.page
+                                                                        == Some(
+                                                                            agent::Page::Snapshots,
+                                                                        ) =>
+                                                            {
+                                                                self.render_snapshots(cx)
+                                                            }
+                                                            Some(_)
+                                                                if self.open != "lead"
+                                                                    && self.agent.page
+                                                                        == Some(
+                                                                            agent::Page::Settings,
+                                                                        ) =>
+                                                            {
+                                                                self.render_agent_settings(cx)
+                                                            }
+                                                            Some(chat) => {
+                                                                chat.clone().into_any_element()
+                                                            }
+                                                            None => div()
+                                                                .size_full()
+                                                                .flex()
+                                                                .items_center()
+                                                                .justify_center()
+                                                                .text_color(theme::faint())
+                                                                .when(
+                                                                    self.projects.is_empty(),
+                                                                    |el| {
+                                                                        el.child(t(
                                                                     "shell.sidebar.addFirst",
                                                                 ))
-                                                            })
-                                                            .into_any_element(),
-                                                    }),
-                                                    page_key,
-                                                ))
-                                                .children(self.render_media_viewer(cx)),
-                                            cx,
+                                                                    },
+                                                                )
+                                                                .into_any_element(),
+                                                        }),
+                                                        page_key,
+                                                    ))
+                                                    .children(self.render_media_viewer(cx)),
+                                                cx,
+                                            ),
                                         ),
-                                    ),
-                            )
-                            // Home has no panel (its agents are its Status tab).
-                            // Nor have Settings, Media, Jobs or everyone's Work
-                            // (chatOf: a project's page or an agent's only);
-                            // an agent's panel beside them was just in the way.
-                            .when(
-                                !full_page
-                                    && !self.is_home()
-                                    && self.project.is_some()
-                                    && !self.settings
-                                    && self.side.page.is_none()
-                                    && self
-                                        .work
-                                        .as_ref()
-                                        .is_none_or(|w| !w.read(cx).project().is_empty()),
-                                |el| el.child(self.render_panel(cx)),
-                            ),
-                    ),
+                                )
+                                // Home has no panel (its agents are its Status tab).
+                                // Nor have Settings, Media, Jobs or everyone's Work
+                                // (chatOf: a project's page or an agent's only);
+                                // an agent's panel beside them was just in the way.
+                                .when(
+                                    !full_page
+                                        && !self.is_home()
+                                        && self.project.is_some()
+                                        && !self.settings
+                                        && self.side.page.is_none()
+                                        && self
+                                            .work
+                                            .as_ref()
+                                            .is_none_or(|w| !w.read(cx).project().is_empty()),
+                                    |el| el.child(self.render_panel(cx)),
+                                ),
+                        )
+                    }),
             )
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
