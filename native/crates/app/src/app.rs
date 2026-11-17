@@ -375,20 +375,28 @@ impl AppView {
                     Some(c) => c.read(cx).shown_state(&chat_ev.agent, s),
                     None => s.state.clone(),
                 });
-                if let Some(state) = &state
-                    && self.side.apply_agent(&chat_ev.agent, None, Some(state))
-                {
-                    self.check_agents(cx);
-                    cx.notify();
-                }
                 if let Some(state) = &state {
+                    let was = self.side.chat_of(&chat_ev.agent).map(str::to_string);
+                    if self.side.apply_agent(&chat_ev.agent, None, Some(state)) {
+                        self.check_agents(cx);
+                        cx.notify();
+                    }
                     // A lead session's own state, before the daemon's next
                     // read of where its sessions stand.
                     self.apply_session_chat(&chat_ev.agent, state, cx);
-                    // An agent's chat working is what the rail shows as busy.
-                    if let Some(a) = self.fleet.iter_mut().find(|a| a.r#ref == chat_ev.agent) {
-                        a.busy = state == "running";
+                    // The project rail's copy of the agent: its chat state
+                    // (what its row says, "Needs you" until the request is
+                    // answered) and whether its chat is working (busy).
+                    let mut moved = was.is_some_and(|w| w != *state);
+                    if agent_status::apply_chat_state(&mut self.fleet, &chat_ev.agent, state) {
+                        moved = true;
                         cx.notify();
+                    }
+                    // The tray reads the daemon, which already knows: read it
+                    // again when an agent's chat moves (a request waiting,
+                    // answered), not for every streamed event.
+                    if moved {
+                        self.tray_soon();
                     }
                 }
                 // A lead's message changes its project's line in the sidebar,

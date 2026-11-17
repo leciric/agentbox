@@ -223,6 +223,14 @@ impl Sidebar {
             .collect()
     }
 
+    /// chat_of is where the sidebar has an agent's chat, if it knows the agent.
+    pub fn chat_of(&self, r#ref: &str) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|a| a.r#ref == r#ref)
+            .map(|a| a.chat.as_str())
+    }
+
     /// apply_agent keeps an agent's state and chat state current from events.
     pub fn apply_agent(&mut self, r#ref: &str, state: Option<&str>, chat: Option<&str>) -> bool {
         let Some(a) = self.agents.iter_mut().find(|a| a.r#ref == r#ref) else {
