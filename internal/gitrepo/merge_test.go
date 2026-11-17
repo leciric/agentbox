@@ -100,3 +100,30 @@ func TestMergeRefusesACheckoutWithChangesButMovesABaseCheckedOutNowhere(t *testi
 		t.Error("main didn't move")
 	}
 }
+
+// Two merges into one branch at once both land: the second reads where the
+// first left it rather than racing it.
+func TestMergesIntoOneBranchTakeTurns(t *testing.T) {
+	testutil.GitEnv(t)
+	repo, wt := localRepo(t)
+	wt2 := filepath.Join(t.TempDir(), "wt2")
+	testutil.Git(t, repo.Root, "worktree", "add", "-q", "-b", "agentbox/b", wt2)
+	commit(t, wt, "a2.txt", "a\n", "a")
+	commit(t, wt2, "b2.txt", "b\n", "b")
+	testutil.Git(t, repo.Root, "checkout", "-q", "-b", "elsewhere") // main checked out nowhere: moved by update-ref
+	errs := make(chan error, 2)
+	for _, branch := range []string{"agentbox/a", "agentbox/b"} {
+		go func() {
+			_, err := repo.Merge(branch, "main", "")
+			errs <- err
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if files := testutil.Git(t, repo.Root, "ls-tree", "--name-only", "main"); files != "a.txt\na2.txt\nb2.txt" {
+		t.Errorf("main has %q", files)
+	}
+}

@@ -104,3 +104,32 @@ func TestMergeAgentIntoItsBaseWithNoRemote(t *testing.T) {
 		t.Errorf("MergeAgent(conflict) = %v", err)
 	}
 }
+
+// Init writes to the folder only once nothing else can refuse the project:
+// a refusal leaves no .git behind.
+func TestInitRefusesBeforeTouchingTheFolder(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	taken := filepath.Join(t.TempDir(), "taken")
+	writeFile(t, taken, "a.txt", "a\n")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: taken, Init: true}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "plain")
+	writeFile(t, dir, "b.txt", "b\n")
+	for name, req := range map[string]api.AddProjectRequest{
+		"an account that isn't there": {Path: dir, Init: true, ClaudeAccount: "nobody"},
+		"a name that's taken":         {Path: dir, Init: true, Name: "taken"},
+	} {
+		if _, err := d.client.AddProject(ctx, req); err == nil {
+			t.Errorf("%s: added", name)
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			t.Fatalf("%s: refused, but the folder was made a repository first", name)
+		}
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: "/", Init: true}); err == nil || !strings.Contains(err.Error(), "far more than one project") {
+		t.Errorf("AddProject(/, init) = %v", err)
+	}
+}

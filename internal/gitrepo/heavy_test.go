@@ -105,3 +105,86 @@ func TestCreateOnAPlainFolderCommitsItsFilesAndLeavesTheHeavyOnesOut(t *testing.
 		t.Errorf("info/exclude = %q", exclude)
 	}
 }
+
+func TestHeavyLeavesOutNestedRepositories(t *testing.T) {
+	testutil.GitEnv(t)
+	dir := filepath.Join(t.TempDir(), "work")
+	write(t, dir, "README.md", "# work\n")
+	write(t, dir, "vendor/lib/lib.go", "package lib\n")
+	testutil.Git(t, filepath.Join(dir, "vendor", "lib"), "init", "-q")
+	write(t, dir, "linked/x.txt", "x\n")
+	write(t, dir, "linked/.git", "gitdir: /somewhere/else\n") // a worktree's or submodule's .git file
+	skipped, err := gitrepo.Heavy(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := paths(skipped), []string{"linked", "vendor/lib"}; !slices.Equal(got, want) {
+		t.Fatalf("Heavy() = %q, want %q", got, want)
+	}
+	for _, s := range skipped {
+		if s.Reason != "repository" {
+			t.Errorf("%s: reason %q", s.Path, s.Reason)
+		}
+	}
+	if _, _, err := gitrepo.Create(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	// No empty gitlink in its place: the nested ones aren't in the commit at all.
+	if got := testutil.Git(t, dir, "ls-tree", "-r", "--name-only", "HEAD"); got != "README.md" {
+		t.Errorf("committed %q", got)
+	}
+}
+
+func TestHeavyGivesUpOnAFolderTooBigToRead(t *testing.T) {
+	testutil.GitEnv(t)
+	old := gitrepo.HeavyEntries
+	gitrepo.HeavyEntries = 5
+	t.Cleanup(func() { gitrepo.HeavyEntries = old })
+	dir := t.TempDir()
+	for i := range 3 {
+		write(t, dir, filepath.Join("node_modules", strings.Repeat("p", i+1), "index.js"), "x")
+	}
+	if _, err := gitrepo.Heavy(dir); !errors.Is(err, gitrepo.ErrTooBig) {
+		t.Errorf("Heavy() = %v, want ErrTooBig", err)
+	}
+	if _, _, err := gitrepo.Create(dir, true); !errors.Is(err, gitrepo.ErrTooBig) {
+		t.Errorf("Create() = %v, want ErrTooBig", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		t.Error("giving up left a .git behind")
+	}
+}
+
+func TestTooBroad(t *testing.T) {
+	home := "/home/ana"
+	for path, broad := range map[string]bool{
+		"/": true, "/usr": true, "/home": true, "/home/ana": true, "/home/ana/": true, "/mnt/c": true,
+		"/home/ana/code/site": false, "/home/ana/Documents": false, "/srv/www/site": false, "/home/bob": false, "/mnt/c/Users/ana/site": false,
+	} {
+		if err := gitrepo.TooBroad(path, home); (err != nil) != broad {
+			t.Errorf("TooBroad(%s) = %v, want broad %v", path, err, broad)
+		}
+	}
+}
+
+// A .git that git can't open is someone's history, not a plain folder: Open
+// doesn't call it ErrNotARepo, and Create never inits over or removes it.
+func TestAnUnreadableRepositoryIsNeverMadeAgain(t *testing.T) {
+	testutil.GitEnv(t)
+	dir := filepath.Join(t.TempDir(), "old")
+	write(t, dir, "a.txt", "a\n")
+	write(t, dir, ".git", "gitdir: /nowhere/that/exists\n")
+	_, err := gitrepo.Open(dir)
+	if err == nil || errors.Is(err, gitrepo.ErrNotARepo) || !strings.Contains(err.Error(), "can't open") {
+		t.Fatalf("Open() = %v, want a repository git can't open", err)
+	}
+	if _, err := gitrepo.Open(filepath.Join(dir, "sub")); err == nil || errors.Is(err, gitrepo.ErrNotARepo) {
+		t.Errorf("Open(below it) = %v", err)
+	}
+	if _, _, err := gitrepo.Create(dir, true); err == nil {
+		t.Fatal("Create() made a repository over one git can't open")
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, ".git")); err != nil || !strings.Contains(string(b), "/nowhere/") {
+		t.Errorf("the .git was touched: %q, %v", b, err)
+	}
+}

@@ -39,12 +39,35 @@ func Open(path string) (Repo, error) {
 		if _, statErr := os.Stat(abs); statErr != nil {
 			return Repo{}, fmt.Errorf("%s: %w", abs, statErr)
 		}
+		// Git failing isn't the same as there being no repository: one it
+		// can't read (dubious ownership, a format this git doesn't know, a
+		// broken .git file) is still somebody's history, and ErrNotARepo
+		// invites making a repository there. Only no .git at all says so.
+		if dotGit := DotGitAbove(abs); dotGit != "" {
+			return Repo{}, fmt.Errorf("%s is in a git repository that git can't open (%s): %w", abs, dotGit, err)
+		}
 		return Repo{}, fmt.Errorf("%s is not inside a git repository: %w", abs, ErrNotARepo)
 	}
 	if filepath.Base(common) != ".git" {
 		return Repo{}, fmt.Errorf("%s: bare repositories and submodules are not supported", abs)
 	}
 	return Repo{Root: filepath.Dir(common), GitDir: common}, nil
+}
+
+// DotGitAbove is the first .git, a folder or a file, at dir or any folder
+// above it, or "" when there is none.
+func DotGitAbove(dir string) string {
+	for {
+		p := filepath.Join(dir, ".git")
+		if _, err := os.Lstat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // Clone copies src into dest, a folder that mustn't exist yet, and opens the

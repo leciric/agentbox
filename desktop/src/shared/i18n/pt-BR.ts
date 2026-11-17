@@ -3236,7 +3236,7 @@ export const ptBR: Messages = {
   'project.add.folderHint': 'Um repositório git, ou qualquer pasta: se ainda não for um repositório, o AgentBox pergunta antes de transformá-la em um.',
   'project.add.notARepo': '<code>{path}</code> não é um repositório git. O AgentBox pode transformá-la em um: roda <code>git init</code> ali em <code>{branch}</code> e commita o que há nela como primeiro commit, deixando de fora o que um <code>.gitignore</code> ali exclui. Antes, confira se nada do que está lá deveria ficar fora do git, como um <code>.env</code>.',
   'project.add.skipped': 'Também ficam de fora, e continuam fora em <code>.git/info/exclude</code> (seus arquivos não são tocados):',
-  'project.add.skippedReason': '{reason, select, dependencies {dependências instaladas} cache {cache} build-output {resultado de build} large-file {grande demais para o git} other {de fora}}',
+  'project.add.skippedReason': '{reason, select, dependencies {dependências instaladas} cache {cache} build-output {resultado de build} large-file {grande demais para o git} repository {um repositório git próprio} other {de fora}}',
   'project.add.skippedMore': '{count, plural, one {e mais #} other {e mais #}}',
   'project.add.noRemote': 'Sem remote, os agentes trabalham normalmente e você faz o merge das branches deles aqui; push, pull requests e CI esperam até você adicionar um, com git remote add.',
   'project.add.initAndAdd': 'Transformar em repositório e adicionar',

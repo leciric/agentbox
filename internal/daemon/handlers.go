@@ -128,19 +128,22 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 // lead (peers.go).
 func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) (state.Project, error) {
 	fail := func(err error) (state.Project, error) { return state.Project{}, err }
+	// What can refuse the project without reading the folder goes first, so
+	// that Init, which writes to it, runs only once nothing else can say no.
+	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
+	if err := s.checkClaudeAccount(claudeAccount); err != nil {
+		return fail(err)
+	}
+	if err := s.checkGitHubAccount(githubAccount); err != nil {
+		return fail(err)
+	}
+	tools, err := s.newProjectToolAccounts(req)
+	if err != nil {
+		return fail(err)
+	}
 	repo, err := gitrepo.Open(req.Path)
 	if errors.Is(err, gitrepo.ErrNotARepo) {
-		// A plain folder: made a repository only when asked, since its first
-		// commit takes in everything there; the refusal says what it would
-		// leave out, so the asking can too.
-		if !req.Init {
-			skipped, _ := gitrepo.Heavy(req.Path)
-			return fail(skippingError{fmt.Errorf("%w: adding it runs git init there and commits what's in it as the initial commit, on %s", err, gitrepo.InitialBranch), skipped})
-		}
-		if err := s.projectNameFree(ctx, cmp.Or(strings.TrimSpace(req.Name), filepath.Base(filepath.Clean(req.Path)))); err != nil {
-			return fail(err)
-		}
-		repo, _, err = gitrepo.Create(req.Path, true)
+		repo, err = s.initFolder(ctx, req, err)
 	}
 	if err != nil {
 		return fail(err)
@@ -175,19 +178,44 @@ func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) 
 		}
 		repo = copied
 	}
-	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
-	if err := s.checkClaudeAccount(claudeAccount); err != nil {
-		return fail(err)
-	}
-	if err := s.checkGitHubAccount(githubAccount); err != nil {
-		return fail(err)
-	}
-	tools, err := s.newProjectToolAccounts(req)
-	if err != nil {
-		return fail(err)
-	}
 	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
 		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount, GeminiAccount: tools.GeminiAccount, CopilotAccount: tools.CopilotAccount})
+}
+
+// initFolder is addProjectRepo for a folder that isn't a git repository
+// (notARepo, Open's answer). Without req.Init it refuses with what making it
+// one would do and leave out, which the clients show before asking. With it,
+// every check that could still refuse the project runs before git init does:
+// a folder far too broad to be one project, a Windows drive that can't be
+// copied, a name that's taken, a folder too big to read in one request.
+func (s *Server) initFolder(ctx context.Context, req api.AddProjectRequest, notARepo error) (gitrepo.Repo, error) {
+	abs, err := filepath.Abs(req.Path)
+	if err != nil {
+		return gitrepo.Repo{}, err
+	}
+	home, _ := os.UserHomeDir()
+	if err := gitrepo.TooBroad(abs, home); err != nil {
+		return gitrepo.Repo{}, err
+	}
+	diskErr := checkProjectDisk(abs, hostos.WSL())
+	if diskErr != nil && !req.CopyToLinux {
+		return gitrepo.Repo{}, diskErr
+	}
+	if err := s.projectNameFree(ctx, cmp.Or(strings.TrimSpace(req.Name), filepath.Base(abs))); err != nil {
+		return gitrepo.Repo{}, err
+	}
+	skipped, err := gitrepo.Heavy(abs)
+	if err != nil {
+		return gitrepo.Repo{}, err
+	}
+	if !req.Init {
+		// A plain folder is made a repository only when asked, since its first
+		// commit takes in everything there; the refusal says what it would
+		// leave out, so the asking can too.
+		return gitrepo.Repo{}, skippingError{fmt.Errorf("%w: adding it runs git init there and commits what's in it as the initial commit, on %s", notARepo, gitrepo.InitialBranch), skipped}
+	}
+	repo, _, err := gitrepo.Create(abs, true)
+	return repo, err
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -227,6 +255,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 	tools, err := s.newProjectToolAccounts(req)
 	if err != nil {
 		return err
+	}
+	if req.CommitFiles {
+		home, _ := os.UserHomeDir()
+		if err := gitrepo.TooBroad(path, home); err != nil {
+			return err
+		}
 	}
 	repo, created, err := gitrepo.Create(path, req.CommitFiles)
 	if errors.Is(err, gitrepo.ErrNotEmpty) {

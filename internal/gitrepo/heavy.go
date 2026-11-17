@@ -3,12 +3,14 @@ package gitrepo
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Skipped is a folder or file that a first commit leaves out although no
@@ -17,7 +19,7 @@ import (
 type Skipped struct {
 	Path   string // relative to the repository's top, with / between parts
 	Bytes  int64  // its size on disk, a folder's every file added up
-	Reason string // "dependencies", "cache", "build-output" or "large-file"
+	Reason string // "dependencies", "cache", "build-output", "large-file" or "repository" (a nested one)
 }
 
 // LargeFile is the size from which a file is left out of a first commit.
@@ -63,6 +65,7 @@ func Heavy(root string) ([]Skipped, error) {
 	if err != nil {
 		return nil, err
 	}
+	b := &budget{entries: HeavyEntries, until: time.Now().Add(HeavyTime)}
 	var found []Skipped
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -74,13 +77,29 @@ func Heavy(root string) ([]Skipped, error) {
 		if path == abs {
 			return nil
 		}
+		if err := b.spend(abs); err != nil {
+			return err
+		}
 		rel := filepath.ToSlash(must(filepath.Rel(abs, path)))
 		switch {
 		case d.IsDir() && d.Name() == ".git":
 			return filepath.SkipDir
+		case d.IsDir() && hasDotGit(path):
+			// A repository of its own: git add would store it as an empty
+			// gitlink, its files nowhere, so it's left out and said so.
+			size, err := dirSize(path, b, abs)
+			if err != nil {
+				return err
+			}
+			found = append(found, Skipped{Path: rel, Bytes: size, Reason: "repository"})
+			return filepath.SkipDir
 		case d.IsDir():
 			if reason, ok := heavyDir(path, d.Name()); ok {
-				found = append(found, Skipped{Path: rel, Bytes: dirSize(path), Reason: reason})
+				size, err := dirSize(path, b, abs)
+				if err != nil {
+					return err
+				}
+				found = append(found, Skipped{Path: rel, Bytes: size, Reason: reason})
 				return filepath.SkipDir
 			}
 		case d.Type().IsRegular():
@@ -101,7 +120,8 @@ func Heavy(root string) ([]Skipped, error) {
 		return nil, err
 	}
 	found = slices.DeleteFunc(found, func(s Skipped) bool { return ignored[s.Path] })
-	// A large file inside a folder that's already left out isn't news.
+	// A large file inside a folder that's already left out isn't news. (A
+	// heavy folder can't be inside another: the walk doesn't go into one.)
 	found = slices.DeleteFunc(found, func(s Skipped) bool {
 		return slices.ContainsFunc(found, func(o Skipped) bool { return o.Reason != "large-file" && strings.HasPrefix(s.Path, o.Path+"/") })
 	})
@@ -132,18 +152,85 @@ func heavyDir(path, name string) (string, bool) {
 	return "", false
 }
 
-// dirSize adds up the sizes of the files under dir, not following links.
-func dirSize(dir string) int64 {
+// TooBroad refuses to make a repository of a folder that holds far more than
+// a project: the filesystem's root or a folder right under it (/usr, /home,
+// /mnt/c), and the user's home folder or any folder above it. Its first
+// commit would take in everything below, and its .git would make every
+// folder under it look like part of one repository.
+func TooBroad(path, home string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	abs = filepath.Clean(abs)
+	broad := filepath.Dir(abs) == abs || filepath.Dir(filepath.Dir(abs)) == filepath.Dir(abs)
+	if home != "" {
+		home = filepath.Clean(home)
+		if rel, err := filepath.Rel(abs, home); err == nil && !strings.HasPrefix(rel, "..") {
+			broad = true // home itself, or a folder above it
+		}
+	}
+	if broad {
+		return fmt.Errorf("%s holds far more than one project: AgentBox won't make a repository of it. Choose the project's own folder", abs)
+	}
+	if mnt, rest, ok := strings.Cut(filepath.ToSlash(abs), "/mnt/"); ok && mnt == "" && !strings.Contains(rest, "/") {
+		return fmt.Errorf("%s is a whole drive: choose the project's own folder", abs)
+	}
+	return nil
+}
+
+// HeavyEntries and HeavyTime bound Heavy's walk, sizing included: a folder
+// with more entries than that, or one that takes longer (a network share, a
+// whole home folder), is too big to make a repository of in one request,
+// and Heavy answers ErrTooBig rather than keep the caller waiting.
+var (
+	HeavyEntries = 500_000
+	HeavyTime    = 15 * time.Second
+)
+
+// ErrTooBig is Heavy's answer for a folder past HeavyEntries or HeavyTime.
+var ErrTooBig = errors.New("too big to make a repository of here")
+
+// budget is what's left of Heavy's bound.
+type budget struct {
+	entries int
+	until   time.Time
+}
+
+func (b *budget) spend(root string) error {
+	b.entries--
+	if b.entries < 0 || (b.entries%1024 == 0 && time.Now().After(b.until)) {
+		return fmt.Errorf("%s has more files than AgentBox reads before making a repository (%d, or %s of reading): %w; run git init there yourself, with a .gitignore, and add it then",
+			root, HeavyEntries, HeavyTime, ErrTooBig)
+	}
+	return nil
+}
+
+// hasDotGit reports whether dir has a .git of its own, a folder or a file.
+func hasDotGit(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// dirSize adds up the sizes of the files under dir, not following links,
+// from Heavy's budget.
+func dirSize(dir string, b *budget, root string) (int64, error) {
 	var total int64
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() {
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if err := b.spend(root); err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
 			if info, err := d.Info(); err == nil {
 				total += info.Size()
 			}
 		}
 		return nil
 	})
-	return total
+	return total, err
 }
 
 // ignoredOf says which of found git already ignores in root, by the rules

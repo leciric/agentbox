@@ -54,7 +54,12 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 			break
 		}
 	}
-	if existing, err := Open(probe); err == nil {
+	existing, openErr := Open(probe)
+	if openErr != nil && !errors.Is(openErr, ErrNotARepo) {
+		// A repository git can't read, or git failing: never init over it.
+		return Repo{}, false, openErr
+	}
+	if openErr == nil {
 		if existing.Root != abs {
 			return Repo{}, false, fmt.Errorf("%s is inside the repository %s: add that one, or choose a folder outside it", abs, existing.Root)
 		}
@@ -70,6 +75,9 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 	}
 
 	if exists {
+		if dotGit := DotGitAbove(abs); dotGit != "" {
+			return Repo{}, false, fmt.Errorf("%s already has %s: AgentBox won't make a repository over it", abs, dotGit)
+		}
 		entries, err := os.ReadDir(abs)
 		if err != nil {
 			return Repo{}, false, err
@@ -83,10 +91,15 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 		}
 		created = true
 	}
+	madeGit := false
 	repo, err = func() (Repo, error) {
+		if _, err := os.Lstat(filepath.Join(abs, ".git")); err == nil {
+			return Repo{}, fmt.Errorf("%s already has a .git: AgentBox won't make a repository over it", abs)
+		}
 		if _, err := run(abs, "init", "--quiet", "--initial-branch="+InitialBranch); err != nil {
 			return Repo{}, err
 		}
+		madeGit = true
 		if err := initialCommit(abs); err != nil {
 			return Repo{}, err
 		}
@@ -95,8 +108,9 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(abs)
-		} else {
-			// Only the .git this made: the folder and its files were there before.
+		} else if madeGit {
+			// Only the .git this made, which wasn't there a moment ago (checked
+			// above): the folder and its files were there before.
 			_ = os.RemoveAll(filepath.Join(abs, ".git"))
 		}
 		return Repo{}, false, err

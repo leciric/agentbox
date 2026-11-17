@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // ErrMergeConflict is Merge's answer when branch and into change the same
@@ -45,6 +46,12 @@ type Merged struct {
 // have to merge with the user's work. Where it's checked out nowhere, the ref
 // moves in place, and only from the commit it was read at.
 func (r Repo) Merge(branch, into, message string) (Merged, error) {
+	// One git operation that moves branches at a time per repository: the
+	// base sync fast-forwards the same branch this moves, and two merges at
+	// once would each read into where the other left it.
+	mu, _ := syncing.LoadOrStore(r.Root, new(sync.Mutex))
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	tip, err := r.ResolveCommit("refs/heads/" + branch)
 	if err != nil {
 		return Merged{}, fmt.Errorf("no branch %s: %w", branch, err)

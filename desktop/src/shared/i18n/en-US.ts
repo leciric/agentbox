@@ -3235,7 +3235,7 @@ export const enUS = {
   'project.add.folderHint': 'A git repository, or any folder: one that isn’t a repository yet, AgentBox asks to make one.',
   'project.add.notARepo': '<code>{path}</code> isn’t a git repository. AgentBox can make it one: it runs <code>git init</code> there on <code>{branch}</code> and commits what’s in it as the first commit, leaving out what a <code>.gitignore</code> there leaves out. Check nothing in it should stay out of git, like a <code>.env</code>, first.',
   'project.add.skipped': 'Also left out, and kept out in <code>.git/info/exclude</code> (your files aren’t touched):',
-  'project.add.skippedReason': '{reason, select, dependencies {installed dependencies} cache {cache} build-output {build output} large-file {too big for git} other {left out}}',
+  'project.add.skippedReason': '{reason, select, dependencies {installed dependencies} cache {cache} build-output {build output} large-file {too big for git} repository {a git repository of its own} other {left out}}',
   'project.add.skippedMore': '{count, plural, one {and # more} other {and # more}}',
   'project.add.noRemote': 'With no remote, agents work as usual and you merge their branches here; pushing, pull requests and CI wait until you add one, with git remote add.',
   'project.add.initAndAdd': 'Make it a repository and add',

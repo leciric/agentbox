@@ -468,13 +468,17 @@ type AddProjectRequest struct {
 	// dependencies, caches, build output and large files no .gitignore does
 	// (Error.Skipped lists them, in .git/info/exclude from then on). Without
 	// it such a folder is refused with ErrorNotARepository, which says so.
+	// The filesystem's root and the folders right under it, the home folder
+	// and the folders above it are refused either way, as is a folder too
+	// big to read in one request.
 	Init bool `json:"init,omitempty"`
 }
 
 // SkippedPath is a folder or file a new repository's initial commit leaves
 // out although no .gitignore does: Path is relative to the folder, Bytes its
-// size on disk, and Reason one of "dependencies", "cache", "build-output" or
-// "large-file" (50 MB or more).
+// size on disk, and Reason one of "dependencies", "cache", "build-output",
+// "large-file" (50 MB or more) or "repository" (a git repository of its own
+// inside the folder, which git add would store as an empty gitlink).
 type SkippedPath struct {
 	Path   string `json:"path"`
 	Bytes  int64  `json:"bytes"`
