@@ -76,6 +76,9 @@ pub struct AppView {
     project: Option<String>,
     fleet: Vec<FleetAgent>,
     fleet_error: Option<SharedString>,
+    /// The Settings page's banner for a field it could not save; the projects
+    /// read has its own state in `projects_load`.
+    error: Option<SharedString>,
     /// The sidebar's read of the projects (projects_load.rs), and the read
     /// under way: a new one replaces (and so cancels) it.
     projects_load: projects_load::ProjectsLoad,
@@ -207,6 +210,7 @@ impl AppView {
             project: None,
             fleet: Vec::new(),
             fleet_error: None,
+            error: None,
             projects_load: Default::default(),
             _projects_read: None,
             connected: false,

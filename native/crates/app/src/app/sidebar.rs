@@ -16,7 +16,7 @@ use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use super::AppView;
-use super::projects_load::{self, Shown};
+use super::projects_load;
 use super::sidebar_actions::Place;
 use crate::theme;
 
@@ -571,7 +571,7 @@ impl AppView {
         let nothing = !self.projects.is_empty() && shown.is_empty();
         let list_state = projects_load::shown(&self.projects_load, !self.projects.is_empty());
         let load_error = match &list_state {
-            Shown::Error(e) => Some(e.clone()),
+            projects_load::Shown::Error(e) => Some(e.clone()),
             _ => None,
         };
         let dragging = cx.has_active_drag();
@@ -629,7 +629,7 @@ impl AppView {
                             .child(self.home_row(cx))
                             .children(self.office_row(cx))
                             .child(self.filter_bar(cx))
-                            .when(list_state == Shown::Starting, |el| {
+                            .when(list_state == projects_load::Shown::Starting, |el| {
                                 el.child(
                                     div()
                                         .id("projects-starting")
@@ -640,7 +640,7 @@ impl AppView {
                                         .child(t("native.sidebar.connecting")),
                                 )
                             })
-                            .when(list_state == Shown::AddFirst, |el| {
+                            .when(list_state == projects_load::Shown::AddFirst, |el| {
                                 el.child(
                                     div()
                                         .id("add-first")
