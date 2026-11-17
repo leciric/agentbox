@@ -222,7 +222,9 @@ impl AppView {
     /// the page's ⋯ and panel button at the far right.
     pub(super) fn render_top_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         use super::foot::FootPage;
-        let page = if self.settings {
+        let page = if self.cockpit.open {
+            Some(t("cockpit.title"))
+        } else if self.settings {
             Some(t("common.settings"))
         } else if self.work.is_some() {
             Some(t("work.title"))
@@ -302,6 +304,7 @@ impl AppView {
                     .ml_auto()
                     .min_w_0()
                     .gap_2()
+                    .children(self.cockpit_button(cx))
                     .child(self.search_button(cx))
                     .child(self.render_top_chips(cx))
                     .children(end),

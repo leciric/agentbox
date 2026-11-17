@@ -747,7 +747,7 @@ impl AppView {
         found
     }
 
-    fn label_of(&self, project: &str) -> String {
+    pub(super) fn label_of(&self, project: &str) -> String {
         if project == HOME_PROJECT {
             return t("shell.nav.home");
         }
