@@ -53,6 +53,7 @@ mod work;
 use crate::chat::{ChatAction, ChatView};
 use crate::terminal::TerminalView;
 use crate::vnc::VncView;
+pub(crate) use settings::connectors::{PRESETS, Preset};
 
 use crate::{bench, theme};
 use agentbox_i18n::t;
@@ -773,6 +774,52 @@ impl AppView {
         }
     }
 
+    /// sync_chat_requests hands the open chat the credential and connector
+    /// requests waiting on you there (chat/requests.rs): a project's chat
+    /// every one in the project (ProjectCredentialCards), an agent's the one
+    /// it is blocked on (ChatCredentialCard). They come from the project's
+    /// questions as last read, so a request is there whether it was asked
+    /// while the chat was open, elsewhere, or before a reconnect.
+    fn sync_chat_requests(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = self.chat.clone() else {
+            return;
+        };
+        let (project, read_only) = {
+            let c = chat.read(cx);
+            (
+                c.agent.split('/').next().unwrap_or("").to_string(),
+                c.past || c.closed,
+            )
+        };
+        let lead = self.open == "lead";
+        let list = if read_only || self.is_home() {
+            Vec::new()
+        } else {
+            let all = self.side.questions_of(&project);
+            if lead {
+                crate::chat::requests::for_lead(all)
+            } else {
+                crate::chat::requests::for_agent(all, &self.open)
+            }
+        };
+        let current = chat.read(cx).requests.clone();
+        let requests = match current {
+            Some(r) => r,
+            None if list.is_empty() => return,
+            None => {
+                let client = self.client.clone();
+                let r = cx.new(|_| crate::chat::requests::Requests::new(client, lead));
+                chat.update(cx, |c, _| c.requests = Some(r.clone()));
+                r
+            }
+        };
+        if requests.read(cx).given() != list.as_slice() {
+            requests.update(cx, |r, cx| r.set(list, cx));
+            chat.update(cx, |_, cx| cx.notify());
+            window.refresh();
+        }
+    }
+
     /// open_agent_panel picks the view an agent's chat opens its panel on
     /// (lib/rightPanel.ts openAgentChat): its Desktop while it uses it (in
     /// the last two minutes, lib/pip.ts usingDesktop), else the view it
@@ -1218,6 +1265,7 @@ impl Render for AppView {
         agent::modal_frame(window, cx);
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
+        self.sync_chat_requests(window, cx);
         self.pulls_gone();
         self.presence_check(window, cx);
         bench::mark("first-render");

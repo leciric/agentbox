@@ -35,6 +35,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
 mod agents;
+mod asks;
 mod chat;
 mod desktop;
 mod notify;
@@ -938,6 +939,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
+    let req = match asks::route(&fake, req, &query).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
     let req = match notify::route(&fake, req, &query).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
@@ -1043,6 +1048,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     saved_at: now(),
                     ..Default::default()
                 }],
+                github: true,
+                github_accounts: asks::github_accounts(),
                 ..Default::default()
             },
         ),
@@ -1068,20 +1075,6 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "projects", p, "icon"]) if fake.icon(p).is_some() => {
             json(StatusCode::OK, &fake.icon(p).unwrap())
         }
-        // An open question from an agent, for the sidebar's "needs you".
-        (&Method::GET, ["v1", "projects", p, "questions"]) if fake.is_fake(p) => json(
-            StatusCode::OK,
-            &vec![Question {
-                id: "q1".into(),
-                project: p.to_string(),
-                agent: "agent-03".into(),
-                r#ref: format!("{p}/agent-03"),
-                question: "Should the reminders page paginate?".into(),
-                status: "open".into(),
-                created_at: now(),
-                ..Default::default()
-            }],
-        ),
         // A release to update the app to (FAKE_RELEASE, a JSON
         // api::UpdateRelease whose files a local server serves), for
         // testing the app's update in place; the daemon's update check
@@ -1657,9 +1650,20 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             } else {
                 (0..4).map(|i| history_item("lead", i)).collect()
             };
+            // The agents' permission cards it was given (asks.rs), as the
+            // daemon keeps them in the lead's conversation.
+            let (mut items, seq) = (items, 0);
+            let seq = match fake.chats.lock().unwrap().get(&format!("{p}/lead")) {
+                Some((s, _, kept)) => {
+                    items.extend(kept.iter().filter(|i| i.agent_permission.is_some()).cloned());
+                    *s
+                }
+                None => seq,
+            };
             json(
                 StatusCode::OK,
                 &ChatThread {
+                    seq,
                     agent: format!("{p}/lead"),
                     session: ChatSession {
                         state: CHAT_READY.into(),
@@ -1771,6 +1775,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     ev.item = Some(it.clone());
                 }
             });
+            asks::permission_answered(&fake, p, a, &item, &answer.option_id);
             Response::builder()
                 .status(StatusCode::NO_CONTENT)
                 .body(Full::new(Bytes::new()).boxed())

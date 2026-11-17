@@ -40,8 +40,6 @@ use crate::{notices, prefs};
 #[derive(Clone, Debug)]
 pub enum Go {
     To(Target),
-    /// A project's chat, where a question or a permission is answered.
-    ProjectChat(String),
     /// One of a project's chat sessions.
     Session(String, String),
     /// Settings, at "Keep running in the tray".
@@ -102,6 +100,11 @@ pub struct Alerts {
     /// The finishes already known (ref:fingerprint): the first list is the
     /// baseline, not news.
     ready: Option<HashSet<String>>,
+    /// The questions to you already told (by notification id): the first
+    /// read is the baseline, and one the tray's read finds that no event
+    /// told (it reached you while the app was cut off from the daemon) is
+    /// told then.
+    questions: Option<HashSet<String>>,
     /// What landed in Ready to review in the last moment, told together
     /// once nothing more arrives for READY_BATCH (reviewAlert.ts batch).
     ready_batch: Vec<ReviewItem>,
@@ -127,6 +130,7 @@ impl Default for Alerts {
             chats: None,
             errored: None,
             ready: None,
+            questions: None,
             ready_batch: Vec::new(),
             _ready_timer: None,
             badge: 0,
@@ -219,6 +223,25 @@ pub fn session_alert(prev: &LeadSession, next: &LeadSession) -> Option<SessionAl
         Some(SessionAlert::Done)
     } else {
         None
+    }
+}
+
+/// missed_questions are the unseen questions to you that no event told:
+/// none on the first read, which is the baseline (Electron tells none of
+/// those either), and known grown by the read.
+pub fn missed_questions(
+    known: &mut Option<HashSet<String>>,
+    items: &[Notification],
+) -> Vec<Notification> {
+    let asks = items
+        .iter()
+        .filter(|n| n.kind != agentbox_api::NOTIFY_MEDIA && !n.seen);
+    match known {
+        None => {
+            *known = Some(asks.map(|n| n.id.clone()).collect());
+            Vec::new()
+        }
+        Some(k) => asks.filter(|n| !k.contains(&n.id)).cloned().collect(),
     }
 }
 
@@ -404,10 +427,15 @@ impl AppView {
             } else {
                 None
             };
-            this.update(cx, |this, _| {
+            this.update(cx, |this, cx| {
                 this.alerts.reading = false;
                 this.alerts.status = tray::status(data.as_ref());
                 this.draw_tray();
+                if let Some(d) = &data {
+                    for n in missed_questions(&mut this.alerts.questions, &d.questions.items) {
+                        this.on_notification(n, cx);
+                    }
+                }
             })
             .ok();
         })
@@ -477,7 +505,7 @@ impl AppView {
                 self.see_notice(&n.id, cx);
                 self.go_project_chat(n.project, window, cx);
             }
-            Go::To(Target::Project(p)) | Go::ProjectChat(p) => self.go_project_chat(p, window, cx),
+            Go::To(Target::Project(p)) => self.go_project_chat(p, window, cx),
             Go::Session(p, id) => self.select_session(p, id, window, cx),
             Go::KeepRunning => {
                 let setting = self
@@ -567,6 +595,11 @@ impl AppView {
         if n.kind == agentbox_api::NOTIFY_MEDIA || n.seen {
             return;
         }
+        if let Some(known) = &mut self.alerts.questions
+            && !known.insert(n.id.clone())
+        {
+            return;
+        }
         let (title, body) = notice_text(&n, &self.project_label(&n.project));
         let id = n.id.clone();
         self.notice(
@@ -631,8 +664,10 @@ impl AppView {
                     ..Default::default()
                 };
                 let (title, body) = notice_text(&n, &self.project_label(&n.project));
-                // Answered from the project's chat, where its card is.
-                let go = Go::ProjectChat(a.project.clone());
+                // Its own chat, where the request always is: the project's
+                // card is in the session that started the agent, which
+                // needn't be the one the project opens on.
+                let go = Go::To(Target::Agent(a.r#ref.clone()));
                 self.notice(
                     "question",
                     n.id,
@@ -974,6 +1009,26 @@ fn rect_of(b: Bounds<Pixels>) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A question that reached you while the app was cut off from the
+    /// daemon is told when the next read finds it; the first read is the
+    /// baseline, and one already told isn't told again.
+    #[::core::prelude::v1::test]
+    fn a_question_missed_while_disconnected_is_told_on_the_next_read() {
+        let n = |id: &str, kind: &str| Notification {
+            id: id.into(),
+            kind: kind.into(),
+            ..Default::default()
+        };
+        let mut known = None;
+        assert!(missed_questions(&mut known, &[n("a", "question")]).is_empty());
+        let read = [n("b", "question"), n("a", "question"), n("m", "media")];
+        let missed: Vec<_> = missed_questions(&mut known, &read)
+            .into_iter()
+            .map(|n| n.id)
+            .collect();
+        assert_eq!(missed, ["b"]);
+    }
 
     /// The close button leaves the app running only where it can be got
     /// back and quit: the setting alone must never strand it.
