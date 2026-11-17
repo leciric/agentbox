@@ -7,7 +7,9 @@ name: CI
 # jobs for the rest skip. macOS and Windows run on a push to main, or on a PR
 # labelled ci:full, when the change reaches what they test. govulncheck runs
 # weekly, on main, and on a PR that changes go.mod or go.sum. The native app
-# (native/) is checked on Linux, Windows cross-checked there too; its macOS
+# (native/) is checked on Linux, Windows cross-checked there too; its Windows
+# build and installer are made on main and on a PR labelled ci:full, when the
+# change reaches them; its macOS
 # check runs on main, or once when a PR is labelled ci:native-mac. A change to
 # this file or to scripts/ci-changes.sh runs everything.
 on:
@@ -60,6 +62,7 @@ jobs:
       desktop: ${{ steps.paths.outputs.desktop }}
       mobile: ${{ steps.paths.outputs.mobile }}
       native: ${{ steps.paths.outputs.native }}
+      native_windows: ${{ steps.paths.outputs.native_windows }}
       hub: ${{ steps.paths.outputs.hub }}
       vuln: ${{ steps.paths.outputs.vuln }}
       macos: ${{ steps.paths.outputs.macos }}
@@ -136,7 +139,7 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true native=true hub=true vuln=true macos=true windows=true
+            go=true desktop=true mobile=true native=true native_windows=true hub=true vuln=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
             # Lines of key=true|false.
@@ -148,7 +151,7 @@ jobs:
           if [ "$EVENT/$ACTION/$LABEL" = pull_request/labeled/ci:full ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
-          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "native=$native" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "native=$native" "native_windows=$native_windows" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -375,8 +378,8 @@ jobs:
           }
 
   # The native app (native/, Rust and GPUI): check, clippy and its tests, on
-  # Linux only. It is a proof of concept beside desktop/; macOS and Windows
-  # builds of it aren't set up.
+  # Linux, with Windows type-checked from there. Its Windows build and
+  # installer are native-windows' below, its macOS check native-macos'.
   native:
     name: Native app
     needs: changes
@@ -423,6 +426,77 @@ jobs:
       # manifest wants llvm-rc.
       - run: sudo apt-get install -yq --no-install-recommends llvm && rustup target add x86_64-pc-windows-msvc
       - run: cargo check -p agentbox-native --locked --target x86_64-pc-windows-msvc --no-default-features
+
+  # The native app for Windows, built and packaged as the nightly and the
+  # release do (scripts/native-cli.sh, native-package.sh): the release build
+  # needs the Windows SDK's fxc.exe for GPUI's shaders, which the cross-check
+  # on Linux doesn't run, and the installer (native/packaging/windows) is
+  # installed silently, asked for the agentbox tool inside it and uninstalled.
+  # The installer is kept as the run's artifact for a week, to try on a real
+  # Windows: the runners have no WSL 2, so setting AgentBox up from it is
+  # checked by hand.
+  # At 2x a Linux minute and a release build of GPUI, it is gated like the
+  # Windows job: on main, and on a PR labelled ci:full (adding the label runs
+  # it), when the change reaches the app or its packaging.
+  native-windows:
+    name: Native app on Windows
+    needs: changes
+    if: >-
+      needs.changes.outputs.native_windows == 'true' &&
+      (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      VERSION: 0.0.0-ci.${{ github.run_number }}
+      AGENTBOX_VERSION: 0.0.0-ci.${{ github.run_number }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # The nightly's cache, which main's nightlies save: the same release
+      # build of the same dependencies.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: nightly-native
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - name: Build the agentbox tool
+        run: |
+          scripts/native-cli.sh windows "$VERSION" "$RUNNER_TEMP/cli"
+          {
+            echo "AGENTBOX_BUNDLED_CLI=$RUNNER_TEMP/cli/agentbox.exe"
+            echo "AGENTBOX_BUNDLED_CLI_LINUX=$RUNNER_TEMP/cli/agentbox-linux"
+          } >>"$GITHUB_ENV"
+
+      - name: Build it
+        working-directory: native
+        run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      # The runners have NSIS; one that doesn't gets it.
+      - name: NSIS, for the installer
+        run: |
+          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+
+      - name: Package it, and install it
+        run: scripts/native-package.sh windows "$VERSION" native-out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-windows-installer
+          path: native-out/*-setup.exe
+          retention-days: 7
+          if-no-files-found: error
 
   # The native app on macOS: GPUI's Mac backend needs the SDK (Metal shaders,
   # Objective-C), so it can't be checked from Linux. macOS bills 10x, so this
@@ -602,6 +676,21 @@ jobs:
       - run: go vet ./cmd/agentbox ./internal/hostos ./internal/hostwsl/...
 
       - run: go test ./internal/hostos ./internal/hostwsl/...
+
+      # Windows' install script (irm …/install.ps1 | iex), in PowerShell 7
+      # and in the Windows PowerShell 5.1 that line runs in, against a fake
+      # computer; then its checks against this runner, for real: it has to
+      # reach a verdict (0: can run AgentBox, 1: can't, and why).
+      - run: go test ./internal/installsh -run PowerShell
+
+      - name: install.ps1 -Check, on this runner
+        shell: powershell
+        run: |
+          $said = powershell.exe -NoProfile -ExecutionPolicy Bypass -File internal\installsh\install.ps1 -Check 6>&1 | Out-String
+          Write-Host $said
+          # A script that threw exits 1 too: it has to have said its verdict.
+          if ($said -notmatch "can run AgentBox|can't be installed on this computer") { exit 1 }
+          exit 0
 
       - run: go build -o bin/agentbox.exe ./cmd/agentbox
 

@@ -78,6 +78,164 @@ impl Framebuffer {
     }
 }
 
+/// Where the remote screen is drawn in the view, as noVNC's scaleViewport
+/// draws it in the Electron app: scaled uniformly to fit, never stretched,
+/// centred, letterboxed; and the size its picture is made at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Fit {
+    /// In window pixels, on whole device pixels: a picture drawn between two
+    /// of them is blurred across both.
+    bounds: Bounds<Pixels>,
+    /// The picture's size, in device pixels: the remote screen's own when it
+    /// is shown at full size or larger, else exactly the size it's drawn at,
+    /// averaged down (shrink) rather than left to the GPU, whose sampling
+    /// drops whole rows and columns of thin text.
+    image: (u32, u32),
+}
+
+/// fit places a remote screen of `screen` pixels in `area`, on a display of
+/// `scale_factor` device pixels to the window pixel: None while either is
+/// empty.
+fn fit(area: Bounds<Pixels>, screen: (u32, u32), scale_factor: f32) -> Option<Fit> {
+    let (w, h) = screen;
+    let sf = if scale_factor > 0. { scale_factor } else { 1. };
+    let (aw, ah) = (
+        f32::from(area.size.width) * sf,
+        f32::from(area.size.height) * sf,
+    );
+    if w == 0 || h == 0 || aw < 1. || ah < 1. {
+        return None;
+    }
+    let s = (aw / w as f32).min(ah / h as f32);
+    let (dw, dh) = (
+        (w as f32 * s).round().clamp(1., aw.floor().max(1.)),
+        (h as f32 * s).round().clamp(1., ah.floor().max(1.)),
+    );
+    let (ox, oy) = (
+        (f32::from(area.origin.x) * sf + (aw - dw) / 2.).round(),
+        (f32::from(area.origin.y) * sf + (ah - dh) / 2.).round(),
+    );
+    Some(Fit {
+        bounds: Bounds {
+            origin: point(px(ox / sf), px(oy / sf)),
+            size: size(px(dw / sf), px(dh / sf)),
+        },
+        image: if (dw as u32) < w {
+            (dw as u32, dh as u32)
+        } else {
+            (w, h)
+        },
+    })
+}
+
+/// remote_point maps a window point onto a remote screen of `screen` pixels
+/// drawn at `shown`: the pixel under it, clamped to the screen's edges so a
+/// drag that leaves the picture still lands on its edge.
+fn remote_point(shown: Bounds<Pixels>, screen: (u32, u32), p: Point<Pixels>) -> Option<(u16, u16)> {
+    let (w, h) = screen;
+    if w == 0 || h == 0 || shown.size.width <= px(0.) || shown.size.height <= px(0.) {
+        return None;
+    }
+    let x = ((p.x - shown.origin.x) / shown.size.width * w as f32).floor();
+    let y = ((p.y - shown.origin.y) / shown.size.height * h as f32).floor();
+    Some((
+        x.clamp(0., (w - 1) as f32) as u16,
+        y.clamp(0., (h - 1) as f32) as u16,
+    ))
+}
+
+/// shrink averages a BGRA picture of sw×sh down to dw×dh, each pixel the mean
+/// of the ones it covers (a box filter, in two passes), opaque. Not larger:
+/// a picture already as small passes through, only made opaque.
+fn shrink(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    let (sw, sh) = (sw as usize, sh as usize);
+    let (dw, dh) = (
+        dw.clamp(1, sw as u32) as usize,
+        dh.clamp(1, sh as u32) as usize,
+    );
+    if src.len() < sw * sh * 4 {
+        return vec![0; dw * dh * 4];
+    }
+    // The source columns (or rows) each output one covers: [from, to).
+    let spans = |n: usize, d: usize| -> Vec<(usize, usize)> {
+        (0..d)
+            .map(|i| {
+                let from = i * n / d;
+                (from, ((i + 1) * n / d).max(from + 1))
+            })
+            .collect()
+    };
+    let cols = spans(sw, dw);
+    let rows = spans(sh, dh);
+    // Across: sh rows of dw pixels, as sums with their counts.
+    let mut across = vec![0u32; sh * dw * 3];
+    for y in 0..sh {
+        let line = &src[y * sw * 4..(y + 1) * sw * 4];
+        for (x, &(from, to)) in cols.iter().enumerate() {
+            let (mut b, mut g, mut r) = (0u32, 0u32, 0u32);
+            for p in line[from * 4..to * 4].as_chunks::<4>().0 {
+                b += p[0] as u32;
+                g += p[1] as u32;
+                r += p[2] as u32;
+            }
+            let n = (to - from) as u32;
+            let o = (y * dw + x) * 3;
+            across[o] = (b + n / 2) / n;
+            across[o + 1] = (g + n / 2) / n;
+            across[o + 2] = (r + n / 2) / n;
+        }
+    }
+    // Down.
+    let mut out = vec![255u8; dw * dh * 4];
+    for (y, &(from, to)) in rows.iter().enumerate() {
+        let n = (to - from) as u32;
+        for x in 0..dw {
+            let (mut b, mut g, mut r) = (0u32, 0u32, 0u32);
+            for sy in from..to {
+                let o = (sy * dw + x) * 3;
+                b += across[o];
+                g += across[o + 1];
+                r += across[o + 2];
+            }
+            let o = (y * dw + x) * 4;
+            out[o] = ((b + n / 2) / n) as u8;
+            out[o + 1] = ((g + n / 2) / n) as u8;
+            out[o + 2] = ((r + n / 2) / n) as u8;
+        }
+    }
+    out
+}
+
+/// picture makes the image of a remote screen's pixels (BGRA, sw×sh) at
+/// `want` (Fit::image), opaque.
+fn picture(
+    mut px: Vec<u8>,
+    sw: u32,
+    sh: u32,
+    want: Option<(u32, u32)>,
+) -> Option<Arc<RenderImage>> {
+    let (w, h, px) = match want {
+        // Wanted for this screen's shape: not for the one before it resized.
+        Some((dw, dh))
+            if 0 < dw
+                && dw < sw
+                && 0 < dh
+                && dh <= sh
+                && (dw as u64 * sh as u64).abs_diff(dh as u64 * sw as u64) <= sw.max(sh) as u64 =>
+        {
+            (dw, dh, shrink(&px, sw, sh, dw, dh))
+        }
+        _ => {
+            for a in px.iter_mut().skip(3).step_by(4) {
+                *a = 255;
+            }
+            (sw, sh, px)
+        }
+    };
+    let img = image::RgbaImage::from_raw(w, h, px)?;
+    Some(Arc::new(RenderImage::new(vec![image::Frame::new(img)])))
+}
+
 /// What the view's connection is doing.
 #[derive(Clone, PartialEq)]
 enum Link {
@@ -107,7 +265,13 @@ pub struct VncView {
     /// Asks the frame loop for the newest frame (render, after `pending`):
     /// the current connection's.
     frames: Option<mpsc::UnboundedSender<Result<(), String>>>,
+    /// The remote screen's size, in its pixels.
     size: (u32, u32),
+    /// The size the image was made at (Fit::image), in device pixels.
+    image_size: (u32, u32),
+    /// The size the view draws the screen at now, and so wants its image
+    /// made at (Fit::image): set as it's laid out, read as a frame is made.
+    want: Arc<Mutex<Option<(u32, u32)>>>,
     link: Link,
     /// Failures since the last frame, for the backoff.
     failures: u32,
@@ -168,6 +332,8 @@ impl VncView {
             pending: false,
             frames: None,
             size: (0, 0),
+            image_size: (0, 0),
+            want: Arc::default(),
             link: Link::Connecting,
             failures: 0,
             retry_now: false,
@@ -213,17 +379,7 @@ impl VncView {
     /// to_remote maps a window point onto the remote screen.
     fn to_remote(&self, p: Point<Pixels>) -> Option<(u16, u16)> {
         let b = (*self.shown.lock().unwrap())?;
-        let (w, h) = self.size;
-        if w == 0 {
-            return None;
-        }
-        // Clamped, so a drag that leaves the picture still lands on its edge.
-        let x = (p.x - b.origin.x) / b.size.width * w as f32;
-        let y = (p.y - b.origin.y) / b.size.height * h as f32;
-        Some((
-            x.clamp(0., w as f32 - 1.) as u16,
-            y.clamp(0., h as f32 - 1.) as u16,
-        ))
+        remote_point(b, self.size, p)
     }
 
     fn inside(&self, p: Point<Pixels>) -> bool {
@@ -459,17 +615,22 @@ async fn session(
         if waiting {
             continue;
         }
-        let frame = {
+        let Ok(want) = this.update(cx, |v, _| *v.want.lock().unwrap()) else {
+            return String::new();
+        };
+        let (px, w, h) = {
             let mut fb = fb.lock().unwrap();
             fb.dirty = false;
-            let mut px = fb.pixels.clone();
-            for a in px.iter_mut().skip(3).step_by(4) {
-                *a = 255;
-            }
-            image::RgbaImage::from_raw(fb.width, fb.height, px).map(|i| (i, fb.width, fb.height))
+            (fb.pixels.clone(), fb.width, fb.height)
         };
-        let Some((img, w, h)) = frame else { continue };
-        let image = Arc::new(RenderImage::new(vec![image::Frame::new(img)]));
+        // Made off the UI thread: shrinking a large screen takes a few
+        // milliseconds.
+        let made = cx
+            .background_executor()
+            .spawn(async move { picture(px, w, h, want) })
+            .await;
+        let Some(image) = made else { continue };
+        let made_at = image.size(0);
         let ok = this.update(cx, |v, cx| {
             // The frame it replaces leaves every window's atlas now, drawn
             // or not: one texture per desktop at a time.
@@ -479,6 +640,7 @@ async fn session(
             v.drawn = false;
             v.pending = false;
             v.size = (w, h);
+            v.image_size = (made_at.width.0 as u32, made_at.height.0 as u32);
             v.link = Link::Live;
             v.failures = 0;
             cx.notify();
@@ -699,32 +861,54 @@ impl Render for VncView {
                 cx.listener(|this, ev: &ModifiersChangedEvent, _, _| this.modifiers(ev.modifiers)),
             )
             .when_some(self.image.clone(), |el, image| {
+                let want = self.want.clone();
+                let frames = self.frames.clone();
+                let made_at = self.image_size;
                 el.child(
                     div()
-                        .relative()
-                        .size_full()
+                        .absolute()
+                        .inset_0()
                         // The last frame stays while it reconnects, dimmed.
                         .when(!live, |el| el.opacity(0.35))
-                        .child(img(image).size_full().object_fit(ObjectFit::Contain))
                         .child(
+                            // Laid out and drawn here, rather than by img(),
+                            // so where it's drawn, the size its picture is
+                            // made at and where the pointer lands all come
+                            // from one fit, of this frame's bounds.
                             canvas(
-                                move |b, _, _| {
-                                    // The image is fitted, centred, in b: where it actually is.
-                                    if w > 0 && h > 0 {
-                                        let scale = (f32::from(b.size.width) / w as f32)
-                                            .min(f32::from(b.size.height) / h as f32);
-                                        let size = size(px(w as f32) * scale, px(h as f32) * scale);
-                                        let origin = b.origin
-                                            + point(
-                                                (b.size.width - size.width) / 2.,
-                                                (b.size.height - size.height) / 2.,
-                                            );
-                                        *shown.lock().unwrap() = Some(Bounds { origin, size });
+                                move |b, window, _| {
+                                    let f = fit(b, (w, h), window.scale_factor());
+                                    *shown.lock().unwrap() = f.map(|f| f.bounds);
+                                    let f = f?;
+                                    // Drawn at another size than its picture
+                                    // was made at (the window or the panel
+                                    // resized): ask for it again at this one.
+                                    let mut want = want.lock().unwrap();
+                                    if *want != Some(f.image) {
+                                        *want = Some(f.image);
+                                        if f.image != made_at
+                                            && let Some(tx) = &frames
+                                        {
+                                            tx.send(Ok(())).ok();
+                                        }
+                                    }
+                                    Some(f)
+                                },
+                                move |_, f, window, _| {
+                                    if let Some(f) = f {
+                                        window
+                                            .paint_image(
+                                                f.bounds,
+                                                f.bounds,
+                                                Corners::default(),
+                                                image,
+                                                0,
+                                                false,
+                                            )
+                                            .ok();
                                     }
                                 },
-                                |_, _, _, _| {},
                             )
-                            .absolute()
                             .size_full(),
                         ),
                 )
@@ -812,8 +996,8 @@ impl VncView {
 #[cfg(test)]
 mod tests {
     // Not super::*: gpui's own `test` attribute would come with it.
-    use super::{backoff, keysym, reason};
-    use gpui::Keystroke;
+    use super::{Fit, backoff, fit, keysym, picture, reason, remote_point, shrink};
+    use gpui::{Bounds, Keystroke, point, px, size};
     use std::time::Duration;
 
     fn ks(key: &str, ch: Option<&str>) -> Keystroke {
@@ -857,5 +1041,156 @@ mod tests {
         assert_eq!(backoff(1), Duration::from_secs(2));
         assert_eq!(backoff(5), Duration::from_secs(2));
         assert_eq!(backoff(6), Duration::from_secs(5));
+    }
+
+    fn area(x: f32, y: f32, w: f32, h: f32) -> Bounds<gpui::Pixels> {
+        Bounds {
+            origin: point(px(x), px(y)),
+            size: size(px(w), px(h)),
+        }
+    }
+
+    #[test]
+    fn the_screen_fits_keeping_its_shape_centred() {
+        // Wider than the screen's shape: bars left and right.
+        let f = fit(area(10., 20., 800., 400.), (1280, 1024), 1.).unwrap();
+        assert_eq!(f.bounds, area(160., 20., 500., 400.));
+        assert_eq!(f.image, (500, 400));
+        // Taller: bars above and below.
+        let f = fit(area(0., 0., 536., 800.), (1440, 900), 1.).unwrap();
+        assert_eq!(f.bounds, area(0., 233., 536., 335.));
+        // The panel's 16:10 box shows a 16:10 screen edge to edge.
+        let f = fit(area(0., 0., 536., 335.), (1440, 900), 1.).unwrap();
+        assert_eq!(f.bounds, area(0., 0., 536., 335.));
+        assert_eq!(f.image, (536, 335));
+    }
+
+    #[test]
+    fn it_sits_on_whole_device_pixels() {
+        // 301 - 250 leaves an odd margin: rounded, not split in halves.
+        let f = fit(area(0., 0., 301., 200.), (1280, 1024), 1.).unwrap();
+        assert_eq!(f.bounds, area(26., 0., 250., 200.));
+        // At 2x a window pixel is two device pixels: halves are whole.
+        let f = fit(area(0., 0., 400.25, 250.), (1280, 800), 2.).unwrap();
+        assert_eq!(f.bounds, area(0., 0., 400., 250.));
+        assert_eq!(f.image, (800, 500));
+        let f = fit(area(0., 0., 400.75, 250.), (1280, 800), 2.).unwrap();
+        assert_eq!(f.bounds.origin.x, px(0.5));
+    }
+
+    #[test]
+    fn a_screen_shown_larger_is_scaled_up_from_its_own_size() {
+        let f = fit(area(0., 0., 1920., 1080.), (1024, 768), 1.).unwrap();
+        assert_eq!(f.bounds, area(240., 0., 1440., 1080.));
+        assert_eq!(f.image, (1024, 768));
+        // Exactly its size: its own pixels, one for one.
+        let f = fit(area(0., 0., 1024., 768.), (1024, 768), 1.).unwrap();
+        assert_eq!(f.bounds, area(0., 0., 1024., 768.));
+        assert_eq!(f.image, (1024, 768));
+    }
+
+    #[test]
+    fn nothing_fits_in_nothing() {
+        assert_eq!(fit(area(0., 0., 0., 300.), (1280, 800), 1.), None::<Fit>);
+        assert_eq!(fit(area(0., 0., 300., 300.), (0, 0), 1.), None);
+    }
+
+    #[test]
+    fn the_pointer_lands_on_the_pixel_under_it() {
+        let shown = area(160., 20., 500., 400.); // 1280x1024 at 0.390625
+        assert_eq!(
+            remote_point(shown, (1280, 1024), point(px(160.), px(20.))),
+            Some((0, 0))
+        );
+        assert_eq!(
+            remote_point(shown, (1280, 1024), point(px(410.), px(220.))),
+            Some((640, 512))
+        );
+        assert_eq!(
+            remote_point(shown, (1280, 1024), point(px(659.9), px(419.9))),
+            Some((1279, 1023))
+        );
+        // Off the picture (the bars, or a drag past the edge): its edge.
+        assert_eq!(
+            remote_point(shown, (1280, 1024), point(px(0.), px(500.))),
+            Some((0, 1023))
+        );
+        assert_eq!(
+            remote_point(shown, (1280, 1024), point(px(900.), px(-5.))),
+            Some((1279, 0))
+        );
+        // Scaled up 2x: each remote pixel is two window pixels.
+        let shown = area(0., 0., 2048., 1536.);
+        assert_eq!(
+            remote_point(shown, (1024, 768), point(px(3.), px(5.))),
+            Some((1, 2))
+        );
+        assert_eq!(remote_point(shown, (0, 0), point(px(3.), px(5.))), None);
+    }
+
+    #[test]
+    fn pointer_and_picture_agree_after_any_resize() {
+        // Wherever the fit puts it, its corners map to the screen's.
+        for (aw, ah) in [
+            (340., 212.5),
+            (536., 335.),
+            (1200., 300.),
+            (300., 1200.),
+            (1913., 1041.),
+        ] {
+            for sf in [1., 1.25, 2.] {
+                let f = fit(area(37., 11., aw, ah), (1440, 900), sf).unwrap();
+                let b = f.bounds;
+                assert_eq!(remote_point(b, (1440, 900), b.origin), Some((0, 0)));
+                let end = b.origin + point(b.size.width - px(0.01), b.size.height - px(0.01));
+                assert_eq!(remote_point(b, (1440, 900), end), Some((1439, 899)));
+                // Never out of the area, never stretched past a pixel.
+                assert!(b.origin.x >= px(37. - 0.5) && b.origin.y >= px(11. - 0.5));
+                // Its shape off by at most the rounding of a device pixel.
+                let (dw, dh) = (f.image.0 as f32, f.image.1 as f32);
+                assert!(
+                    (dw / dh - 1.6).abs() <= 2. / dh,
+                    "{aw}x{ah}@{sf}: {dw}x{dh}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shrinking_averages_what_each_pixel_covers() {
+        // 4x2 of black and white columns, halved: grey, opaque.
+        let mut src = Vec::new();
+        for _ in 0..2 {
+            for x in 0..4 {
+                let v = if x % 2 == 0 { 0 } else { 255 };
+                src.extend_from_slice(&[v, v, v, 0]);
+            }
+        }
+        assert_eq!(
+            shrink(&src, 4, 2, 2, 1),
+            vec![128, 128, 128, 255, 128, 128, 128, 255]
+        );
+        // Its channels stay apart.
+        let src = [10, 20, 30, 0, 30, 40, 50, 0];
+        assert_eq!(shrink(&src, 2, 1, 1, 1), vec![20, 30, 40, 255]);
+        // An uneven ratio covers every source pixel once.
+        let src: Vec<u8> = (0..7u8).flat_map(|i| [i * 30, 0, 0, 0]).collect();
+        let out = shrink(&src, 7, 1, 3, 1);
+        assert_eq!(out.len(), 12);
+        assert_eq!([out[0], out[4], out[8]], [15, 75, 150]);
+    }
+
+    #[test]
+    fn the_picture_is_made_at_the_size_it_is_drawn() {
+        let px = vec![200u8; 8 * 4 * 4];
+        let i = picture(px.clone(), 8, 4, Some((4, 2))).unwrap();
+        assert_eq!((i.size(0).width.0, i.size(0).height.0), (4, 2));
+        // Not larger than the screen, nor for another shape of it.
+        let i = picture(px.clone(), 8, 4, Some((16, 8))).unwrap();
+        assert_eq!((i.size(0).width.0, i.size(0).height.0), (8, 4));
+        let i = picture(px.clone(), 8, 4, Some((4, 4))).unwrap();
+        assert_eq!((i.size(0).width.0, i.size(0).height.0), (8, 4));
+        let i = picture(px, 8, 4, None).unwrap();
+        assert_eq!((i.size(0).width.0, i.size(0).height.0), (8, 4));
     }
 }

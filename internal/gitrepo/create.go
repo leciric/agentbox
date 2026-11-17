@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // ErrNotEmpty is Create's answer for a folder that already has files in it
@@ -25,7 +24,8 @@ const InitialBranch = "main"
 //   - the top of a repository that has commits is opened as it is;
 //   - a folder with files in it, a repository or not, is refused with
 //     ErrNotEmpty unless commitFiles, which commits them all as the initial
-//     commit (.gitignore still applies);
+//     commit (.gitignore still applies, and what Heavy finds is left out
+//     too, in .git/info/exclude);
 //   - a folder inside another repository is refused: it would be a repository
 //     nested in that one, and adding that one is more likely what was meant.
 func Create(path string, commitFiles bool) (repo Repo, created bool, err error) {
@@ -54,7 +54,12 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 			break
 		}
 	}
-	if existing, err := Open(probe); err == nil {
+	existing, openErr := Open(probe)
+	if openErr != nil && !errors.Is(openErr, ErrNotARepo) {
+		// A repository git can't read, or git failing: never init over it.
+		return Repo{}, false, openErr
+	}
+	if openErr == nil {
 		if existing.Root != abs {
 			return Repo{}, false, fmt.Errorf("%s is inside the repository %s: add that one, or choose a folder outside it", abs, existing.Root)
 		}
@@ -70,6 +75,9 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 	}
 
 	if exists {
+		if dotGit := DotGitAbove(abs); dotGit != "" {
+			return Repo{}, false, fmt.Errorf("%s already has %s: AgentBox won't make a repository over it", abs, dotGit)
+		}
 		entries, err := os.ReadDir(abs)
 		if err != nil {
 			return Repo{}, false, err
@@ -83,10 +91,15 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 		}
 		created = true
 	}
+	madeGit := false
 	repo, err = func() (Repo, error) {
+		if _, err := os.Lstat(filepath.Join(abs, ".git")); err == nil {
+			return Repo{}, fmt.Errorf("%s already has a .git: AgentBox won't make a repository over it", abs)
+		}
 		if _, err := run(abs, "init", "--quiet", "--initial-branch="+InitialBranch); err != nil {
 			return Repo{}, err
 		}
+		madeGit = true
 		if err := initialCommit(abs); err != nil {
 			return Repo{}, err
 		}
@@ -95,8 +108,9 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(abs)
-		} else {
-			// Only the .git this made: the folder and its files were there before.
+		} else if madeGit {
+			// Only the .git this made, which wasn't there a moment ago (checked
+			// above): the folder and its files were there before.
 			_ = os.RemoveAll(filepath.Join(abs, ".git"))
 		}
 		return Repo{}, false, err
@@ -110,17 +124,16 @@ func Create(path string, commitFiles bool) (repo Repo, created bool, err error) 
 // could otherwise stop on a passphrase prompt nobody sees; and without an
 // identity in that config, it's AgentBox's rather than failing.
 func initialCommit(root string) error {
+	skipped, err := Heavy(root)
+	if err != nil {
+		return err
+	}
+	if err := exclude(root, skipped); err != nil {
+		return err
+	}
 	if _, err := run(root, "add", "--all"); err != nil {
 		return err
 	}
-	var env []string
-	for key, fallback := range map[string]string{"email": "agentbox@localhost", "name": "AgentBox"} {
-		upper := strings.ToUpper(key)
-		if configured, _ := run(root, "config", "user."+key); configured != "" || os.Getenv("GIT_AUTHOR_"+upper) != "" {
-			continue
-		}
-		env = append(env, "GIT_AUTHOR_"+upper+"="+fallback, "GIT_COMMITTER_"+upper+"="+fallback)
-	}
-	_, err := output(root, env, "-c", "commit.gpgsign=false", "commit", "--quiet", "--no-verify", "--allow-empty", "-m", "Initial commit")
+	_, err = output(root, identityEnv(root), "-c", "commit.gpgsign=false", "commit", "--quiet", "--no-verify", "--allow-empty", "-m", "Initial commit")
 	return err
 }

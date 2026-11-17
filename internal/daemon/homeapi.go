@@ -127,7 +127,7 @@ func (s *Server) homeAddProject(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	add := api.AddProjectRequest{Path: req.Path, Name: req.Name}
+	add := api.AddProjectRequest{Path: req.Path, Name: req.Name, Init: req.Init}
 	if req.URL == "" {
 		if req.Path == "" {
 			return errors.New("give a folder on this machine, or a git URL to clone")

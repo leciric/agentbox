@@ -276,6 +276,9 @@ const bridge = {
     // host kvm` through the password dialog, with no new login. Its output
     // arrives on onOutput too.
     grantKVM: (): Promise<void> => ipcRenderer.invoke('hostsetup:kvm'),
+    // On Windows, WSL itself: `agentbox wsl install`, behind Windows' own
+    // administrator prompt. restart is Windows having to restart to finish.
+    installWSL: (): Promise<{ restart: boolean }> => ipcRenderer.invoke('hostsetup:wsl-install'),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
   },
   // On Linux, `agentbox vm migrate`: this machine's own AgentBox moved into

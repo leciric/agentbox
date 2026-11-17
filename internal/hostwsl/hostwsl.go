@@ -176,7 +176,7 @@ func FindWSL() (string, error) {
 	return "", errNoWSL
 }
 
-var errNoWSL = errors.New("WSL isn't installed. In PowerShell, as administrator: wsl --install --no-distribution, then restart Windows")
+var errNoWSL = errors.New("WSL isn't installed. Run agentbox wsl install (one administrator prompt; or, in PowerShell as administrator: wsl --install --no-distribution), then restart Windows if it asks")
 
 // FindLinuxBinary finds the Linux agentbox to put in the distro: next to this
 // binary (the app and the release keep them together), or AGENTBOX_LINUX_BINARY.
@@ -337,7 +337,7 @@ func (d *Distro) Version(ctx context.Context) (string, error) {
 			}
 		}
 	}
-	return "", errors.New("WSL isn't installed, or it's the one built into older Windows, which has no systemd. In PowerShell, as administrator: wsl --install --no-distribution (or wsl --update), then restart Windows if it asks")
+	return "", errors.New("WSL isn't installed, or it's the one built into older Windows, which has no systemd. Run agentbox wsl install (one administrator prompt; or, in PowerShell as administrator: wsl --install --no-distribution, or wsl --update), then restart Windows if it asks")
 }
 
 // State is what `wsl --list --verbose` says of the distro.

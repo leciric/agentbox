@@ -200,3 +200,20 @@ func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
 		t.Errorf("ordinal(23) = %q", got)
 	}
 }
+
+func TestMovedTodo(t *testing.T) {
+	list := []api.Todo{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	for _, tc := range []struct {
+		id   string
+		to   int
+		want string
+	}{{"c", 1, "c a b"}, {"a", 3, "b c a"}, {"a", 99, "b c a"}, {"b", 0, "b a c"}, {"b", 2, "a b c"}} {
+		got, err := movedTodo(list, tc.id, tc.to)
+		if err != nil || strings.Join(got, " ") != tc.want {
+			t.Errorf("move %s to %d = %v, %v, want %s", tc.id, tc.to, got, err, tc.want)
+		}
+	}
+	if _, err := movedTodo(list, "z", 1); err == nil {
+		t.Error("moved one that isn't there")
+	}
+}

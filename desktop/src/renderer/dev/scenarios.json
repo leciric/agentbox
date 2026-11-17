@@ -120,7 +120,7 @@
   },
   {
     "id": "windows-no-wsl-light",
-    "description": "Windows' first screen without WSL 2: wsl --install first — light, lg width",
+    "description": "Windows' first screen without WSL 2: Install WSL, with one administrator prompt — light, lg width",
     "query": "wsl=nowsl&theme=light",
     "width": 1024,
     "height": 800

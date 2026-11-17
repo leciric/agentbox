@@ -2008,7 +2008,11 @@ impl AppView {
                     },
                     cx,
                 );
-                row.description = if p.agent_p_rs {
+                // With no remote there's nowhere to push, and the brief
+                // ignores this until there is one: the row says so.
+                row.description = if p.no_remote {
+                    t("defaults.project.agentPRsNoRemote")
+                } else if p.agent_p_rs {
                     t("defaults.project.agentPRsOnDescription")
                 } else {
                     t("defaults.project.agentPRsOffDescription")

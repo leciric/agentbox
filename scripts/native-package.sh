@@ -3,7 +3,7 @@
 # nightly, as an experimental download beside the Electron app:
 #
 #   scripts/native-package.sh linux <version> <out>     a .tar.gz and a .deb
-#   scripts/native-package.sh windows <version> <out>   a .zip of the .exe
+#   scripts/native-package.sh windows <version> <out>   an installer, and a .zip of the .exe
 #   scripts/native-package.sh mac <version> <out>       a .app in a .dmg, arm64
 #
 # <version> is the nightly's (0.17.0-nightly.20261106.157). It expects
@@ -42,6 +42,15 @@
 # r2-page.py (which hides them) don't see them. A test pins the names:
 # update.rs, release_files_match_the_packaging.
 #
+# On Windows, AgentBox-Native-experimental-<version>-windows-x64-setup.exe is
+# the install: an NSIS installer (native/packaging/windows/installer.nsi) for
+# this user alone, in %LOCALAPPDATA%\Programs\AgentBox Native, with a Start
+# menu entry and an uninstaller, asking for no administrator. The app it
+# installs updates itself in place, as the .zip's does. It is made with
+# makensis ($MAKENSIS, PATH, or where NSIS installs itself, which GitHub's
+# Windows runners have), installed silently into a folder of this script's
+# and asked for its tool like every other file, then uninstalled.
+#
 # The .pacman (AgentBox-Native-experimental-<version>-x64.pacman) is the same
 # package for Arch, installed with `sudo pacman -U`.
 #
@@ -70,7 +79,9 @@ stamped() {
 holds_cli() {
   local what=$1 app=$2 got
   got=$(mktemp -d "$tmp/cli.XXXXXX")
-  "$app" --extract-cli "$got" || { echo "$what: agentbox-native has no agentbox built in" >&2; exit 1; }
+  # $WINDOWS_RUN is what runs a Windows program where this isn't Windows
+  # (wine, to try the Windows packaging on Linux); nothing on Windows.
+  ${run:-} "$app" --extract-cli "$got" || { echo "$what: agentbox-native has no agentbox built in" >&2; exit 1; }
   local exe=agentbox
   [ "$os" = windows ] && exe=agentbox.exe
   cmp "$got/$exe" "${AGENTBOX_BUNDLED_CLI:?the agentbox the app was built with}" ||
@@ -104,15 +115,17 @@ AgentBox native app $version (experimental)
 
 A preview of AgentBox's desktop app rewritten in Rust with GPUI, the toolkit
 Zed is drawn with. It is a client of the same AgentBox daemon the Electron app
-uses: install AgentBox as usual, then start this instead of the AgentBox app.
-It may break.
+uses, with the agentbox tool built in: where AgentBox isn't set up yet it sets
+it up itself (its VM, or on Windows WSL and its distro), so it needs nothing
+else installed. It may break.
 
   agentbox-native                   against this computer's AgentBox
   agentbox-native --socket PATH     against another daemon's socket
 
 It can't yet: show an agent's iOS simulator; do what only the Electron app's
-main process does (resize the VM, restart it, host setup with sudo, install
-the command-line tool), for which it shows the command to run instead; or
+main process does (resize the VM, restart it, host setup with sudo, access
+to /dev/kvm, install the command-line tool), for which it shows the command
+to run instead; or
 hide to the tray (it minimises). On Wayland, HTML previews are a still
 picture. On Windows and macOS, agents' recordings don't play (no FFmpeg in these
 builds).
@@ -275,6 +288,7 @@ DESK
   windows)
     bin=$root/native/target/release/agentbox-native.exe
     [ -f "$bin" ] || { echo "no $bin: build it first" >&2; exit 1; }
+    run=${WINDOWS_RUN:-}
     dir=$tmp/$name-windows-x64
     mkdir -p "$dir"
     cp "$bin" "$dir/agentbox-native.exe"
@@ -286,6 +300,34 @@ DESK
     (cd "$tmp" && 7z a -tzip -bso0 "$out/$name-windows-x64.zip" "$(basename "$dir")")
     7z x -bso0 -o"$tmp/look" "$out/$name-windows-x64.zip"
     holds_cli "$name-windows-x64.zip" "$tmp/look/$name-windows-x64/agentbox-native.exe"
+
+    # The installer.
+    makensis=${MAKENSIS:-$(command -v makensis || true)}
+    if [ -z "$makensis" ]; then
+      for d in "${PROGRAMFILES:-}" "${PROGRAMFILES_X86:-}" "/c/Program Files (x86)" "/c/Program Files"; do
+        [ -n "$d" ] && [ -x "$d/NSIS/makensis.exe" ] && makensis="$d/NSIS/makensis.exe" && break
+      done
+    fi
+    [ -n "$makensis" ] || { echo "no makensis: install NSIS (choco install nsis), or set MAKENSIS" >&2; exit 1; }
+    setup=$out/$name-windows-x64-setup.exe
+    # Options with -, which makensis takes on every system and which MSYS
+    # doesn't take for a path, as it would /D; the paths as Windows' own.
+    native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+    "$makensis" -V2 -DVERSION="$version" -DNUMERIC_VERSION="${version%%-*}.0" \
+      -DSOURCE="$(native "$dir")" -DOUTFILE="$(native "$setup")" \
+      "$(native "$root/native/packaging/windows/installer.nsi")"
+    # Installed as a script would, silently, somewhere of this script's own
+    # (/D= goes last, unquoted, and takes a Windows path); then uninstalled,
+    # which has to leave nothing.
+    mkdir -p "$tmp/installed"
+    if [ -n "$run" ]; then there=$(winepath -w "$tmp/installed"); else there=$(native "$tmp/installed"); fi
+    there=$there\\AgentBox
+    MSYS2_ARG_CONV_EXCL='*' $run "$setup" /S "/D=$there"
+    [ -f "$tmp/installed/AgentBox/Uninstall.exe" ] || { echo "$name-windows-x64-setup.exe installed no uninstaller" >&2; exit 1; }
+    holds_cli "$name-windows-x64-setup.exe" "$tmp/installed/AgentBox/agentbox-native.exe"
+    # _?= has the uninstaller run where it is and be waited for.
+    MSYS2_ARG_CONV_EXCL='*' $run "$tmp/installed/AgentBox/Uninstall.exe" /S "_?=$there"
+    [ ! -e "$tmp/installed/AgentBox/agentbox-native.exe" ] || { echo "$name-windows-x64-setup.exe's uninstaller left the app behind" >&2; exit 1; }
     holds_cli "agentbox-native-$version-windows-x64.exe" "$out/agentbox-native-$version-windows-x64.exe"
     ;;
   mac)

@@ -143,6 +143,10 @@ func (m *Manager) EnsureLeadSession(ctx context.Context, project, session string
 
 		Interface: state.InterfaceChat,
 		Role:      state.RoleLead,
+		// A new chat starts on the tool's full-access mode, where it has one
+		// (chat.wanted); a lead made before this keeps the Manual it has, and
+		// the composer's mode menu still changes it.
+		Autonomous: true,
 	}
 	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
@@ -562,6 +566,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		ClaudeAccounts:       accountNames,
 		CanSpawn:             socket != "",
 		AgentPRs:             p.AgentPRs,
+		NoRemote:             gitrepo.NoRemote(p.Root),
 		Notes:                projectNotes,
 		Recap:                recap,
 		NoteSuggestions:      suggestions,

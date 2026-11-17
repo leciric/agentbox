@@ -28,7 +28,7 @@ import {
   unreachable,
 } from './daemon';
 import { EventStream } from './events';
-import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { grantKVM, hostSetupStatus, installWSL, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { startHomeHost, stopHomeHost } from './homehost';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
@@ -362,6 +362,7 @@ ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 
 // On Linux, AgentBox's VM needs /dev/kvm: this gives it to the user, through
 // the desktop's password dialog, without a new login.
 ipcMain.handle('hostsetup:kvm', () => grantKVM((text) => send('hostsetup:output', text)));
+ipcMain.handle('hostsetup:wsl-install', () => installWSL((text) => send('hostsetup:output', text)));
 
 // Moving this Linux machine's own AgentBox into AgentBox's VM (`agentbox vm
 // migrate`), and removing its old machines afterwards: no password, like vm

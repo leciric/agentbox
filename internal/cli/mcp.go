@@ -987,6 +987,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		questionsTool(ctx, c),
 		resourcesTool(ctx, c),
 		scheduleTool(ctx, c),
+		todosTool(ctx, c),
 	)
 }
 

@@ -33,6 +33,7 @@ export interface Project {
   nesting: boolean;
   iosForwardPorts: number[];
   agentPRs: boolean;
+  noRemote: boolean;
   prWatch: string;
   syncBase: boolean;
   settleHours: number;
@@ -83,6 +84,25 @@ export interface AddProjectRequest {
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
+  init?: boolean;
+}
+
+export interface SkippedPath {
+  path: string;
+  bytes: number;
+  reason: string;
+}
+
+export interface MergeAgentRequest {
+  message?: string;
+}
+
+export interface MergeAgentResult {
+  branch: string;
+  into: string;
+  commit: string;
+  fastForward: boolean;
+  upToDate: boolean;
 }
 
 export interface CloneProjectRequest {
@@ -99,6 +119,7 @@ export interface CloneProjectRequest {
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
+  init?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -992,6 +1013,7 @@ export interface Self {
 export interface Error {
   error: string;
   code?: string;
+  skipped?: SkippedPath[];
 }
 
 export interface TerminalResize {
@@ -3032,6 +3054,48 @@ export interface ScheduleChange {
   project: string;
 }
 
+export interface Todo {
+  id: string;
+  project: string;
+  text: string;
+  done: boolean;
+  position: number;
+  job?: string;
+  agent?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt?: string;
+}
+
+export interface TodoRequest {
+  text?: string;
+  done?: boolean;
+}
+
+export interface TodoOrder {
+  ids: string[];
+}
+
+export interface TodoStartRequest {
+  ai?: string;
+  model?: string;
+  effort?: string;
+}
+
+export interface TodoStart {
+  todo: Todo;
+  job: Job;
+}
+
+export interface TodoCounts {
+  open: Record<string, number>;
+}
+
+export interface TodoChange {
+  project: string;
+}
+
 export interface ChatAgentPermission {
   agent: string;
   ref: string;
@@ -4185,6 +4249,8 @@ export const ImageBuilding = "building";
 export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
+export const ErrorNotARepository = "not-a-repository";
+export const ErrorMergeConflict = "merge-conflict";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
 export const ErrorPassphraseNeeded = "passphrase-needed";
@@ -4212,6 +4278,7 @@ export const SessionWorking = "working";
 export const SessionIdle = "idle";
 export const EventQuestion = "question";
 export const EventSchedule = "schedule";
+export const EventTodo = "todo";
 export const EventAgentEvent = "agent.event";
 export const ReviewReviewed = "reviewed";
 export const ReviewDismissed = "dismissed";

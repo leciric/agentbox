@@ -6,7 +6,7 @@ import * as T from '../../shared/api';
 import { api, ApiError } from '../lib/api';
 import { formatList, t as translate, useT } from '../lib/i18n';
 import { joinPath, nameOf, parentOf } from '../lib/paths';
-import { errorMessage } from '../lib/utils';
+import { errorMessage, humanBytes } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -121,7 +121,8 @@ export function AddProjectDialog({
   };
   const add = useMutation({
     // commitFiles is the user's answer to the daemon's saying the new
-    // repository's folder already has files in it. In clone mode, this is
+    // repository's folder already has files in it, or, for an existing
+    // folder, that it isn't a repository (init). In clone mode, this is
     // adding the folder that was in the clone's way, as it is.
     mutationFn: (commitFiles: boolean) =>
       api.addProject({
@@ -131,6 +132,7 @@ export function AddProjectDialog({
         copyToLinux: onWindowsDrive || undefined,
         create: creating || undefined,
         commitFiles: (creating && commitFiles) || undefined,
+        init: (mode === 'existing' && commitFiles) || undefined,
       }),
     onSuccess: added,
   });
@@ -193,7 +195,7 @@ export function AddProjectDialog({
     if (add.error) add.reset();
     if (clone.error) clone.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPath, clonePath, url]);
+  }, [newPath, clonePath, url, path]);
 
   // A clone that failed is tried again from the start, its log cleared.
   const cloneJobState = useQuery({ queryKey: ['job', cloneJob], queryFn: () => api.job(cloneJob!), enabled: !!cloneJob });
@@ -201,6 +203,10 @@ export function AddProjectDialog({
 
   // The folder has files in it: submitting again commits them.
   const notEmpty = creating && add.error instanceof ApiError && add.error.code === T.ErrorFolderNotEmpty;
+  // The folder isn't a git repository: submitting again makes it one (git
+  // init, and its files as the first commit), having said what's left out.
+  const notARepo = mode === 'existing' && add.error instanceof ApiError && add.error.code === T.ErrorNotARepository;
+  const skipped = (notEmpty || notARepo) && add.error instanceof ApiError ? (add.error.skipped ?? []) : [];
   // The clone's folder is already there: submitting again adds it as it is.
   const folderExists = cloning && clone.error instanceof ApiError && clone.error.code === T.ErrorFolderExists;
   // A link that isn't one is said under the link, where the eye is.
@@ -257,7 +263,7 @@ export function AddProjectDialog({
           onSubmit={(event) => {
             event.preventDefault();
             if (!cloning || folderExists) {
-              add.mutate(notEmpty);
+              add.mutate(notEmpty || notARepo);
               return;
             }
             setCloneJob(undefined);
@@ -337,7 +343,7 @@ export function AddProjectDialog({
               </Field>
             </>
           ) : (
-            <Field label={t('project.add.folderLabel')} htmlFor="project-path">
+            <Field label={t('project.add.folderLabel')} htmlFor="project-path" hint={t('project.add.folderHint')}>
               <div className="flex gap-2">
                 <Input
                   id="project-path"
@@ -451,9 +457,17 @@ export function AddProjectDialog({
             </p>
           )}
           {cloneJob && <JobProgress key={cloneJob} jobId={cloneJob} header={false} logClassName="h-40" onDone={(job) => void cloneDone(job)} />}
-          {notEmpty ? (
+          {notEmpty || notARepo ? (
             <Notice tone="info">
-              {t.rich('project.add.notEmpty', { code: (c) => <Code>{c}</Code>, path: newPath })}
+              <div className="grid gap-2" data-add-project-init>
+                <p>
+                  {notARepo
+                    ? t.rich('project.add.notARepo', { code: (c) => <Code>{c}</Code>, path: path.trim(), branch: 'main' })
+                    : t.rich('project.add.notEmpty', { code: (c) => <Code>{c}</Code>, path: newPath })}
+                </p>
+                {skipped.length > 0 && <SkippedList skipped={skipped} />}
+                {notARepo && <p>{t('project.add.noRemote')}</p>}
+              </div>
             </Notice>
           ) : folderExists ? (
             <Notice tone="info">
@@ -469,7 +483,7 @@ export function AddProjectDialog({
             </Button>
             <Button type="submit" variant="primary" disabled={!(cloning ? url.trim() : creating ? newPath : path.trim()) || submitting}>
               {submitting && <LoaderCircle className="animate-spin" />}
-              {submitLabel({ mode, notEmpty, folderExists, onWindowsDrive, pending: submitting, retry: cloneFailed })}
+              {submitLabel({ mode, notEmpty, notARepo, folderExists, onWindowsDrive, pending: submitting, retry: cloneFailed })}
             </Button>
           </DialogFooter>
         </form>
@@ -478,9 +492,33 @@ export function AddProjectDialog({
   );
 }
 
+// SkippedList is what a new repository's first commit leaves out although
+// no .gitignore does, as the daemon found it (Error.skipped).
+function SkippedList({ skipped }: { skipped: T.SkippedPath[] }) {
+  const t = useT();
+  const shown = skipped.slice(0, 6);
+  return (
+    <div className="grid gap-1" data-add-project-skipped>
+      <p>{t.rich('project.add.skipped', { code: (c) => <Code>{c}</Code> })}</p>
+      <ul className="grid gap-0.5">
+        {shown.map((s) => (
+          <li key={s.path} className="flex min-w-0 items-baseline gap-2">
+            <Code className="min-w-0 truncate">{s.path}</Code>
+            <span className="shrink-0 text-subtle">
+              {t('project.add.skippedReason', { reason: s.reason })} · {humanBytes(s.bytes)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {skipped.length > shown.length && <p className="text-subtle">{t('project.add.skippedMore', { count: skipped.length - shown.length })}</p>}
+    </div>
+  );
+}
+
 function submitLabel({
   mode,
   notEmpty,
+  notARepo,
   folderExists,
   onWindowsDrive,
   pending,
@@ -488,6 +526,7 @@ function submitLabel({
 }: {
   mode: Mode;
   notEmpty: boolean;
+  notARepo: boolean;
   folderExists: boolean;
   onWindowsDrive: boolean;
   pending: boolean;
@@ -502,6 +541,7 @@ function submitLabel({
     if (notEmpty) return translate('project.add.commitAndAdd');
     return pending ? translate('project.add.creating') : translate('project.add.createAndAdd');
   }
+  if (notARepo) return pending ? translate('project.add.initializing') : translate('project.add.initAndAdd');
   if (onWindowsDrive) return pending ? translate('project.add.copying') : translate('project.add.copyAndAdd');
   return translate('project.add.submit');
 }

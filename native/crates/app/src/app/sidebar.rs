@@ -229,6 +229,7 @@ impl AppView {
     /// load_sidebar reads sections, the hidden list, activity, agents and
     /// open questions.
     pub(super) fn load_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.load_todo_counts(cx);
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let sections = client
@@ -1017,6 +1018,30 @@ impl AppView {
                 this.open_settings_at(format!("project:{gear_project}"), window, cx);
             }))
             .child(crate::icons::ic("settings").size(px(14.)));
+        // Its todo list (todos.rs): beside the gear while it is selected,
+        // and a count under its name while it has open ones.
+        let open_todos = self.todos.counts.get(&p.name).copied().unwrap_or(0);
+        let todos_tip: SharedString = t("native.todos.open").into();
+        let todos_project = p.name.clone();
+        let todos_button = div()
+            .id(SharedString::from(format!("todos-{}", p.name)))
+            .flex_none()
+            .my(px(-4.))
+            .size_5()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .text_color(theme::subtle())
+            .when(needs == 0, |el| el.ml_auto())
+            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::title()))
+            .tooltip(move |w, cx| Tooltip::new(todos_tip.clone()).build(w, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.open_todos(todos_project.clone(), window, cx);
+            }))
+            .child(crate::icons::ic("list-todo").size(px(14.)));
+        let gear = gear.when(needs == 0, |el| el.ml_0());
         let asking = needs > 0 && !selected;
         let hover = if asking {
             theme::amber(400).opacity(0.1)
@@ -1123,7 +1148,7 @@ impl AppView {
                                 )
                             })
                             .children(right)
-                            .when(selected, |el| el.child(gear)),
+                            .when(selected, |el| el.child(todos_button).child(gear)),
                     )
                     .child(
                         h_flex()
@@ -1142,6 +1167,22 @@ impl AppView {
                                     })
                                     .child(line),
                             )
+                            .when(open_todos > 0, |el| {
+                                let project = p.name.clone();
+                                el.child(
+                                    review_chip(
+                                        format!("todo-count-{project}"),
+                                        tv("native.todos.count", &[("count", open_todos.into())]),
+                                        t("native.todos.open"),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            this.open_todos(project.clone(), window, cx)
+                                        },
+                                    )),
+                                )
+                            })
                             .when(to_review > 0, |el| {
                                 // "N to review" opens Work on what waits.
                                 let project = p.name.clone();

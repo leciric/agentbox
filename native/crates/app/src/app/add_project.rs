@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use agentbox_api::client::code_of;
+use agentbox_api::client::{code_of, skipped_of};
 use agentbox_api::{
     AddProjectRequest, AuthStatus, CloneProjectRequest, ERROR_BAD_REPO_URL, ERROR_FOLDER_EXISTS,
-    ERROR_FOLDER_NOT_EMPTY, Job, Project, Settings, ToolAccount, UpdateProjectRequest,
-    UpdateSettingsRequest,
+    ERROR_FOLDER_NOT_EMPTY, ERROR_NOT_A_REPOSITORY, Job, Project, Settings, SkippedPath,
+    ToolAccount, UpdateProjectRequest, UpdateSettingsRequest,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -51,6 +51,11 @@ pub struct AddProject {
     busy: bool,
     /// What the daemon said, and its code.
     error: Option<(String, String)>,
+    /// What the daemon said a first commit would leave out (Error.skipped),
+    /// and the folder it said it about: the dialog's yes (init, commit files)
+    /// holds only for that folder, not one typed since.
+    skipped: Vec<SkippedPath>,
+    asked: String,
     job: Option<Job>,
     log: Vec<String>,
 }
@@ -134,6 +139,14 @@ impl AddProject {
     fn code(&self) -> &str {
         self.error.as_ref().map_or("", |(_, c)| c.as_str())
     }
+
+    /// not_a_repo is the daemon having said the existing folder isn't a git
+    /// repository, about the folder that's in the field now.
+    fn not_a_repo(&self, cx: &App) -> bool {
+        self.mode == "existing"
+            && self.code() == ERROR_NOT_A_REPOSITORY
+            && self.asked == self.path.read(cx).value().trim()
+    }
 }
 
 impl AppView {
@@ -176,6 +189,8 @@ impl AppView {
             settings: None,
             busy: false,
             error: None,
+            skipped: Vec::new(),
+            asked: String::new(),
             job: None,
             log: Vec::new(),
         })));
@@ -401,9 +416,11 @@ impl AppView {
             gemini_account: gemini,
             copilot_account: copilot,
             open_code_accounts: opencode,
+            init: d.not_a_repo(cx),
             create: creating,
             commit_files: creating && code == ERROR_FOLDER_NOT_EMPTY,
         };
+        let asked = req.path.clone();
         d.busy = true;
         d.error = None;
         cx.notify();
@@ -412,10 +429,13 @@ impl AppView {
                 Ok(p) => added(this, client, p, tool, cx).await,
                 Err(e) => {
                     let c = code_of(&e).to_string();
+                    let skipped = skipped_of(&e);
                     this.update(cx, |this, cx| {
                         if let Some(d) = this.add_dialog() {
                             d.busy = false;
                             d.error = Some((e.to_string(), c));
+                            d.skipped = skipped;
+                            d.asked = asked;
                         }
                         cx.notify();
                     })
@@ -629,14 +649,24 @@ impl AppView {
         } else {
             d.clone_path(cx)
         };
-        if code == ERROR_FOLDER_NOT_EMPTY && mode == "new" {
-            body.push(controls::note_in(
-                plain(&tv(
-                    "project.add.notEmpty",
-                    &[("path", path_for_note.into())],
-                )),
-                theme::accent(),
+        let not_a_repo = d.not_a_repo(cx);
+        if not_a_repo {
+            let path = d.path.read(cx).value().trim().to_string();
+            let mut text = plain(&tv(
+                "project.add.notARepo",
+                &[("path", path.as_str().into()), ("branch", "main".into())],
             ));
+            text.push_str(&skipped_text(&d.skipped));
+            text.push_str("\n\n");
+            text.push_str(&t("project.add.noRemote"));
+            body.push(controls::note_in(text, theme::accent()));
+        } else if code == ERROR_FOLDER_NOT_EMPTY && mode == "new" {
+            let mut text = plain(&tv(
+                "project.add.notEmpty",
+                &[("path", path_for_note.into())],
+            ));
+            text.push_str(&skipped_text(&d.skipped));
+            body.push(controls::note_in(text, theme::accent()));
         } else if code == ERROR_FOLDER_EXISTS && mode == "clone" {
             body.push(controls::note_in(
                 plain(&tv(
@@ -659,6 +689,8 @@ impl AppView {
             "new" if code == ERROR_FOLDER_NOT_EMPTY => t("project.add.commitAndAdd"),
             "new" if pending => t("project.add.creating"),
             "new" => t("project.add.createAndAdd"),
+            _ if not_a_repo && pending => t("project.add.initializing"),
+            _ if not_a_repo => t("project.add.initAndAdd"),
             _ if on_windows_drive(d.path.read(cx).value().trim()) => t(if pending {
                 "project.add.copying"
             } else {
@@ -1099,6 +1131,35 @@ pub(super) fn form_modal(
         "idsharedstringfromformatid-backdrop-in",
     )
     .into_any_element()
+}
+
+/// skipped_text lists what a first commit leaves out although no .gitignore
+/// does (Error.skipped), as the note's last lines; "" when nothing is.
+fn skipped_text(skipped: &[SkippedPath]) -> String {
+    if skipped.is_empty() {
+        return String::new();
+    }
+    let mut text = format!("\n\n{}", plain(&t("project.add.skipped")));
+    for s in skipped.iter().take(6) {
+        let reason = tv(
+            "project.add.skippedReason",
+            &[("reason", s.reason.as_str().into())],
+        );
+        text.push_str(&format!(
+            "\n  {}  ·  {}, {}",
+            s.path,
+            reason,
+            crate::files::human_bytes(s.bytes)
+        ));
+    }
+    if skipped.len() > 6 {
+        let more = (skipped.len() - 6) as i64;
+        text.push_str(&format!(
+            "\n  {}",
+            tv("project.add.skippedMore", &[("count", more.into())])
+        ));
+    }
+    text
 }
 
 #[cfg(test)]

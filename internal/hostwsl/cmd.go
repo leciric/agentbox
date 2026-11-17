@@ -86,8 +86,35 @@ Projects live on the distro's disk: clone them there (agentbox wsl shell).`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newShellCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInstallCmd(), newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newShellCmd(), newUpgradeCmd(), newDeleteCmd())
 	return root
+}
+
+// newInstallCmd is `agentbox wsl install`: WSL itself, which takes an
+// administrator, where `init` and everything after it don't.
+func newInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install WSL itself, with one administrator prompt (wsl --install --no-distribution)",
+		Long: `Installs WSL, and Windows' Virtual Machine Platform, which WSL 2 needs: what
+"wsl --install --no-distribution" does in a PowerShell opened as administrator, behind one
+prompt from Windows. When Windows has to restart to finish it says so, and exits with status 3.
+Then: agentbox wsl init.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			d, _ := distro()
+			err := d.InstallWSL(cmd.Context())
+			if errors.Is(err, ErrRestartWindows) {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err)
+				return exitCode(restartExit)
+			}
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "WSL is installed. Next: agentbox wsl init")
+			return nil
+		},
+	}
 }
 
 func newInitCmd() *cobra.Command {

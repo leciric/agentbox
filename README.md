@@ -112,18 +112,26 @@ still alpha, and Codex cloud needs no computer of yours at all.
 
 ## Install
 
-AgentBox runs on **Linux, x86_64**, with **macOS and Windows in alpha**. On Linux, one command
-checks your computer (virtualization, 8 GB of memory, 30 GB of disk, FUSE for the AppImage), says
-plainly what's missing before it downloads anything, and installs the latest release, checked
-against its `SHA256SUMS`: the `.deb` on Debian and Ubuntu, the `.pacman` on Arch, and the AppImage
-anywhere else.
+AgentBox runs on **Linux, x86_64**, with **macOS and Windows in alpha**. One command checks your
+computer (virtualization, 8 GB of memory, 30 GB of disk), says plainly what's missing before it
+downloads anything, installs the latest release, checked against its `SHA256SUMS`, and on a Mac
+and on Windows opens it. On Linux and on a Mac:
 
 ```bash
 curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh
 ```
 
-`sh -s -- --check` after the pipe only checks. To install by hand instead (or on a Mac or Windows),
-download from [downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
+On Windows, in PowerShell:
+
+```powershell
+irm https://downloads.agentbox.linting.dev/install.ps1 | iex
+```
+
+On Linux it installs the `.deb` on Debian and Ubuntu, the `.pacman` on Arch, and the AppImage
+anywhere else; on a Mac, AgentBox in Applications; on Windows, the installer, for your user alone.
+Neither the Mac's nor Windows' asks for a password, and a download made this way isn't held back
+by Gatekeeper or SmartScreen. `sh -s -- --check` after the pipe only checks. To install by hand
+instead, download from [downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
 
 | File | What |
 |---|---|
@@ -142,14 +150,16 @@ chmod +x AgentBox-*-x86_64.AppImage
 Or `sudo apt install ./AgentBox-<version>-amd64.deb` on Debian and Ubuntu, or
 `sudo pacman -U AgentBox-<version>-x64.pacman` on Arch. AppImages need FUSE: install `fuse2` (Arch),
 `libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if yours won't start. The Mac
-and Windows builds are unsigned for now: on a Mac, right-click AgentBox in Applications and choose
-**Open** the first time; on Windows, the installer and antivirus may need an exception.
+and Windows builds are unsigned for now: downloaded by hand, on a Mac right-click AgentBox in
+Applications and choose **Open** the first time, and on Windows the installer and antivirus may
+need an exception.
 
 The app's **Setup** walks you through the rest the first time it runs. On Linux, AgentBox runs in a
 [Cloud Hypervisor](https://www.cloudhypervisor.org) VM of its own, with the CPUs and memory cap you
 give it, so heavy agent work can't freeze your desktop; nothing is installed on your system and no
 password is asked. If your user can't open `/dev/kvm` yet, Setup offers **Give access to KVM**, with one
-password prompt and no new login. [docs/install.md](docs/install.md) has the details: the install script, how the VM shares memory
+password prompt and no new login. On Windows, when WSL isn't installed, Setup offers **Install
+WSL**, with one administrator prompt. [docs/install.md](docs/install.md) has the details: the install script, how the VM shares memory
 between agents, moving an installation from before the VM, and the Mac's krunkit VM with a GPU
 for agents.
 
@@ -182,8 +192,10 @@ Everything in the app has an `agentbox` equivalent, for servers and scripts:
 ```bash
 agentbox add ~/src/my-app                               # a git repository becomes a project
 agentbox add --clone https://github.com/acme/my-app      # or one cloned from a link, private ones too
+agentbox add --init ~/Documents/site                     # or any folder: git init, its files the first commit
 agentbox chat my-app "Paginate the reminders list"      # ask its chat, which creates the agents it needs
 agentbox diff my-app/agent-01                           # what an agent changed
+agentbox merge my-app/agent-01                          # merge its branch here, for a project with no remote
 agentbox media list my-app/agent-01                     # what it kept to show its work
 agentbox share my-app/agent-01 -o run.html              # what it did, as one page to send anyone
 ```

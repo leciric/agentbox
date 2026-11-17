@@ -1068,13 +1068,22 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
     <SettingRow
       label={t('defaults.project.agentPRsLabel')}
       htmlFor="project-agent-prs"
-      description={project.agentPRs ? t('defaults.project.agentPRsOnDescription') : t('defaults.project.agentPRsOffDescription')}
+      description={
+        project.noRemote
+          ? t('defaults.project.agentPRsNoRemote')
+          : project.agentPRs
+            ? t('defaults.project.agentPRsOnDescription')
+            : t('defaults.project.agentPRsOffDescription')
+      }
       details={project.agentPRs ? t('defaults.project.agentPRsOnDetails') : t('defaults.project.agentPRsOffDetails')}
       control={
         <Switch
           id="project-agent-prs"
           data-project-agent-prs
-          checked={save.isPending ? save.variables : project.agentPRs}
+          // With no remote there's nowhere to push: the brief ignores the
+          // setting until there is one, so the switch says so by being off.
+          disabled={project.noRemote}
+          checked={project.noRemote ? false : save.isPending ? save.variables : project.agentPRs}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }

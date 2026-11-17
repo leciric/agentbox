@@ -13,6 +13,11 @@
 //	FAKEWSL_LANG     pt-BR: wsl.exe's messages in Portuguese
 //	FAKEWSL_STRICT_TAR an imported .tar without /etc/os-release is refused, as newer WSL does
 //	FAKEWSL_IMPORT_FAIL --import fails with an error that isn't about virtualization
+//	FAKEWSL_NOT_INSTALLED WSL isn't installed until --install has run: --version
+//	                 fails, as the wsl.exe Windows ships before WSL does
+//	FAKEWSL_INSTALL  how --install ends: "restart" turns the Virtual Machine
+//	                 Platform on from the next boot only (FAKEWSL_NO_VMP stays
+//	                 the caller's to set), "fail" fails
 //	FAKEWSL_HANG     never answer a wsl.exe command line starting with this
 //	FAKEWSL_EXEC_TIMEOUT a command run in the distro fails as WSL's own
 //	                 timeout does under heavy CPU load (Wsl/Service/0x8007274c)
@@ -102,7 +107,23 @@ func run(args []string) int {
 		time.Sleep(time.Hour)
 	}
 	switch args[0] {
+	case "--install":
+		if os.Getenv("FAKEWSL_INSTALL") == "fail" {
+			return fail("fakewsl: --install failed")
+		}
+		_ = os.MkdirAll(root(), 0o755)
+		_ = os.WriteFile(filepath.Join(root(), "install-args"), []byte(strings.Join(args, " ")), 0o644)
+		if os.Getenv("FAKEWSL_INSTALL") != "restart" {
+			_ = os.WriteFile(filepath.Join(root(), "installed"), nil, 0o644)
+		}
+		return 0
 	case "--version":
+		if os.Getenv("FAKEWSL_NOT_INSTALLED") != "" {
+			if _, err := os.Stat(filepath.Join(root(), "installed")); err != nil {
+				say("Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.\r\n")
+				return 1
+			}
+		}
 		say("WSL version: 2.4.13.0\r\nKernel version: 6.6.87.2-1\r\n")
 		return 0
 	case "--list":

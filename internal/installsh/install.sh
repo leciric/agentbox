@@ -1,21 +1,24 @@
 #!/bin/sh
-# Installs AgentBox on Linux:
+# Installs AgentBox on Linux and on a Mac:
 #
 #   curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh
 #
 # It checks this machine first and downloads nothing until every check
-# passes: x86_64, /dev/kvm, 8 GB of memory, 30 GB free in your home folder,
-# and FUSE when it would install the AppImage. Then it downloads the latest
-# release, checks it against the release's SHA256SUMS, and installs the .deb
-# (Debian, Ubuntu and their kin, with apt-get), the .pacman (Arch, with
-# pacman), or else the AppImage, in ~/.local/bin. Only the .deb and the
-# .pacman need sudo, and it says so before asking.
+# passes: 8 GB of memory and 30 GB free in your home folder; on Linux x86_64,
+# /dev/kvm, and FUSE when it would install the AppImage; on a Mac macOS 13.
+# Then it downloads the latest release, checks it against the release's
+# SHA256SUMS, and installs it. On Linux: the .deb (Debian, Ubuntu and their
+# kin, with apt-get), the .pacman (Arch, with pacman), or else the AppImage,
+# in ~/.local/bin; only the .deb and the .pacman need sudo, and it says so
+# before asking. On a Mac: AgentBox.app in /Applications, with no password,
+# and opens it.
 #
 #   sh install.sh --check      only the checks
 #   sh install.sh --appimage   the AppImage, whatever the distribution
 #
 # AGENTBOX_CHANNEL=nightly installs the newest nightly instead of the newest
 # release, and DOWNLOADS_URL points it at another copy of the downloads.
+# (Windows: irm https://downloads.agentbox.linting.dev/install.ps1 | iex)
 #
 # All of it is one function, called on the last line: piped into sh, a
 # download cut off half-way runs nothing.
@@ -36,7 +39,7 @@ for arg in "$@"; do
     --check) check_only=yes ;;
     --appimage) force_appimage=yes ;;
     -h | --help)
-      sed -n '2,18p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
+      sed -n '2,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -57,27 +60,32 @@ note() { notes="$notes
 # --- What to install --------------------------------------------------------
 
 os=$(uname -s)
-if [ "$os" = Darwin ]; then
-  say "This script installs AgentBox on Linux. On a Mac, download the app (the .dmg) from"
+if [ "$os" != Linux ] && [ "$os" != Darwin ]; then
+  say "This script installs AgentBox on Linux and on a Mac, and this is $os. Downloads for every system:"
   say "  $downloads/index.html"
-  exit 1
-fi
-if [ "$os" != Linux ]; then
-  say "This script installs AgentBox on Linux, and this is $os. Downloads for every system:"
-  say "  $downloads/index.html"
+  say "On Windows, in PowerShell: irm $downloads/install.ps1 | iex"
   exit 1
 fi
 
 arch=$(uname -m)
-case $arch in
-  x86_64 | amd64) ;;
-  aarch64 | arm64)
-    problem "This is an ARM (arm64) machine. AgentBox's app and its VM run only on x86_64 Linux for now."
-    ;;
-  *)
-    problem "This machine's processor is $arch. AgentBox runs only on x86_64 Linux."
-    ;;
-esac
+mac_arch=""
+if [ "$os" = Darwin ]; then
+  case $arch in
+    arm64 | aarch64) mac_arch=arm64 ;;
+    x86_64 | amd64) mac_arch=x64 ;;
+    *) problem "This Mac's processor is $arch. AgentBox runs on Apple silicon and Intel Macs." ;;
+  esac
+else
+  case $arch in
+    x86_64 | amd64) ;;
+    aarch64 | arm64)
+      problem "This is an ARM (arm64) machine. AgentBox's app and its VM run only on x86_64 Linux for now."
+      ;;
+    *)
+      problem "This machine's processor is $arch. AgentBox runs only on x86_64 Linux."
+      ;;
+  esac
+fi
 
 # The distribution, from os-release: ID and ID_LIKE.
 distro=""
@@ -89,7 +97,13 @@ if [ -r "$root/etc/os-release" ]; then
   )
 fi
 kind=appimage
-if [ "$force_appimage" = no ]; then
+if [ "$os" = Darwin ]; then
+  kind=mac
+  if [ "$force_appimage" = yes ]; then
+    say "install.sh: --appimage is for Linux" >&2
+    exit 2
+  fi
+elif [ "$force_appimage" = no ]; then
   case " $distro " in
     *" debian "* | *" ubuntu "*) command -v apt-get >/dev/null 2>&1 && kind=deb ;;
     *" arch "*) command -v pacman >/dev/null 2>&1 && kind=pacman ;;
@@ -104,7 +118,15 @@ fi
 # No /dev/kvm on a processor that shows vmx (VT-x) or svm (AMD-V) is KVM's
 # module not loaded, which Setup does too; without either, the firmware has
 # it off (Linux 5.6 and later hide vmx then).
-if [ ! -e "$root/dev/kvm" ] && grep -qw -e vmx -e svm "$root/proc/cpuinfo" 2>/dev/null; then
+if [ "$kind" = mac ]; then
+  # A Mac's VM is Lima's, made with Apple's Virtualization framework, which
+  # macOS 13 brought to both kinds of Mac. Setup downloads Lima itself.
+  macos=$(sw_vers -productVersion 2>/dev/null || true)
+  case ${macos%%.*} in
+    "" | *[!0-9]*) ;;
+    *) [ "${macos%%.*}" -ge 13 ] || problem "This Mac runs macOS $macos, and AgentBox needs macOS 13 (Ventura) or later, for the VM its agents run in." ;;
+  esac
+elif [ ! -e "$root/dev/kvm" ] && grep -qw -e vmx -e svm "$root/proc/cpuinfo" 2>/dev/null; then
   note "There's no /dev/kvm yet: KVM's module isn't loaded. That's fine: AgentBox's Setup loads it, and gives you access, with one password prompt."
 elif [ ! -e "$root/dev/kvm" ]; then
   problem "There is no /dev/kvm: this machine's virtualization is off. Turn on Intel VT-x or AMD-V (often called SVM or Virtualization Technology) in the firmware (BIOS/UEFI) settings; in a virtual machine, turn on nested virtualization."
@@ -113,7 +135,11 @@ elif [ ! -r "$root/dev/kvm" ] || [ ! -w "$root/dev/kvm" ]; then
 fi
 
 # Memory: 8 GB, a little under, since 8 GB machines report less.
-mem_kb=$(awk '/^MemTotal:/ { print $2; exit }' "$root/proc/meminfo" 2>/dev/null || true)
+if [ "$kind" = mac ]; then
+  mem_kb=$(sysctl -n hw.memsize 2>/dev/null | awk '{ printf "%d", $1 / 1024 }' || true)
+else
+  mem_kb=$(awk '/^MemTotal:/ { print $2; exit }' "$root/proc/meminfo" 2>/dev/null || true)
+fi
 if [ -n "$mem_kb" ] && [ "$mem_kb" -lt 7500000 ]; then
   problem "This machine has $((mem_kb / 1024 / 1024)) GB of memory, and AgentBox needs at least 8 GB: its VM, and the agents in it, take their memory from it."
 fi
@@ -146,9 +172,16 @@ if [ -n "$problems" ]; then
   say "AgentBox can't be installed on this machine yet:$problems"
   exit 1
 fi
+# Where a Mac's apps go: /Applications, or the user's own when that one isn't
+# theirs to write to.
+apps_dir="$root/Applications"
+if [ "$kind" = mac ] && { [ ! -d "$apps_dir" ] || [ ! -w "$apps_dir" ]; }; then
+  apps_dir="$home/Applications"
+fi
 case $kind in
   deb) what="the .deb, with apt-get" ;;
   pacman) what="the .pacman, with pacman" ;;
+  mac) what="AgentBox.app, in ${apps_dir#"$root"}" ;;
   *) what="the AppImage, in ~/.local/bin" ;;
 esac
 say "This machine can run AgentBox: it would install $what."
@@ -193,11 +226,17 @@ version=${tag#v}
 case $kind in
   deb) asset="AgentBox-$version-amd64.deb" ;;
   pacman) asset="AgentBox-$version-x64.pacman" ;;
+  mac) asset="AgentBox-$version-mac-$mac_arch.zip" ;;
   *) asset="AgentBox-$version-x86_64.AppImage" ;;
 esac
 
 say "==> Downloading AgentBox $version ($asset)"
 fetch "$downloads/releases/$tag/SHA256SUMS" "$tmp/SHA256SUMS"
+# A release's Mac files are summed apart, by the Mac that built them
+# (SHA256SUMS-mac); a nightly's are in SHA256SUMS with the rest.
+if [ "$kind" = mac ] && ! grep -q "$asset" "$tmp/SHA256SUMS"; then
+  fetch "$downloads/releases/$tag/SHA256SUMS-mac" "$tmp/SHA256SUMS"
+fi
 fetch "$downloads/releases/$tag/$asset" "$tmp/$asset"
 want=$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp/SHA256SUMS")
 if command -v sha256sum >/dev/null 2>&1; then
@@ -229,6 +268,28 @@ case $kind in
   pacman)
     say "==> Installing it with pacman, which needs your password for sudo"
     as_root pacman -U --noconfirm "$tmp/$asset"
+    ;;
+  mac)
+    # ditto unpacks the .zip as Finder would, signature and all. Nothing
+    # downloaded by curl is quarantined, so macOS opens the app without the
+    # "right-click, Open" a browser's download needs while it isn't notarized.
+    if pgrep -x AgentBox >/dev/null 2>&1; then
+      say "AgentBox is open: quit it (its window, and its icon in the menu bar), then run this again. Nothing was installed." >&2
+      exit 1
+    fi
+    ditto -x -k "$tmp/$asset" "$tmp/app"
+    if [ ! -d "$tmp/app/AgentBox.app" ]; then
+      say "$asset has no AgentBox.app in it: nothing was installed." >&2
+      exit 1
+    fi
+    mkdir -p "$apps_dir"
+    rm -rf "$apps_dir/AgentBox.app"
+    mv "$tmp/app/AgentBox.app" "$apps_dir/AgentBox.app"
+    xattr -dr com.apple.quarantine "$apps_dir/AgentBox.app" 2>/dev/null || true
+    say "==> Installed ${apps_dir#"$root"}/AgentBox.app"
+    say "AgentBox $version is installed, and opening: its Setup makes the VM your agents run in."
+    open "$apps_dir/AgentBox.app" || true
+    exit 0
     ;;
   *)
     bin="$home/.local/bin"
