@@ -215,6 +215,8 @@ export const enUSNative = {
   'native.memories.shared.title': '{count, plural, one {# memory} other {# memories}} committed to {branch}',
   'native.memories.shared.unchanged': 'Already on {branch} as they are: nothing new to commit',
   'native.memories.shared.body': 'Your checkout is as it was. Push the branch and open a pull request into {base}: once it is merged, everyone who pulls gets these memories.',
+  'native.sidebar.connecting': 'Starting AgentBox…',
+  'native.sidebar.unreachable': 'Couldn\'t load your projects: {error}',
   'native.todos.title': 'Todos',
   'native.todos.open': 'Todo list',
   'native.todos.add': 'Add a todo',

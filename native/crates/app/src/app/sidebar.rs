@@ -16,6 +16,7 @@ use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use super::AppView;
+use super::projects_load;
 use super::sidebar_actions::Place;
 use crate::theme;
 
@@ -125,6 +126,27 @@ pub struct Sidebar {
     pub(super) root_focus: FocusHandle,
     _sub: Subscription,
     _poll: Task<()>,
+}
+
+/// is_idle is whether group-idle sends a project to the idle dock: nothing
+/// running, nobody asking, and its lead not in a turn (Electron's workingNow
+/// counts the lead too).
+fn is_idle(group_idle: bool, c: &Counts, lead_working: bool) -> bool {
+    group_idle && c.running == 0 && c.asks == 0 && !lead_working
+}
+
+/// rank_of is byAttention's bucket: what needs you, then to review, then
+/// working (its agents, or its lead in a turn), then the rest.
+fn rank_of(c: &Counts, to_review: usize, lead_working: bool) -> u8 {
+    if c.asks + c.failed > 0 {
+        0
+    } else if to_review > 0 {
+        1
+    } else if c.working > 0 || lead_working {
+        2
+    } else {
+        3
+    }
 }
 
 impl Sidebar {
@@ -519,10 +541,11 @@ impl AppView {
         for p in shown.iter().copied().filter(|p| !placed.contains(&p.name)) {
             if hidden.contains(&p.name) && self.project.as_deref() != Some(&p.name) {
                 hid.push(p);
-            } else if group_idle
-                && self.counts(&p.name).running == 0
-                && self.counts(&p.name).asks == 0
-            {
+            } else if is_idle(
+                group_idle,
+                &self.counts(&p.name),
+                self.project_sessions(&p.name).0,
+            ) {
                 idle.push(p);
             } else {
                 rest.push(p);
@@ -548,16 +571,11 @@ impl AppView {
             rest.sort_by(by_name);
         }
         let rank = |p: &Project| {
-            let c = self.counts(&p.name);
-            if c.asks + c.failed > 0 {
-                0
-            } else if self.to_review(&p.name) > 0 {
-                1
-            } else if c.working > 0 {
-                2
-            } else {
-                3
-            }
+            rank_of(
+                &self.counts(&p.name),
+                self.to_review(&p.name),
+                self.project_sessions(&p.name).0,
+            )
         };
         rest.sort_by_key(|p| rank(p));
         idle.sort_by(|a, b| recent(b).cmp(&recent(a)).then_with(|| by_name(a, b)));
@@ -568,6 +586,11 @@ impl AppView {
         let idle_open = self.side.idle_open || nothing_else || !query.is_empty();
         let hidden_open = self.side.hidden_open || !query.is_empty();
         let nothing = !self.projects.is_empty() && shown.is_empty();
+        let list_state = projects_load::shown(&self.projects_load, !self.projects.is_empty());
+        let load_error = match &list_state {
+            projects_load::Shown::Error(e) => Some(e.clone()),
+            _ => None,
+        };
         let dragging = cx.has_active_drag();
         let no_rest = rest.is_empty();
         let in_section = !self.side.sections.is_empty();
@@ -623,7 +646,18 @@ impl AppView {
                             .child(self.home_row(cx))
                             .children(self.office_row(cx))
                             .child(self.filter_bar(cx))
-                            .when(self.projects.is_empty(), |el| {
+                            .when(list_state == projects_load::Shown::Starting, |el| {
+                                el.child(
+                                    div()
+                                        .id("projects-starting")
+                                        .mx_3()
+                                        .p_3()
+                                        .text_sm()
+                                        .text_color(theme::faint())
+                                        .child(t("native.sidebar.connecting")),
+                                )
+                            })
+                            .when(list_state == projects_load::Shown::AddFirst, |el| {
                                 el.child(
                                     div()
                                         .id("add-first")
@@ -753,7 +787,7 @@ impl AppView {
                                         .child(t("v2.sidebar.nothingMatches")),
                                 )
                             })
-                            .when_some(self.error.clone(), |el, e| {
+                            .when_some(load_error, |el, e| {
                                 el.child(div().p_4().text_xs().text_color(theme::error()).child(e))
                             }),
                     ),
@@ -1335,5 +1369,33 @@ pub(super) fn ago(time: &str) -> String {
             "panel.list.agoDays",
             &[("n", ((secs / 86400) as usize).into())],
         ),
+    }
+}
+
+#[cfg(test)]
+mod lead_working_tests {
+    use super::{Counts, is_idle, rank_of};
+
+    #[test]
+    fn a_working_lead_ranks_as_working_and_is_never_idle() {
+        let c = Counts::default();
+        assert_eq!(rank_of(&c, 0, true), 2);
+        assert_eq!(rank_of(&c, 0, false), 3);
+        assert!(!is_idle(true, &c, true));
+        assert!(is_idle(true, &c, false));
+        assert!(!is_idle(false, &c, false));
+        // Louder states still win.
+        assert_eq!(
+            rank_of(
+                &Counts {
+                    asks: 1,
+                    ..Default::default()
+                },
+                0,
+                true
+            ),
+            0
+        );
+        assert_eq!(rank_of(&c, 1, true), 1);
     }
 }

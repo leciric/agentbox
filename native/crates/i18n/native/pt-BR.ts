@@ -213,6 +213,8 @@ export const ptBRNative = {
   'native.memories.shared.title': '{count, plural, one {# memória registrada} other {# memórias registradas}} em {branch}',
   'native.memories.shared.unchanged': 'Já estão em {branch} assim: nada novo para registrar',
   'native.memories.shared.body': 'Seu checkout ficou como estava. Envie o branch e abra um pull request para {base}: depois do merge, todos que fizerem pull recebem estas memórias.',
+  'native.sidebar.connecting': 'Iniciando o AgentBox…',
+  'native.sidebar.unreachable': 'Não foi possível carregar seus projetos: {error}',
   'native.todos.title': 'Tarefas',
   'native.todos.open': 'Lista de tarefas',
   'native.todos.add': 'Adicionar uma tarefa',
