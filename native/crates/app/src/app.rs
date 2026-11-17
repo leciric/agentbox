@@ -43,8 +43,10 @@ mod sidebar;
 mod sidebar_actions;
 mod sidebar_dialogs;
 mod stale;
+mod todos;
 mod topbar;
 mod tour;
+mod update_poll;
 mod usage;
 mod views;
 mod width;
@@ -53,6 +55,7 @@ mod work;
 use crate::chat::{ChatAction, ChatView};
 use crate::terminal::TerminalView;
 use crate::vnc::VncView;
+pub(crate) use settings::connectors::{PRESETS, Preset};
 
 use crate::{bench, theme};
 use agentbox_i18n::t;
@@ -82,6 +85,8 @@ pub struct AppView {
     conn: connection::Conn,
     /// A daemon older than this app, and its restart (stale.rs).
     stale: stale::StaleDaemon,
+    /// When the update status was last read (update_poll.rs).
+    update_poll: update_poll::UpdatePoll,
     /// The top bar's chips (topbar.rs).
     topbar: topbar::TopBar,
     /// The welcome tour and What's new (tour.rs).
@@ -102,6 +107,8 @@ pub struct AppView {
     /// The panel's Browser, Android and picker (views.rs).
     views: views::Views,
     schedules: schedules::Schedules,
+    /// The project's todo list, and every project's open count (todos.rs).
+    todos: todos::Todos,
     issues: issues::Issues,
     agent_settings: agent_settings::AgentSettings,
     /// The past agent open (past.rs).
@@ -205,6 +212,7 @@ impl AppView {
             connected: false,
             conn: Default::default(),
             stale: Default::default(),
+            update_poll: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
             meters: Default::default(),
@@ -216,6 +224,7 @@ impl AppView {
             agent: agent::AgentPage::new(window, cx),
             views,
             schedules: schedules::Schedules::new(window, cx),
+            todos: todos::Todos::new(window, cx),
             issues: issues::Issues::default(),
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
@@ -302,6 +311,9 @@ impl AppView {
             }
             self.load_pulls(false, cx);
             self.reload_resources(cx);
+            // A release found while the stream was down came in an event
+            // this app never saw.
+            self.load_update(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -440,7 +452,7 @@ impl AppView {
             }
             agentbox_api::EVENT_REVIEW => self.reload_review(cx),
             agentbox_api::EVENT_THEME => self.load_theme(window, cx),
-            agentbox_api::EVENT_UPDATE => self.reload_update(cx),
+            agentbox_api::EVENT_UPDATE => self.on_update_event(ev.data, cx),
             agentbox_api::EVENT_NOTIFICATION => {
                 if let Ok(n) = serde_json::from_value::<agentbox_api::Notification>(ev.data) {
                     self.on_notification(n, cx);
@@ -449,6 +461,11 @@ impl AppView {
             agentbox_api::EVENT_QUESTION => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
                     self.load_questions(p.to_string(), cx);
+                }
+            }
+            agentbox_api::EVENT_TODO => {
+                if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
+                    self.on_todo_event(p, cx);
                 }
             }
             _ => {}
@@ -795,6 +812,52 @@ impl AppView {
                 c.review_card = card;
                 cx.notify();
             });
+        }
+    }
+
+    /// sync_chat_requests hands the open chat the credential and connector
+    /// requests waiting on you there (chat/requests.rs): a project's chat
+    /// every one in the project (ProjectCredentialCards), an agent's the one
+    /// it is blocked on (ChatCredentialCard). They come from the project's
+    /// questions as last read, so a request is there whether it was asked
+    /// while the chat was open, elsewhere, or before a reconnect.
+    fn sync_chat_requests(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = self.chat.clone() else {
+            return;
+        };
+        let (project, read_only) = {
+            let c = chat.read(cx);
+            (
+                c.agent.split('/').next().unwrap_or("").to_string(),
+                c.past || c.closed,
+            )
+        };
+        let lead = self.open == "lead";
+        let list = if read_only || self.is_home() {
+            Vec::new()
+        } else {
+            let all = self.side.questions_of(&project);
+            if lead {
+                crate::chat::requests::for_lead(all)
+            } else {
+                crate::chat::requests::for_agent(all, &self.open)
+            }
+        };
+        let current = chat.read(cx).requests.clone();
+        let requests = match current {
+            Some(r) => r,
+            None if list.is_empty() => return,
+            None => {
+                let client = self.client.clone();
+                let r = cx.new(|_| crate::chat::requests::Requests::new(client, lead));
+                chat.update(cx, |c, _| c.requests = Some(r.clone()));
+                r
+            }
+        };
+        if requests.read(cx).given() != list.as_slice() {
+            requests.update(cx, |r, cx| r.set(list, cx));
+            chat.update(cx, |_, cx| cx.notify());
+            window.refresh();
         }
     }
 
@@ -1243,6 +1306,7 @@ impl Render for AppView {
         agent::modal_frame(window, cx);
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
+        self.sync_chat_requests(window, cx);
         self.pulls_gone();
         self.presence_check(window, cx);
         bench::mark("first-render");

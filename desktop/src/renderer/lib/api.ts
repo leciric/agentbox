@@ -13,10 +13,14 @@ export class ApiError extends Error {
   readonly status: number;
   // code is the daemon's Error.code: which refusal this is, when it says.
   readonly code?: string;
-  constructor(message: string, status: number, code?: string) {
+  // skipped is the daemon's Error.skipped: what making a folder a repository
+  // would leave out of its first commit.
+  readonly skipped?: T.SkippedPath[];
+  constructor(message: string, status: number, code?: string, skipped?: T.SkippedPath[]) {
     super(message);
     this.status = status;
     this.code = code;
+    this.skipped = skipped;
   }
 }
 
@@ -39,9 +43,10 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   if (res.status >= 400) {
     let message = res.body.trim();
     let code: string | undefined;
+    let skipped: T.SkippedPath[] | undefined;
     let json = false;
     try {
-      ({ error: message, code } = JSON.parse(res.body) as T.Error);
+      ({ error: message, code, skipped } = JSON.parse(res.body) as T.Error);
       json = true;
     } catch {
       // not JSON
@@ -50,7 +55,7 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
       const outdated = await outdatedDaemon();
       if (outdated) throw new ApiError(t('shell.app.daemonOutdated', outdated), res.status, 'daemon_outdated');
     }
-    throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
+    throw new ApiError(message || `HTTP ${res.status}`, res.status, code, skipped);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
@@ -334,6 +339,9 @@ export const api = {
   diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
   // diff is the agent's whole diff against its base, for a review with no pull request.
   diff: (ref: string) => text('GET', `${agent(ref)}/diff`),
+  // mergeAgent merges the agent's branch into the one it started from, here:
+  // how a project with no remote lands its work.
+  mergeAgent: (ref: string, req: T.MergeAgentRequest = {}) => call<T.MergeAgentResult>('POST', `${agent(ref)}/merge`, req),
 
   // Past agents: an agent whose machine was removed is kept, with its chat,
   // until it is deleted here. Its chat reads through the live routes

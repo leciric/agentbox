@@ -158,6 +158,16 @@ watch_idle() {
 # Vulkan clients render on the GPU. WSL's GPU (/dev/dxg) has none: there,
 # Mesa's d3d12 driver renders under its software winsys, set up by
 # /etc/profile.d/agentbox-gpu.sh, and needs nothing from Xvnc.
+# xvnc_stale says whether this display's Xvnc runs without -UseBlacklist=0, as
+# one started by an earlier browser.sh does: TigerVNC then blacklists
+# 127.0.0.1, where every client comes from, after a few early disconnects.
+xvnc_stale() {
+  for pid in $(pgrep -u "$uid" -f "Xvnc $DISPLAY "); do
+    [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = Xvnc ] || continue
+    tr '\0' ' ' <"/proc/$pid/cmdline" | grep -q -- '-UseBlacklist=0' || return 0
+  done
+  return 1
+}
 render_node() {
   for node in /dev/dri/renderD*; do
     if [ -c "$node" ] && [ -r "$node" ] && [ -w "$node" ]; then
@@ -642,6 +652,12 @@ watch_display() {
 
 case "${1:-}" in
 start)
+  # A display from before -UseBlacklist=0 can't be fixed in place: restart it
+  # (the windows on it go with it).
+  if xvnc_stale; then
+    sh "$0" stop
+    wait_for ! pgrep -u "$uid" -f "Xvnc $DISPLAY " || true
+  fi
   # Match this display's processes only: the Android emulator has a display too.
   # pgrep can miss a live Xvnc started with a different argument order or by
   # something other than this script, so also ask the display itself before
@@ -652,7 +668,7 @@ start)
     node=$(render_node)
     # shellcheck disable=SC2086 # a device path, or nothing
     setsid Xvnc "$DISPLAY" -geometry 1440x900 -depth 24 -desktop agentbox \
-      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared ${node:+-rendernode $node} >"$state/display.log" 2>&1 </dev/null &
+      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared -UseBlacklist=0 ${node:+-rendernode $node} >"$state/display.log" 2>&1 </dev/null &
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the display didn't start: see $state/display.log" >&2; exit 1; }
     wait_for listening 5900 || { echo "the VNC server didn't start: see $state/display.log" >&2; exit 1; }
   fi
@@ -731,6 +747,10 @@ refresh)
   # A newer browser.sh in a desktop that was up before it: start what it
   # runs beside the display that start would have, without opening anything.
   display_answering || exit 0
+  if xvnc_stale; then
+    sh "$0" stop
+    exec sh "$0" start
+  fi
   start_idle_watch
   ;;
 *)

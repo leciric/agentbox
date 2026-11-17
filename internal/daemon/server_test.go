@@ -89,6 +89,8 @@ type testConfig struct {
 	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
+	// updateInterval is Config.UpdateInterval; zero is update.Interval.
+	updateInterval time.Duration
 	// npmRegistry is Config.NPMRegistry; empty is a port nothing listens on.
 	npmRegistry string
 	// loginCallbackUnreachable is the daemon's: a browser that can't reach
@@ -173,6 +175,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
 		NPMRegistry:      cmp.Or(tc.npmRegistry, "http://127.0.0.1:1"),
 		UpdateStartDelay: -1,
+		UpdateInterval:   tc.updateInterval,
 		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:        gh.URL,
 		// Every fake connector server listens on loopback.
@@ -322,13 +325,19 @@ func TestUpdateProjectAgentPRs(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
+	root := d.fixtureRepo(t, "hello-stack")
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.AgentPRs {
 		t.Error("a new project's agents push their own pull requests")
 	}
+	// With no remote there's nowhere to push at all, which the brief says.
+	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "**This project has no remote**") {
+		t.Errorf("no remote: the brief doesn't say so:\n%s", brief)
+	}
+	testutil.Git(t, root, "remote", "add", "origin", "https://github.com/acme/hello-stack.git")
 	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "Don't push.") {
 		t.Errorf("off: the brief doesn't tell the agent not to push:\n%s", brief)
 	}

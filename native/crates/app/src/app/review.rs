@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use agentbox_api::{
-    Client, MediaItem, MergePullRequestRequest, MergeWhenGreen, MergeWhenGreenRequest,
-    ProjectPullRequests, PullRequest, RequestChangesRequest, ReviewRequest, Settings, WorkItem,
+    Client, MediaItem, MergeAgentRequest, MergeAgentResult, MergePullRequestRequest,
+    MergeWhenGreen, MergeWhenGreenRequest, ProjectPullRequests, PullRequest, RequestChangesRequest,
+    ReviewRequest, Settings, WorkItem,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -825,8 +826,17 @@ impl ReviewView {
         self.item.item.pr.as_ref().filter(|p| p.number > 0)
     }
 
+    /// local_merge is an agent whose project has no remote, so no pull
+    /// request: Merge merges its branch here (MergeAgentRequest).
+    fn local_merge(&self) -> bool {
+        self.pr().is_none() && !self.item.past && self.pulls.as_ref().is_some_and(|p| p.no_origin)
+    }
+
     /// merge_block is why Merge can't, if it can't (lib mergeBlockReason).
     fn merge_block(&self) -> Option<String> {
+        if self.local_merge() {
+            return None;
+        }
         let Some(pr) = self.pr() else {
             return Some(t("review.mergeBlocked.none"));
         };
@@ -919,6 +929,9 @@ impl ReviewView {
         if self.busy || self.merge_block().is_some() || !self.awaiting() {
             return;
         }
+        if self.local_merge() {
+            return self.merge_here(cx);
+        }
         let Some(pr) = self.pr().cloned() else {
             return;
         };
@@ -985,6 +998,69 @@ impl ReviewView {
                             )
                             .into(),
                         )
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// merge_here merges the agent's branch into the one it started from, on
+    /// this machine, then marks it reviewed: a project with no remote's Merge.
+    fn merge_here(&mut self, cx: &mut Context<Self>) {
+        let i = self.item.item.clone();
+        let client = self.client.clone();
+        self.busy = true;
+        self.merging = true;
+        self.armed = false;
+        self.error = None;
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .post::<_, MergeAgentResult>(
+                    &format!("/v1/agents/{}/{}/merge", i.project, i.agent),
+                    &MergeAgentRequest::default(),
+                )
+                .await;
+            if res.is_ok() {
+                let _ = client
+                    .raw(
+                        agentbox_api::client::Method::POST,
+                        &format!("/v1/agents/{}/{}/review", i.project, i.agent),
+                        serde_json::to_vec(&ReviewRequest {
+                            verdict: "reviewed".into(),
+                            fingerprint: i.fingerprint.clone(),
+                        })
+                        .ok(),
+                    )
+                    .await;
+            }
+            this.update(cx, |this, cx| {
+                this.busy = false;
+                this.merging = false;
+                match res {
+                    Ok(m) => {
+                        let key = if m.up_to_date {
+                            "review.mergeHere.upToDate"
+                        } else {
+                            "review.mergeHere.done"
+                        };
+                        Toast::new(
+                            Kind::Success,
+                            tv(
+                                key,
+                                &[("branch", (&m.branch).into()), ("into", (&m.into).into())],
+                            ),
+                        )
+                        .show(cx);
+                        this.advance(cx)
+                    }
+                    Err(e) => {
+                        let msg = agentbox_api::client::message_of(&e);
+                        this.error =
+                            Some(tv("review.mergeHere.failed", &[("error", (&msg).into())]).into())
                     }
                 }
                 cx.notify();
@@ -2783,6 +2859,8 @@ impl ReviewView {
                     theme::primary(),
                 )
             })
+        } else if self.local_merge() {
+            Some((t("review.mergeHere.note"), theme::muted()))
         } else {
             block.clone().map(|b| (b, theme::muted()))
         };
@@ -2875,25 +2953,40 @@ impl ReviewView {
                         ))
                     },
                 )
-                .child(merge::split(
-                    "review-merge",
-                    match self.pr() {
-                        Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
-                        None => t("review.noPullRequest"),
-                    },
-                    block.is_none().then(|| hint_on_brand("M")),
-                    &self.method(),
-                    &self.methods(),
-                    block.is_some() || self.busy,
-                    self.busy && self.merging,
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
-                    std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
-                        merge::remember(&this.item.item.project, m);
-                        this.method = Some(m.to_string());
-                        cx.notify();
-                    })),
-                    cx,
-                ))
+                .when(self.local_merge(), |el| {
+                    let base = match i.base_ref.as_str() {
+                        "" | "HEAD" => "main".to_string(),
+                        b => b.to_string(),
+                    };
+                    el.child(controls::button(
+                        "review-merge-here",
+                        format!("⑂ {}", tv("review.mergeHere", &[("base", (&base).into())])),
+                        Btn::Primary,
+                        self.busy,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
+                    ))
+                })
+                .when(!self.local_merge(), |el| {
+                    el.child(merge::split(
+                        "review-merge",
+                        match self.pr() {
+                            Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
+                            None => t("review.noPullRequest"),
+                        },
+                        block.is_none().then(|| hint_on_brand("M")),
+                        &self.method(),
+                        &self.methods(),
+                        block.is_some() || self.busy,
+                        self.busy && self.merging,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
+                        std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
+                            merge::remember(&this.item.item.project, m);
+                            this.method = Some(m.to_string());
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                })
             })
             .into_any_element()
     }

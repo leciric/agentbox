@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -17,12 +18,20 @@ import (
 func newAddCmd(a *app) *cobra.Command {
 	var name, claudeAccount, githubAccount, codexAccount, cursorAccount, geminiAccount, copilotAccount string
 	var openCodeAccounts map[string]string
-	var copyToLinux, create, commitFiles bool
+	var copyToLinux, create, commitFiles, initRepo bool
 	var cloneURL string
 	cmd := &cobra.Command{
 		Use:   "add <path>",
-		Short: "Register a git repository as a project",
+		Short: "Register a git repository, or any folder, as a project",
 		Long: `Register a git repository as a project.
+
+A folder that isn't a git repository is refused, with what adding it would do,
+unless --init: AgentBox runs git init there on main and commits what's in it as
+the initial commit, leaving out what a .gitignore there leaves out and, on top,
+installed dependencies (node_modules, .venv), caches, build output (a Rust
+target) and files of 50 MB or more, which it lists and keeps out for good in
+.git/info/exclude. With no remote, agents work as usual and their branches
+land with agentbox merge; pushing and pull requests wait for one (git remote add).
 
 With --new, <path> is a repository to start: AgentBox makes the folder, runs
 git init on main and makes an initial commit, so agents have a commit to branch
@@ -38,6 +47,7 @@ account (--github-account, or this machine's default), so a private one needs
 no other login; anything else, or one that account can't see, with this
 machine's own git credentials.`,
 		Example: `  agentbox add ~/code/my-app
+  agentbox add --init ~/Documents/some-folder
   agentbox add --new ~/code/my-new-app
   agentbox add --clone https://github.com/acme/my-app
   agentbox add --clone git@gitlab.com:acme/my-app.git ~/code/my-app`,
@@ -62,7 +72,7 @@ machine's own git credentials.`,
 			req := api.AddProjectRequest{
 				Path: path, Name: name, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CopyToLinux: copyToLinux,
 				CodexAccount: codexAccount, OpenCodeAccounts: openCodeAccounts, CursorAccount: cursorAccount, GeminiAccount: geminiAccount, CopilotAccount: copilotAccount,
-				Create: create, CommitFiles: commitFiles,
+				Create: create, CommitFiles: commitFiles, Init: initRepo,
 			}
 			var p api.Project
 			if cloneURL != "" {
@@ -71,7 +81,10 @@ machine's own git credentials.`,
 				p, err = c.AddProject(cmd.Context(), req)
 			}
 			if api.HasReason(err, api.ErrorFolderNotEmpty) {
-				return fmt.Errorf("%w: add --commit-files to make them its initial commit", err)
+				return fmt.Errorf("%w%s\nadd --commit-files to make them its initial commit", err, skippedLines(err))
+			}
+			if api.HasReason(err, api.ErrorNotARepository) {
+				return fmt.Errorf("%w%s\nadd --init to go ahead", err, skippedLines(err))
 			}
 			if err != nil {
 				return err
@@ -103,9 +116,25 @@ machine's own git credentials.`,
 	cmd.Flags().StringToStringVar(&openCodeAccounts, "opencode-account", nil, "OpenCode account its agents use for a provider, as provider=account; repeat it for several (default: each provider's default)")
 	cmd.Flags().BoolVar(&create, "new", false, "make <path> a new repository, on main with an initial commit, and add that")
 	cmd.Flags().BoolVar(&commitFiles, "commit-files", false, "with --new, commit the files already in <path> as the initial commit")
+	cmd.Flags().BoolVar(&initRepo, "init", false, "make <path>, a folder that isn't a git repository, one: git init and its files as the initial commit")
 	cmd.Flags().StringVar(&cloneURL, "clone", "", "clone the repository at this link into <path> (default: the clone folder, ~/src) and add that")
 	cmd.Flags().BoolVar(&copyToLinux, "copy", false, "in WSL, add a clone in ~/src/<name> of a repository on a Windows drive, rather than refusing it")
 	return cmd
+}
+
+// skippedLines lists what a refusal to make a repository says its initial
+// commit would leave out, one per line, or "" when nothing.
+func skippedLines(err error) string {
+	var se *api.StatusError
+	if !errors.As(err, &se) || len(se.Skipped) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nleft out of the initial commit, on top of its .gitignore:")
+	for _, s := range se.Skipped {
+		fmt.Fprintf(&b, "\n  %s (%s, %s)", s.Path, s.Reason, humanBytes(s.Bytes))
+	}
+	return b.String()
 }
 
 // cloneProject runs the job that clones a repository and adds it, its
@@ -447,6 +476,14 @@ func nestingWords(on bool) string {
 	return "off"
 }
 
+// noRemoteNote is what agent-prs adds for a project with nowhere to push.
+func noRemoteNote(p api.Project) string {
+	if !p.NoRemote {
+		return ""
+	}
+	return " (but its repository has no remote, so its agents don't push: git remote add origin <url> first; until then agentbox merge lands their branches)"
+}
+
 // newAgentPRsCmd shows or sets whether a project's agents push their own
 // branch and open their own pull request, in newNestingCmd's shape.
 func newAgentPRsCmd(a *app) *cobra.Command {
@@ -471,7 +508,7 @@ branch. Off by default: a push publishes, with your GitHub token.`,
 				}
 				for _, p := range projects {
 					if p.Is(args[0]) {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentPRsWords(p.AgentPRs))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s%s\n", p.Called(), agentPRsWords(p.AgentPRs), noRemoteNote(p))
 						return nil
 					}
 				}
@@ -485,7 +522,7 @@ branch. Off by default: a push publishes, with your GitHub token.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentPRsWords(p.AgentPRs))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s%s\n", p.Called(), agentPRsWords(p.AgentPRs), noRemoteNote(p))
 			return nil
 		},
 	}

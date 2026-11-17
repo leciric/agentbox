@@ -69,7 +69,7 @@ func (s *Server) sessionLeadOf(ctx context.Context, project string, ls state.Lea
 	}
 	return state.Agent{
 		Project: project, Name: state.LeadSessionName(ls.ID), Title: ls.Topic, AI: agent.ChatTool,
-		Interface: state.InterfaceChat, Role: state.RoleLead,
+		Interface: state.InterfaceChat, Role: state.RoleLead, Autonomous: true,
 	}, nil
 }
 

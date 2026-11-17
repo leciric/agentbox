@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -278,10 +279,52 @@ func (m *Manager) displayUp(ctx context.Context, a state.Agent) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-	greeting := make([]byte, 3)
-	_, err = io.ReadFull(conn, greeting)
-	return err == nil && string(greeting) == "RFB"
+	return vncHandshakes(conn)
+}
+
+// vncHandshakes runs the RFB handshake through the security result and says
+// whether a VNC server answered. Hanging up earlier counts as a failed login
+// to TigerVNC: every client here comes from 127.0.0.1, so a probe that read
+// only the greeting would, after enough of them, blacklist the real viewer.
+func vncHandshakes(conn net.Conn) bool {
+	_ = conn.SetDeadline(time.Now().Add(time.Second))
+	version := make([]byte, 12)
+	if _, err := io.ReadFull(conn, version); err != nil || string(version[:4]) != "RFB " {
+		return false
+	}
+	// Servers older than 3.7 have no security type list: the greeting is
+	// all that can be checked.
+	if string(version[4:11]) < "003.007" {
+		return true
+	}
+	if _, err := conn.Write([]byte("RFB 003.008\n")); err != nil {
+		return false
+	}
+	var n [1]byte
+	if _, err := io.ReadFull(conn, n[:]); err != nil {
+		return false
+	}
+	if n[0] == 0 {
+		// No security types, then the reason: a server that has blacklisted
+		// us. It is up, and browser.sh restarts it without the blacklist.
+		return true
+	}
+	types := make([]byte, n[0])
+	if _, err := io.ReadFull(conn, types); err != nil || !slices.Contains(types, 1) {
+		// Not "None": the greeting was a VNC server's, which is the question.
+		return err == nil
+	}
+	if _, err := conn.Write([]byte{1}); err != nil {
+		return false
+	}
+	var result [4]byte
+	if _, err := io.ReadFull(conn, result[:]); err != nil {
+		return false
+	}
+	// ClientInit (shared) as well: a client that leaves before it is, to an
+	// Xvnc without -UseBlacklist=0, one that failed to get in.
+	_, err := conn.Write([]byte{1})
+	return err == nil
 }
 
 // DialVNC connects to the VNC server on the agent's display. Chromium doesn't

@@ -1714,20 +1714,6 @@ impl AppView {
         cx.notify();
     }
 
-    pub(super) fn load_update(&mut self, cx: &mut Context<Self>) {
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            if let Ok(u) = client.get::<agentbox_api::UpdateStatus>("/v1/update").await {
-                this.update(cx, |this, cx| {
-                    this.side.update = Some(u);
-                    cx.notify();
-                })
-                .ok();
-            }
-        })
-        .detach();
-    }
-
     /// check_update asks for the latest release: a newer one shows as the
     /// update button, else a toast says this one is the latest.
     fn check_update(&mut self, cx: &mut Context<Self>) {
