@@ -63,6 +63,8 @@ pub(super) enum RailTab {
     Files,
     Evidence,
     Schedules,
+    /// The project's todo list (todos.rs).
+    Todos,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -2518,7 +2520,7 @@ impl AppView {
     /// render_rail_switch is the lead's panel's tabs (LeadSwitch): Agents,
     /// with how many; Pull requests (when the project has them on), with how
     /// many are open and how many of its agents are ready to review; Issues,
-    /// Files, Evidence and Schedules. Only the lit one is named.
+    /// Files, Evidence, Schedules and Todos. Only the lit one is named.
     pub(super) fn render_rail_switch(&self, agents: usize, cx: &mut Context<Self>) -> AnyElement {
         let roomy = self.panel_box().width >= 380.;
         let (open, ready) = self.pull_counts();
@@ -2576,6 +2578,12 @@ impl AppView {
                 RailTab::Schedules,
                 "panel.view.schedules",
                 "alarm-clock",
+            ),
+            (
+                "rail-tab-todos",
+                RailTab::Todos,
+                "native.todos.title",
+                "list-todo",
             ),
         ]
         .into_iter()

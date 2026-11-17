@@ -78,6 +78,19 @@ func TestRender(t *testing.T) {
 			GitHub:   true,
 			AgentPRs: true,
 		},
+		// A repository with no remote (one made from a plain folder): nothing
+		// to push, whatever AgentPRs says.
+		"no-remote": {
+			Project:  "notes",
+			Agent:    "agent-02",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/notes/agent-02",
+			Branch:   "agentbox/tidy-up",
+			BaseRef:  "main",
+			IP:       "10.239.149.29",
+			GitHub:   true,
+			AgentPRs: true,
+			NoRemote: true,
+		},
 		// Made from another agent's branch: stacked on it.
 		"stacked": {
 			Project:  "pawly",
@@ -291,6 +304,27 @@ func TestRenderLeadAgentPRs(t *testing.T) {
 	for _, brief := range []string{on, off} {
 		if strings.Contains(brief, "agentbox media publish") {
 			t.Errorf("the lead's brief still pushes media to a branch rather than attaching it")
+		}
+	}
+}
+
+// A lead whose project has no remote lands agents' work with agentbox merge,
+// and isn't told about pull requests it can't have.
+func TestRenderLeadNoRemote(t *testing.T) {
+	got, err := brief.RenderLead(brief.LeadData{
+		Project: "notes", Root: "/src/notes",
+		Worktree: "/home/dev/.local/share/agentbox/worktrees/notes/lead",
+		BaseRef:  "main", Autonomy: "ask", CanSpawn: true, AgentPRs: true, PRWatch: true, NoRemote: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "has no remote") || !strings.Contains(got, "agentbox merge notes/<agent>") {
+		t.Error("the lead isn't told to merge agents' branches here")
+	}
+	for _, not := range []string{"agents push their own branch", "AgentBox watches every agent's open pull request", "When you push an agent's branch"} {
+		if strings.Contains(got, not) {
+			t.Errorf("with no remote, the lead's brief still says %q", not)
 		}
 	}
 }

@@ -511,6 +511,7 @@ impl AppView {
                 RailTab::Pulls => {}
                 RailTab::Issues => self.load_issues(false, cx),
                 RailTab::Schedules => self.load_schedules(cx),
+                RailTab::Todos => self.load_todos(cx),
             },
             Whose::List => self.load_list_data(cx),
             Whose::Past(r) => self.past_sync(&r, window, cx),
@@ -1369,6 +1370,7 @@ impl AppView {
                 RailTab::Evidence => self.render_evidence(None, cx),
                 RailTab::Issues => self.render_issues(cx),
                 RailTab::Schedules => self.render_schedules(cx),
+                RailTab::Todos => self.render_todos(cx),
             },
             Whose::List => self.render_list(cx),
             Whose::Agent(r) => self.render_agent_view(r, cx),
@@ -2560,10 +2562,12 @@ impl AppView {
                             .child(crate::icons::of("⌖")),
                     ),
             );
+        // 16:10 of the panel's width, as RightPanel.tsx's aspect-[16/10]:
+        // it grows and shrinks with the panel (VncView fits the screen in).
         let screen = div()
             .relative()
             .w_full()
-            .h(px(335.))
+            .aspect_ratio(16. / 10.)
             .rounded_lg()
             .overflow_hidden()
             .border_1()

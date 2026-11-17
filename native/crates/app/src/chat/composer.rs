@@ -2502,6 +2502,7 @@ impl ChatView {
                     .children(menu_el)
                     .children(review)
                     .children(tasks)
+                    .children(self.requests.clone().filter(|r| !r.read(cx).is_empty()))
                     // Attached's slide-up, on whichever banner waits.
                     .children(
                         above.map(|el| {

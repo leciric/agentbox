@@ -26,6 +26,15 @@ struct Ask {
     text: String,
 }
 
+/// keep keeps a notification, under the next id, and sends its event.
+pub fn keep(fake: &Fake, mut n: Notification) -> Notification {
+    let mut kept = KEPT.lock().unwrap();
+    n.id = format!("fake-n{}", kept.len() + 1);
+    kept.insert(0, n.clone());
+    fake.emit(EVENT_NOTIFICATION, &n);
+    n
+}
+
 pub async fn route(
     fake: &Fake,
     req: Request<Incoming>,
