@@ -70,7 +70,7 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 	select {
 	case <-ch:
 	default:
-		if held == pressure.WaitHost {
+		if held == pressure.WaitHost || s.hostLoad.holdBoots(time.Now()) {
 			s.logf("memory: %s is on hold: its machine boots once this computer, outside the VM, is calm again", ref)
 		} else {
 			s.logf("memory: %s is on hold: its machine waits for the memory to boot", ref)
@@ -130,7 +130,8 @@ func (s *Server) bootWaits() bool {
 	ad := s.admit
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
-	return len(ad.a.Waiting()) > 0 || !ad.a.Fits(ad.a.Mem(), time.Now())
+	now := time.Now()
+	return len(ad.a.Waiting()) > 0 || !ad.a.Fits(ad.a.Mem(), now) || s.hostLoad.holdBoots(now)
 }
 
 // stepAdmission lets the first machine in line boot when it fits. On the
@@ -138,6 +139,7 @@ func (s *Server) bootWaits() bool {
 func (s *Server) stepAdmission(now time.Time, m pressure.Mem, held string) {
 	ad := s.admit
 	ad.mu.Lock()
+	ad.a.HostShort = s.hostLoad.holdBoots(now)
 	boot := ad.a.Step(now, m, held, ad.running)
 	for _, ref := range boot {
 		if ch := ad.started[ref]; ch != nil {

@@ -28,6 +28,16 @@ import (
 //     cpu, memory and pids by default, and NVMe drives default to none, so
 //     it's often a no-op: the disk is spared mostly by not reading it again
 //     (memory.go's cache floor).
+//   - The scope also bounds the VM's memory on the host's side, the last
+//     resort beneath memory.go's sizing (scopeMemory, limitScope):
+//     MemoryHigh at the cap and memScopeSlack for what runs it, past which
+//     the host's kernel reclaims from the VM's scope rather than the
+//     desktop (the guest's memory is shared memory, which only swap can take
+//     back, so the VM stalls in its stead), and MemoryMax a little above,
+//     past which the kernel ends the VM rather than the desktop's programs.
+//     It needs the memory controller delegated to the user's manager, which
+//     systemd does by default; without it, or outside a scope of its own,
+//     the VM's log says so.
 //   - Without systemd (or its user manager), and inside the scope anyway,
 //     the supervisor lowers its own priority as it starts (lowerPriority):
 //     nice vmNice, and best-effort I/O at its lowest level. Not the idle
@@ -38,6 +48,12 @@ const (
 	vmCPUWeight = 20
 	vmIOWeight  = 20
 	vmNice      = 10
+	// memScopeSlack is what the scope may hold beyond the VM's cap before
+	// the kernel reclaims from it: Cloud Hypervisor, virtiofsd, passt and
+	// crosvm themselves, and what virtiofsd caches of the home.
+	memScopeSlack = 512 << 20
+	// vmScopePrefix starts the name of the scope the supervisor runs in.
+	vmScopePrefix = "agentbox-vm-"
 	// ioprioBestEffortLowest is IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 7).
 	ioprioBestEffortLowest = 2<<13 | 7
 	ioprioWhoProcess       = 1
@@ -51,32 +67,94 @@ var systemdScope = func() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "systemd-run", append(scopeArgs("agentbox-probe"), "true")...).Run() == nil
+	return exec.CommandContext(ctx, "systemd-run", append(scopeArgs("agentbox-probe", 0), "true")...).Run() == nil
 }
 
-// scopeArgs are systemd-run's arguments for a scope named after unit.
-func scopeArgs(unit string) []string {
-	return []string{
+// scopeArgs are systemd-run's arguments for a scope named after unit, its
+// memory bounded for a VM of memCap (scopeMemory) unless that's 0.
+func scopeArgs(unit string, memCap int64) []string {
+	args := []string{
 		"--user", "--scope", "--quiet", "--collect",
 		"--slice=app.slice",
 		"--unit=" + unit + "-" + strconv.FormatInt(time.Now().UnixNano(), 36),
 		"--description=AgentBox's VM",
 		"-p", "CPUWeight=" + strconv.Itoa(vmCPUWeight),
 		"-p", "IOWeight=" + strconv.Itoa(vmIOWeight),
-		"--",
 	}
+	if memCap > 0 {
+		high, hard := scopeMemory(memCap)
+		args = append(args, "-p", "MemoryHigh="+strconv.FormatInt(high, 10), "-p", "MemoryMax="+strconv.FormatInt(hard, 10))
+	}
+	return append(args, "--")
 }
 
-// supervisorArgv is the command line the VM named name's supervisor starts
-// with: self vm run, in a scope of its own where systemd can make one.
-// systemd-run execs it in its own place, so the pid Start waits on is the
-// supervisor's.
-func supervisorArgv(self, name string) []string {
+// supervisorArgv is the command line the VM c's supervisor starts with:
+// self vm run, in a scope of its own where systemd can make one, bounded for
+// its cap as the supervisor will fit it to the host. systemd-run execs it in
+// its own place, so the pid Start waits on is the supervisor's.
+func supervisorArgv(self string, c Config) []string {
 	run := []string{self, "vm", "run"}
 	if !systemdScope() {
 		return run
 	}
-	return append(append([]string{"systemd-run"}, scopeArgs("agentbox-vm-"+unitSafe(name))...), run...)
+	fit, _ := FitHost(c, hostTotal())
+	return append(append([]string{"systemd-run"}, scopeArgs(vmScopePrefix+unitSafe(c.Name), CapFor(fit))...), run...)
+}
+
+// scopeMemory is the VM's scope's MemoryHigh and MemoryMax for a VM whose
+// memory may grow to memCap: the cap and memScopeSlack, and a sixteenth more,
+// a GiB at least.
+func scopeMemory(memCap int64) (high, hard int64) {
+	high = memCap + memScopeSlack
+	return high, high + max(GiB, memCap/16)
+}
+
+// setScopeMemory sets a running scope's MemoryHigh and MemoryMax; tests
+// replace it.
+var setScopeMemory = func(unit string, high, hard int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "--user", "set-property", "--runtime", unit,
+		"MemoryHigh="+strconv.FormatInt(high, 10), "MemoryMax="+strconv.FormatInt(hard, 10)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// limitScope bounds the VM's scope for a cap of memCap, as the supervisor
+// starts (a cap FitHost lowered, or a scope from before this) and when the
+// cap changes, through systemd, or on the scope's own cgroup when systemctl
+// can't. Never below what the scope holds now and some, which would stall
+// the VM at once or end it. Only a scope of the VM's own: the app's, which
+// the supervisor runs in without systemd-run, isn't its to bound. It says
+// what holds, for the VM's log.
+func limitScope(memCap int64) string {
+	dir := ownCgroup()
+	unit := filepath.Base(dir)
+	if dir == "" || !strings.HasPrefix(unit, vmScopePrefix) || !strings.HasSuffix(unit, ".scope") {
+		return "not in a scope of its own: nothing on this computer's side bounds the VM's memory but its own sizing"
+	}
+	cg := filepath.Join(cgroupRoot, dir)
+	if _, err := os.Stat(filepath.Join(cg, "memory.high")); err != nil {
+		return "no memory controller (not delegated to systemd's user manager): nothing on this computer's side bounds the VM's memory but its own sizing"
+	}
+	high, hard := scopeMemory(memCap)
+	if cur, err := strconv.ParseInt(readTrim(filepath.Join(cg, "memory.current")), 10, 64); err == nil && cur > 0 {
+		high = max(high, cur+memScopeSlack)
+		hard = max(hard, high+GiB)
+	}
+	if err := setScopeMemory(unit, high, hard); err != nil {
+		// The cgroup's own files: the higher first, so they never cross.
+		werr := os.WriteFile(filepath.Join(cg, "memory.max"), []byte(strconv.FormatInt(hard, 10)), 0o644)
+		if werr == nil {
+			werr = os.WriteFile(filepath.Join(cg, "memory.high"), []byte(strconv.FormatInt(high, 10)), 0o644)
+		}
+		if werr != nil {
+			return fmt.Sprintf("bounding the VM's scope failed (systemctl: %v; its cgroup: %v)", err, werr)
+		}
+	}
+	return fmt.Sprintf("on this computer the VM's scope may hold %s before the kernel reclaims from it (MemoryHigh), and %s at most (MemoryMax)", gib(high), gib(hard))
 }
 
 // unitSafe is s with what a unit name can't hold replaced.
@@ -158,8 +236,8 @@ func priorityGaps(disk string) []string {
 }
 
 // ownCgroup is this process's cgroup v2 path, "" when it's the root or
-// unknown.
-func ownCgroup() string {
+// unknown; tests replace it.
+var ownCgroup = func() string {
 	b, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return ""

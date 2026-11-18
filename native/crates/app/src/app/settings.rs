@@ -93,7 +93,7 @@ pub struct SettingsPage {
     advanced: bool,
     /// more holds the settings whose "More" is open.
     more: HashSet<&'static str>,
-    settings: Option<Settings>,
+    pub(super) settings: Option<Settings>,
     theme: Option<Theme>,
     pub(super) update: Option<UpdateStatus>,
     /// fields are the page's text fields, by name: Accounts' forms and the
@@ -549,6 +549,10 @@ impl AppView {
     }
 
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Settings shows where the page is: out of the cockpit for it.
+        if self.cockpit.open {
+            self.leave_cockpit(cx);
+        }
         self.settings = true;
         self.work = None;
         self.side.page = None;
@@ -811,6 +815,19 @@ impl AppView {
                 ),
             ];
         let experimental = vec![
+            group(
+                "experimental-ui",
+                "settings.group.experimental-ui.title",
+                vec![
+                    entry(
+                        "cockpit-mode",
+                        "settings.entry.cockpit-mode.label",
+                        "settings.cockpitMode.description",
+                        "settings.entry.cockpit-mode.keywords",
+                    )
+                    .modified(changed(|s| s.cockpit_mode)),
+                ],
+            ),
             group(
                 "experimental-tests",
                 "settings.group.experimental-tests.title",
@@ -2206,6 +2223,16 @@ impl AppView {
                 |s| s.error_reports,
                 |v| UpdateSettingsRequest {
                     error_reports: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "cockpit-mode" => self.switch_row(
+                e,
+                "settings.cockpitMode.details",
+                |s| s.cockpit_mode,
+                |v| UpdateSettingsRequest {
+                    cockpit_mode: Some(v),
                     ..Default::default()
                 },
                 cx,

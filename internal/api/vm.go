@@ -1,6 +1,11 @@
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
+)
 
 // AgentBox can run all of itself — the daemon, Incus and every agent — in one
 // Linux VM, with the host's app and agentbox command as its front end: always
@@ -122,6 +127,43 @@ const VMDiskBackstop = int64(2) << 30
 // VMMaxDisk is the largest pool disk `agentbox vm resize --disk` makes. The
 // disk is sparse, so its size is only what it may grow to on the host's disk.
 const VMMaxDisk = int64(16) << 40
+
+// VMBootFile is the file in the VM's directory on the host (hostos.VMDisks,
+// which the VM sees through the shared home) where a Cloud Hypervisor VM's
+// supervisor says how it started the VM this time (VMBoot), before it boots:
+// the daemon in the VM reads it as it starts (ReadVMBoot).
+const VMBootFile = "boot.json"
+
+// VMBoot is how the VM was started. After a crash loop (the VM died without a
+// clean stop twice within 15 minutes: the host's kernel killed it, the host
+// rebooted, or its supervisor was killed) it starts in safe mode: the VM
+// boots at its memoryMin and grows slowly until SafeUntil, and the daemon
+// should resume its agents slowly too, rather than every turn at once.
+type VMBoot struct {
+	Started time.Time `json:"started"`
+	Safe    bool      `json:"safe,omitempty"`
+	// SafeUntil is when safe mode ends; zero when not Safe.
+	SafeUntil time.Time `json:"safeUntil,omitzero"`
+	// Why says what made it safe, for the log.
+	Why string `json:"why,omitempty"`
+	// Crashes are when the runs that died without a clean stop within the
+	// window were last seen running, oldest first.
+	Crashes []time.Time `json:"crashes,omitempty"`
+}
+
+// ReadVMBoot reads VMBootFile in dir: the zero VMBoot, not safe, when dir is
+// "" (no VM, or a front end from before it) or the file can't be read.
+func ReadVMBoot(dir string) VMBoot {
+	var b VMBoot
+	if dir == "" {
+		return b
+	}
+	data, err := os.ReadFile(filepath.Join(dir, VMBootFile))
+	if err != nil || json.Unmarshal(data, &b) != nil {
+		return VMBoot{}
+	}
+	return b
+}
 
 // VMLimits bound a VM's CPUs, memory and pool disk (bytes). The disk's are 0
 // where it can't be resized.

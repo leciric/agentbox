@@ -247,8 +247,8 @@ func TestASafeVMBootHoldsWhatARestartCutShort(t *testing.T) {
 	ctx := context.Background()
 	d, tool, a, _ := resumeSetup(t, 0)
 	why := "the VM went down 3 times in 20 minutes"
-	d.srv.resumes.readBoot = func() (api.VMBoot, error) {
-		return api.VMBoot{Started: time.Now(), Safe: true, Why: why, Crashes: []time.Time{time.Now().Add(-time.Minute)}}, nil
+	d.srv.resumes.readBoot = func() api.VMBoot {
+		return api.VMBoot{Started: time.Now(), Safe: true, Why: why, Crashes: []time.Time{time.Now().Add(-time.Minute)}}
 	}
 	d.srv.noteLastStop(false, time.Time{})
 	d.srv.continueTurns(ctx)

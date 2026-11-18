@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agentbox/internal/hostload"
 )
 
 // The VM's memory is sized as it goes (virtio-mem, vm.resize): it boots with
@@ -74,13 +76,51 @@ import (
 // migrates what's left out of the blocks it unplugs, into the floor the
 // target kept room for.
 //
-// The host keeps HostReserve for itself, its desktop and the app: the cap is
-// never more than its memory less that (MaxCap), and growing stops short of
-// leaving it less than that available (hostCeiling), whatever the VM's
-// agents want. While it has less, the VM gives back sooner: it keeps only
-// memHeadroomMin beyond use, shrinks after memShrinkAfterHost rather than
-// memShrinkAfter by as little as memGranule, and trims its cache every
-// memTrimEvery.
+// The host keeps HostReserve for itself, its desktop and the app, and the
+// host's own reading decides, not the cap: the cap is never more than its
+// memory less that (MaxCap), but it is only a ceiling. What the VM may have
+// now is what it holds of the host's memory plus what the host has available
+// beyond the reserve (hostCeiling): memory the VM was given but hasn't
+// touched yet is in both, so that sum stays the same as the guest fills what
+// it has, and a VM within it leaves the host its reserve even once it has
+// touched every page. Growing never passes it, and a VM that has more (the
+// desktop grew, or the VM grew before it) is shrunk back to it within
+// memShrinkAfterHost, never below its use and memHeadroomMin. On 18 Nov 2026
+// the VM held 13.8 GiB of a 32 GiB host for 4.8 GiB in use, the host had
+// 5 to 7 GiB available of the 8 it keeps, and its kernel killed the VM six
+// times in 35 minutes: the cap of 14 GiB had been the target.
+//
+// Growing is also slowed and held: at most memGrowMax at a time, memGrowEvery
+// apart (after a boot every agent resumed its turn at once, and the VM grew a
+// GiB a second), and not at all while the host stalls on memory, has less
+// than its reserve, or is busy for memory or its disk by hostload's reading
+// (HostBusy), nor for memHostCalm after. A busy CPU doesn't hold it: the
+// VM's own vCPUs make most of a host's CPU stalls while its agents build, and
+// memory costs no CPU.
+//
+// While the host has less than its reserve, the VM gives back: the target
+// keeps only its use, memHeadroomMin and the cache allowance (the floor
+// yields, refaults or not: the host comes first, and the cache it re-reads
+// costs the host's disk, not its memory), it shrinks after memShrinkAfterHost
+// by as little as memGranule, and its cache beyond that is trimmed every
+// memTrimEvery. A host that stalls on memory gets the same shrink timing and
+// trims, but the floor holds. Below half its reserve (hostCritical) it shrinks at
+// once to its use and memHeadroomLeast and drops its caches: an agent's
+// process the guest kills is better than the host's kernel killing the VM.
+// The host falling short also holds boots (holdBoots, for memHoldBootsFor
+// after the last time), which the supervisor tells the daemon.
+//
+// The last resort is the host's hard floor (hostFloor, the larger of 2 GiB
+// and 6% of it): with less than that available for memEmergencyAfter, the
+// supervisor has the daemon freeze and then stop the agent that holds the
+// most memory (Shed), one every memShedEvery while it lasts, rather than
+// leave the host to freeze or its kernel to kill the VM. The shrink to lean
+// has already been asked for by then (half the reserve is more than the
+// floor), and follows what the stopped agent gave back.
+//
+// Once every agent has been idle for memIdleAfterAll (no turn of its chat and
+// no heavy command, by the daemon), the target keeps only the allowance too,
+// so the VM shrinks after memShrinkAfter, and its caches are dropped.
 //
 // Headroom is there for growth, which is instant; the cache floor is part of
 // the target, so cache up to it doesn't eat the headroom.
@@ -104,7 +144,32 @@ const (
 	memShrinkMin    = 1 * GiB
 	memShrinkAfter  = 60 * time.Second
 	memGrowCooldown = 5 * time.Second
-	memTick         = 500 * time.Millisecond
+	// memGrowMax and memGrowEvery bound how fast the VM grows: half a GiB a
+	// second at most, so the host's own reading keeps up with what the guest
+	// was given. memSafeGrowMax is memGrowMax in safe mode.
+	memGrowMax     = 1 * GiB
+	memGrowEvery   = 2 * time.Second
+	memSafeGrowMax = 512 << 20
+	// memHeadroomLeast is what a shrink for a host below half its reserve
+	// leaves beyond use.
+	memHeadroomLeast = 1 * GiB
+	// memHostCalm is how long growing waits after the host was last short
+	// or busy.
+	memHostCalm = 30 * time.Second
+	// memHoldBootsFor is how long boots stay held after the host was last
+	// short of memory.
+	memHoldBootsFor = 2 * time.Minute
+	// memIdleAfterAll is how long every agent must have been idle, by the
+	// daemon, before the VM gives back its cache beyond the allowance.
+	memIdleAfterAll = 5 * time.Minute
+	// memHostFloorMin and memHostFloorShare (of its memory) make hostFloor.
+	memHostFloorMin   = 2 * GiB
+	memHostFloorShare = 0.06
+	// memEmergencyAfter is how long the host stays under its floor before
+	// an agent is stopped, and memShedEvery the least time between two.
+	memEmergencyAfter = 3 * time.Second
+	memShedEvery      = 20 * time.Second
+	memTick           = 500 * time.Millisecond
 	// memLookahead is how far ahead of rising use the VM is grown: the time
 	// from a sample to the guest having the memory online, with margin.
 	memLookahead = 3 * time.Second
@@ -122,11 +187,7 @@ const (
 
 	// memHostPressure is the host's PSI "some avg10" percentage past which
 	// the host is short, as it is with less than HostReserve available.
-	memHostPressure = 10.0
-	// memHostReserveMin and memHostReserveShare (of its memory) make
-	// HostReserve.
-	memHostReserveMin   = 4 * GiB
-	memHostReserveShare = 0.25
+	memHostPressure = hostload.MemoryBusy
 	// memShrinkAfterHost is how long a lower target waits to be given back
 	// while the host has less than its reserve.
 	memShrinkAfterHost = 5 * time.Second
@@ -204,19 +265,21 @@ type memSample struct {
 	// when unknown.
 	HostTotal, HostAvailable int64
 	HostPressure             float64
+	// HostBusy is why hostload last judged the host busy, when that was for
+	// memory or its disk ("memory" or "io", through its calm-down); ""
+	// otherwise, and when it's unknown (filled in by the supervisor).
+	HostBusy string
 }
 
 // HostReserve is what a host with total bytes of memory keeps for itself,
-// its desktop and the app: the larger of memHostReserveMin, what a desktop
-// session with a browser and the app needs to stay responsive, and
-// memHostReserveShare of it, as a bigger machine runs more beside the VM. It
-// was a fifth, and an agent building Rust froze a Linux PC whose VM had
-// grown to its cap: a quarter is what a desktop with a browser, an editor
-// and the app uses on 16 to 32 GiB machines. The VM never grows past the
-// rest (MaxCap), on Linux and on a Mac alike.
-func HostReserve(total int64) int64 {
-	return max(memHostReserveMin, int64(float64(total)*memHostReserveShare))
-}
+// its desktop and the app: hostload.Reserve, the larger of 4 GiB, what a
+// desktop session with a browser and the app needs to stay responsive, and a
+// quarter of it, as a bigger machine runs more beside the VM. It was a fifth,
+// and an agent building Rust froze a Linux PC whose VM had grown to its cap:
+// a quarter is what a desktop with a browser, an editor and the app uses on
+// 16 to 32 GiB machines. The VM never grows past the rest (MaxCap), on Linux
+// and on a Mac alike, nor past what the host can spare now (hostCeiling).
+func HostReserve(total int64) int64 { return hostload.Reserve(total) }
 
 // MaxCap is the most a VM's memory cap may be on a host with total bytes of
 // memory: all of it less HostReserve, in whole GiB, and never less than
@@ -257,10 +320,29 @@ func (s memSample) belowReserve() bool {
 	return s.HostTotal > 0 && s.HostAvailable < HostReserve(s.HostTotal)
 }
 
+// hostCritical reports whether the host has less than half its reserve
+// available: next, its kernel kills something, the VM first.
+func (s memSample) hostCritical() bool {
+	return s.HostTotal > 0 && s.HostAvailable < HostReserve(s.HostTotal)/2
+}
+
+// hostFloor is what a host with total bytes of memory can't go under
+// without freezing: the larger of memHostFloorMin and memHostFloorShare of it.
+func hostFloor(total int64) int64 {
+	return max(memHostFloorMin, int64(float64(total)*memHostFloorShare))
+}
+
+// belowFloor reports whether the host has less than its floor available.
+func (s memSample) belowFloor() bool {
+	return s.HostTotal > 0 && s.HostAvailable < hostFloor(s.HostTotal)
+}
+
 // hostCeiling is the most the VM may be given while the host keeps its
 // reserve available: what it holds of the host's memory now (what's plugged,
 // when that's unknown) and what the host has available beyond the reserve,
-// in whole memGranules; 0 when the host can't be read, which sets no limit.
+// in whole memGranules. What the guest touches of what it was given moves
+// from the one to the other, so it holds however much of it the guest has
+// touched. Meaningless when the host can't be read (HostTotal 0).
 func (s memSample) hostCeiling() int64 {
 	if s.HostTotal <= 0 {
 		return 0
@@ -278,7 +360,14 @@ func (s memSample) Used() int64 { return s.Total - s.Available }
 // memPolicy is the sizing rule, a pure function of what it's shown.
 type memPolicy struct {
 	Min, Cap int64
+	// SafeUntil is when safe mode ends, after a crash loop (crashloop.go):
+	// until then the VM keeps only memHeadroomMin beyond use, doesn't grow
+	// ahead of rising use, and grows by memSafeGrowMax at a time.
+	SafeUntil time.Time
 }
+
+// safe reports whether the VM is in safe mode at now.
+func (p memPolicy) safe(now time.Time) bool { return now.Before(p.SafeUntil) }
 
 // memState is what the policy remembers from one tick to the next.
 type memState struct {
@@ -307,6 +396,54 @@ type memState struct {
 	calmSince     time.Time     // since when refaults have been under memRefaultLow
 	trimBackoff   time.Duration // the wait after the next too-low floor
 	noTrimUntil   time.Time     // no trim before this: the floor was too low
+
+	allIdleSince time.Time // since when every agent has been idle, by the daemon
+	hostShortAt  time.Time // when the host was last short of memory
+	hostBusyAt   time.Time // when it was last short or busy (memSample.HostBusy)
+	floorSince   time.Time // since when the host has been under its floor
+	lastShed     time.Time // when an agent was last stopped for it
+	// Ceiling is the most the VM may grow to now, by the last sample: the
+	// cap, or less where the host can't spare that (hostCeiling); 0 when the
+	// host can't be read. HoldBoots says the host has been short of memory
+	// within memHoldBootsFor: no agent's machine should boot. Both are told
+	// to the daemon (hostLoadLoop).
+	Ceiling   int64
+	HoldBoots bool
+}
+
+// observeHost keeps when the host was last short of memory or busy, and
+// what that means for growing and booting.
+func (st *memState) observeHost(s memSample, now time.Time) {
+	if s.hostShort() {
+		st.hostShortAt = now
+	}
+	if s.hostShort() || s.HostBusy != "" {
+		st.hostBusyAt = now
+	}
+	st.HoldBoots = !st.hostShortAt.IsZero() && now.Sub(st.hostShortAt) < memHoldBootsFor
+	switch {
+	case !s.belowFloor():
+		st.floorSince = time.Time{}
+	case st.floorSince.IsZero():
+		st.floorSince = now
+	}
+}
+
+// shed reports whether an agent should be stopped for the host at now: it
+// has been under its floor for memEmergencyAfter, and none was within
+// memShedEvery.
+func (st *memState) shed(now time.Time) bool {
+	if st.floorSince.IsZero() || now.Sub(st.floorSince) < memEmergencyAfter || !st.lastShed.IsZero() && now.Sub(st.lastShed) < memShedEvery {
+		return false
+	}
+	st.lastShed = now
+	return true
+}
+
+// idle reports whether every agent has been idle, by the daemon, for
+// memIdleAfterAll.
+func (st *memState) idle(now time.Time) bool {
+	return !st.allIdleSince.IsZero() && now.Sub(st.allIdleSince) >= memIdleAfterAll
 }
 
 // memDecision is what to do about it: nothing when Target is 0.
@@ -324,11 +461,16 @@ type memDecision struct {
 	// short of memory when it was asked.
 	Trim      int64
 	HostShort bool
-	Reason    string
+	// Shed asks for the agent that holds the most memory to be frozen and
+	// stopped: the host has been under its floor for memEmergencyAfter.
+	// ShedReason says so.
+	Shed       bool
+	ShedReason string
+	Reason     string
 }
 
 // target is what the VM should have for s: what it uses, the file cache it
-// keeps (keep, from cacheFloor), plus headroom, rounded up to memGranule,
+// keeps (keep, from floorFor), plus headroom, rounded up to memGranule,
 // within Min and Cap. Use rising doesn't add to the headroom while the host
 // has less than its reserve.
 func (p memPolicy) target(s memSample, rate float64, keep int64) int64 {
@@ -365,10 +507,21 @@ func (st *memState) cacheFloor(s memSample, p memPolicy) int64 {
 	return min(max(s.cacheAllowance(), s.activeFile(), st.floor), max(p.Cap/2, s.cacheAllowance()))
 }
 
+// floorFor is the floor the VM keeps of its cache now: the cache floor, or
+// only the allowance while the host has less than its reserve, refaults or
+// not, and once every agent has been idle for a while. A host stalling with
+// its reserve available is short of something a smaller cache won't give it.
+func (st *memState) floorFor(s memSample, p memPolicy, now time.Time) int64 {
+	if s.belowReserve() || st.idle(now) {
+		return s.cacheAllowance()
+	}
+	return st.cacheFloor(s, p)
+}
+
 // keep is the cache the target keeps room for: what of the floor the guest
 // caches.
-func (st *memState) keep(s memSample, p memPolicy) int64 {
-	return min(s.FileCache, st.cacheFloor(s, p))
+func (st *memState) keep(s memSample, p memPolicy, now time.Time) int64 {
+	return min(s.FileCache, st.floorFor(s, p, now))
 }
 
 // observeRefaults follows the guest's refault rate and moves the floor by it:
@@ -444,14 +597,24 @@ func (st *memState) observe(s memSample, now time.Time) {
 	case st.noAgentsSince.IsZero():
 		st.noAgentsSince = now
 	}
+
+	// Idle is only known from the daemon: 0 counts every agent as busy.
+	switch {
+	case s.Agents > 0 && s.busy() > 0:
+		st.allIdleSince = time.Time{}
+	case st.allIdleSince.IsZero():
+		st.allIdleSince = now
+	}
 }
 
 // quiet reports whether the VM has stopped working: no agent running for a
-// while, or, when the host is short, its CPUs all but idle for longer. Agents
-// waiting on their model are idle, and read everything again on their next
-// turn, so CPUs alone aren't enough while the host can spare the memory.
+// while, every agent idle by the daemon for memIdleAfterAll, or, when the
+// host is short, its CPUs all but idle for longer. Agents waiting on their
+// model are idle on the CPU, and read everything again on their next turn, so
+// CPUs alone aren't enough while the host can spare the memory.
 func (st *memState) quiet(now time.Time, hostShort bool) bool {
 	return !st.noAgentsSince.IsZero() && now.Sub(st.noAgentsSince) >= memNoAgentsAfter ||
+		st.idle(now) ||
 		hostShort && !st.idleSince.IsZero() && now.Sub(st.idleSince) >= memIdleAfter
 }
 
@@ -468,10 +631,24 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 	}
 	st.observe(*s, now)
 	st.observeRefaults(*s, p, now)
-	want := p.target(*s, st.rate, st.keep(*s, p))
+	st.observeHost(*s, now)
+	safe := p.safe(now)
+	rate := st.rate
+	if safe {
+		rate = 0
+	}
+	keep := st.keep(*s, p, now)
+	want := p.target(*s, rate, keep)
 	reason := fmt.Sprintf("uses %s with %d agents running, %d busy", gib(s.Used()), s.Agents, s.busy())
-	if st.rate*memLookahead.Seconds() > float64(s.headroom()) {
-		reason = fmt.Sprintf("uses %s, rising %s a second", gib(s.Used()), gib(int64(st.rate)))
+	if rate*memLookahead.Seconds() > float64(s.headroom()) {
+		reason = fmt.Sprintf("uses %s, rising %s a second", gib(s.Used()), gib(int64(rate)))
+	}
+	// lean is the least the VM is shrunk to for the host: its use, the cache
+	// allowance and memHeadroomMin; its use and memHeadroomLeast once the
+	// host is down to half its reserve.
+	lean := p.clamp(s.Used() + min(s.FileCache, s.cacheAllowance()) + memHeadroomMin)
+	if safe && lean < want {
+		want = lean
 	}
 	if s.Pressure > memPressureSome && s.Available < memHeadroomMin && now.Sub(st.lastGrow) >= memGrowCooldown {
 		if bumped := p.clamp(st.Requested + memPressureStep); bumped > want {
@@ -479,26 +656,44 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 			reason = fmt.Sprintf("stalled on memory %.0f%% of the last 10s", s.Pressure)
 		}
 	}
-	// Growing stops where the host would be left less than its reserve.
-	if ceiling := s.hostCeiling(); s.HostTotal > 0 && want > st.Requested && want > ceiling {
-		want = max(ceiling, min(want, st.Requested))
-		reason = fmt.Sprintf("this machine has %s available and keeps %s for itself", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+	critical := s.hostCritical()
+	if critical {
+		lean = p.clamp(s.Used() + memHeadroomLeast)
+		want = min(want, lean)
 	}
-	// Nor does it grow at all while the host itself stalls on memory: what
-	// the VM would be given, the desktop would have to page out for. The
-	// agents may stall a while; the user's computer doesn't.
-	if s.hostStalling() && want > st.Requested {
-		want = st.Requested
-		reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s", s.HostPressure)
+	// The cap is a ceiling, not a target: the VM never has more than the
+	// host can spare now. Past it, growing stops, and a VM already past it
+	// is shrunk back, never below lean (nor grown to it).
+	st.Ceiling = 0
+	if s.HostTotal > 0 {
+		ceiling := s.hostCeiling()
+		st.Ceiling = min(p.Cap, max(ceiling, p.Min))
+		if want > ceiling {
+			want = max(ceiling, min(lean, st.Requested))
+			reason = fmt.Sprintf("this machine has %s available and keeps %s for itself", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+		}
+	}
+	if want > st.Requested {
+		want, reason = st.limitGrowth(*s, p, now, want, reason)
 	}
 	shrinkMin, shrinkAfter := memShrinkMin, memShrinkAfter
 	switch {
+	case critical:
+		shrinkMin, shrinkAfter = memGranule, 0
+		reason += fmt.Sprintf(", and this machine has only %s available of the %s it keeps", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
 	case s.belowReserve():
 		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
 		reason += fmt.Sprintf(", and this machine has %s available of the %s it keeps", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
 	case s.hostStalling():
 		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
 		reason += fmt.Sprintf(", and this machine stalled on memory %.0f%% of the last 10s", s.HostPressure)
+	case s.HostTotal > 0 && st.Requested > s.hostCeiling()+memGranule:
+		// Not short yet, but it would be once the guest touched what it
+		// has. Within a granule of it, it waits for a whole memShrinkMin.
+		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
+	}
+	if safe {
+		reason += ", in safe mode after a crash loop"
 	}
 	var d memDecision
 	switch {
@@ -520,10 +715,17 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 		st.lowSince, st.lowMax = time.Time{}, 0
 	}
 	switch {
+	case critical && (d.Shrink || d.Target == 0 && s.Resident-s.Used() > memReclaimMin) && now.Sub(st.lastReclaim) >= memTrimEvery:
+		// Down to half its reserve: every page of cache goes, so the
+		// blocks unplug and free page reporting returns the rest.
+		d.Reclaim, d.HostShort, st.lastReclaim = true, true, now
+		if d.Target == 0 {
+			d.Reason = reason
+		}
 	case d.Shrink:
 		// What's in the blocks it unplugs moves to the rest, which the target
 		// left room in for the floor: only the cache beyond it goes.
-		if n := min(s.InactiveFile, s.FileCache-st.cacheFloor(*s, p), s.Total-d.Target); n >= memTrimMin {
+		if n := min(s.InactiveFile, s.FileCache-st.floorFor(*s, p, now), s.Total-d.Target); n >= memTrimMin {
 			d.Trim, d.HostShort, st.lastTrim = n, s.hostShort(), now
 		}
 	case d.Target == 0 && s.Resident > 0 && s.Resident-s.Used() > memReclaimMin &&
@@ -533,18 +735,48 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 	case d.Target == 0 && s.Resident > 0:
 		d.Trim, d.HostShort, d.Reason = st.trim(*s, p, now)
 	}
+	if st.shed(now) {
+		d.Shed = true
+		d.ShedReason = fmt.Sprintf("this machine has had only %s available for %s, under the %s it can't go below", gib(s.HostAvailable), now.Sub(st.floorSince).Round(time.Second), gib(hostFloor(s.HostTotal)))
+	}
 	return d
 }
 
+// limitGrowth holds back or slows a grow from st.Requested to want, and says
+// why: none while the host is short of memory or busy, nor for memHostCalm
+// after; none within memGrowEvery of the last; and at most memGrowMax at a
+// time (memSafeGrowMax in safe mode). The agents may stall a while; the
+// user's computer doesn't.
+func (st *memState) limitGrowth(s memSample, p memPolicy, now time.Time, want int64, reason string) (int64, string) {
+	switch {
+	case s.hostStalling():
+		return st.Requested, fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s", s.HostPressure)
+	case s.belowReserve():
+		return st.Requested, fmt.Sprintf("this machine has %s available of the %s it keeps", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+	case s.HostBusy != "":
+		return st.Requested, fmt.Sprintf("this machine is busy (%s)", s.HostBusy)
+	case !st.hostBusyAt.IsZero() && now.Sub(st.hostBusyAt) < memHostCalm:
+		return st.Requested, fmt.Sprintf("this machine was short of memory or busy %s ago", now.Sub(st.hostBusyAt).Round(time.Second))
+	case !st.lastGrow.IsZero() && now.Sub(st.lastGrow) < memGrowEvery:
+		return st.Requested, reason
+	}
+	step := int64(memGrowMax)
+	if p.safe(now) {
+		step = memSafeGrowMax
+	}
+	return min(want, st.Requested+step), reason
+}
+
 // trim is how much of the guest's inactive file cache to reclaim while it's
-// busy, and why: 0 unless the host is short of memory, never past the cache
-// floor, never while refaults have held trims off, and never more than
-// memTrimMax at once.
+// busy, and why: 0 unless the host is short of memory, never past the floor
+// (floorFor), never while refaults have held trims off, and never more than
+// memTrimMax at once. With the host below its reserve, the shrink to lean
+// gives back what refaults keep trims off.
 func (st *memState) trim(s memSample, p memPolicy, now time.Time) (int64, bool, string) {
 	if !s.hostShort() || now.Before(st.noTrimUntil) {
 		return 0, false, ""
 	}
-	floor := st.cacheFloor(s, p)
+	floor := st.floorFor(s, p, now)
 	n := min(s.InactiveFile, s.FileCache-floor, memTrimMax)
 	if n < memTrimMin || now.Sub(st.lastTrim) < memTrimEvery || now.Sub(st.lastReclaim) < memTrimEvery {
 		return 0, false, ""

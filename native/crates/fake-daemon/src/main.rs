@@ -66,6 +66,8 @@ struct Opts {
     /// Projects' icons: --icons demo=🦊,quill=logo.svg (an emoji, or a
     /// picture's file). The rest have none.
     icons: Vec<(String, String)>,
+    /// --cockpit: Settings has cockpit mode on at start.
+    cockpit: bool,
 }
 
 /// A chat: its last event's seq, its session and its items.
@@ -86,6 +88,8 @@ struct Fake {
     account: Mutex<String>,
     /// The leads' sessions beyond main, by project (POST …/sessions).
     sessions: Mutex<HashMap<String, Vec<LeadSession>>>,
+    /// Settings' cockpit mode (PATCH /v1/settings), on with --cockpit.
+    cockpit: Mutex<bool>,
 }
 
 /// chat_options are the model and effort an agent's chat runs with.
@@ -209,6 +213,54 @@ fn moods() -> bool {
 
 fn now() -> String {
     humantime::format_rfc3339_millis(crate::clock()).to_string()
+}
+
+/// neighbour_lead is a neighbour project's lead conversation (--neighbours):
+/// a few lines of its own, minutes apart, so a feed of every lead (cockpit
+/// mode) reads as several conversations.
+fn neighbour_lead(project: &str) -> Vec<ChatItem> {
+    let lines = [
+        (
+            "user",
+            format!("What's left before {project} can ship this week?"),
+            41,
+        ),
+        (
+            "assistant",
+            format!(
+                "Two agents are on {project}: one is finishing the checkout fix and opened a pull request; the other is waiting on your answer about guests."
+            ),
+            33,
+        ),
+        (
+            "user",
+            "Merge the checkout fix once CI is green.".to_string(),
+            12,
+        ),
+        (
+            "assistant",
+            "Will do: CI is running on it now, I'll merge when it passes and tell you.".to_string(),
+            7,
+        ),
+    ];
+    let skew = project.len() as u64;
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, (kind, text, mins))| {
+            let at = crate::clock() - std::time::Duration::from_secs(mins * 60 + skew * 37);
+            let at = humantime::format_rfc3339_millis(at).to_string();
+            ChatItem {
+                id: format!("{project}-lead-{i}"),
+                turn: format!("{project}-t{}", i / 2),
+                kind: kind.into(),
+                text,
+                created_at: at.clone(),
+                updated_at: at,
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 const TITLES: &[&str] = &[
@@ -403,7 +455,9 @@ impl Fake {
         let (events, _) = broadcast::channel(4096);
         let review = Mutex::new(review::Review::new(opts.media.clone()));
         let machines = Mutex::new(agents::Machines::new(opts.worktree.clone()));
+        let cockpit = Mutex::new(opts.cockpit);
         Arc::new(Self {
+            cockpit,
             machines,
             notes: Mutex::new(Vec::new()),
             review,
@@ -441,6 +495,16 @@ impl Fake {
                 .cloned();
         }
         fleet
+    }
+
+    /// settings are a fresh installation's, as the real daemon answered it
+    /// (settings.go's currentSettings) past its first run, with cockpit mode
+    /// as it was last set.
+    fn settings(&self) -> serde_json::Value {
+        let mut v: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/settings.json")).unwrap();
+        v["cockpitMode"] = serde_json::Value::Bool(*self.cockpit.lock().unwrap());
+        v
     }
 
     /// neighbours are the other projects' agents (--neighbours): in every
@@ -1010,11 +1074,21 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             )
         }
         (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
-            // A fresh installation's, as the real daemon answered it
-            // (settings.go's currentSettings), past its first run.
-            let v: serde_json::Value =
-                serde_json::from_str(include_str!("../fixtures/settings.json")).unwrap();
-            json(StatusCode::OK, &v)
+            json(StatusCode::OK, &fake.settings())
+        }
+        // Cockpit mode turned on or off (the rest of a PATCH is ignored).
+        (&Method::PATCH, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let asked: UpdateSettingsRequest = serde_json::from_slice(&body).unwrap_or_default();
+            if let Some(on) = asked.cockpit_mode {
+                *fake.cockpit.lock().unwrap() = on;
+            }
+            json(StatusCode::OK, &fake.settings())
         }
         // Set up, as setup.go says when everything required is there, so
         // that Settings opens on its tabs rather than a loading error.
@@ -1670,6 +1744,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         {
             let items = if *p == HOME_PROJECT {
                 Vec::new()
+            } else if fake.neighbour(p) {
+                neighbour_lead(p)
             } else {
                 (0..4).map(|i| history_item("lead", i)).collect()
             };
@@ -2291,12 +2367,14 @@ fn parse() -> Opts {
         worktree: std::env::current_dir().unwrap_or_default(),
         neighbours: Vec::new(),
         icons: Vec::new(),
+        cockpit: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let mut v = || args.next().expect("a value");
         match a.as_str() {
             "--listen" => o.listen = v().into(),
+            "--cockpit" => o.cockpit = true,
             "--upstream" => o.upstream = Some(v().into()),
             "--project" => o.project = v(),
             "--agents" => o.agents = v().parse().unwrap(),

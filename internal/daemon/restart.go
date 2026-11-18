@@ -95,11 +95,11 @@ type resumeState struct {
 	// before the first); waitSettled, or a test's.
 	settle func(ctx context.Context, since time.Time) error
 	// readBoot is api.ReadVMBoot of this VM's disks, or a test's.
-	readBoot func() (api.VMBoot, error)
+	readBoot func() api.VMBoot
 }
 
 func newResumeState() *resumeState {
-	return &resumeState{readBoot: func() (api.VMBoot, error) { return api.ReadVMBoot(hostos.VMDisks()) }}
+	return &resumeState{readBoot: func() api.VMBoot { return api.ReadVMBoot(hostos.VMDisks()) }}
 }
 
 // resumeItem is one thing to carry on: a chat's turn, or a machine On hold
@@ -134,10 +134,7 @@ func sortResumes(items []resumeItem) {
 // unclean, the crash marker, and the VM's supervisor.
 func (s *Server) noteLastStop(unclean bool, started time.Time) {
 	r := s.resumes
-	boot, err := r.readBoot()
-	if err != nil {
-		s.logf("continue after restart: reading the VM's boot record: %v", err)
-	}
+	boot := r.readBoot()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {

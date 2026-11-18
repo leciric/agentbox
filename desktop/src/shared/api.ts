@@ -683,6 +683,8 @@ export interface HostLoad {
   busy: boolean;
   why?: string;
   reclaim?: boolean;
+  vmCeiling?: number;
+  holdBoots?: boolean;
   at: string;
 }
 
