@@ -49,7 +49,6 @@ type supervisor struct {
 	since       time.Time
 	daemonReady bool
 	sample      *memSample
-	sampleAt    time.Time // when sample was read
 	// idle is how many running agents the daemon last said were idle
 	// (busyLoop); 0 when it couldn't say.
 	idle int
@@ -448,7 +447,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
 		sample.Idle = s.idle
-		s.sample, s.sampleAt = &sample, time.Now()
+		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
 		// The vz balloon has no free page reporting: a reclaim returns nothing

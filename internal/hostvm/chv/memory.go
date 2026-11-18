@@ -74,17 +74,6 @@ import (
 // migrates what's left out of the blocks it unplugs, into the floor the
 // target kept room for.
 //
-// While the host has less than its reserve available, the floor yields to it
-// by what the host is short of, down to the allowance (trimFloor): a floor
-// can be half the cap, and the VM sat on 6 GiB of cache while its host had
-// 2.3 GiB less than its reserve and held every build back for it (18 Nov
-// 2026). What a trim may take so is what the VM can give back
-// (memSample.reclaimable), which the host's load is judged with
-// (hostload.Reading.Reclaimable): builds are held for the host's memory only
-// if it would still be short after that. Refaults still hold trims off: what
-// the VM reads again comes from the host's disk, and the host's own PSI is
-// what says when the desktop suffers for either.
-//
 // The host keeps HostReserve for itself, its desktop and the app: the cap is
 // never more than its memory less that (MaxCap), and growing stops short of
 // leaving it less than that available (hostCeiling), whatever the VM's
@@ -268,18 +257,6 @@ func (s memSample) belowReserve() bool {
 	return s.HostTotal > 0 && s.HostAvailable < HostReserve(s.HostTotal)
 }
 
-// reclaimable is what the VM could give back to the host within seconds: the
-// page cache it holds there beyond what its builds need (cacheAllowance),
-// which a trim drops and free page reporting returns; 0 when what it holds
-// is unknown. trimFloor lets a trim take it while the host has less than its
-// reserve available.
-func (s memSample) reclaimable() int64 {
-	if s.Resident <= 0 {
-		return 0
-	}
-	return max(min(s.Resident-s.Used(), s.FileCache)-s.cacheAllowance(), 0)
-}
-
 // hostCeiling is the most the VM may be given while the host keeps its
 // reserve available: what it holds of the host's memory now (what's plugged,
 // when that's unknown) and what the host has available beyond the reserve,
@@ -386,18 +363,6 @@ func (s memSample) activeFile() int64 { return max(s.FileCache-s.InactiveFile, 0
 // largest, and never more than half the cap.
 func (st *memState) cacheFloor(s memSample, p memPolicy) int64 {
 	return min(max(s.cacheAllowance(), s.activeFile(), st.floor), max(p.Cap/2, s.cacheAllowance()))
-}
-
-// trimFloor is the cache a trim leaves: the floor, lowered while the host has
-// less than its reserve available by what it is short of, never below the
-// allowance. The host's reserve comes before files the VM may read again.
-func (st *memState) trimFloor(s memSample, p memPolicy) int64 {
-	floor := st.cacheFloor(s, p)
-	if !s.belowReserve() {
-		return floor
-	}
-	short := HostReserve(s.HostTotal) - s.HostAvailable
-	return max(min(floor, s.FileCache-short), min(s.cacheAllowance(), floor))
 }
 
 // keep is the cache the target keeps room for: what of the floor the guest
@@ -572,23 +537,20 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 }
 
 // trim is how much of the guest's inactive file cache to reclaim while it's
-// busy, and why: 0 unless the host is short of memory, never past trimFloor,
-// never while refaults have held trims off, and never more than memTrimMax
-// at once.
+// busy, and why: 0 unless the host is short of memory, never past the cache
+// floor, never while refaults have held trims off, and never more than
+// memTrimMax at once.
 func (st *memState) trim(s memSample, p memPolicy, now time.Time) (int64, bool, string) {
 	if !s.hostShort() || now.Before(st.noTrimUntil) {
 		return 0, false, ""
 	}
-	floor := st.trimFloor(s, p)
+	floor := st.cacheFloor(s, p)
 	n := min(s.InactiveFile, s.FileCache-floor, memTrimMax)
 	if n < memTrimMin || now.Sub(st.lastTrim) < memTrimEvery || now.Sub(st.lastReclaim) < memTrimEvery {
 		return 0, false, ""
 	}
 	st.lastTrim = now
 	reason := fmt.Sprintf("this machine has %s available, and the VM caches %s of files, keeping %s", gib(s.HostAvailable), gib(s.FileCache), gib(floor))
-	if s.belowReserve() {
-		reason = fmt.Sprintf("this machine has %s available of the %s it keeps, and the VM caches %s of files, keeping %s", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)), gib(s.FileCache), gib(floor))
-	}
 	if s.HostPressure > memHostPressure {
 		reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s, and the VM caches %s of files, keeping %s", s.HostPressure, gib(s.FileCache), gib(floor))
 	}

@@ -1359,10 +1359,6 @@ type HostLoad struct {
 	Level       string `json:"level,omitempty"`
 	MemoryTotal int64  `json:"memoryTotal,omitempty"`
 	Available   int64  `json:"available,omitempty"`
-	// Reclaimable is what the VM can give back to the host within seconds
-	// (its page cache beyond what its builds need), which an Available under
-	// the host's reserve is judged with: 0 where the front end can't say.
-	Reclaimable int64 `json:"reclaimable,omitempty"`
 	// Busy says the host is loaded enough that the VM should hold back.
 	Busy bool `json:"busy"`
 	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""

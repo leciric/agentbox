@@ -22,7 +22,7 @@ var errNoSession = errors.New("no session to the distro")
 // when Windows is short of memory, which WSL's autoMemoryReclaim
 // (wslconfig.go) then hands back.
 func (r *Relay) reportHostLoad(ctx context.Context, logf func(string, ...any)) {
-	hostload.Report(ctx, hostload.HTTPPut(r.dialExisting), hostload.Front{Reclaim: true, OnChange: hostload.LogChange(logf)})
+	hostload.Report(ctx, hostload.HTTPPut(r.dialExisting), true, hostload.LogChange(logf))
 }
 
 // dialExisting opens a stream to the daemon over the relay's session, if it

@@ -1242,8 +1242,6 @@ pub struct HostLoad {
     pub memory_total: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub available: i64,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub reclaimable: i64,
     pub busy: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub why: String,

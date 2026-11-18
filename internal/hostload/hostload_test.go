@@ -22,9 +22,6 @@ func TestJudgeThresholds(t *testing.T) {
 		{"calm", func(*Reading) {}, ""},
 		{"memory stall", func(r *Reading) { r.Memory = 12 }, "memory"},
 		{"below the reserve", func(r *Reading) { r.Available = 7 << 30 }, "memory"},
-		{"below the reserve, the VM can give it back", func(r *Reading) { r.Available, r.Reclaimable = 7<<30, 2<<30 }, ""},
-		{"below the reserve, even with the VM's back", func(r *Reading) { r.Available, r.Reclaimable = 5<<30, 2<<30 }, "memory"},
-		{"stalling, whatever the VM could give back", func(r *Reading) { r.Memory, r.Reclaimable = 12, 20<<30 }, "memory"},
 		{"cpu", func(r *Reading) { r.CPU = 60 }, "cpu"},
 		{"io", func(r *Reading) { r.IO = 45 }, "io"},
 		{"windows cpu", func(r *Reading) { r.CPU, r.CPUShare = -1, 95 }, "cpu"},
@@ -77,7 +74,6 @@ func TestWordsSayWhatIsShort(t *testing.T) {
 		want string
 	}{
 		{api.HostLoad{Why: "memory", Memory: 0, MemoryTotal: 32 << 30, Available: 5 << 30}, "memory, 5.0 GiB available of the 8.0 GiB it keeps"},
-		{api.HostLoad{Why: "memory", Memory: 0, MemoryTotal: 32 << 30, Available: 2 << 30, Reclaimable: 3 << 30}, "memory, 2.0 GiB available of the 8.0 GiB it keeps, and the VM can give back 3.0 GiB"},
 		{api.HostLoad{Why: "memory", Memory: 14, MemoryTotal: 32 << 30, Available: 2 << 30}, "memory, 14% stalled"},
 		{api.HostLoad{Why: "memory", Memory: -1, Level: "warn"}, "memory pressure warn"},
 		{api.HostLoad{Why: "cpu", CPU: 61}, "CPU, 61% stalled"},
