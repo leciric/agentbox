@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,6 +152,15 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 	}
 	if code, body := phone.do("GET", "/some/where", ""); code != 200 || !strings.Contains(body, `<head><meta name="agentbox-lan" content="1">`) {
 		t.Errorf("GET a page = %d %q", code, body)
+	}
+	// The page runs only its own scripts, and talks only to its own origin.
+	resp, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != lanCSP("127.0.0.1:"+strconv.Itoa(port)) {
+		t.Errorf("the page's Content-Security-Policy = %q", csp)
 	}
 	if code, body := phone.do("GET", "/assets/web-abc.js", ""); code != 200 || body != "console.log(1)" {
 		t.Errorf("GET an asset = %d %q", code, body)
@@ -451,6 +461,25 @@ func TestLANRoute(t *testing.T) {
 		{"POST", "/v1/agents/p/a/review", "answer"},
 		{"POST", "/v1/agents/p/a/request-changes", "answer"},
 		{"POST", "/v1/projects/p/pulls/12/merge", "merge"},
+		{"GET", "/v1/settings", "read"},
+		{"GET", "/v1/projects/p/sessions/s/chat/background/t1", "read"},
+		{"GET", "/v1/agents/p/a/media", "read"},
+		{"GET", "/v1/media/m1/file", "read"},
+		{"HEAD", "/v1/projects", "read"},
+		// Reads are listed too: whatever isn't is refused.
+		{"GET", "/v1/projects/p/files/read", ""},
+		{"GET", "/v1/projects/p/sessions/s/files/list", ""},
+		{"GET", "/v1/agents/p/a/files/sqlite", ""},
+		{"GET", "/v1/agents/p/a/diff", ""},
+		{"GET", "/v1/projects/p/pulls/12/diff", ""},
+		{"GET", "/v1/tokens", ""},
+		{"GET", "/v1/tokens/turns", ""},
+		{"GET", "/v1/transfer/export", ""},
+		{"GET", "/v1/diagnostics/spans", ""},
+		{"GET", "/v1/github/repos", ""},
+		{"GET", "/v1/media", ""},
+		{"GET", "/v1/agents/p/a/ios/view", ""},
+		{"GET", "/v1/a-route-added-later", ""},
 		// Neither scoped nor never: still refused.
 		{"POST", "/v1/agents/p/a/stop", ""},
 		{"DELETE", "/v1/agents/p/a/chat", ""},
@@ -465,6 +494,98 @@ func TestLANRoute(t *testing.T) {
 			t.Errorf("lanRouteOf(%s %s) = %+v, want scope %q", c.method, c.path, got, c.scope)
 		}
 	}
+}
+
+// Every route of the API is decided on for phones: it reaches them with a
+// scope (lanReads, lanWrites), or it is refused on purpose (lanNever,
+// lanRefused). A route nobody decided on fails here.
+func TestEveryRouteIsClassifiedForPhones(t *testing.T) {
+	t.Parallel()
+	_, patterns := (&Server{}).apiRoutes()
+	if len(patterns) < 100 {
+		t.Fatalf("apiRoutes() has %d routes: is it still every route of the API?", len(patterns))
+	}
+	refused := map[string]bool{}
+	for _, g := range lanRefused {
+		for _, r := range g.routes {
+			if refused[r] {
+				t.Errorf("lanRefused lists %s twice", r)
+			}
+			refused[r] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, pattern := range patterns {
+		seen[pattern] = true
+		method, path, ok := strings.Cut(pattern, " ")
+		methods := []string{method}
+		if !ok {
+			// A pattern with no method answers every one.
+			path, methods = pattern, []string{http.MethodGet, http.MethodPost}
+		}
+		for _, m := range methods {
+			route := lanRouteOf(m, lanSamplePath(path))
+			switch {
+			case route.never != "" && refused[pattern]:
+				t.Errorf("%s is refused to every phone already (lanNever: %s): drop it from lanRefused in internal/daemon/lan.go", pattern, route.never)
+			case route.scope != "" && refused[pattern]:
+				t.Errorf("%s is in lanRefused, but phones may reach it with %q: drop it from one of them in internal/daemon/lan.go", pattern, route.scope)
+			case route.never == "" && route.scope == "" && !refused[pattern]:
+				t.Errorf("%s isn't classified for phones: in internal/daemon/lan.go, add it to lanReads or lanWrites with the scope it needs if the phone's app uses it, or to lanRefused saying why not", pattern)
+			}
+		}
+	}
+	for r := range refused {
+		if !seen[r] {
+			t.Errorf("lanRefused lists %s, which routes() (server.go) doesn't register: drop it", r)
+		}
+	}
+}
+
+func TestLANCSP(t *testing.T) {
+	t.Parallel()
+	csp := lanCSP("192.168.1.20:7780")
+	for _, want := range []string{
+		"default-src 'self'", "script-src 'self';", "img-src 'self' data: blob:;",
+		"connect-src 'self' ws://192.168.1.20:7780 wss://192.168.1.20:7780;",
+		"frame-ancestors 'none'", "object-src 'none'", "base-uri 'none'",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("lanCSP() = %q, missing %q", csp, want)
+		}
+	}
+	for _, never := range []string{"unsafe-eval", "wasm-unsafe-eval", "script-src 'self' 'unsafe-inline'", "*"} {
+		if strings.Contains(csp, never) {
+			t.Errorf("lanCSP() = %q, allows %q", csp, never)
+		}
+	}
+	for _, host := range []string{"abc.trycloudflare.com", "localhost:7780", "agentbox-vps.tail1234.ts.net"} {
+		if !strings.Contains(lanCSP(host), "wss://"+host+";") {
+			t.Errorf("lanCSP(%q) = %q, no WebSocket to it", host, lanCSP(host))
+		}
+	}
+	// A Host that would add to the policy adds nothing.
+	for _, host := range []string{"x; script-src *", "evil.com 'unsafe-inline'", "[fe80::1]:7780", ""} {
+		if got := lanCSP(host); got != strings.Replace(csp, " ws://192.168.1.20:7780 wss://192.168.1.20:7780", "", 1) {
+			t.Errorf("lanCSP(%q) = %q", host, got)
+		}
+	}
+}
+
+// lanSamplePath is a path a route's pattern matches: its wildcards filled
+// in with what the phone's routes expect of each.
+func lanSamplePath(pattern string) string {
+	return regexp.MustCompile(`\{[^}]*\}`).ReplaceAllStringFunc(pattern, func(w string) string {
+		switch {
+		case w == "{$}":
+			return ""
+		case w == "{number}":
+			return "12"
+		case strings.HasSuffix(w, "...}"):
+			return "a/b"
+		}
+		return "x"
+	})
 }
 
 // An agent's permission request, which its lead's chat shows too, is

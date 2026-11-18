@@ -948,8 +948,18 @@ func (s *Server) projectBySlug(r *http.Request) {
 }
 
 func (s *Server) routes() http.Handler {
+	mux, _ := s.apiRoutes()
+	return traceAPI("", mux, true)
+}
+
+// apiRoutes is the API's mux, and the pattern of every route on it: what
+// TestEveryRouteIsClassifiedForPhones walks, as each must be decided on for
+// phones (lan.go).
+func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	mux := http.NewServeMux()
+	var patterns []string
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		patterns = append(patterns, pattern)
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			defer s.recoverPanic(w, r)
 			s.projectBySlug(r)
@@ -1314,6 +1324,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
+	patterns = append(patterns, lanNetPrefix+"/")
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))
 
 	h("POST /v1/snaps", s.takeSnap)
@@ -1331,7 +1342,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/jobs/{id}/log", s.jobLog)
 	h("POST /v1/jobs/{id}/cancel", s.cancelJob)
 	h("GET /v1/events", s.eventStream)
-	return traceAPI("", mux, true)
+	return mux, patterns
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) error {
