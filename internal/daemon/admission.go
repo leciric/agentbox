@@ -115,7 +115,8 @@ func (s *Server) bootWaits() bool {
 	ad := s.admit
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
-	return len(ad.a.Waiting()) > 0 || !ad.a.Fits(ad.a.Mem(), time.Now())
+	now := time.Now()
+	return len(ad.a.Waiting()) > 0 || !ad.a.Fits(ad.a.Mem(), now) || s.hostLoad.holdBoots(now)
 }
 
 // stepAdmission lets the first machine in line boot when it fits. On the
@@ -123,6 +124,7 @@ func (s *Server) bootWaits() bool {
 func (s *Server) stepAdmission(now time.Time, m pressure.Mem, buildsHeld bool) {
 	ad := s.admit
 	ad.mu.Lock()
+	ad.a.HostShort = s.hostLoad.holdBoots(now)
 	boot := ad.a.Step(now, m, buildsHeld, ad.running)
 	for _, ref := range boot {
 		if ch := ad.started[ref]; ch != nil {
@@ -201,7 +203,8 @@ func (s *Server) admitHold(ref string) *api.MemoryHold {
 	switch ad.a.Why() {
 	case pressure.WaitBuilds:
 		out.Why = api.HoldWhyBuilds
-	case pressure.WaitMemory:
+	case pressure.WaitMemory, pressure.WaitHost:
+		// The host's memory, which the app says the same way.
 		out.Why = api.HoldWhyMemory
 	}
 	return &out

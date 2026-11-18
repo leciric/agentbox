@@ -12,7 +12,10 @@
 //   - Linux: PSI, the share of the last 10 s some task stalled on memory, the
 //     CPU or the disk (/proc/pressure), and MemAvailable against Reserve.
 //     Cloud Hypervisor's supervisor reports it, and its memory loop also
-//     stops growing the VM while the host stalls on memory (chv/memory.go).
+//     never grows the VM past what the host can spare above Reserve, nor
+//     while the host is busy for memory or its disk, gives back while it
+//     is short, and adds to the report what the VM may grow to and whether
+//     boots should wait (chv/memory.go).
 //   - Mac: the kernel's memory pressure level (kern.memorystatus_vm_pressure_level,
 //     what Activity Monitor's graph shows), warn or critical. For Lima's VM
 //     `agentbox vm lan`, which runs beside it as long as it does, reports

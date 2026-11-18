@@ -81,3 +81,19 @@ func TestGovernorPrefersTheViewedAgent(t *testing.T) {
 		t.Errorf("order %v", order)
 	}
 }
+
+// With the user's computer short of memory lately (api.HostLoad.HoldBoots),
+// nothing boots, the first machine with nothing running included, until it
+// clears.
+func TestAdmissionWaitsForAShortHost(t *testing.T) {
+	a := NewAdmission(DefaultPolicy)
+	a.Ask("p/a", t0, t0)
+	a.HostShort = true
+	if got := a.Step(t0, roomy(12), false, 0); len(got) != 0 || a.Why() != WaitHost {
+		t.Fatalf("booted %v with the host short (%q)", got, a.Why())
+	}
+	a.HostShort = false
+	if got := a.Step(t0.Add(time.Second), roomy(12), false, 0); len(got) != 1 {
+		t.Fatalf("booted %v once the host was calm, want p/a", got)
+	}
+}

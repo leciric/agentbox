@@ -20,7 +20,10 @@ import (
 // or is paused for memory: the work of agents already running comes before
 // a new agent's. One boots at a time, BootStep apart, so each boot shows in
 // the reading before the next is judged. When no machine runs at all, the
-// first in line boots whatever the reading, or nothing ever would.
+// first in line boots whatever the reading, or nothing ever would; but
+// nothing boots, the first included, while the user's computer, outside the
+// VM, has been short of memory lately (HostShort): every boot then is memory
+// the host's kernel would have to find by killing something, the VM first.
 //
 // Unlike pressure.Fleet's queue, nobody boots for having waited long
 // (Queue.MaxHeld): a machine started into memory that isn't there gets an
@@ -36,6 +39,9 @@ type Admission struct {
 	last    time.Time // the last boot
 	mem     Mem
 	why     string
+	// HostShort, set before each Step, says the host has been short of
+	// memory lately (api.HostLoad.HoldBoots).
+	HostShort bool
 }
 
 // AdmitWaiter is a machine asking to boot.
@@ -51,6 +57,7 @@ const (
 	WaitMemory = "memory" // the VM hasn't the memory for another boot
 	WaitBuilds = "builds" // agents' builds wait or are paused for memory
 	WaitTurn   = "turn"   // another machine boots just before it
+	WaitHost   = "host"   // the user's computer has been short of memory lately
 )
 
 // DefaultBootStep is the daemon's.
@@ -119,7 +126,7 @@ func (a *Admission) Place(agent string) (ahead int, ok bool) {
 }
 
 // Why is why the first in line waited at the last Step: WaitMemory,
-// WaitBuilds, WaitTurn, or "" for nothing waiting.
+// WaitBuilds, WaitHost, WaitTurn, or "" for nothing waiting.
 func (a *Admission) Why() string { return a.why }
 
 // Mem is the VM's memory as the last Step read it.
@@ -168,6 +175,9 @@ func (a *Admission) Step(now time.Time, m Mem, buildsHeld bool, running int) []s
 		return nil
 	}
 	switch {
+	case a.HostShort:
+		a.why = WaitHost
+		return nil
 	case running == 0 && len(a.booting) == 0:
 		// Nothing runs: the first boots whatever the reading.
 	case !a.last.IsZero() && now.Sub(a.last) < a.BootStep:

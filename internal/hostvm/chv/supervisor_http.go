@@ -171,6 +171,11 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	}
 	target := s.policy.Cap
 	s.mu.Unlock()
+	if req.MemoryCap != 0 {
+		if msg := limitScope(target); msg != "" {
+			s.logf("memory: %s", msg)
+		}
+	}
 	if over {
 		// Down to the new cap now, rather than when the policy next shrinks.
 		if err := s.m.setMemory(ctx, target); err != nil {

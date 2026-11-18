@@ -1367,8 +1367,17 @@ type HostLoad struct {
 	// Reclaim asks the daemon to drop the VM's caches so their memory goes
 	// back to the host: set by front ends that don't size the VM's memory
 	// themselves (Lima, WSL), while the host is short of memory.
-	Reclaim bool      `json:"reclaim,omitempty"`
-	At      time.Time `json:"at"`
+	Reclaim bool `json:"reclaim,omitempty"`
+	// VMCeiling is the most the VM may grow to now, which the daemon counts
+	// boots and builds against rather than the cap: what it holds of the
+	// host's memory and what the host has available beyond its reserve, no
+	// more than the cap. 0 when the front end doesn't size the VM itself.
+	VMCeiling int64 `json:"vmCeiling,omitempty"`
+	// HoldBoots says the host has fallen short of memory within the last
+	// couple of minutes: no agent's machine boots until it clears, the VM
+	// giving back meanwhile (Cloud Hypervisor's supervisor).
+	HoldBoots bool      `json:"holdBoots,omitempty"`
+	At        time.Time `json:"at"`
 }
 
 // HeavyRun is one heavy command of an agent's.
