@@ -16,9 +16,10 @@ import (
 // A machine boots when what is available, with what the VM may still grow
 // by, less the boots not yet showing in it (BootSettle), exceeds what a boot
 // takes (BootCost, measured from the last boots) plus the policy's floor;
-// never while the VM pages to its disk swap; and never while a build waits
-// or is paused for memory: the work of agents already running comes before
-// a new agent's. One boots at a time, BootStep apart, so each boot shows in
+// never while the VM pages to its disk swap; never while a build waits or is
+// paused for memory: the work of agents already running comes before a new
+// agent's; and never while the user's computer, outside the VM, is busy
+// (WaitHost), for no longer than it is. One boots at a time, BootStep apart, so each boot shows in
 // the reading before the next is judged. When no machine runs at all, the
 // first in line boots whatever the reading, or nothing ever would; but
 // nothing boots, the first included, while the user's computer, outside the
@@ -56,8 +57,8 @@ type AdmitWaiter struct {
 const (
 	WaitMemory = "memory" // the VM hasn't the memory for another boot
 	WaitBuilds = "builds" // agents' builds wait or are paused for memory
+	WaitHost   = "host"   // the user's computer, outside the VM, is busy or has been short of memory lately
 	WaitTurn   = "turn"   // another machine boots just before it
-	WaitHost   = "host"   // the user's computer has been short of memory lately
 )
 
 // DefaultBootStep is the daemon's.
@@ -158,10 +159,11 @@ func (a *Admission) room(m Mem, now time.Time) float64 {
 	return room
 }
 
-// Step is the VM's memory at now, with whether builds wait or are paused
-// for memory and how many machines run: it returns the machines that may
-// boot now, at most one.
-func (a *Admission) Step(now time.Time, m Mem, buildsHeld bool, running int) []string {
+// Step is the VM's memory at now, with what else holds boots back (held:
+// WaitHost while the user's computer is busy, WaitBuilds while builds wait or
+// are paused for memory, "" for neither) and how many machines run: it
+// returns the machines that may boot now, at most one.
+func (a *Admission) Step(now time.Time, m Mem, held string, running int) []string {
 	a.mem = m
 	kept := a.booting[:0]
 	for _, b := range a.booting {
@@ -183,8 +185,8 @@ func (a *Admission) Step(now time.Time, m Mem, buildsHeld bool, running int) []s
 	case !a.last.IsZero() && now.Sub(a.last) < a.BootStep:
 		a.why = WaitTurn
 		return nil
-	case buildsHeld:
-		a.why = WaitBuilds
+	case held != "":
+		a.why = held
 		return nil
 	case !a.Fits(m, now):
 		a.why = WaitMemory

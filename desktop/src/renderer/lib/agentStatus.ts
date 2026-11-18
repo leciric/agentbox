@@ -89,8 +89,8 @@ export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'ou
   return undefined;
 }
 
-// memoryHold is what the VM's memory pressure is doing to a running agent's
-// heavy commands, in words, with the sentences that explain it for a tooltip:
+// memoryHold is what the VM's memory pressure, or the user's computer being
+// busy, is doing to a running agent's heavy commands, in words, with the sentences that explain it for a tooltip:
 // what it does, then what holds them now, and that swap is full when it is, as the daemon's governor judged it
 // (T.MemoryHold.why). undefined when nothing is held. Pausing wins over
 // waiting: a paused command has already started.
@@ -104,6 +104,8 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
     if (held.swapFull) return { text: t('agent.status.memoryPausedSwapFull'), tip: `${tip('agent.status.memoryPausedTip')} ${t('agent.status.memorySwapFull')}` };
     return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
   }
+  // Held for the user's computer, not the VM's memory: say so.
+  if ((held.waiting ?? 0) > 0 && held.why === 'host') return { text: t('agent.status.hostWaiting'), tip: t('agent.status.hostWaitingTip') };
   if ((held.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: tip('agent.status.memoryWaitingTip') };
   return undefined;
 }
@@ -122,7 +124,9 @@ export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip
     return { text: t('agent.status.machinePausedSwapFull', { place }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
   }
   if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { place }), tip: tip('agent.status.machinePausedTip') };
-  // Waiting to boot: On hold, machine stopped (T.Agent.hold), until its turn.
+  // Waiting to boot: On hold, machine stopped (T.Agent.hold), until its turn;
+  // for the user's computer, when that is what holds it.
+  if (held.machine === 'waiting' && held.why === 'host') return { text: t('agent.status.onHoldHost', { place }), tip: t('agent.status.onHoldHostTip') };
   if (held.machine === 'waiting') return { text: t('agent.status.onHoldMemory', { place }), tip: tip('agent.status.onHoldMemoryTip') };
   return undefined;
 }

@@ -12,6 +12,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/hostload"
 	"agentbox/internal/hostos"
 	"agentbox/internal/pressure"
 	"agentbox/internal/state"
@@ -343,7 +344,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		s.stepFleet(ctx, now, sample)
 		why = s.fleetWhyNow()
 	} else {
-		s.stepAdmission(now, sample.Mem, s.buildsHeld())
+		s.stepAdmission(now, sample.Mem, s.bootHeld(now))
 	}
 	s.notePressure(now, sample, err == nil, why)
 	s.memoryShort.note(now, why)
@@ -511,6 +512,9 @@ func (s *Server) heavyWhy(ref, key string) string {
 		}
 	}
 	why := reasonWords(h.g.Why(), h.g.Last(), h.g.Trend())
+	if load, ok := s.hostLoad.current(time.Now()); ok && h.g.Why() == pressure.HostBusy {
+		why = fmt.Sprintf("the user's computer, outside the VM, is busy (%s), and its own programs come first", hostload.Words(load))
+	}
 	if why == "" {
 		why = "other commands started just before it"
 	}
@@ -539,7 +543,7 @@ func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) stri
 	case pressure.Easing:
 		return "the VM's memory has eased, and commands paused for it resume first, one at a time"
 	case pressure.HostBusy:
-		return "the user's computer is busy, and their own programs come first"
+		return "the user's computer, outside the VM, is busy, and its own programs come first"
 	case pressure.Full:
 		return fmt.Sprintf("the VM hasn't the memory for another build on top of those running (%s)", avail)
 	}

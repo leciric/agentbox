@@ -31,13 +31,7 @@ func (s *supervisor) hostLoadLoop(ctx context.Context) {
 		}
 		return send(ctx, load)
 	}
-	hostload.Report(ctx, put, false, func(l api.HostLoad) {
-		if l.Busy {
-			s.logf("host load: this computer is busy (%s): the daemon holds heavy commands back", l.Why)
-		} else {
-			s.logf("host load: this computer is calm again")
-		}
-	})
+	hostload.Report(ctx, put, false, hostload.LogChange(s.logf))
 }
 
 // noteHostLoad keeps why load is busy, through its calm-down (when Why is

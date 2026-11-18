@@ -23,7 +23,10 @@ import (
 //
 // The heavy commands' governor (pressure.go) comes first: while a build
 // waits or is paused for memory, nothing new boots, as the work of agents
-// already going matters more than a new agent's boot.
+// already going matters more than a new agent's boot. While the user's
+// computer is busy (hostload.go), nothing boots either, but for that alone
+// and only as long as it lasts: builds the host held back aren't held for
+// the VM's memory, so they don't keep machines waiting once it calms down.
 //
 // With pausing whole agents on, its fleet does all of this instead
 // (admitMachine in agentfreeze.go), as it did.
@@ -63,11 +66,16 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 	}
 	ad.mu.Unlock()
 	// Room enough and nothing ahead: this step lets it boot now.
-	s.stepAdmission(time.Now(), s.lastMem(), s.buildsHeld())
+	held := s.bootHeld(time.Now())
+	s.stepAdmission(time.Now(), s.lastMem(), held)
 	select {
 	case <-ch:
 	default:
-		s.logf("memory: %s is on hold: its machine waits for the memory to boot", ref)
+		if held == pressure.WaitHost || s.hostLoad.holdBoots(time.Now()) {
+			s.logf("memory: %s is on hold: its machine boots once this computer, outside the VM, is calm again", ref)
+		} else {
+			s.logf("memory: %s is on hold: its machine waits for the memory to boot", ref)
+		}
 		if err := s.store.SetHold(ctx, a.Project, a.Name, state.HoldMemory); err != nil {
 			s.logf("memory: putting %s on hold: %v", ref, err)
 		}
@@ -121,11 +129,11 @@ func (s *Server) bootWaits() bool {
 
 // stepAdmission lets the first machine in line boot when it fits. On the
 // pressure loop: nothing here waits.
-func (s *Server) stepAdmission(now time.Time, m pressure.Mem, buildsHeld bool) {
+func (s *Server) stepAdmission(now time.Time, m pressure.Mem, held string) {
 	ad := s.admit
 	ad.mu.Lock()
 	ad.a.HostShort = s.hostLoad.holdBoots(now)
-	boot := ad.a.Step(now, m, buildsHeld, ad.running)
+	boot := ad.a.Step(now, m, held, ad.running)
 	for _, ref := range boot {
 		if ch := ad.started[ref]; ch != nil {
 			close(ch)
@@ -141,12 +149,28 @@ func (s *Server) stepAdmission(now time.Time, m pressure.Mem, buildsHeld bool) {
 	}
 }
 
+// bootHeld is what a machine's boot waits behind now, besides the VM's
+// memory: the user's computer being busy (pressure.WaitHost), heavy commands
+// held for memory (pressure.WaitBuilds), or "" for neither.
+func (s *Server) bootHeld(now time.Time) string {
+	switch {
+	case s.hostLoad.busy(now):
+		return pressure.WaitHost
+	case s.buildsHeld():
+		return pressure.WaitBuilds
+	}
+	return ""
+}
+
 // buildsHeld reports whether any heavy command waits or is paused for
-// memory.
+// memory: not when what holds them is the user's computer (bootHeld).
 func (s *Server) buildsHeld() bool {
 	h := s.heavy
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.g.Why() == pressure.HostBusy {
+		return false
+	}
 	if len(h.g.Waiting()) > 0 {
 		return true
 	}
@@ -203,9 +227,10 @@ func (s *Server) admitHold(ref string) *api.MemoryHold {
 	switch ad.a.Why() {
 	case pressure.WaitBuilds:
 		out.Why = api.HoldWhyBuilds
-	case pressure.WaitMemory, pressure.WaitHost:
-		// The host's memory, which the app says the same way.
+	case pressure.WaitMemory:
 		out.Why = api.HoldWhyMemory
+	case pressure.WaitHost:
+		out.Why = api.HoldWhyHost
 	}
 	return &out
 }

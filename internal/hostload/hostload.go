@@ -129,6 +129,44 @@ func (j *Judge) Judge(r Reading, now time.Time) api.HostLoad {
 	}
 }
 
+// Words says what made l busy, for the logs, as the computer's own and not
+// the VM's: "memory, 12% stalled", "memory, 5.3 GiB available of the 7.6 GiB
+// it keeps", "CPU, 60% stalled"; "calming down" while it is. A host short of
+// its reserve with nothing stalling said "memory, 0% stalled" before.
+func Words(l api.HostLoad) string {
+	switch l.Why {
+	case "memory":
+		switch {
+		case l.Level != "":
+			return "memory pressure " + l.Level
+		case l.Memory >= MemoryBusy:
+			return fmt.Sprintf("memory, %.0f%% stalled", l.Memory)
+		}
+		return fmt.Sprintf("memory, %s available of the %s it keeps", gib(l.Available), gib(Reserve(l.MemoryTotal)))
+	case "cpu":
+		if l.CPU >= 0 {
+			return fmt.Sprintf("CPU, %.0f%% stalled", l.CPU)
+		}
+		return fmt.Sprintf("CPU, %.0f%% busy", l.CPUShare)
+	case "io":
+		return fmt.Sprintf("disk, %.0f%% stalled", l.IO)
+	}
+	return "calming down"
+}
+
+func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30)) }
+
+// LogChange is a Front.OnChange that says so in a front end's log.
+func LogChange(logf func(string, ...any)) func(api.HostLoad) {
+	return func(l api.HostLoad) {
+		if l.Busy {
+			logf("host load: this computer, outside the VM, is busy (%s): the daemon holds heavy commands back", Words(l))
+		} else {
+			logf("host load: this computer is calm again")
+		}
+	}
+}
+
 // Put sends one report to the daemon; a Reporter's way of reaching it.
 type Put func(ctx context.Context, load api.HostLoad) error
 
@@ -136,7 +174,7 @@ type Put func(ctx context.Context, load api.HostLoad) error
 // ctx ends. reclaim says whether the daemon should drop the VM's caches when
 // the host is short of memory: false where the front end sizes the VM's
 // memory itself (Cloud Hypervisor). onChange, if set, is told each time the
-// host turns busy or calm, for the front end's log.
+// host turns busy or calm, for the front end's log (LogChange).
 func Report(ctx context.Context, put Put, reclaim bool, onChange func(api.HostLoad)) {
 	var j Judge
 	r := newReader()

@@ -322,6 +322,8 @@ export interface FixtureData {
 // stay accurate across a long-running dev server rather than freezing at
 // module load.
 export function buildFixtures(): FixtureData {
+  // ?busy=host: this computer busy, holding agents' builds and boots back.
+  const hostBusy = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('busy') ?? '').includes('host');
   const agents: T.Agent[] = [
     agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
@@ -364,11 +366,14 @@ export function buildFixtures(): FixtureData {
     // The VM is short of memory: its test run is paused until there is room (memory.paused),
     // and the rail says Paused for memory instead of Working.
     // Its tooltip says why, as the daemon judged it: memory falling fast toward running out.
+    // With ?busy=host, it waits for this computer instead, which holds it back.
     agent({
       ref: `${PROJECT}/agent-86`,
       title: 'Run the full test suite',
       chat: 'running',
-      memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+      memory: hostBusy
+        ? { waiting: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'host', available: 6.2 * 1024 ** 3, total: 12.8 * 1024 ** 3 }
+        : { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
     // Settings → Experimental's "Pause whole agents for memory": one frozen
     // mid-turn, two machines thawing before it, and one waiting for the
@@ -387,13 +392,14 @@ export function buildFixtures(): FixtureData {
       memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
     // On hold (daemon/admission.go): one waiting its turn for memory behind
-    // other agents' builds, machine stopped, and one stopped after it sat idle.
+    // other agents' builds, machine stopped (with ?busy=host, for this
+    // computer to calm down), and one stopped after it sat idle.
     agent({
       ref: `${PROJECT}/agent-83`,
       title: 'Migrate the billing tables',
       state: 'stopped',
       hold: 'memory',
-      memory: { machine: 'waiting', ahead: 1, since: new Date(Date.now() - 90_000).toISOString(), why: 'builds', available: 1.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+      memory: { machine: 'waiting', ahead: 1, since: new Date(Date.now() - 90_000).toISOString(), why: hostBusy ? 'host' : 'builds', available: 1.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
     agent({ ref: `${PROJECT}/agent-82`, title: 'Tidy the onboarding copy', state: 'stopped', outcome: 'done', hold: 'idle' }),
     // A name given to create by hand, as long as the title beside it: the
