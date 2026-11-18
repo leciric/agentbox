@@ -260,6 +260,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 	}
 	now := time.Now()
 	sample.HostBusy = s.hostLoad.busy(now)
+	sample.Mem = s.hostLoad.withCeiling(sample.Mem, now)
 	s.watchPSI(now, sample.PSI)
 	gone := h.g.Expire(now, func(r *pressure.Run) bool {
 		if r.Placed {

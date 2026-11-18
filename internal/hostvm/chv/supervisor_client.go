@@ -97,7 +97,7 @@ func Start(ctx context.Context, c Config, l Layout, p paths.Paths, log io.Writer
 		return err
 	}
 	defer func() { _ = logFile.Close() }()
-	argv := supervisorArgv(self, c.Name)
+	argv := supervisorArgv(self, c)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = append(os.Environ(), "AGENTBOX_VM="+c.Name)
 	cmd.Stdout, cmd.Stderr = logFile, logFile

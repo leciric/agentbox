@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -64,6 +65,16 @@ type supervisor struct {
 	// restartVM says the VM was ended to start it again (gpuLoop, when a
 	// kernel on trial doesn't come up), not to stop.
 	restartVM bool
+	// runs is the record of the VM's runs, and boot how this one started
+	// (crashloop.go).
+	runs *runLog
+	boot api.VMBoot
+	// hostBusy is why hostload last judged the host busy ("" when calm) and
+	// hostBusyAt when (hostLoadLoop), for the memory loop.
+	hostBusy   string
+	hostBusyAt time.Time
+	// shedding says an agent is being stopped for the host (shedAgent).
+	shedding atomic.Bool
 	// runScript, when set, runs what ssh would in the VM: for tests.
 	runScript func(ctx context.Context, script string) (string, error)
 }
@@ -179,10 +190,26 @@ func (s *supervisor) run(ctx context.Context) error {
 	go func() { _ = srv.Serve(vmLn) }()
 	defer func() { _ = srv.Close() }()
 
+	// Before it boots: a host that dies during the boot counts too.
+	s.runs = readRuns(s.l.RunsFile())
+	s.boot = s.runs.start(time.Now())
+	clean, how := true, "stopped"
+	defer func() { s.runs.end(time.Now(), clean, how) }()
+	if s.boot.Safe {
+		s.policy.SafeUntil = s.boot.SafeUntil
+		s.logf("starting VM %s in safe mode: %s. It boots with %s and grows slowly until %s, and its daemon resumes the agents slowly", s.c.Name, s.boot.Why, gib(s.policy.Min), s.boot.SafeUntil.Local().Format("15:04"))
+	}
+	if err := writeBoot(s.l.BootFile(), s.boot); err != nil {
+		s.logf("telling the daemon how the VM starts: %v", err)
+	}
+	if msg := limitScope(s.policy.Cap); msg != "" {
+		s.logf("memory: %s", msg)
+	}
 	s.logf("starting VM %s: %d CPUs, %s of memory (up to %s)", s.c.Name, s.c.CPUs, gib(s.policy.Min), gib(s.policy.Cap))
 	started := time.Now()
 	if err := s.m.boot(ctx); err != nil {
 		s.stopChildren()
+		how = "didn't start"
 		return err
 	}
 	s.logf("the VM is up in %s", time.Since(started).Round(time.Millisecond))
@@ -211,6 +238,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	// Phones' port closes with the other forwards, before the VM stops.
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
+	go s.aliveLoop(loops)
 	go s.busyLoop(loops)
 	go s.hostLoadLoop(loops)
 	go s.diskLoop(loops)
@@ -240,8 +268,12 @@ func (s *supervisor) run(ctx context.Context) error {
 			s.setState(api.VMStopping)
 			s.stopChildren()
 			if err := s.m.exitErr(); err != nil {
+				// Killed from outside (the host's OOM killer), or crashed:
+				// what a crash loop is made of.
+				clean, how = false, err.Error()
 				return fmt.Errorf("%v; its log: %s", err, s.l.Log())
 			}
+			how = "powered off"
 			s.logf("the VM powered off")
 			return nil
 		case <-ctx.Done():
@@ -422,6 +454,21 @@ func (s *supervisor) stopChildren() {
 	}
 }
 
+// aliveLoop notes in the record of runs, every aliveEvery, that the VM still
+// runs: a run that dies with the host is last seen then.
+func (s *supervisor) aliveLoop(ctx context.Context) {
+	tick := time.NewTicker(aliveEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick.C:
+			s.runs.alive(now)
+		}
+	}
+}
+
 // memoryLoop sizes the VM's memory (memory.go) every memTick, while it runs.
 func (s *supervisor) memoryLoop(ctx context.Context) {
 	tick := time.NewTicker(memTick)
@@ -447,6 +494,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
 		sample.Idle = s.idle
+		sample.HostBusy = s.hostBusyFor(time.Now())
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
@@ -463,6 +511,9 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		}
 		if d.Trim > 0 && s.m.balloon() == 0 {
 			s.trim(ctx, d)
+		}
+		if d.Shed {
+			go s.shedAgent(ctx, d.ShedReason)
 		}
 		if d.Target == 0 {
 			continue
