@@ -286,9 +286,13 @@ func (v *simVM) step() {
 		v.build(r.Agent, r.Key).paused = false
 		v.logf("resume %s/%s", r.Agent, r.Key)
 	}
-	held := len(v.g.Waiting()) > 0
+	builds := len(v.g.Waiting()) > 0
 	for _, r := range v.g.Running() {
-		held = held || r.Paused
+		builds = builds || r.Paused
+	}
+	held := ""
+	if builds {
+		held = WaitBuilds
 	}
 	running := 0
 	for _, a := range v.agents {

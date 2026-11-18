@@ -21,24 +21,28 @@ func TestAdmissionBootsOldestFirstWhileOneFits(t *testing.T) {
 		t.Fatalf("p/new is %d in line (%v), want behind the older p/old", n, ok)
 	}
 	// Nothing runs: the first boots, whatever the memory.
-	if got := a.Step(now, roomy(0.5), false, 0); len(got) != 1 || got[0] != "p/old" {
+	if got := a.Step(now, roomy(0.5), "", 0); len(got) != 1 || got[0] != "p/old" {
 		t.Fatalf("with nothing running booted %v, want p/old", got)
 	}
 	// Room for one more, but within BootStep of the last.
-	if got := a.Step(now.Add(2*time.Second), roomy(8), false, 1); len(got) != 0 || a.Why() != WaitTurn {
+	if got := a.Step(now.Add(2*time.Second), roomy(8), "", 1); len(got) != 0 || a.Why() != WaitTurn {
 		t.Fatalf("booted %v within BootStep (%q)", got, a.Why())
 	}
 	now = now.Add(10 * time.Second)
 	// Builds wait for memory: they come first.
-	if got := a.Step(now, roomy(8), true, 1); len(got) != 0 || a.Why() != WaitBuilds {
+	if got := a.Step(now, roomy(8), WaitBuilds, 1); len(got) != 0 || a.Why() != WaitBuilds {
 		t.Fatalf("booted %v while builds were held (%q)", got, a.Why())
+	}
+	// The user's computer is busy: it says so, not the VM's memory.
+	if got := a.Step(now, roomy(8), WaitHost, 1); len(got) != 0 || a.Why() != WaitHost {
+		t.Fatalf("booted %v while the host was busy (%q)", got, a.Why())
 	}
 	// Short of a boot over the floor: 1.6 GiB floor + 1.25 GiB boot, less
 	// the 1.25 GiB of the boot not yet showing.
-	if got := a.Step(now, roomy(3.5), false, 1); len(got) != 0 || a.Why() != WaitMemory {
+	if got := a.Step(now, roomy(3.5), "", 1); len(got) != 0 || a.Why() != WaitMemory {
 		t.Fatalf("booted %v with 3.5 GiB and a boot still settling (%q)", got, a.Why())
 	}
-	if got := a.Step(now, roomy(4.5), false, 1); len(got) != 1 || got[0] != "p/new" {
+	if got := a.Step(now, roomy(4.5), "", 1); len(got) != 1 || got[0] != "p/new" {
 		t.Fatalf("booted %v with 4.5 GiB available", got)
 	}
 	if len(a.Waiting()) != 0 || a.Why() != "" {
@@ -55,7 +59,7 @@ func TestAdmissionNeverBootsIntoMissingMemory(t *testing.T) {
 	a := NewAdmission(DefaultPolicy)
 	a.Ask("p/a", t0, t0)
 	for sec := 0; sec < 3600; sec += 2 {
-		if got := a.Step(t0.Add(time.Duration(sec)*time.Second), roomy(2), false, 5); len(got) != 0 {
+		if got := a.Step(t0.Add(time.Duration(sec)*time.Second), roomy(2), "", 5); len(got) != 0 {
 			t.Fatalf("booted %v after %ds with 2 GiB available", got, sec)
 		}
 	}

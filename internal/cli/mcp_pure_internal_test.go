@@ -191,6 +191,8 @@ func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
 		{&api.MemoryHold{Machine: "waiting"}, "waiting for memory to boot, 1st in line"},
 		{&api.MemoryHold{Machine: "waiting", Ahead: 10}, "waiting for memory to boot, 11th in line"},
 		{&api.MemoryHold{Paused: 1}, "1 test/build command paused for memory"},
+		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyHost}, "waiting to boot until the user's computer is less busy, 1st in line"},
+		{&api.MemoryHold{Waiting: 2, Why: "host"}, "2 test/build commands waiting until the user's computer is less busy"},
 	} {
 		if got := memoryHeld(c.h); !strings.HasPrefix(got, c.want) {
 			t.Errorf("memoryHeld(%+v) = %q, want %q", *c.h, got, c.want)

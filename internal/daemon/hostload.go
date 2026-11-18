@@ -1,13 +1,13 @@
 package daemon
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/hostload"
 	"agentbox/internal/hostos"
 )
 
@@ -64,7 +64,7 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	h.mu.Unlock()
 	if load.Busy != was {
 		if load.Busy {
-			s.logf("host load: this computer is busy (%s): heavy commands wait to start", hostWhy(load))
+			s.logf("host load: this computer, outside the VM, is busy (%s): heavy commands wait to start, and machines to boot", hostload.Words(load))
 		} else {
 			s.logf("host load: this computer is calm again")
 		}
@@ -82,30 +82,6 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
-
-// hostWhy says what made a report busy, for the log.
-func hostWhy(l api.HostLoad) string {
-	switch l.Why {
-	case "memory":
-		if l.Level != "" {
-			return "memory pressure " + l.Level
-		}
-		if l.Memory >= 0 {
-			return "memory, " + percent(l.Memory) + " stalled"
-		}
-		return "memory, " + agent.HumanBytes(l.Available) + " available"
-	case "cpu":
-		if l.CPU >= 0 {
-			return "CPU, " + percent(l.CPU) + " stalled"
-		}
-		return "CPU, " + percent(l.CPUShare) + " busy"
-	case "io":
-		return "disk, " + percent(l.IO) + " stalled"
-	}
-	return "calming down"
-}
-
-func percent(f float64) string { return fmt.Sprintf("%.0f%%", f) }
 
 // dropVMCaches drops the VM's page cache and the kernel's reclaimable caches
 // and compacts what's free into whole blocks, as chv's reclaimScript does.

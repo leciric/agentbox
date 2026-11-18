@@ -558,7 +558,7 @@ func TestHostLoadHoldsHeavyCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Started || !strings.Contains(out.Why, "computer is busy") {
+	if out.Started || !strings.Contains(out.Why, "computer, outside the VM, is busy (memory, 30% stalled)") {
 		t.Fatalf("host busy: %+v", out)
 	}
 	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || !ps.Host.Busy || ps.Why != string(pressure.HostBusy) {

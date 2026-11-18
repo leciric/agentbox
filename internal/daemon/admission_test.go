@@ -75,13 +75,62 @@ func TestBootWaitsBehindHeldBuilds(t *testing.T) {
 	if !f.srv.buildsHeld() {
 		t.Fatal("two builds asked and none started: they should be waiting")
 	}
-	f.srv.stepAdmission(time.Now(), roomyMem(), true)
+	f.srv.stepAdmission(time.Now(), roomyMem(), f.srv.bootHeld(time.Now()))
 	f.srv.admit.mu.Lock()
 	f.srv.admit.a.Ask("hello-stack/agent-09", time.Now(), time.Now())
 	f.srv.admit.mu.Unlock()
-	f.srv.stepAdmission(time.Now(), roomyMem(), true)
+	f.srv.stepAdmission(time.Now(), roomyMem(), f.srv.bootHeld(time.Now()))
 	if held := f.srv.admitHold("hello-stack/agent-09"); held == nil || held.Why != api.HoldWhyBuilds {
 		t.Errorf("held = %+v, want waiting behind the builds", held)
+	}
+}
+
+// While the user's computer is busy, a machine waits to boot and says it is
+// for the computer, not for the VM's memory, with builds the host held back
+// in line too; once it is calm, it boots as soon as those builds start.
+func TestBootWaitsForABusyHostOnlyWhileItIs(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, false)
+	now := time.Now()
+	f.srv.hostLoad.mu.Lock()
+	f.srv.hostLoad.last = api.HostLoad{OS: "linux", Memory: 25, Busy: true, Why: "memory", At: now}
+	f.srv.hostLoad.got = now
+	f.srv.hostLoad.mu.Unlock()
+	f.srv.heavy.mu.Lock()
+	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, now)
+	f.srv.heavy.g.Ask(f.newer.Ref(), "k2", "cargo test", time.Hour, now)
+	f.srv.heavy.g.Step(now, pressure.Sample{Mem: roomyMem(), HostBusy: true})
+	why := f.srv.heavy.g.Why()
+	f.srv.heavy.mu.Unlock()
+	if why != pressure.HostBusy {
+		t.Fatalf("governor holds builds for %q, want the host", why)
+	}
+	if f.srv.buildsHeld() {
+		t.Error("builds the host holds back count as held for the VM's memory")
+	}
+	f.srv.admit.mu.Lock()
+	f.srv.admit.running = 2
+	f.srv.admit.a.Ask("hello-stack/agent-09", now, now)
+	f.srv.admit.mu.Unlock()
+	f.srv.stepAdmission(now, roomyMem(), f.srv.bootHeld(now))
+	if held := f.srv.admitHold("hello-stack/agent-09"); held == nil || held.Why != api.HoldWhyHost {
+		t.Fatalf("held = %+v, want waiting for the host", held)
+	}
+	// The computer calms down, and the build it held starts.
+	f.srv.hostLoad.mu.Lock()
+	f.srv.hostLoad.last.Busy, f.srv.hostLoad.last.Why = false, ""
+	f.srv.hostLoad.mu.Unlock()
+	later := now.Add(3 * time.Second)
+	f.srv.heavy.mu.Lock()
+	f.srv.heavy.g.Step(later, pressure.Sample{Mem: roomyMem()})
+	waiting := len(f.srv.heavy.g.Waiting())
+	f.srv.heavy.mu.Unlock()
+	if waiting != 0 {
+		t.Fatalf("%d builds still wait with the computer calm", waiting)
+	}
+	f.srv.stepAdmission(later, roomyMem(), f.srv.bootHeld(later))
+	if held := f.srv.admitHold("hello-stack/agent-09"); held != nil {
+		t.Errorf("still held once the computer calmed down: %+v", held)
 	}
 }
 

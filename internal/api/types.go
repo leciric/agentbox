@@ -3174,11 +3174,12 @@ const (
 
 // Why machines waiting to boot wait (MemoryHold.Why, with Machine
 // "waiting" and pausing whole agents off): the VM hasn't the memory for
-// another boot, or agents' builds wait or are paused for it, which come
-// first.
+// another boot, agents' builds wait or are paused for it, which come first,
+// or the user's computer, outside the VM, is busy (HostLoad.Busy).
 const (
 	HoldWhyMemory = "memory"
 	HoldWhyBuilds = "builds"
+	HoldWhyHost   = "host"
 )
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
