@@ -21,6 +21,7 @@ pub(crate) mod controls;
 mod foot;
 mod home_status;
 mod issues;
+mod kept;
 mod machine_setup;
 mod memories;
 mod merge;
@@ -76,6 +77,8 @@ pub struct AppView {
     projects: Vec<Project>,
     project: Option<String>,
     fleet: Vec<FleetAgent>,
+    /// The fleets of the projects not shown, as last read (kept.rs).
+    kept_fleets: kept::Kept<Vec<FleetAgent>>,
     fleet_error: Option<SharedString>,
     /// The Settings page's banner for a field it could not save; the projects
     /// read has its own state in `projects_load`.
@@ -211,6 +214,7 @@ impl AppView {
             projects: Vec::new(),
             project: None,
             fleet: Vec::new(),
+            kept_fleets: Default::default(),
             fleet_error: None,
             error: None,
             projects_load: Default::default(),
@@ -636,12 +640,17 @@ impl AppView {
                 .get::<Fleet>(&format!("/v1/projects/{project}/fleet"))
                 .await;
             this.update_in(cx, |this, window, cx| {
-                if this.project.as_deref() != Some(&project) {
-                    return;
-                }
                 match res {
                     Ok(f) => {
-                        this.fleet = f.agents;
+                        // A project no longer shown keeps what was read for its
+                        // next visit, and never lands over the one that is.
+                        let Some(agents) =
+                            this.kept_fleets
+                                .land(this.project.as_deref(), &project, f.agents)
+                        else {
+                            return;
+                        };
+                        this.fleet = agents;
                         this.fleet_error = None;
                         bench::mark("fleet-loaded");
                         // AGENTBOX_NATIVE_OPEN=<agent> opens that agent's chat at start (benchmarks).
@@ -654,7 +663,10 @@ impl AppView {
                         this.panel_sync(window, cx);
                         this.sync_chat_agent(cx);
                     }
-                    Err(e) => this.fleet_error = Some(e.to_string().into()),
+                    Err(e) if this.project.as_deref() == Some(project.as_str()) => {
+                        this.fleet_error = Some(e.to_string().into())
+                    }
+                    Err(_) => return,
                 }
                 cx.notify();
             })
@@ -671,11 +683,23 @@ impl AppView {
         self.side.page = None;
         self.sessions.history = false;
         self.sessions.reading = None;
-        self.load_sessions(name.clone(), cx);
-        self.project = Some(name);
-        self.fleet.clear();
-        self.load_fleet(window, cx);
-        self.load_pulls(false, cx);
+        // Picking the project already open is only the navigation above and
+        // the lead's chat below: its agents, sessions and pull requests are
+        // neither cleared nor read again (an event or a reconnect refreshes
+        // them, as it does any open project).
+        // Moving to another shows what it last had (the rail's agents here, its
+        // sessions and pull requests in their own caches) while the reads
+        // replace that in place.
+        if kept::select(
+            &mut self.kept_fleets,
+            &mut self.project,
+            &mut self.fleet,
+            &name,
+        ) {
+            self.load_sessions(name, cx);
+            self.load_fleet(window, cx);
+            self.load_pulls(false, cx);
+        }
         self.open_chat("lead".into(), window, cx);
     }
 

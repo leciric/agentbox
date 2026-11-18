@@ -18,6 +18,8 @@
 //! FAKE_VERSION=<version> is what GET /v1/version says ("fake" otherwise), and
 //! POST /v1/shutdown stops it, for testing the app's restart of an older daemon.
 //! FAKE_UPDATE_DELAY=<seconds> holds GET /v1/update/release that long (the app's checking state).
+//! FAKE_FLEET_DELAY_MS=<ms> holds GET /v1/projects/<p>/fleet that long (a slow daemon: what the
+//! rail shows while its agents are read), and FAKE_LOG=1 prints each request, "METHOD /path".
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -919,10 +921,24 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// fleet_delay holds a fleet read for FAKE_FLEET_DELAY_MS, if set.
+async fn fleet_delay() {
+    let ms: u64 = std::env::var("FAKE_FLEET_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if ms > 0 {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+}
+
 async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path().to_string();
     let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
     let method = req.method().clone();
+    if std::env::var_os("FAKE_LOG").is_some() {
+        eprintln!("{method} {path}");
+    }
     let query: HashMap<String, String> = req
         .uri()
         .query()
@@ -1547,10 +1563,12 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             json(StatusCode::OK, &all)
         }
         (&Method::GET, ["v1", "projects", p, "fleet"]) if fake.neighbour(p) => {
+            fleet_delay().await;
             let agents = fake.neighbours().into_iter().filter(|a| a.project == *p).collect();
             json(StatusCode::OK, &Fleet { project: p.to_string(), agents, ..Default::default() })
         }
         (&Method::GET, ["v1", "projects", p, "fleet"]) if fake.is_fake(p) => {
+            fleet_delay().await;
             let fleet = Fleet {
                 project: p.to_string(),
                 agents: fake.fleet_with_pulls(),

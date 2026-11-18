@@ -315,8 +315,11 @@ impl AppView {
                 .await
             {
                 this.update(cx, |this, cx| {
-                    if this.project.as_deref() == Some(project.as_str()) {
-                        this.fleet = f.agents;
+                    if let Some(agents) =
+                        this.kept_fleets
+                            .land(this.project.as_deref(), &project, f.agents)
+                    {
+                        this.fleet = agents;
                         cx.notify();
                     }
                 })

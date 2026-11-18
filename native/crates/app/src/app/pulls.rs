@@ -179,6 +179,9 @@ pub(super) struct Pulls {
     /// The project these are of.
     project: String,
     data: Option<Result<ProjectPullRequests, String>>,
+    /// The lists of the other projects, as last read (kept.rs): shown at once
+    /// when one is picked again, and read again meanwhile.
+    kept: super::kept::Kept<ProjectPullRequests>,
     filter: Filter,
     refreshing: bool,
     pub(super) tab: RailTab,
@@ -211,6 +214,7 @@ impl Pulls {
         Self {
             project: String::new(),
             data: None,
+            kept: Default::default(),
             filter: Filter::Open,
             refreshing: false,
             tab: RailTab::Agents,
@@ -850,8 +854,17 @@ impl AppView {
             return;
         };
         if self.pulls.project != project {
+            // The list shown is kept for its project (a read that failed isn't:
+            // the next visit reads again), and the one moved to shows what it
+            // last had, if anything, until the read below replaces it.
+            let left = self.pulls.data.take();
+            if let Some(Ok(d)) = left
+                && !self.pulls.project.is_empty()
+            {
+                self.pulls.kept.keep(&self.pulls.project, d);
+            }
             self.pulls.project = project.clone();
-            self.pulls.data = None;
+            self.pulls.data = self.pulls.kept.take(&project).map(Ok);
             self.pulls.edits.clear();
             self.pulls.failed.clear();
             self.pulls.labels = None;
@@ -869,9 +882,17 @@ impl AppView {
             let res = client.get::<ProjectPullRequests>(&path).await;
             let again = res.as_ref().is_ok_and(|d| d.refreshing);
             this.update(cx, |this, cx| {
-                if this.pulls.project != project {
-                    return;
-                }
+                // A project no longer shown keeps what was read for its next
+                // visit, and never lands over the one that is.
+                let shown = this.pulls.project.clone();
+                let res = match res {
+                    Ok(d) => match this.pulls.kept.land(Some(&shown), &project, d) {
+                        Some(d) => Ok(d),
+                        None => return,
+                    },
+                    Err(e) if shown == project => Err(e),
+                    Err(_) => return,
+                };
                 this.pulls.refreshing = false;
                 match res {
                     Ok(d) => this.pulls.data = Some(Ok(d)),
