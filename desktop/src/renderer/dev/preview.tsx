@@ -328,6 +328,9 @@
 //   ?phone=list|chat|lead|frame
 //                           the phone's web app against chats in every live
 //                           state, one running a turn over and over (dev/phone.tsx)
+//   ?phone=browser&option=a|b|c  mocks: using an agent's browser from the phone
+//                           (&screen=N one frame; in the frame: ?phone=frame&open=browser&option=a&screen=N;
+//                           dev/phoneBrowser.tsx)
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -1721,6 +1724,9 @@ const phoneMode = params.get('phone');
 if (phoneMode === 'frame') {
   const { startPhoneFrame } = await import('./phone');
   startPhoneFrame(params);
+} else if (phoneMode === 'browser') {
+  const { startPhoneBrowser } = await import('./phoneBrowser');
+  startPhoneBrowser(params);
 } else if (phoneMode) {
   const { startPhonePreview } = await import('./phone');
   startPhonePreview(phoneMode, params);
