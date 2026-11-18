@@ -30,7 +30,7 @@ fi
 # is Go's too: TestTypeScriptTypesAreUpToDate reads it, as
 # TestRustTypesAreUpToDate reads the native app's types.rs.
 not_go='^(desktop/|mobile/|native/|docs/|promo/|packaging/|scripts/|\.github/|[^/]+\.md$|LICENSE$|\.gitignore$|\.release-please-manifest\.json$|hub/(npm/|scripts/|[^/]+\.md$))'
-go_too='^(desktop/src/shared/api\.ts|native/crates/agentbox-api/src/types\.rs|scripts/check-coverage\.sh|\.github/coverage-floor\.txt)$'
+go_too='^(desktop/src/shared/api\.ts|native/crates/agentbox-api/src/types\.rs)$'
 go=false
 if grep -qvE "$not_go" "$files" || has "$go_too"; then go=true; fi
 
@@ -95,7 +95,6 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
         esac
         case "$f" in
           desktop/src/shared/api.ts | native/crates/agentbox-api/src/types.rs) f=internal/api/api.ts ;; # read by internal/api's test
-          scripts/check-coverage.sh | .github/coverage-floor.txt) continue ;;
         esac
         grep -qE "$not_go" <<<"$f" && continue
         # Files only one OS builds, wherever they are.

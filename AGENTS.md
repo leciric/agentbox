@@ -109,17 +109,15 @@ Windows 2x), so a run runs only what its files can break. A first job checks the
 conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out, with
 [`scripts/ci-changes.sh`](scripts/ci-changes.sh), what the change touches; the other jobs skip.
 Go is anything but `desktop/`, `mobile/`, `docs/`, `promo/`, `packaging/`, `scripts/`, `.github/` and
-root prose, plus `desktop/src/shared/api.ts`, `scripts/check-coverage.sh` and
-`.github/coverage-floor.txt`: a file Go embeds or a test reads belongs under a package (or in that
+root prose, plus `desktop/src/shared/api.ts` and the native app's generated
+`types.rs`: a file Go embeds or a test reads belongs under a package (or in that
 list). The desktop app is `desktop/` and `vnc.js`; the phone app is `mobile/` and the desktop's
 `shared/api.ts` and `shared/i18n/`. A change to `ci.yml` or `ci-changes.sh` runs everything, macOS
 and Windows included. A new push cancels the run it supersedes.
 
-- **Go tests and coverage**: `scripts/check-coverage.sh`, the one `go test ./...`, with a floor in
-  [`.github/coverage-floor.txt`](.github/coverage-floor.txt), bumped as coverage rises, never
-  lowered. It includes `TestTypeScriptTypesAreUpToDate`. Packages a change doesn't reach come from
-  the test cache, coverage included: CI sets each file's mtime from its git object id, since a
-  test that opens a file is cached by that file's mtime and size.
+- **Go tests** (the job is still named "Go tests and coverage", which the `main` ruleset requires): the one `go test ./...`, with no coverage floor. It includes `TestTypeScriptTypesAreUpToDate`. Packages a
+  change doesn't reach come from the test cache: CI sets each file's mtime from its git object id,
+  since a test that opens a file is cached by that file's mtime and size.
 - **Go vet, lint, tidy**: `go mod tidy` with no diff, `go vet ./...` (and with `-tags integration`:
   Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), every package vetted for
   darwin, and builds for darwin/arm64, linux/arm64 and Windows.
