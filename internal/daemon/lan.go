@@ -1019,6 +1019,10 @@ var lanRefused = []struct {
 		"GET /v1/usage-stats/pending",
 		"POST /v1/usage-events/setup",
 	}},
+	{"What AgentBox held for you after it stopped unexpectedly, and Resume all (restart.go): the phone's app doesn't show it, and resuming every agent is for the computer the VM runs on, where its memory is", []string{
+		"GET /v1/restart-hold",
+		"POST /v1/restart-hold/resume",
+	}},
 	{"Diagnostics, setup, updates, reports, jobs and what the computer and its VM report to the daemon", []string{
 		"GET /v1/home-host",
 		"GET /v1/home-host/mcp",
