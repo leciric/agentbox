@@ -153,7 +153,7 @@ func TestRecordedBootBurstStopsAtTheHostsCeiling(t *testing.T) {
 	if v.total != 12*GiB {
 		t.Errorf("settled at %s, want the 12 GiB the host can spare (%v)", gib(v.total), v)
 	}
-	var last time.Duration = -memGrowEvery
+	last := -memGrowEvery
 	for _, g := range v.grows {
 		if g.to-g.from > memGrowMax || g.at-last < memGrowEvery {
 			t.Errorf("grew %s → %s at %s, %s after the last: want at most %s, %s apart", gib(g.from), gib(g.to), g.at, g.at-last, gib(memGrowMax), memGrowEvery)
