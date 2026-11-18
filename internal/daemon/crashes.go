@@ -32,6 +32,10 @@ func (s *Server) crashes() report.Crashes {
 // the func is this one stopping as it should. A crashes folder that can't be
 // written only loses crash reports.
 func (s *Server) startCrashes() func() {
+	// Before Start marks this one running: whether the last one stopped as
+	// it should decides what carries on by itself (restart.go).
+	started, unclean := s.crashes().Unclean()
+	s.noteLastStop(unclean, started)
 	stop, err := s.crashes().Start(s.redactor(), Version, report.BootID(), s.cfg.CrashOutput)
 	if err != nil {
 		s.logf("crash records: %v", err)

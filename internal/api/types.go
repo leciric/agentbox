@@ -1113,8 +1113,10 @@ type Agent struct {
 	// Hold says the agent is On hold, its machine stopped or not yet booted:
 	// HoldMemory while it waits its turn for the VM's memory (Memory says
 	// its place in line and why), and boots by itself; HoldIdle after it sat
-	// idle, until a message, opening it or its lead starts it again. Absent
-	// otherwise. Being on hold never removes an agent.
+	// idle, until a message, opening it or its lead starts it again;
+	// HoldRestart after AgentBox stopped unexpectedly, or restarted too many
+	// times in a row while it worked, until the user resumes it
+	// (RestartHold). Absent otherwise. Being on hold never removes an agent.
 	Hold string `json:"hold,omitempty"`
 	// Goal is what it works towards (AgentGoal): absent for an agent with
 	// none.
@@ -2954,7 +2956,37 @@ const (
 	// its floor of free space, reached it, or has room again, or the guard
 	// paused or resumed an agent.
 	EventDisk = "disk"
+	// EventRestartHold carries a new RestartHold: what waits for the user
+	// after AgentBox stopped unexpectedly changed.
+	EventRestartHold = "restart-hold"
 )
+
+// RestartHold is what AgentBox didn't carry on by itself as it started
+// (GET /v1/restart-hold, and EventRestartHold): the agents On hold
+// (HoldRestart) and the chats whose turn waits, until the user resumes them
+// all (POST /v1/restart-hold/resume), one at a time as the VM's memory
+// allows, or each by hand. Nothing waits when Agents and Chats are 0.
+type RestartHold struct {
+	// Unexpected says AgentBox stopped unexpectedly (a crash, the VM or the
+	// computer going down with it running): nothing resumed by itself. False
+	// when all that waits restarted too many times in a row while it worked.
+	Unexpected bool `json:"unexpected,omitempty"`
+	// Why is the VM's own account of it (a crash loop), when it gave one.
+	Why string `json:"why,omitempty"`
+	// Since is when AgentBox started holding them.
+	Since time.Time `json:"since,omitzero,omitempty"`
+	// Agents are the agents waiting, Chats the projects' chats and the Home
+	// chat.
+	Agents []string `json:"agents"`
+	Chats  []string `json:"chats"`
+}
+
+// ResumeAllResult is what POST /v1/restart-hold/resume set going: the
+// agents and chats it resumes, one after another.
+type ResumeAllResult struct {
+	Agents int `json:"agents"`
+	Chats  int `json:"chats"`
+}
 
 // DiskGuard is what the daemon's disk guard last found (GET /v1/disk, and
 // EventDisk). It keeps a floor of free space on every disk AgentBox writes
@@ -3135,8 +3167,9 @@ type AgentChange struct {
 
 // Why an agent is On hold (Agent.Hold).
 const (
-	HoldMemory = "memory"
-	HoldIdle   = "idle"
+	HoldMemory  = "memory"
+	HoldIdle    = "idle"
+	HoldRestart = "restart"
 )
 
 // Why machines waiting to boot wait (MemoryHold.Why, with Machine

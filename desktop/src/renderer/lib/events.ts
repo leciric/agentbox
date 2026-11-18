@@ -240,6 +240,11 @@ export function connectEvents(queryClient: QueryClient): void {
         // again, or it paused or resumed an agent.
         queryClient.setQueryData(['disk'], event.data as T.DiskGuard);
         break;
+      case T.EventRestartHold:
+        // What waits for you after AgentBox stopped unexpectedly changed:
+        // held as it started, or resumed (RestartHoldNotice).
+        queryClient.setQueryData(['restartHold'], event.data as T.RestartHold);
+        break;
       case T.EventLAN:
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });

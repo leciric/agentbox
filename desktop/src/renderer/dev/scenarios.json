@@ -3148,5 +3148,12 @@
     "query": "app=project&tabgroups=1&theme=dark",
     "width": 440,
     "height": 800
+  },
+  {
+    "id": "restart-hold-window",
+    "description": "AgentBox stopped unexpectedly: the notice over the page saying two agents and the project's chat wait for you, with Resume all, and those agents On hold in the rail — dark",
+    "query": "app=project&restarthold=1&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

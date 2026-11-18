@@ -36,6 +36,7 @@ pub(crate) mod pulls;
 mod recap;
 mod recap_card;
 mod resources;
+mod restart_hold;
 mod review;
 mod schedules;
 mod search;
@@ -92,6 +93,8 @@ pub struct AppView {
     conn: connection::Conn,
     /// A daemon older than this app, and its restart (stale.rs).
     stale: stale::StaleDaemon,
+    /// What waits for you after AgentBox stopped unexpectedly (restart_hold.rs).
+    restart_hold: restart_hold::RestartHoldState,
     /// When the update status was last read (update_poll.rs).
     update_poll: update_poll::UpdatePoll,
     /// The top bar's chips (topbar.rs).
@@ -224,6 +227,7 @@ impl AppView {
             connected: false,
             conn: Default::default(),
             stale: Default::default(),
+            restart_hold: Default::default(),
             update_poll: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
@@ -328,6 +332,8 @@ impl AppView {
             // A release found while the stream was down came in an event
             // this app never saw.
             self.load_update(cx);
+            // And what a daemon that just started holds for you.
+            self.load_restart_hold(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -424,6 +430,12 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_RESTART_HOLD => {
+                match serde_json::from_value::<agentbox_api::RestartHold>(ev.data) {
+                    Ok(hold) => self.apply_restart_hold(hold, cx),
+                    Err(_) => self.load_restart_hold(cx),
+                }
+            }
             agentbox_api::EVENT_LEAD_SESSIONS => {
                 if let Ok(c) = serde_json::from_value::<agentbox_api::LeadSessionsChange>(ev.data) {
                     self.load_sessions(c.project, cx);
@@ -1551,6 +1563,11 @@ impl Render for AppView {
                                     })
                                     .when_some(
                                         self.render_stale_notice(cx).filter(|_| self.connected),
+                                        |el, notice| el.child(notice),
+                                    )
+                                    .when_some(
+                                        self.render_restart_hold_notice(cx)
+                                            .filter(|_| self.connected),
                                         |el, notice| el.child(notice),
                                     )
                                     .when(

@@ -1706,6 +1706,22 @@ var migrations = []string{
 		PRIMARY KEY (project, id)
 	)`,
 	`ALTER TABLE lead_sessions ADD COLUMN tab_group TEXT NOT NULL DEFAULT ''`,
+	// running_turns.held is a turn AgentBox didn't carry on after it stopped
+	// unexpectedly, or after too many restarts in a row: it waits for the
+	// user's Resume all, and a later daemon leaves it waiting.
+	`ALTER TABLE running_turns ADD COLUMN held INTEGER NOT NULL DEFAULT 0`,
+	// How many times in a row AgentBox carried an agent's (or a chat's) work
+	// on by itself as it started (daemon/restart.go), and when it last did:
+	// a run of them each within the window of the last is a crash loop, and
+	// one past the cap waits for the user. Kept across restarts, which is
+	// what it counts.
+	`CREATE TABLE auto_resumes (
+		project TEXT NOT NULL,
+		agent   TEXT NOT NULL,
+		count   INTEGER NOT NULL DEFAULT 0,
+		last_at INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (project, agent)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2542,6 +2558,7 @@ var projectOwned = []string{
 	"questions",
 	"notifications",
 	"running_turns",
+	"auto_resumes",
 	"chat_items",
 	"chats",
 	"archived_agents",
@@ -3514,6 +3531,10 @@ const (
 	// HoldIdle: its machine was stopped after it sat idle; whatever touches
 	// it (a message, opening it, its lead) starts it again.
 	HoldIdle = "idle"
+	// HoldRestart: AgentBox stopped unexpectedly (or restarted too many
+	// times in a row while it worked), so its machine wasn't started again
+	// by itself: it waits for the user's Resume all, a message, or a start.
+	HoldRestart = "restart"
 )
 
 // SetHold puts an agent On hold for why, or takes it off (""). Putting it

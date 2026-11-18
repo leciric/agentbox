@@ -1385,6 +1385,7 @@ const devState: {
   update?: T.UpdateStatus;
   appVersion?: string;
   staleDaemon?: { daemon: string; app: string; jobs: number };
+  restartHold?: T.RestartHold;
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -2704,6 +2705,19 @@ export function installDevBridge(): void {
         };
         return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
       }
+      if (method === 'GET' && path === '/v1/restart-hold') {
+        return { status: 200, body: JSON.stringify(devState.restartHold ?? { agents: [], chats: [] }), contentType: 'application/json' };
+      }
+      if (method === 'POST' && path === '/v1/restart-hold/resume') {
+        // Resume all: every agent held goes back in line, as the daemon's does.
+        const held: T.RestartHold = devState.restartHold ?? { agents: [], chats: [] };
+        const res: T.ResumeAllResult = { agents: held.agents.length, chats: held.chats.length };
+        for (const ref of held.agents) patchDevAgent(ref, { hold: undefined, state: 'running', chat: 'running', outcome: 'resuming' });
+        devState.restartHold = { agents: [], chats: [] };
+        seeded?.setQueryData(['agents'], devState.agents);
+        seeded?.setQueryData<T.Fleet>(['fleet', PROJECT], (f) => f && { ...f, agents: f.agents.map((a) => (held.agents.includes(a.ref) ? { ...a, hold: undefined, state: 'running', chat: 'running', outcome: 'resuming' } : a)) });
+        return { status: 200, body: JSON.stringify(res), contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/usage/disk/trim') {
         const trim = { at: new Date().toISOString(), bytes: 2.4 * 1024 ** 3 };
@@ -2893,6 +2907,25 @@ export function seedNightly(queryClient: QueryClient): void {
   devState.update = nightlyStatus(nightlyVersion, 'nightly');
   queryClient.setQueryData(['update'], devState.update);
   queryClient.setQueryData(['app-info'], { socket: '/run/user/1000/agentbox.sock', version: nightlyVersion, electron: '38.1.0', packaged: true, platform: 'linux' });
+}
+
+// seedRestartHold is the ?restarthold=1 scenario: AgentBox stopped
+// unexpectedly (the VM went down with it running), so the project's two
+// oldest agents and its chat wait for you instead of resuming at once
+// (daemon/restart.go), On hold, with Resume all over the page.
+export function seedRestartHold(queryClient: QueryClient): void {
+  const held = (devState.agents ?? []).filter((a) => a.project === PROJECT).slice(-2).map((a) => a.ref);
+  const over = { hold: 'restart', state: 'stopped', chat: 'ready', outcome: undefined } as const;
+  for (const ref of held) patchDevAgent(ref, over);
+  queryClient.setQueryData(['agents'], devState.agents);
+  queryClient.setQueryData<T.Fleet>(['fleet', PROJECT], (f) => f && { ...f, agents: f.agents.map((a) => (held.includes(a.ref) ? { ...a, ...over } : a)) });
+  devState.restartHold = {
+    unexpected: true,
+    why: 'the VM went down 6 times in 34 minutes',
+    since: new Date(Date.now() - 4 * 60_000).toISOString(),
+    agents: held,
+    chats: [`${PROJECT}/lead`],
+  };
 }
 
 // seedStaleDaemon is the ?olddaemon=1 scenario: the app updated to a nightly while

@@ -1466,6 +1466,28 @@ pub struct DiskGuardDisk {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct RestartHold {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub unexpected: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub why: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub since: String,
+    #[serde(deserialize_with = "nullable")]
+    pub agents: Vec<String>,
+    #[serde(deserialize_with = "nullable")]
+    pub chats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ResumeAllResult {
+    pub agents: i64,
+    pub chats: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemoryUsageAgent {
     pub r#ref: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -7048,6 +7070,7 @@ pub const EVENT_REMOTE_AGENTS: &str = "remote-agents";
 pub const EVENT_THEME: &str = "theme";
 pub const EVENT_UPDATE: &str = "update";
 pub const EVENT_DISK: &str = "disk";
+pub const EVENT_RESTART_HOLD: &str = "restart-hold";
 pub const DISK_OK: &str = "ok";
 pub const DISK_LOW: &str = "low";
 pub const DISK_FULL: &str = "full";

@@ -774,6 +774,10 @@ export const api = {
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   trimDisk: () => call<T.DiskTrim>('POST', '/v1/usage/disk/trim'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
+  // What AgentBox didn't carry on by itself after it stopped unexpectedly,
+  // and the user's Resume all (daemon/restart.go).
+  restartHold: () => call<T.RestartHold>('GET', '/v1/restart-hold'),
+  resumeAll: () => call<T.ResumeAllResult>('POST', '/v1/restart-hold/resume', {}),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   // The end of the named agents' terminals, for the agent list's thumbnails.

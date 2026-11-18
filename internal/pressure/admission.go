@@ -190,3 +190,29 @@ func (a *Admission) Step(now time.Time, m Mem, buildsHeld bool, running int) []s
 	}
 	return []string{w.Agent}
 }
+
+// SettleFall is how fast, in bytes a second, the VM's available memory may
+// still be falling for what was last started to count as settled
+// (Unsettled): a machine booting or a chat loading its session takes its
+// memory in its first seconds, and falls slower once it has.
+const SettleFall = 32 << 20 // 32 MiB/s
+
+// Unsettled says what keeps the VM from being settled at s, with t, for one
+// more piece of work a restart cut short to be carried on after the last,
+// or "" when nothing does: a memory stall (some pressure at Admit, or full
+// at Calm), the VM paging to its disk, the user's computer busy, and, while
+// steady is asked for, its memory still falling at SettleFall or faster.
+// Whether a machine's boot fits is Admission's to say.
+func (p Policy) Unsettled(s Sample, t Trend, steady bool) string {
+	switch {
+	case s.Some.Avg10 >= p.Admit || s.Full.Avg10 >= p.Calm:
+		return "memory pressure in the VM (" + s.String() + ")"
+	case s.Mem.DiskSwapOut():
+		return "the VM paging out to its disk"
+	case s.HostBusy:
+		return "your computer being busy"
+	case steady && t.Fall >= SettleFall:
+		return "the VM's memory still falling"
+	}
+	return ""
+}
