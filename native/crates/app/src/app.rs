@@ -265,6 +265,10 @@ impl AppView {
             _review_sub: None,
             _events: events,
         };
+        // AGENTBOX_NATIVE_COCKPIT=1 opens cockpit mode at start, =<project>
+        // or =<project>/<agent> focused there, once Settings says it's on.
+        this.cockpit
+            .set_pending(std::env::var("AGENTBOX_NATIVE_COCKPIT").ok());
         this.load_settings(window, cx);
         this.load_theme(window, cx);
         this.load_projects(window, cx);
@@ -326,6 +330,10 @@ impl AppView {
             // A release found while the stream was down came in an event
             // this app never saw.
             self.load_update(cx);
+            for chat in self.cockpit_chats() {
+                chat.update(cx, |c, cx| c.load(cx));
+            }
+            self.cockpit_reconnected(window, cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -407,6 +415,13 @@ impl AppView {
                     self.load_line(p.to_string(), cx);
                     self.load_sessions(p.to_string(), cx);
                 }
+                // Cockpit mode's chats follow their conversations too.
+                for chat in self.cockpit_chats() {
+                    if chat.read(cx).agent == chat_ev.agent {
+                        let ev = chat_ev.clone();
+                        chat.update(cx, |c, cx| c.apply(ev, cx));
+                    }
+                }
                 if let Some(chat) = &self.chat
                     && chat.read(cx).agent == chat_ev.agent
                 {
@@ -487,16 +502,24 @@ impl AppView {
     /// load_settings takes the language the user picked (Settings.language),
     /// unless AGENTBOX_NATIVE_LANG overrides it.
     fn load_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Ok(lang) = std::env::var("AGENTBOX_NATIVE_LANG") {
-            agentbox_i18n::set_language(&lang);
-            return;
+        // The override is only the language's: the rest is read all the same.
+        let lang = std::env::var("AGENTBOX_NATIVE_LANG").ok();
+        if let Some(lang) = &lang {
+            agentbox_i18n::set_language(lang);
         }
         let client = self.client.clone();
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(s) = client.get::<agentbox_api::Settings>("/v1/settings").await {
-                agentbox_i18n::set_language(&s.language);
-                this.update(cx, |this, _| this.cockpit.offered = s.cockpit_mode)
-                    .ok();
+                if lang.is_none() {
+                    agentbox_i18n::set_language(&s.language);
+                }
+                this.update_in(cx, |this, window, cx| {
+                    this.cockpit.offered = s.cockpit_mode;
+                    // A cockpit asked for at start opens now that it's known
+                    // whether it's on.
+                    this.start_cockpit(window, cx);
+                })
+                .ok();
                 cx.update(|window, _| window.refresh()).ok();
             }
         })
@@ -603,11 +626,6 @@ impl AppView {
                             // AGENTBOX_NATIVE_OFFICE=1 opens the Office at start (checks, recordings).
                             if std::env::var_os("AGENTBOX_NATIVE_OFFICE").is_some() {
                                 this.open_office(window, cx);
-                            }
-                            // AGENTBOX_NATIVE_COCKPIT=1 opens cockpit mode at start;
-                            // =<project> or =<project>/<agent> focused there.
-                            if let Ok(at) = std::env::var("AGENTBOX_NATIVE_COCKPIT") {
-                                this.open_cockpit_at(&at, window, cx);
                             }
                         }
                     }

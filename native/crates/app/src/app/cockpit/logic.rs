@@ -41,9 +41,18 @@ pub fn feed_of<'a>(
             item: (*it).clone(),
         }));
     }
-    // Stable: messages at the same moment keep their projects' order.
-    rows.sort_by(|a, b| a.item.created_at.cmp(&b.item.created_at));
+    // By instant, not by text: RFC 3339 times with more or fewer fractional
+    // digits don't sort as strings. Stable: messages at the same moment keep
+    // their projects' order; one whose time can't be read goes first.
+    rows.sort_by_key(|r| instant(&r.item.created_at));
     rows
+}
+
+/// instant is an RFC 3339 time as nanoseconds since 1970, for ordering.
+fn instant(at: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(at)
+        .ok()
+        .and_then(|d| d.timestamp_nanos_opt())
 }
 
 /// shown_hidden is what the filter hides as it shows it: only projects there
@@ -217,28 +226,43 @@ mod tests {
     #[test]
     fn feed_merges_leads_by_time_words_only() {
         let a = vec![
-            item("a1", "user", "10:00"),
-            item("a-tool", "tool", "10:01"),
-            item("a2", "assistant", "10:05"),
+            item("a1", "user", "2026-01-01T10:00:00Z"),
+            item("a-tool", "tool", "2026-01-01T10:01:00Z"),
+            item("a2", "assistant", "2026-01-01T10:05:00Z"),
         ];
-        let mut sub = item("b-sub", "assistant", "10:03");
+        let mut sub = item("b-sub", "assistant", "2026-01-01T10:03:00Z");
         sub.parent = "x".into();
-        let mut empty = item("b-empty", "assistant", "10:04");
+        let mut empty = item("b-empty", "assistant", "2026-01-01T10:04:00Z");
         empty.text = " ".into();
-        let b = vec![item("b1", "assistant", "10:02"), sub, empty];
+        let b = vec![item("b1", "assistant", "2026-01-01T10:02:00Z"), sub, empty];
         let rows = feed_of([("a", a.as_slice()), ("b", b.as_slice())], 12);
         let ids: Vec<&str> = rows.iter().map(|r| r.item.id.as_str()).collect();
         assert_eq!(ids, ["a1", "b1", "a2"]);
         let few = vec![
-            item("1", "user", "1"),
-            item("2", "assistant", "2"),
-            item("3", "user", "3"),
+            item("1", "user", "2026-01-01T10:00:01Z"),
+            item("2", "assistant", "2026-01-01T10:00:02Z"),
+            item("3", "user", "2026-01-01T10:00:03Z"),
         ];
         let rows = feed_of([("a", few.as_slice())], 2);
         assert_eq!(
             rows.iter().map(|r| r.item.id.as_str()).collect::<Vec<_>>(),
             ["2", "3"]
         );
+    }
+
+    #[test]
+    fn feed_orders_by_instant_whatever_the_fraction_digits() {
+        let a = vec![
+            item("a-12", "user", "2026-01-01T10:00:01.12Z"),
+            item("a-whole", "assistant", "2026-01-01T10:00:01Z"),
+        ];
+        let b = vec![
+            item("b-123", "user", "2026-01-01T10:00:01.123Z"),
+            item("b-5", "assistant", "2026-01-01T10:00:01.5Z"),
+        ];
+        let rows = feed_of([("a", a.as_slice()), ("b", b.as_slice())], 12);
+        let ids: Vec<&str> = rows.iter().map(|r| r.item.id.as_str()).collect();
+        assert_eq!(ids, ["a-whole", "a-12", "b-123", "b-5"]);
     }
 
     #[test]

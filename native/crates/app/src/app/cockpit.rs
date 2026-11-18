@@ -80,6 +80,22 @@ pub(super) struct Cockpit {
     feed_len: usize,
     subs: Vec<Subscription>,
     poll: Option<Task<()>>,
+    /// A refresh is out; another asked for meanwhile runs when it's back
+    /// (again), so their answers land in order. epoch counts the openings: a
+    /// refresh from before the cockpit was closed lands nowhere.
+    refreshing: bool,
+    again: bool,
+    epoch: u64,
+    /// AGENTBOX_NATIVE_COCKPIT asked for at start, until Settings says
+    /// whether cockpit mode is on (start_cockpit).
+    pending: Option<String>,
+}
+
+impl Cockpit {
+    /// set_pending keeps what AGENTBOX_NATIVE_COCKPIT asked for at start.
+    pub fn set_pending(&mut self, at: Option<String>) {
+        self.pending = at.filter(|a| !a.is_empty());
+    }
 }
 
 /// An agent as the cockpit shows it.
@@ -123,6 +139,9 @@ impl AppView {
         }
         self.cockpit.open = true;
         self.cockpit.feed_len = 0;
+        self.cockpit.epoch += 1;
+        self.cockpit.refreshing = false;
+        self.cockpit.again = false;
         self.cockpit_refresh(window, cx);
         let poll = cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -144,6 +163,30 @@ impl AppView {
         cx.notify();
     }
 
+    /// cockpit_reconnected reads what an open cockpit shows again, after the
+    /// daemon's stream came back: a refresh in flight when it dropped may
+    /// never answer.
+    pub(super) fn cockpit_reconnected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cockpit.open {
+            self.cockpit.epoch += 1;
+            self.cockpit.refreshing = false;
+            self.cockpit.again = false;
+            self.cockpit_refresh(window, cx);
+        }
+    }
+
+    /// start_cockpit opens what AGENTBOX_NATIVE_COCKPIT asked for, once
+    /// Settings has said whether cockpit mode is on (and only if it is).
+    pub(super) fn start_cockpit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.cockpit_offered() {
+            self.cockpit.pending = None;
+            return;
+        }
+        if let Some(at) = self.cockpit.pending.take() {
+            self.open_cockpit_at(&at, window, cx);
+        }
+    }
+
     /// open_cockpit_at opens it at start (AGENTBOX_NATIVE_COCKPIT): "1" on
     /// every project, "project" or "project/agent" focused there.
     pub(super) fn open_cockpit_at(
@@ -163,8 +206,14 @@ impl AppView {
     /// leave_cockpit closes it, and lets go of its streams and chats: what
     /// was open beneath it is still there.
     pub(super) fn leave_cockpit(&mut self, cx: &mut Context<Self>) {
+        for chat in self.cockpit_chats() {
+            self.keep_cockpit_draft(&chat, cx);
+        }
         let c = &mut self.cockpit;
         c.open = false;
+        c.epoch += 1;
+        c.refreshing = false;
+        c.again = false;
         c.poll = None;
         c.live.clear();
         c.reply = None;
@@ -177,6 +226,42 @@ impl AppView {
         }
         c.subs.clear();
         cx.notify();
+    }
+
+    /// cockpit_chats are the chats the cockpit shows now: the feed's
+    /// composer, the lead's in focus and the stage's.
+    pub(super) fn cockpit_chats(&self) -> Vec<Entity<ChatView>> {
+        let c = &self.cockpit;
+        [&c.reply, &c.lead_chat, &c.stage_chat]
+            .into_iter()
+            .filter_map(|x| x.as_ref().map(|(_, v)| v.clone()))
+            .collect()
+    }
+
+    /// keep_cockpit_draft keeps what was typed in a cockpit chat before it
+    /// goes, in the same store as the app's own chats (keep_draft), so the
+    /// chat opened again, here or in the app, has it back.
+    fn keep_cockpit_draft(&mut self, chat: &Entity<ChatView>, cx: &App) {
+        let c = chat.read(cx);
+        let text = c.draft_text(cx);
+        let changed = if text.trim().is_empty() {
+            self.side.drafts.remove(&c.agent).is_some()
+        } else {
+            self.side.drafts.insert(c.agent.clone(), text.clone()) != Some(text)
+        };
+        if changed {
+            crate::prefs::set(
+                super::sidebar::DRAFTS,
+                serde_json::to_value(&self.side.drafts).unwrap_or_default(),
+            );
+        }
+    }
+
+    /// drop_cockpit_chat lets go of one of the cockpit's chats, its draft kept.
+    fn drop_cockpit_chat(&mut self, slot: Option<(String, Entity<ChatView>)>, cx: &App) {
+        if let Some((_, chat)) = slot {
+            self.keep_cockpit_draft(&chat, cx);
+        }
     }
 
     fn cockpit_all(&self) -> Vec<String> {
@@ -268,6 +353,12 @@ impl AppView {
     /// cockpit_refresh reads what the cockpit shows again: each lead and its
     /// latest messages, the agents' terminals, desktops and phones.
     fn cockpit_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cockpit.refreshing {
+            self.cockpit.again = true;
+            return;
+        }
+        self.cockpit.refreshing = true;
+        let epoch = self.cockpit.epoch;
         let projects = self.cockpit_projects();
         let desks = self.desks(&projects);
         let client = self.client.clone();
@@ -323,6 +414,12 @@ impl AppView {
                 }
             }
             this.update_in(cx, |this, window, cx| {
+                // Closed (or closed and opened again) since it went out:
+                // what it read is no one's now.
+                if this.cockpit.epoch != epoch {
+                    return;
+                }
+                this.cockpit.refreshing = false;
                 let c = &mut this.cockpit;
                 for (p, lead, thread) in leads {
                     if let Some(th) = thread {
@@ -340,6 +437,9 @@ impl AppView {
                     c.android.insert(r, s);
                 }
                 this.cockpit_sync(window, cx);
+                if std::mem::take(&mut this.cockpit.again) {
+                    this.cockpit_refresh(window, cx);
+                }
                 cx.notify();
             })
             .ok();
@@ -356,11 +456,14 @@ impl AppView {
     }
 
     fn visual(&self, r: &str) -> Visual {
-        let booted = self
-            .cockpit
-            .android
-            .get(r)
-            .is_some_and(|s| s.running && s.booted);
+        // A build without video has no emulator view (DeviceView): its
+        // desktop or terminal instead.
+        let booted = cfg!(feature = "video")
+            && self
+                .cockpit
+                .android
+                .get(r)
+                .is_some_and(|s| s.running && s.booted);
         logic::visual_of(
             booted,
             self.cockpit.displays.get(r).copied().unwrap_or(false),
@@ -406,12 +509,16 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Entity<ChatView> {
         let client = self.client.clone();
+        let draft = self.side.drafts.get(&r).cloned();
         let chat = cx.new(|cx| {
             let mut c = ChatView::new(client, prefix, r.clone(), title.into(), window, cx);
             c.header = false;
             c.composer_only = composer_only;
             if !r.ends_with("/lead") && !r.contains("/lead-") {
                 c.agent_name = r.rsplit('/').next().unwrap_or_default().to_string();
+            }
+            if let Some(d) = &draft {
+                c.set_draft(d, window, cx);
             }
             c
         });
@@ -441,15 +548,23 @@ impl AppView {
                 self.leave_cockpit(cx);
                 self.on_chat_action(chat, ev, window, cx);
             }
-            // The rest act on the chat open in the app: open this one there.
+            // The rest act on the chat open in the app (a rollback, a fork,
+            // a new session, waking it): open this one there, then do it.
             _ => {
                 let r = chat.read(cx).agent.clone();
                 self.leave_cockpit(cx);
                 let project = r.split('/').next().unwrap_or_default().to_string();
                 if r.contains("/lead") {
-                    self.select_project(project, window, cx);
+                    if self.project.as_deref() != Some(project.as_str()) {
+                        self.select_project(project, window, cx);
+                    } else {
+                        self.open_chat("lead".into(), window, cx);
+                    }
                 } else {
                     self.open_agent_ref(r, window, cx);
+                }
+                if let Some(opened) = self.chat.clone() {
+                    self.on_chat_action(&opened, ev, window, cx);
                 }
             }
         }
@@ -465,18 +580,23 @@ impl AppView {
         let level = self.cockpit.level.clone();
         let projects = self.cockpit_projects();
         let desks = self.desks(&projects);
-        // Live desktops: every shown agent whose display is up, at most LIVE_MAX.
-        let want: Vec<String> = desks
+        // Live desktops: every shown agent whose display is up, at most
+        // LIVE_MAX, the one on the stage always among them.
+        let up = |r: &str| self.cockpit.displays.get(r).copied().unwrap_or(false);
+        let staged = match &level {
+            Level::Focus(p) => self.staged_desk(p).map(|d| d.r#ref).filter(|r| up(r)),
+            Level::All => None,
+        };
+        let want: Vec<String> = staged
             .iter()
-            .filter(|d| {
-                self.cockpit
-                    .displays
-                    .get(&d.r#ref)
-                    .copied()
-                    .unwrap_or(false)
-            })
+            .cloned()
+            .chain(
+                desks
+                    .iter()
+                    .filter(|d| up(&d.r#ref) && Some(&d.r#ref) != staged.as_ref())
+                    .map(|d| d.r#ref.clone()),
+            )
             .take(LIVE_MAX)
-            .map(|d| d.r#ref.clone())
             .collect();
         self.cockpit.live.retain(|r, _| want.contains(r));
         for r in want {
@@ -494,8 +614,10 @@ impl AppView {
         }
         match level {
             Level::All => {
-                self.cockpit.lead_chat = None;
-                self.cockpit.stage_chat = None;
+                let gone = self.cockpit.lead_chat.take();
+                self.drop_cockpit_chat(gone, cx);
+                let gone = self.cockpit.stage_chat.take();
+                self.drop_cockpit_chat(gone, cx);
                 self.cockpit.stage_term = None;
                 #[cfg(feature = "video")]
                 {
@@ -515,6 +637,8 @@ impl AppView {
                             .as_ref()
                             .is_none_or(|(r, _)| *r != l.r#ref) =>
                     {
+                        let gone = self.cockpit.reply.take();
+                        self.drop_cockpit_chat(gone, cx);
                         let title = self.label_of(&p);
                         let chat = self.cockpit_chat(
                             Self::lead_prefix(&p, &l),
@@ -526,12 +650,28 @@ impl AppView {
                         );
                         self.cockpit.reply = Some((l.r#ref.clone(), chat));
                     }
-                    None => self.cockpit.reply = None,
+                    None => {
+                        let gone = self.cockpit.reply.take();
+                        self.drop_cockpit_chat(gone, cx);
+                    }
                     _ => {}
                 }
             }
             Level::Focus(p) => {
-                self.cockpit.reply = None;
+                let gone = self.cockpit.reply.take();
+                self.drop_cockpit_chat(gone, cx);
+                // Another project's lead isn't shown under this one while
+                // this one's is read.
+                let mine = format!("{p}/");
+                if self
+                    .cockpit
+                    .lead_chat
+                    .as_ref()
+                    .is_some_and(|(r, _)| !r.starts_with(&mine))
+                {
+                    let gone = self.cockpit.lead_chat.take();
+                    self.drop_cockpit_chat(gone, cx);
+                }
                 if let Some(l) = self.cockpit.leads.get(&p).cloned()
                     && self
                         .cockpit
@@ -539,6 +679,8 @@ impl AppView {
                         .as_ref()
                         .is_none_or(|(r, _)| *r != l.r#ref)
                 {
+                    let gone = self.cockpit.lead_chat.take();
+                    self.drop_cockpit_chat(gone, cx);
                     let title = format!("{} · {}", self.label_of(&p), t("v2.header.lead"));
                     let chat = self.cockpit_chat(
                         Self::lead_prefix(&p, &l),
@@ -559,6 +701,8 @@ impl AppView {
                             .as_ref()
                             .is_none_or(|(r, _)| *r != d.r#ref)
                         {
+                            let gone = self.cockpit.stage_chat.take();
+                            self.drop_cockpit_chat(gone, cx);
                             let chat = self.cockpit_chat(
                                 format!("/v1/agents/{}/{}", d.project, d.name),
                                 d.r#ref.clone(),
@@ -570,7 +714,12 @@ impl AppView {
                             self.cockpit.stage_chat = Some((d.r#ref.clone(), chat));
                         }
                         let visual = self.visual(&d.r#ref);
-                        if visual == Visual::None {
+                        let screen = match visual {
+                            Visual::Display => self.cockpit.live.contains_key(&d.r#ref),
+                            Visual::Android => cfg!(feature = "video"),
+                            Visual::None => false,
+                        };
+                        if !screen {
                             if self
                                 .cockpit
                                 .stage_term
@@ -610,7 +759,8 @@ impl AppView {
                         }
                     }
                     None => {
-                        self.cockpit.stage_chat = None;
+                        let gone = self.cockpit.stage_chat.take();
+                        self.drop_cockpit_chat(gone, cx);
                         self.cockpit.stage_term = None;
                         #[cfg(feature = "video")]
                         {
@@ -1639,7 +1789,15 @@ impl AppView {
                     .border_r_1()
                     .border_color(theme::line_faint())
                     .bg(theme::chat())
-                    .children(self.cockpit.lead_chat.as_ref().map(|(_, c)| c.clone())),
+                    // Only this project's lead: another's stays out while
+                    // this one's is read.
+                    .children(
+                        self.cockpit
+                            .lead_chat
+                            .as_ref()
+                            .filter(|(r, _)| r.starts_with(&format!("{project}/")))
+                            .map(|(_, c)| c.clone()),
+                    ),
             )
             .child(
                 v_flex()
