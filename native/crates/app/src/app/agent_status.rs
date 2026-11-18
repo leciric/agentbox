@@ -79,10 +79,9 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
         )),
         "paused" => Some(tv("agent.status.machinePaused", &[("place", place.into())])),
         // Held for the user's computer, not the VM's memory: it says so.
-        "waiting" if m.why == "host" => Some(tv(
-            "agent.status.onHoldHost",
-            &[("place", place.into())],
-        )),
+        "waiting" if m.why == "host" => {
+            Some(tv("agent.status.onHoldHost", &[("place", place.into())]))
+        }
         "waiting" => Some(tv(
             "agent.status.machineWaiting",
             &[("place", place.into())],
