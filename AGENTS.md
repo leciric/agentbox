@@ -98,9 +98,9 @@ npm --prefix desktop run dist             # installers in desktop/dist/: minutes
 
 Run only the tests your change touches: `go test` on the packages you changed (and on those that use
 an exported API you changed), and for the app the test files of what you changed (`cd desktop && node
---test src/…/x.test.ts`), plus `typecheck` and `lint`. Don't run `go test ./...` or a bare
-`npm --prefix desktop test`: CI runs the whole suite, and on an agent's VM it takes every other agent's
-memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
+--test src/…/x.test.ts`), plus `typecheck` and `lint`. CI runs no Go tests, so the packages you
+changed are tested only by you, before the change lands. Don't run `go test ./...` or a bare
+`npm --prefix desktop test`: on an agent's VM it takes every other agent's memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
@@ -115,9 +115,6 @@ list). The desktop app is `desktop/` and `vnc.js`; the phone app is `mobile/` an
 `shared/api.ts` and `shared/i18n/`. A change to `ci.yml` or `ci-changes.sh` runs everything, macOS
 and Windows included. A new push cancels the run it supersedes.
 
-- **Go tests** (the job is still named "Go tests and coverage", which the `main` ruleset requires): the one `go test ./...`, with no coverage floor. It includes `TestTypeScriptTypesAreUpToDate`. Packages a
-  change doesn't reach come from the test cache: CI sets each file's mtime from its git object id,
-  since a test that opens a file is cached by that file's mtime and size.
 - **Go vet, lint, tidy**: `go mod tidy` with no diff, `go vet ./...` (and with `-tags integration`:
   Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), every package vetted for
   darwin, and builds for darwin/arm64, linux/arm64 and Windows.
@@ -137,8 +134,7 @@ and Windows included. A new push cancels the run it supersedes.
   native change. `WINDOWS_RUN=wine scripts/native-package.sh windows …` tries the packaging on Linux.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
 
-Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
-doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
+Go caches are saved by `main`'s runs of Go vet, lint, tidy only, and restored by PRs. [Base image](.github/workflows/base-image.yml) runs on PRs that change
 `internal/image/` (its tests aside), or by hand.
 
 ## Previewing the sidebar and the right-hand panel
@@ -238,7 +234,7 @@ go build -o bin/agentbox-hub ./hub/cmd/agentbox-hub
 hub/scripts/npm-build.sh 0.0.0-dev     # the npm packages, in hub/npm/dist/
 ```
 
-CI runs the hub's Go tests with everyone else's; a change to `hub/`, `hubapi/` or `go.mod` also
+CI runs no Go tests, the hub's included; a change to `hub/`, `hubapi/` or `go.mod`
 builds its npm packages and runs `npx agentbox-hub --version` from them (the Hub job).
 
 ## Commits
