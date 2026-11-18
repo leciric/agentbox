@@ -164,7 +164,9 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 		start, err := c.StartHeavy(ctx, withWait(req, 2))
 		if err == nil && !start.Started {
 			waited = true
-			_, _ = fmt.Fprintf(stderr, "agentbox: %s waits for memory: %s. It starts by itself in turn.\n", headWordsCLI(run.command, 60), start.Why)
+			// Why says what holds it: the VM's memory, or the computer
+			// outside it.
+			_, _ = fmt.Fprintf(stderr, "agentbox: %s waits to start: %s. It starts by itself in turn.\n", headWordsCLI(run.command, 60), start.Why)
 			// Each ask waits up to 10 minutes; asking again keeps its place.
 			for err == nil && !start.Started {
 				start, err = c.StartHeavy(ctx, req)

@@ -78,6 +78,10 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
             &[("place", place.into())],
         )),
         "paused" => Some(tv("agent.status.machinePaused", &[("place", place.into())])),
+        // Held for the user's computer, not the VM's memory: it says so.
+        "waiting" if m.why == "host" => {
+            Some(tv("agent.status.onHoldHost", &[("place", place.into())]))
+        }
         "waiting" => Some(tv(
             "agent.status.machineWaiting",
             &[("place", place.into())],
@@ -86,7 +90,8 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
     }
 }
 
-/// memory_hold is the words for its tests or builds held back for memory.
+/// memory_hold is the words for its tests or builds held back for memory, or
+/// for the user's computer.
 fn memory_hold(a: &impl AgentLike) -> Option<String> {
     let m = a.memory()?;
     if !m.machine.is_empty() {
@@ -101,6 +106,9 @@ fn memory_hold(a: &impl AgentLike) -> Option<String> {
         } else {
             "agent.status.memoryPaused"
         }));
+    }
+    if m.waiting > 0 && m.why == "host" {
+        return Some(t("agent.status.hostWaiting"));
     }
     if m.waiting > 0 {
         return Some(t("agent.status.memoryWaiting"));
@@ -435,6 +443,35 @@ mod tests {
             chat: chat.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_hold_for_the_users_computer_says_so() {
+        let mut builds = agent("running", "ready");
+        builds.memory = Some(MemoryHold {
+            waiting: 1,
+            why: "host".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            memory_hold(&builds).as_deref(),
+            Some("Waiting for your computer")
+        );
+        let mut boot = agent("stopped", "");
+        boot.memory = Some(MemoryHold {
+            machine: "waiting".into(),
+            why: "host".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            memory_hold(&boot).as_deref(),
+            Some("On hold: waiting for your computer, 1st in line")
+        );
+        boot.memory.as_mut().unwrap().why = "builds".into();
+        assert_eq!(
+            memory_hold(&boot).as_deref(),
+            Some("Waiting for memory, 1st in line")
+        );
     }
 
     #[test]

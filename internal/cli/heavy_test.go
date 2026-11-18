@@ -216,7 +216,7 @@ func TestRunHeavyWaitsItsTurn(t *testing.T) {
 	if code, err := runHeavy(context.Background(), w, []string{"true"}, &stderr); code != 0 || err != nil {
 		t.Fatalf("exit %d, %v", code, err)
 	}
-	if strings.Count(stderr.String(), "waits for memory") != 1 || !strings.Contains(stderr.String(), "2 commands are ahead") {
+	if strings.Count(stderr.String(), "waits to start") != 1 || !strings.Contains(stderr.String(), "2 commands are ahead") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
 	if len(f.asked) != 3 || f.asked[0].Key != f.asked[2].Key {

@@ -3,6 +3,8 @@ package hostload
 import (
 	"testing"
 	"time"
+
+	"agentbox/internal/api"
 )
 
 var t0 = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
@@ -63,5 +65,24 @@ func TestJudgeCalmsAfterAWhile(t *testing.T) {
 func TestReserve(t *testing.T) {
 	if Reserve(8<<30) != 4<<30 || Reserve(64<<30) != 16<<30 {
 		t.Fatalf("Reserve: %d %d", Reserve(8<<30), Reserve(64<<30))
+	}
+}
+
+func TestWordsSayWhatIsShort(t *testing.T) {
+	for _, tc := range []struct {
+		l    api.HostLoad
+		want string
+	}{
+		{api.HostLoad{Why: "memory", Memory: 0, MemoryTotal: 32 << 30, Available: 5 << 30}, "memory, 5.0 GiB available of the 8.0 GiB it keeps"},
+		{api.HostLoad{Why: "memory", Memory: 14, MemoryTotal: 32 << 30, Available: 2 << 30}, "memory, 14% stalled"},
+		{api.HostLoad{Why: "memory", Memory: -1, Level: "warn"}, "memory pressure warn"},
+		{api.HostLoad{Why: "cpu", CPU: 61}, "CPU, 61% stalled"},
+		{api.HostLoad{Why: "cpu", CPU: -1, CPUShare: 93}, "CPU, 93% busy"},
+		{api.HostLoad{Why: "io", IO: 45}, "disk, 45% stalled"},
+		{api.HostLoad{}, "calming down"},
+	} {
+		if got := Words(tc.l); got != tc.want {
+			t.Errorf("Words(%+v) = %q, want %q", tc.l, got, tc.want)
+		}
 	}
 }
