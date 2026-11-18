@@ -79,7 +79,10 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
         )),
         "paused" => Some(tv("agent.status.machinePaused", &[("place", place.into())])),
         // Held for the user's computer, not the VM's memory: it says so.
-        "waiting" if m.why == "host" => Some(tv("agent.status.onHoldHost", &[("place", place.into())])),
+        "waiting" if m.why == "host" => Some(tv(
+            "agent.status.onHoldHost",
+            &[("place", place.into())],
+        )),
         "waiting" => Some(tv(
             "agent.status.machineWaiting",
             &[("place", place.into())],
@@ -446,13 +449,30 @@ mod tests {
     #[test]
     fn a_hold_for_the_users_computer_says_so() {
         let mut builds = agent("running", "ready");
-        builds.memory = Some(MemoryHold { waiting: 1, why: "host".into(), ..Default::default() });
-        assert_eq!(memory_hold(&builds).as_deref(), Some("Waiting for your computer"));
+        builds.memory = Some(MemoryHold {
+            waiting: 1,
+            why: "host".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            memory_hold(&builds).as_deref(),
+            Some("Waiting for your computer")
+        );
         let mut boot = agent("stopped", "");
-        boot.memory = Some(MemoryHold { machine: "waiting".into(), why: "host".into(), ..Default::default() });
-        assert_eq!(memory_hold(&boot).as_deref(), Some("On hold: waiting for your computer, 1st in line"));
+        boot.memory = Some(MemoryHold {
+            machine: "waiting".into(),
+            why: "host".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            memory_hold(&boot).as_deref(),
+            Some("On hold: waiting for your computer, 1st in line")
+        );
         boot.memory.as_mut().unwrap().why = "builds".into();
-        assert_eq!(memory_hold(&boot).as_deref(), Some("Waiting for memory, 1st in line"));
+        assert_eq!(
+            memory_hold(&boot).as_deref(),
+            Some("Waiting for memory, 1st in line")
+        );
     }
 
     #[test]
