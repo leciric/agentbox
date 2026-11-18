@@ -55,6 +55,7 @@ type Bridge = {
   onEvent: (fn: (event: unknown) => void) => () => void;
   connection: () => Promise<ConnectionState>;
   onConnection: (fn: (state: ConnectionState) => void) => () => void;
+  renderUrl: (html: string, network: boolean) => Promise<string | null>;
 };
 
 function agentOf(name: string, project: string, over: Partial<T.Agent>): T.Agent {
@@ -163,7 +164,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
   const connListeners = new Set<(state: ConnectionState) => void>();
   let connection: ConnectionState = params.get('offline') === '1' ? { state: 'disconnected', error: "AgentBox on your computer isn't reachable" } : { state: 'connected' };
   const chatRef = (path: string) => {
-    const lead = /^\/v1\/projects\/([^/]+)\/chat$/.exec(path);
+    const lead = /^\/v1\/projects\/([^/]+)(?:\/sessions\/main)?\/chat$/.exec(path);
     if (lead) return `${decodeURIComponent(lead[1])}/lead`;
     const agent = /^\/v1\/agents\/([^/]+)\/([^/]+)\/chat$/.exec(path);
     return agent ? `${decodeURIComponent(agent[1])}/${decodeURIComponent(agent[2])}` : undefined;
@@ -174,7 +175,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     if (method === 'GET' && route === '/v1/projects') return answer(projects);
     if (method === 'GET' && route === '/v1/agents') return answer(agents);
     if (method === 'GET' && route === '/v1/settings') return answer({ language: params.get('lang') ?? 'en-US' });
-    const leadOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/lead$/.exec(route) : null;
+    const leadOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)(?:\/sessions\/main)?\/lead$/.exec(route) : null;
     if (leadOf) return answer(leads[decodeURIComponent(leadOf[1])]);
     // Claude Code signed in, as on a computer the phone was paired from: or
     // every composer says to log in first, over a permission to give.
@@ -191,6 +192,9 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     if (method === 'GET' && /\/(questions|events|pages|connectors|credentials|skills|checkpoints|notes)$/.test(route)) return answer([]);
     return inner(method, path, body);
   };
+  // As the phone's bridge (web/bridge.ts): no render host, so a chat's page
+  // is its frame's srcdoc, under the page's policy.
+  bridge.renderUrl = () => Promise.resolve(null);
   bridge.onEvent = (fn) => {
     listeners.add(fn);
     return () => listeners.delete(fn);
