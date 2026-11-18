@@ -1359,6 +1359,10 @@ type HostLoad struct {
 	Level       string `json:"level,omitempty"`
 	MemoryTotal int64  `json:"memoryTotal,omitempty"`
 	Available   int64  `json:"available,omitempty"`
+	// Reclaimable is what the VM can give back to the host within seconds
+	// (its page cache beyond what its builds need), which an Available under
+	// the host's reserve is judged with: 0 where the front end can't say.
+	Reclaimable int64 `json:"reclaimable,omitempty"`
 	// Busy says the host is loaded enough that the VM should hold back.
 	Busy bool `json:"busy"`
 	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
@@ -3141,11 +3145,12 @@ const (
 
 // Why machines waiting to boot wait (MemoryHold.Why, with Machine
 // "waiting" and pausing whole agents off): the VM hasn't the memory for
-// another boot, or agents' builds wait or are paused for it, which come
-// first.
+// another boot, agents' builds wait or are paused for it, which come first,
+// or the user's computer, outside the VM, is busy (HostLoad.Busy).
 const (
 	HoldWhyMemory = "memory"
 	HoldWhyBuilds = "builds"
+	HoldWhyHost   = "host"
 )
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).

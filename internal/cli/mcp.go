@@ -1047,23 +1047,27 @@ func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path
 	return clipDiff(agent, diff, summary), nil
 }
 
-// memoryHeld says what the VM's memory pressure holds of an agent's tests and
-// builds, "" for nothing.
-// memoryHeld is what memory holds of an agent, for list_agents: its whole
-// machine, paused or waiting to boot, with its place in line, or its heavy
-// commands.
+// memoryHeld is what memory, or the user's computer, holds of an agent, for
+// list_agents: its whole machine, paused or waiting to boot, with its place
+// in line, or its heavy commands; "" for nothing.
 func memoryHeld(h *api.MemoryHold) string {
+	// What holds it is the user's computer, outside the VM, not its memory.
+	host := h != nil && h.Why == api.HoldWhyHost
 	switch {
 	case h == nil:
 		return ""
 	case h.Machine == "paused":
 		return fmt.Sprintf("paused, waiting for memory, %s in line (it resumes by itself; messages wait for it)", ordinal(h.Ahead+1))
+	case h.Machine == "waiting" && host:
+		return fmt.Sprintf("waiting to boot until the user's computer is less busy, %s in line", ordinal(h.Ahead+1))
 	case h.Machine == "waiting":
 		return fmt.Sprintf("waiting for memory to boot, %s in line", ordinal(h.Ahead+1))
 	case h.Paused > 0 && h.Waiting > 0:
 		return fmt.Sprintf("%d test/build %s paused and %d waiting for memory", h.Paused, plural(h.Paused, "command", "commands"), h.Waiting)
 	case h.Paused > 0:
 		return fmt.Sprintf("%d test/build %s paused for memory", h.Paused, plural(h.Paused, "command", "commands"))
+	case host:
+		return fmt.Sprintf("%d test/build %s waiting until the user's computer is less busy", h.Waiting, plural(h.Waiting, "command", "commands"))
 	}
 	return fmt.Sprintf("%d test/build %s waiting for memory", h.Waiting, plural(h.Waiting, "command", "commands"))
 }

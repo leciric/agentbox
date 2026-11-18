@@ -12,7 +12,8 @@
 //   - Linux: PSI, the share of the last 10 s some task stalled on memory, the
 //     CPU or the disk (/proc/pressure), and MemAvailable against Reserve.
 //     Cloud Hypervisor's supervisor reports it, and its memory loop also
-//     stops growing the VM while the host stalls on memory (chv/memory.go).
+//     stops growing the VM while the host stalls on memory, and gives back
+//     the VM's page cache while it has less than its reserve (chv/memory.go).
 //   - Mac: the kernel's memory pressure level (kern.memorystatus_vm_pressure_level,
 //     what Activity Monitor's graph shows), warn or critical. For Lima's VM
 //     `agentbox vm lan`, which runs beside it as long as it does, reports
@@ -20,6 +21,14 @@
 //   - Windows: GlobalMemoryStatusEx's available memory against Reserve, and
 //     the CPU's busy share from GetSystemTimes; the relay
 //     (`agentbox.exe relay`, while the app is open) reports it.
+//
+// MemAvailable under Reserve alone, with nothing stalling, holds nothing while
+// the VM could give the difference back (Reading.Reclaimable): a VM's page
+// cache is memory the host counts as used, so a VM full of cache would hold
+// every build back with the desktop fine (18 Nov 2026: 5.3 GiB available of
+// a 32 GB host's 7.6 GiB reserve, PSI 0, the VM 6 GiB of cache, builds and
+// boots held for half an hour). The front end gives that cache back instead,
+// and holds builds only if the host would still be short after it.
 //
 // A front end that stops reporting stops holding anything: the daemon forgets
 // a report after api.HostLoadTTL.
@@ -79,6 +88,16 @@ type Reading struct {
 	// "critical"; "" elsewhere.
 	Level                  string
 	MemoryTotal, Available int64
+	// Reclaimable is what the front end can have the VM give back to the
+	// host within seconds, its page cache beyond what its builds need
+	// (chv.memSample.reclaimable); 0 where it can't say.
+	Reclaimable int64
+}
+
+// Short reports whether the host has less than its reserve available, and
+// would still have after the VM gave back what it can (Reclaimable).
+func (r Reading) Short() bool {
+	return r.MemoryTotal > 0 && r.Available > 0 && r.Available+max(r.Reclaimable, 0) < Reserve(r.MemoryTotal)
 }
 
 // Judge turns readings into api.HostLoad, with CalmAfter's hysteresis.
@@ -90,8 +109,7 @@ type Judge struct {
 // over says why r is past a threshold: "memory", "cpu" or "io", or "".
 func (r Reading) over() string {
 	switch {
-	case r.Memory >= MemoryBusy, r.Level == "warn", r.Level == "critical",
-		r.MemoryTotal > 0 && r.Available > 0 && r.Available < Reserve(r.MemoryTotal):
+	case r.Memory >= MemoryBusy, r.Level == "warn", r.Level == "critical", r.Short():
 		return "memory"
 	case r.CPU >= CPUBusy, r.CPUShare >= CPUBusyShare:
 		return "cpu"
@@ -118,7 +136,7 @@ func (j *Judge) Judge(r Reading, now time.Time) api.HostLoad {
 		OS:     r.OS,
 		Memory: r.Memory, CPU: r.CPU, IO: r.IO, CPUShare: r.CPUShare,
 		Level:       r.Level,
-		MemoryTotal: r.MemoryTotal, Available: r.Available,
+		MemoryTotal: r.MemoryTotal, Available: r.Available, Reclaimable: r.Reclaimable,
 		Busy:    j.busy,
 		Why:     why,
 		Reclaim: why == "memory",
@@ -126,15 +144,66 @@ func (j *Judge) Judge(r Reading, now time.Time) api.HostLoad {
 	}
 }
 
+// Words says what made l busy, for the logs: "memory, 12% stalled",
+// "memory, 2.1 GiB available of the 7.6 GiB it keeps, and the VM can give
+// back 0.4 GiB", "CPU, 60% stalled"; "calming down" while it is.
+func Words(l api.HostLoad) string {
+	switch l.Why {
+	case "memory":
+		switch {
+		case l.Level != "":
+			return "memory pressure " + l.Level
+		case l.Memory >= MemoryBusy:
+			return fmt.Sprintf("memory, %.0f%% stalled", l.Memory)
+		}
+		w := fmt.Sprintf("memory, %s available of the %s it keeps", gib(l.Available), gib(Reserve(l.MemoryTotal)))
+		if l.Reclaimable > 0 {
+			w += fmt.Sprintf(", and the VM can give back %s", gib(l.Reclaimable))
+		}
+		return w
+	case "cpu":
+		if l.CPU >= 0 {
+			return fmt.Sprintf("CPU, %.0f%% stalled", l.CPU)
+		}
+		return fmt.Sprintf("CPU, %.0f%% busy", l.CPUShare)
+	case "io":
+		return fmt.Sprintf("disk, %.0f%% stalled", l.IO)
+	}
+	return "calming down"
+}
+
+func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30)) }
+
+// LogChange is a Front.OnChange that says so in a front end's log.
+func LogChange(logf func(string, ...any)) func(api.HostLoad) {
+	return func(l api.HostLoad) {
+		if l.Busy {
+			logf("host load: this computer, outside the VM, is busy (%s): the daemon holds heavy commands back", Words(l))
+		} else {
+			logf("host load: this computer is calm again")
+		}
+	}
+}
+
 // Put sends one report to the daemon; a Reporter's way of reaching it.
 type Put func(ctx context.Context, load api.HostLoad) error
 
+// Front is what a front end adds to its reports.
+type Front struct {
+	// Reclaim says whether the daemon should drop the VM's caches when the
+	// host is short of memory: false where the front end sizes the VM's
+	// memory itself (Cloud Hypervisor).
+	Reclaim bool
+	// Reclaimable, if set, is Reading.Reclaimable now.
+	Reclaimable func() int64
+	// OnChange, if set, is told each time the host turns busy or calm, for
+	// the front end's log.
+	OnChange func(api.HostLoad)
+}
+
 // Report reads the host every Interval and puts each report with put, until
-// ctx ends. reclaim says whether the daemon should drop the VM's caches when
-// the host is short of memory: false where the front end sizes the VM's
-// memory itself (Cloud Hypervisor). onChange, if set, is told each time the
-// host turns busy or calm, for the front end's log.
-func Report(ctx context.Context, put Put, reclaim bool, onChange func(api.HostLoad)) {
+// ctx ends.
+func Report(ctx context.Context, put Put, f Front) {
 	var j Judge
 	r := newReader()
 	was := false
@@ -143,10 +212,13 @@ func Report(ctx context.Context, put Put, reclaim bool, onChange func(api.HostLo
 	for {
 		reading, err := r.read()
 		if err == nil {
+			if f.Reclaimable != nil {
+				reading.Reclaimable = f.Reclaimable()
+			}
 			load := j.Judge(reading, time.Now())
-			load.Reclaim = load.Reclaim && reclaim
-			if load.Busy != was && onChange != nil {
-				onChange(load)
+			load.Reclaim = load.Reclaim && f.Reclaim
+			if load.Busy != was && f.OnChange != nil {
+				f.OnChange(load)
 			}
 			was = load.Busy
 			pctx, cancel := context.WithTimeout(ctx, Interval)

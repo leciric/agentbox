@@ -680,6 +680,7 @@ export interface HostLoad {
   level?: string;
   memoryTotal?: number;
   available?: number;
+  reclaimable?: number;
   busy: boolean;
   why?: string;
   reclaim?: boolean;

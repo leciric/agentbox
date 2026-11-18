@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"agentbox/internal/api"
 	"agentbox/internal/hostload"
 	"agentbox/internal/lan"
 )
@@ -140,13 +139,7 @@ func (v *VM) RunLAN(ctx context.Context) error {
 	// The computer's own load, for the daemon to hold heavy commands back
 	// by and drop the VM's caches for (internal/hostload): Lima's VM has no
 	// supervisor of ours to do it, and this runs exactly as long as the VM.
-	go hostload.Report(ctx, hostload.HTTPPut(dial), true, func(l api.HostLoad) {
-		if l.Busy {
-			logf("host load: this computer is busy (%s): the daemon holds heavy commands back", l.Why)
-		} else {
-			logf("host load: this computer is calm again")
-		}
-	})
+	go hostload.Report(ctx, hostload.HTTPPut(dial), hostload.Front{Reclaim: true, OnChange: hostload.LogChange(logf)})
 	logf("phones: watching for the daemon to turn them on")
 	fwd.Run(ctx)
 	return nil
