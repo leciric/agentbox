@@ -1247,6 +1247,10 @@ pub struct HostLoad {
     pub why: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaim: bool,
+    #[serde(rename = "vmCeiling", skip_serializing_if = "is_empty")]
+    pub vm_ceiling: i64,
+    #[serde(rename = "holdBoots", skip_serializing_if = "is_empty")]
+    pub hold_boots: bool,
     pub at: String,
 }
 
