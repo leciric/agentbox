@@ -224,6 +224,9 @@ const TITLES: &[&str] = &[
 
 const DIAGRAM: &str = "```mermaid\nsequenceDiagram\n  participant App\n  participant Daemon\n  participant Claude\n  App->>Daemon: POST /chat/messages\n  Daemon->>Claude: prompt (ACP)\n  Claude-->>Daemon: chunks\n  Daemon-->>App: SSE chat events\n```";
 
+/// A diagram too wide to read in the chat's column: what Open large is for.
+const BIG_DIAGRAM: &str = "```mermaid\nflowchart LR\n  app[Desktop app] -->|socket| daemon((Daemon))\n  native[Native app] -->|socket| daemon\n  cli[agentbox CLI] -->|socket| daemon\n  phone[Phone] -->|relay| hub[Hub]\n  hub -->|sync| daemon\n  daemon --> state[(state.db)]\n  daemon --> memory[Project memory]\n  daemon --> jobs[Jobs queue]\n  daemon --> incus[Incus]\n  lead{{Lead chat}} -->|MCP| daemon\n  incus --> a1[agent-1 machine]\n  incus --> a2[agent-2 machine]\n  incus --> a3[agent-3 machine]\n  a1 -->|ACP| claude[Claude Code]\n  a2 -->|ACP| codex[Codex]\n  a3 -->|ACP| opencode[OpenCode]\n  a1 --> wt1[worktree on agentbox/feat-a]\n  a2 --> wt2[worktree on agentbox/fix-b]\n  a3 --> wt3[worktree on agentbox/docs-c]\n  wt1 -->|push| gh[GitHub pull requests]\n  wt2 -->|push| gh\n  wt3 -->|push| gh\n  gh -->|checks| ci[CI: Go, Desktop, Native]\n  memory -->|brief| a1\n  memory -->|brief| a2\n  memory -->|brief| a3\n  daemon -->|pages| hatch[Hatch]\n```";
+
 const PREVIEW: &str = "```html preview\n<div style=\"padding:16px\"><b>Tokens this week</b><div style=\"display:flex;gap:8px;align-items:flex-end;height:150px;margin-top:12px\">\
 <div style=\"flex:1;height:40%;background:var(--chart-1)\"></div><div style=\"flex:1;height:75%;background:var(--chart-2)\"></div>\
 <div style=\"flex:1;height:55%;background:var(--chart-3)\"></div><div style=\"flex:1;height:90%;background:var(--chart-1)\"></div>\
@@ -323,7 +326,9 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
             i * 3 + 1
         )
     };
-    let text = if i % 10 == 9 {
+    let text = if i % 20 == 19 {
+        format!("{text}\n\n{BIG_DIAGRAM}")
+    } else if i % 10 == 9 {
         format!("{text}\n\n{DIAGRAM}")
     } else {
         text

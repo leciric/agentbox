@@ -149,6 +149,8 @@ pub struct AppView {
     /// The open project's pull requests, and the one open over the window.
     pulls: pulls::Pulls,
     toasts: Entity<crate::toasts::Toasts>,
+    /// A chat's picture or page opened large, over everything (large.rs).
+    large: Entity<crate::large::Large>,
     /// The notices, the tray and the window's place (alerts.rs).
     alerts: alerts::Alerts,
     /// The lead's chat sessions, every project's.
@@ -254,6 +256,7 @@ impl AppView {
             review: None,
             pulls,
             toasts: crate::toasts::init(cx),
+            large: crate::large::init(cx),
             alerts: Default::default(),
             sessions: sessions::Sessions::new(window, cx),
             reopen_lead: false,
@@ -1380,6 +1383,7 @@ impl Render for AppView {
                 .size_full()
                 .bg(theme::ink())
                 .child(office)
+                .child(self.large.clone())
                 .child(self.toasts.clone())
                 .into_any_element();
         }
@@ -1422,6 +1426,11 @@ impl Render for AppView {
             // Ctrl+N anywhere opens New task.
             // A session's keys go first: Ctrl+Tab and Ctrl+W are a text box's too.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                // A block open large has the keys first: its Escape, its
+                // zoom, and no session's shortcut acting under it.
+                if crate::large::is_open(cx) {
+                    return;
+                }
                 // A confirmation open over the page hears Escape before
                 // whatever text box still has the focus under it.
                 if ev.keystroke.key == "escape"
@@ -1457,6 +1466,10 @@ impl Render for AppView {
                 }
             }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                // Nothing opens under a block open large.
+                if crate::large::is_open(cx) {
+                    return;
+                }
                 if ev.keystroke.modifiers.control
                     && ev.keystroke.key == "n"
                     && this.new_task.is_none()
@@ -1674,6 +1687,7 @@ impl Render for AppView {
             .children(self.render_session_changes(cx))
             .children(self.render_move_agents(cx))
             .children(self.render_search(cx))
+            .child(self.large.clone())
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
             .into_any_element()

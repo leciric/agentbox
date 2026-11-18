@@ -1,9 +1,8 @@
-//! ```mermaid blocks in chat messages, drawn without a webview: the source is
-//! laid out and rendered to SVG by mermaid-rs-renderer (pure Rust), and GPUI
-//! draws the SVG as an image. A block that doesn't parse (yet: a reply still
-//! streaming in) shows its source instead.
+//! A chat message's fenced blocks: ```mermaid drawn without a webview (the
+//! source laid out and rendered to SVG by mermaid-rs-renderer, pure Rust),
+//! ```svg as its picture and ```html preview as its page, each in rich.rs's
+//! block; every other one as Electron's CodeBlock.
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
@@ -12,28 +11,30 @@ use gpui_component::text::{MarkdownNode, TextView};
 use crate::theme;
 
 const NODE: &str = "mermaid";
+const SVG: &str = "svg";
 const HTML: &str = "html-preview";
 /// Every other fenced block, drawn as Electron's CodeBlock.
 const CODE: &str = "codeblock";
 
-type Rendered = Result<Arc<Image>, String>;
-
-/// Every diagram drawn so far, by its source: a streamed reply re-renders its
-/// message often, and each diagram should be laid out once.
-static CACHE: Mutex<Option<HashMap<String, Rendered>>> = Mutex::new(None);
-
 pub fn render_svg(src: &str) -> Result<String, String> {
-    // The look's preset (modern on light, dark otherwise), on the card's own
-    // colour, in the app's face.
+    // The look's preset (modern on light, dark otherwise), on the block's
+    // well, as Electron's mermaid leaves its ground clear, in the app's face.
     let mut theme = if theme::look() == theme::Look::Light {
         mermaid_rs_renderer::Theme::modern()
     } else {
         mermaid_rs_renderer::Theme::dark()
     };
-    let ground = theme::hex(theme::card());
+    // The well is a shade over the chat: the colour that makes.
+    let ground = theme::hex(theme::solid(theme::well()));
     theme.background = ground.clone();
     theme.edge_label_background = ground;
-    theme.font_family = format!("{}, sans-serif", theme::SANS);
+    // GPUI draws an SVG with the system's fonts, not the app's bundled Inter,
+    // and where no sans-serif is named one face at random (a serif italic):
+    // the faces each system has, after Inter, measured and drawn alike.
+    theme.font_family = format!(
+        "{}, Segoe UI, Helvetica Neue, Noto Sans, Cantarell, DejaVu Sans, Liberation Sans, Arial, sans-serif",
+        theme::SANS
+    );
     let opts = mermaid_rs_renderer::RenderOptions {
         theme,
         ..Default::default()
@@ -41,28 +42,18 @@ pub fn render_svg(src: &str) -> Result<String, String> {
     mermaid_rs_renderer::render_with_options(src, opts).map_err(|e| e.to_string())
 }
 
-fn rendered(src: &str) -> Rendered {
-    let mut cache = CACHE.lock().unwrap();
-    let cache = cache.get_or_insert_with(HashMap::new);
-    // Each look draws its own: the key carries it.
-    let key = format!("{:?}\n{src}", theme::look());
-    if let Some(r) = cache.get(&key) {
-        return r.clone();
-    }
-    let r =
-        render_svg(src).map(|svg| Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes())));
-    if cache.len() > 256 {
-        cache.clear();
-    }
-    cache.insert(key, r.clone());
-    r
-}
-
 /// code_block is a fenced block as Electron's CodeBlock (components/chat/
 /// CodeBlock.tsx, .chat-codeblock): a well with a border, rounded 0.75rem; a
 /// header h-8 with the language at its left over a faint rule; the code at
 /// 0.78rem, line height 1.6, in 0.7rem 0.9rem of padding, in Shiki's colours.
 pub fn code_block(lang: &str, text: &str) -> AnyElement {
+    code_block_with(lang, text, None)
+}
+
+/// code_block_with is a code block with `action` in its header before Copy
+/// (CodeBlock's `actions`): a rich block's Draw it, there while it shows its
+/// code.
+pub fn code_block_with(lang: &str, text: &str, action: Option<AnyElement>) -> AnyElement {
     let lines: Vec<String> = text
         .trim_end_matches('\n')
         .lines()
@@ -116,19 +107,25 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                 ))
                 // CodeBlock's Copy: there while the block is pointed at, and
                 // a tick for a moment once it has copied.
-                .child({
-                    let key = SharedString::from(format!("code-copy-{key:x}"));
-                    let shown = crate::motion::copied(&key);
-                    crate::app::controls::copy_button(
-                        key,
-                        text.trim_end_matches('\n').to_string(),
-                        agentbox_i18n::t("chat.markdown.copyCode"),
-                    )
-                    .when(!shown, |el| {
-                        el.text_color(gpui::transparent_black())
-                            .group_hover("code", |s| s.text_color(theme::subtle()))
-                    })
-                }),
+                .child(
+                    gpui_component::h_flex()
+                        .flex_none()
+                        .gap_0p5()
+                        .children(action)
+                        .child({
+                            let key = SharedString::from(format!("code-copy-{key:x}"));
+                            let shown = crate::motion::copied(&key);
+                            crate::app::controls::copy_button(
+                                key,
+                                text.trim_end_matches('\n').to_string(),
+                                agentbox_i18n::t("chat.markdown.copyCode"),
+                            )
+                            .when(!shown, |el| {
+                                el.text_color(gpui::transparent_black())
+                                    .group_hover("code", |s| s.text_color(theme::subtle()))
+                            })
+                        }),
+                ),
         )
         .child(
             div()
@@ -177,8 +174,9 @@ fn in_column(block: AnyElement) -> AnyElement {
     div().w_full().pr(HANG).child(block).into_any_element()
 }
 
-/// with_mermaid makes a TextView draw ```mermaid fences as diagrams, and
-/// ```html preview fences as pages in a webview (webview.rs).
+/// with_mermaid makes a TextView draw ```mermaid fences as diagrams, ```svg
+/// fences as pictures, and ```html preview fences as pages in a webview
+/// (webview.rs), in rich.rs's blocks, which open large (large.rs).
 pub fn with_mermaid(view: TextView) -> TextView {
     // .chat-markdown: blocks 0.65rem apart; inline code in a ring
     // (:not(pre) > code: border line-strong, rounded 0.375rem, bg surface,
@@ -211,6 +209,18 @@ pub fn with_mermaid(view: TextView) -> TextView {
                     .text(code.value.clone())
                     .markdown(code.value.clone()),
             ),
+            markdown::mdast::Node::Code(code)
+                if code
+                    .lang
+                    .as_deref()
+                    .is_some_and(|l| l.eq_ignore_ascii_case(SVG)) =>
+            {
+                Some(
+                    MarkdownNode::new(SVG, ())
+                        .text(code.value.clone())
+                        .markdown(code.value.clone()),
+                )
+            }
             markdown::mdast::Node::Code(code) if is_preview(code) => Some(
                 MarkdownNode::new(HTML, ())
                     .text(code.value.clone())
@@ -228,69 +238,17 @@ pub fn with_mermaid(view: TextView) -> TextView {
             in_column(code_block(&lang, node.as_text()))
         })
         .markdown_block_renderer(NODE, |node, _, _| {
-            let src = node.as_text().to_string();
-            let block = div()
-                .my_2()
-                .p_3()
-                .rounded_lg()
-                .bg(theme::card())
-                .border_1()
-                .border_color(theme::line());
-            in_column(match rendered(&src) {
-                Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
-                Err(_) => block
-                    .text_xs()
-                    .font_family(crate::theme::mono())
-                    .text_color(theme::muted())
-                    .child(src)
-                    .into_any_element(),
-            })
+            in_column(crate::rich::picture(
+                crate::rich::Kind::Mermaid,
+                node.as_text(),
+            ))
         })
-        .markdown_block_renderer(HTML, |node, window, _| in_column(html_block(node, window)))
-}
-
-/// html_block is a ```html preview fence's page: a webview, or a picture
-/// of it, or its source where neither can be.
-fn html_block(node: &MarkdownNode, window: &mut Window) -> AnyElement {
-    use std::hash::{Hash as _, Hasher as _};
-    let src = node.as_text().to_string();
-    let card = div()
-        .my_2()
-        .rounded_lg()
-        .overflow_hidden()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card());
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    src.hash(&mut h);
-    let id = format!("html-{:x}", h.finish());
-    // Wayland (or no child webviews): the page as a picture, drawn offscreen.
-    #[cfg(target_os = "linux")]
-    if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
-        return card
-            .child(crate::snapshot::html_snapshot(id, src))
-            .into_any_element();
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = window;
-    if !crate::webview::available() {
-        // No webview here (no GTK, or the page failed): its source instead.
-        return card
-            .child(
-                div()
-                    .pb_2()
-                    .text_color(theme::faint())
-                    .child(agentbox_i18n::t("native.preview.source")),
-            )
-            .p_3()
-            .text_xs()
-            .font_family(crate::theme::mono())
-            .text_color(theme::muted())
-            .child(src)
-            .into_any_element();
-    }
-    card.child(crate::webview::html_preview(id, src, px(260.)))
-        .into_any_element()
+        .markdown_block_renderer(SVG, |node, _, _| {
+            in_column(crate::rich::picture(crate::rich::Kind::Svg, node.as_text()))
+        })
+        .markdown_block_renderer(HTML, |node, window, _| {
+            in_column(crate::rich::page(node.as_text(), window))
+        })
 }
 
 /// is_preview is a ```html preview fence: a page to show, not code.

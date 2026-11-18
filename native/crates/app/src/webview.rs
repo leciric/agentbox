@@ -72,6 +72,19 @@ pub fn set_scroller(list: ListState) {
 
 static FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Set while a block is open large over the window (large.rs): the chat's
+/// webviews and the panel's pages, which would draw over it, hide.
+static COVERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// set_covered says whether something is open over the window's webviews.
+pub fn set_covered(on: bool) {
+    COVERED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn covered() -> bool {
+    COVERED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The app's palette as the CSS variables the Electron app's previews use.
 pub(crate) const PRELUDE: &str = r#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
 <style>:root{color-scheme:dark;--foreground:#ededf0;--muted-foreground:#9a9aa3;--border:#26262c;--background:#1a1a1f;--chart-1:#7c8cff;--chart-2:#34d399;--chart-3:#fbbf24;--chart-4:#f87171;--chart-5:#a78bfa;--chart-6:#38bdf8}html,body{margin:0;background:var(--background);color:var(--foreground);font:14px system-ui,sans-serif}</style>"#;
@@ -113,6 +126,14 @@ pub fn init(cx: &mut App) {
             #[cfg(target_os = "linux")]
             if crate::snapshot::take_dirty() {
                 cx.update(|cx| cx.refresh_windows());
+            }
+            let commands = std::mem::take(&mut *LARGE_COMMANDS.lock().unwrap());
+            if !commands.is_empty() {
+                cx.update(|cx| {
+                    for c in commands {
+                        crate::large::page_command(&c, cx);
+                    }
+                });
             }
             let dy = std::mem::take(&mut *WHEEL.lock().unwrap());
             if dy != 0. {
@@ -177,7 +198,8 @@ pub fn html_preview(
             let clip = CLIP
                 .with(|c| c.get())
                 .unwrap_or(window.content_mask().bounds);
-            let inside = clip.contains(&bounds.origin)
+            let inside = !covered()
+                && clip.contains(&bounds.origin)
                 && clip.contains(&bounds.bottom_right().map(|v| v - px(1.)));
             place(&id, &html, bounds, inside, window);
         },
@@ -320,6 +342,15 @@ pub fn pages_end() -> impl IntoElement {
                     }
                 }
             });
+            LARGE.with_borrow_mut(|large| {
+                if let Some(p) = large.as_mut()
+                    && p.frame != now
+                    && p.shown
+                {
+                    let _ = p.view.set_visible(false);
+                    p.shown = false;
+                }
+            });
             flush();
         },
     )
@@ -404,7 +435,7 @@ pub fn page(id: impl Into<String>, url: impl Into<String>, shown: bool) -> impl 
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            if shown {
+            if shown && !covered() {
                 place_page(&id, &url, bounds, window)
             }
         },
@@ -443,6 +474,101 @@ fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) 
                 eprintln!("webviews are off: {e}");
                 UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+        }
+    });
+    flush();
+}
+
+thread_local! {
+    /// The ```html preview page open large (large.rs): a webview of its own,
+    /// made as it opens and dropped as it closes.
+    static LARGE: RefCell<Option<LargePage>> = const { RefCell::new(None) };
+}
+
+struct LargePage {
+    id: String,
+    view: wry::WebView,
+    zoom: f32,
+    /// The frame it was last placed in (PAGE_FRAME's), and whether it shows.
+    frame: u64,
+    shown: bool,
+}
+
+/// What the page open large asked of the app: its keys and Ctrl+wheel,
+/// which GPUI doesn't hear while the page has the keyboard.
+static LARGE_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The script the page open large gets: Escape closes it, and Ctrl (or ⌘)
+/// with plus, minus, 0 or the wheel zooms it (a touchpad's pixels added up
+/// to a notch); every other key and wheel is the page's own.
+const LARGE_SCRIPT: &str = "(() => { const post = c => window.ipc.postMessage(c); let wheel = 0;\
+addEventListener('keydown', e => { const mod = e.ctrlKey || e.metaKey; const c = e.key === 'Escape' ? 'close' : !mod ? '' : (e.key === '=' || e.key === '+') ? 'in' : (e.key === '-' || e.key === '_') ? 'out' : e.key === '0' ? 'reset' : ''; if (c) { e.preventDefault(); post(c); } }, true);\
+addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); wheel += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY; if (Math.abs(wheel) >= 40) { post(wheel < 0 ? 'in' : 'out'); wheel = 0; } }, { passive: false }); })();";
+
+/// large_page is the page open large, filling its box at `zoom`.
+pub fn large_page(id: String, html: String, zoom: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| place_large(&id, &html, bounds, zoom, window),
+    )
+    .size_full()
+}
+
+fn place_large(id: &str, html: &str, bounds: Bounds<Pixels>, zoom: f32, window: &mut Window) {
+    if !available() {
+        return;
+    }
+    let frame = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    LARGE.with_borrow_mut(|slot| {
+        if slot.as_ref().is_some_and(|p| p.id != id) {
+            *slot = None;
+        }
+        if let Some(p) = slot.as_mut() {
+            let _ = p.view.set_bounds(rect(bounds));
+            if p.zoom != zoom {
+                let _ = p.view.zoom(zoom as f64);
+                p.zoom = zoom;
+            }
+            if !p.shown {
+                let _ = p.view.set_visible(true);
+                p.shown = true;
+            }
+            p.frame = frame;
+            return;
+        }
+        let built = wry::WebViewBuilder::new()
+            .with_html(format!("{PRELUDE}{html}"))
+            .with_bounds(rect(bounds))
+            .with_incognito(true)
+            .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:"))
+            .with_initialization_script(LARGE_SCRIPT)
+            .with_ipc_handler(|req| LARGE_COMMANDS.lock().unwrap().push(req.body().clone()))
+            .build_as_child(&Parent(window));
+        match built {
+            Ok(view) => {
+                if zoom != 1. {
+                    let _ = view.zoom(zoom as f64);
+                }
+                *slot = Some(LargePage {
+                    id: id.to_string(),
+                    view,
+                    zoom,
+                    frame,
+                    shown: true,
+                });
+            }
+            Err(e) => eprintln!("the page open large: {e}"),
+        }
+    });
+    flush();
+}
+
+/// close_large drops the page open large, giving the keyboard back to the
+/// window first.
+pub fn close_large() {
+    LARGE.with_borrow_mut(|slot| {
+        if let Some(p) = slot.take() {
+            let _ = p.view.focus_parent();
         }
     });
     flush();

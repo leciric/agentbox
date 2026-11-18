@@ -620,7 +620,7 @@ impl ChatView {
                         .gap_1p5()
                         .flex_wrap()
                         .justify_end()
-                        .children(it.images.iter().map(|im| self.thumb(&it.id, im, view))),
+                        .children(it.images.iter().map(|im| self.thumb(&it.id, im))),
                 )
             })
             .when(!it.files.is_empty(), |el| {
@@ -687,14 +687,13 @@ impl ChatView {
         self.message_menu(el, it, view)
     }
 
-    fn thumb(&self, item: &str, im: &agentbox_api::ChatImage, view: &Entity<Self>) -> AnyElement {
+    fn thumb(&self, item: &str, im: &agentbox_api::ChatImage) -> AnyElement {
         let name = if im.name.is_empty() {
             t("chat.image.default")
         } else {
             im.name.clone()
         };
         let picture = self.images.get(&im.id).cloned().flatten();
-        let v = view.clone();
         div()
             .id(SharedString::from(format!("img-{item}-{}", im.id)))
             .size_24()
@@ -724,7 +723,7 @@ impl ChatView {
             })
             .on_click(move |_, window, cx| {
                 if let Some(p) = picture.clone() {
-                    v.update(cx, |this, cx| this.open_zoom(p, name.clone(), window, cx));
+                    crate::large::open_image(p, name.clone(), window, cx);
                 }
             })
             .into_any_element()
@@ -1938,154 +1937,6 @@ impl ChatView {
                 )
             })
             .into_any_element()
-    }
-
-    /// render_zoom is a picture over everything (ZoomableImage): the wheel
-    /// zooms it, dragging pans it, a double-click or 0 fits it again.
-    pub(super) fn render_zoom(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let z = self.zoom.as_ref()?;
-        let (scale, pan) = (z.scale, z.pan);
-        let size = window.viewport_size();
-        // Over the whole window, not just the chat.
-        let stage = div()
-            .id("zoom")
-            .track_focus(&z.focus)
-            .w(size.width)
-            .h(size.height)
-            .bg(theme::media_shade(0.92))
-            .flex()
-            .flex_col()
-            .occlude()
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                let Some(z) = this.zoom.as_mut() else { return };
-                match ev.keystroke.key.as_str() {
-                    "escape" => this.zoom = None,
-                    "+" | "=" => z.scale = (z.scale * 1.25).min(8.),
-                    "-" => z.scale = (z.scale / 1.25).max(1.),
-                    "0" => {
-                        z.scale = 1.;
-                        z.pan = Point::default();
-                    }
-                    _ => return,
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            .child(
-                h_flex()
-                    .flex_none()
-                    .px_4()
-                    .py_2()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .text_color(theme::on_media().opacity(0.8))
-                            .child(z.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::on_media().opacity(0.6))
-                            .child(format!("{:.0}%", scale * 100.)),
-                    )
-                    .child(
-                        div()
-                            .id("zoom-close")
-                            .px_2()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .text_color(theme::on_media())
-                            .hover(|el| el.bg(theme::on_media().opacity(0.1)))
-                            .child(crate::icons::of("✕"))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.zoom = None;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .id("zoom-stage")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .relative()
-                    .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| {
-                        let Some(z) = this.zoom.as_mut() else { return };
-                        let dy = f32::from(ev.delta.pixel_delta(px(20.)).y);
-                        z.scale = (z.scale * (1. + dy / 400.)).clamp(1., 8.);
-                        if z.scale == 1. {
-                            z.pan = Point::default();
-                        }
-                        cx.notify();
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, ev: &MouseDownEvent, _, cx| {
-                            if let Some(z) = this.zoom.as_mut() {
-                                if ev.click_count >= 2 {
-                                    z.scale = if z.scale > 1. { 1. } else { 2. };
-                                    z.pan = Point::default();
-                                } else {
-                                    z.drag = Some(ev.position);
-                                }
-                                cx.notify();
-                            }
-                        }),
-                    )
-                    .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                        if let Some(z) = this.zoom.as_mut()
-                            && let Some(from) = z.drag
-                        {
-                            if !ev.dragging() {
-                                z.drag = None;
-                                return;
-                            }
-                            z.pan += ev.position - from;
-                            z.drag = Some(ev.position);
-                            cx.notify();
-                        }
-                    }))
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|this, _: &MouseUpEvent, _, _| {
-                            if let Some(z) = this.zoom.as_mut() {
-                                z.drag = None;
-                            }
-                        }),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top(pan.y)
-                            .left(pan.x)
-                            .size_full()
-                            .p_6()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                img(z.image.clone())
-                                    .w(relative(scale))
-                                    .h(relative(scale))
-                                    .flex_none()
-                                    .object_fit(ObjectFit::Contain),
-                            ),
-                    ),
-            );
-        Some(
-            deferred(anchored().position(Point::default()).child(stage))
-                .with_priority(2)
-                .into_any_element(),
-        )
     }
 }
 

@@ -21,6 +21,7 @@ mod files;
 mod highlight;
 mod hostpower;
 mod icons;
+mod large;
 mod media;
 mod mermaid;
 mod motion;
@@ -29,6 +30,7 @@ mod notices;
 mod office;
 mod prefs;
 mod quit;
+mod rich;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod spot;
