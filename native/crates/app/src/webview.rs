@@ -674,11 +674,13 @@ fn place(
 }
 
 /// fit holds a chat page's webview at its block's size. wry's set_bounds
-/// resizes the X window and allocates it once, but the GTK window around it
-/// keeps the size it was made at, and its next layout (a show, the page
-/// changing) gives the page that size again: a block grown from
-/// FRAME_DEFAULT showed the page's first 160 px and black below. Telling GTK
-/// the size, as the window's and the page's request, keeps it.
+/// resizes the X window it made for the page and allocates the page once,
+/// but GDK knows that window as a foreign one it never asked to hear about:
+/// it keeps the size it was made at, and GTK's next layout (a show, the
+/// page changing) gives the page that size again, so a block grown from
+/// FRAME_DEFAULT showed the page's first 160 px and black below. Asking for
+/// the window's structure events lets GDK follow its size; and should GTK
+/// still have laid the page out at another size, it is laid out again here.
 fn fit(view: &wry::WebView, at: Bounds<Pixels>) {
     #[cfg(target_os = "linux")]
     {
@@ -689,16 +691,17 @@ fn fit(view: &wry::WebView, at: Bounds<Pixels>) {
             (f32::from(at.size.height).round() as i32).max(1),
         );
         let page = view.webview();
-        let (rw, rh) = page.size_request();
-        if (rw, rh) == (w, h) {
+        let Some(top) = page.toplevel() else {
             return;
+        };
+        if let Some(window) = top.window() {
+            let events = window.events();
+            if !events.contains(gtk::gdk::EventMask::STRUCTURE_MASK) {
+                window.set_events(events | gtk::gdk::EventMask::STRUCTURE_MASK);
+            }
         }
-        page.set_size_request(w, h);
-        if let Some(top) = page
-            .toplevel()
-            .and_then(|t| t.downcast::<gtk::Window>().ok())
-        {
-            top.resize(w, h);
+        if page.allocated_width() != w || page.allocated_height() != h {
+            top.size_allocate(&gtk::Allocation::new(0, 0, w, h));
         }
     }
     #[cfg(not(target_os = "linux"))]
