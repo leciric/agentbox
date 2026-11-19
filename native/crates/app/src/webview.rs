@@ -12,7 +12,7 @@
 //! Wayland): elsewhere snapshot.rs shows the page as a picture.
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::*;
 
@@ -115,10 +115,17 @@ pub fn init(cx: &mut App) {
         std::sync::atomic::Ordering::Relaxed,
     );
     cx.spawn(async move |cx| {
+        let mut ticks = 0u32;
         loop {
             cx.background_executor()
                 .timer(Duration::from_millis(16))
                 .await;
+            // Once a second, also while no frame is drawn: webviews left
+            // behind (another chat open, the panel closed) are let go.
+            ticks = ticks.wrapping_add(1);
+            if ticks % 60 == 0 {
+                prune();
+            }
             #[cfg(target_os = "linux")]
             while gtk::events_pending() {
                 gtk::main_iteration_do(false);
@@ -176,6 +183,7 @@ pub fn end() -> impl IntoElement {
                         p.shown = false;
                     }
                 }
+                prune_previews(views, now);
             });
             flush();
         },
@@ -309,8 +317,9 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
 
 thread_local! {
     /// Pages of an agent's machine (the panel's Browser), by id: the
-    /// webview, the URL it was last sent to, and the frame it was placed in.
-    static PAGES: RefCell<HashMap<String, (wry::WebView, String, u64)>> = RefCell::new(HashMap::new());
+    /// webview, the URL it was last sent to, the frame it was placed in (0
+    /// hidden), and since when it is hidden.
+    static PAGES: RefCell<HashMap<String, (wry::WebView, String, u64, Option<Instant>)>> = RefCell::new(HashMap::new());
 }
 
 static PAGE_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -335,10 +344,11 @@ pub fn pages_end() -> impl IntoElement {
         |_, _, _, _| {
             let now = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
             PAGES.with_borrow_mut(|pages| {
-                for (view, _, frame) in pages.values_mut() {
+                for (view, _, frame, hidden) in pages.values_mut() {
                     if *frame != now && *frame != 0 {
                         let _ = view.set_visible(false);
                         *frame = 0;
+                        *hidden = Some(Instant::now());
                     }
                 }
             });
@@ -449,7 +459,7 @@ fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) 
     }
     let frame = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
     PAGES.with_borrow_mut(|pages| {
-        if let Some((view, loaded, at)) = pages.get_mut(id) {
+        if let Some((view, loaded, at, hidden)) = pages.get_mut(id) {
             if loaded != url {
                 let _ = view.load_url(url.split('#').next().unwrap_or(url));
                 *loaded = url.to_string();
@@ -459,6 +469,7 @@ fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) 
                 let _ = view.set_visible(true);
             }
             *at = frame;
+            *hidden = None;
             return;
         }
         let built = with_daemon(wry::WebViewBuilder::new())
@@ -468,7 +479,7 @@ fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) 
             .build_as_child(&Parent(window));
         match built {
             Ok(view) => {
-                pages.insert(id.to_string(), (view, url.to_string(), frame));
+                pages.insert(id.to_string(), (view, url.to_string(), frame, None));
             }
             Err(e) => {
                 eprintln!("webviews are off: {e}");
@@ -572,4 +583,123 @@ pub fn close_large() {
         }
     });
     flush();
+}
+
+/// The chat's previews kept off screen, besides those on it: each webview is
+/// a WebKit web process and network process of its own (about 27 MB
+/// together, measured with WebKitGTK 2.54), and every preview a long chat had
+/// shown used to be kept until the app quit.
+const KEEP_HIDDEN: usize = 3;
+
+/// How long a webview not drawn is kept (a preview scrolled away, a page whose
+/// panel closed) before it goes; it is made again when drawn again.
+const HIDDEN_FOR: Duration = Duration::from_secs(30);
+
+thread_local! {
+    /// When each preview was last drawn, by id.
+    static DRAWN: RefCell<HashMap<String, Instant>> = RefCell::new(HashMap::new());
+}
+
+/// prune lets go of the webviews not drawn lately: the chat's previews and the
+/// panel's pages.
+fn prune() {
+    let now = FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    VIEWS.with_borrow_mut(|views| prune_previews(views, now));
+    PAGES.with_borrow_mut(|pages| {
+        pages.retain(|_, (_, _, _, hidden)| hidden.is_none_or(|at| at.elapsed() < HIDDEN_FOR))
+    });
+}
+
+/// prune_previews keeps the previews drawn in frame `now`, and of the others
+/// the KEEP_HIDDEN drawn last, for HIDDEN_FOR.
+fn prune_previews(views: &mut HashMap<String, Placed>, now: u64) {
+    let t = Instant::now();
+    DRAWN.with_borrow_mut(|drawn| {
+        for (id, p) in views.iter() {
+            if p.frame == now {
+                drawn.insert(id.clone(), t);
+            }
+        }
+        let gone = {
+            let frames: HashMap<&str, u64> =
+                views.iter().map(|(id, p)| (id.as_str(), p.frame)).collect();
+            stale_ids(&frames, drawn, now, t)
+        };
+        for id in gone {
+            views.remove(&id);
+        }
+        drawn.retain(|id, _| views.contains_key(id));
+    });
+}
+
+/// stale_ids is the previews to let go of at `t`: off screen (not drawn in
+/// frame `now`) and either past the KEEP_HIDDEN drawn last or not drawn for
+/// HIDDEN_FOR.
+fn stale_ids(
+    frames: &HashMap<&str, u64>,
+    drawn: &HashMap<String, Instant>,
+    now: u64,
+    t: Instant,
+) -> Vec<String> {
+    let mut hidden: Vec<(Instant, &str)> = frames
+        .iter()
+        .filter(|(_, frame)| **frame != now)
+        .map(|(id, _)| (drawn.get(*id).copied().unwrap_or(t), *id))
+        .collect();
+    // Drawn longest ago first.
+    hidden.sort();
+    let over = hidden.len().saturating_sub(KEEP_HIDDEN);
+    hidden
+        .into_iter()
+        .enumerate()
+        .filter(|(i, (at, _))| *i < over || t.duration_since(*at) >= HIDDEN_FOR)
+        .map(|(_, (_, id))| id.to_string())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn previews_off_screen_go_past_three_and_after_a_while() {
+        let t = Instant::now() + Duration::from_secs(100);
+        let ago = |s: u64| t - Duration::from_secs(s);
+        // a and b on screen (frame 9), c..g off it.
+        let frames: HashMap<&str, u64> = [
+            ("a", 9),
+            ("b", 9),
+            ("c", 8),
+            ("d", 7),
+            ("e", 6),
+            ("f", 5),
+            ("g", 4),
+        ]
+        .into_iter()
+        .collect();
+        let drawn: HashMap<String, Instant> = [
+            ("c", 1),
+            ("d", 2),
+            ("e", 3),
+            ("f", 4),
+            ("g", 5),
+            ("a", 0),
+            ("b", 0),
+        ]
+        .into_iter()
+        .map(|(id, s)| (id.to_string(), ago(s)))
+        .collect();
+        let mut gone = stale_ids(&frames, &drawn, 9, t);
+        gone.sort();
+        assert_eq!(gone, ["f", "g"]);
+        // Long unseen, any off-screen preview goes; those on screen never do.
+        let drawn: HashMap<String, Instant> =
+            frames.keys().map(|id| (id.to_string(), ago(31))).collect();
+        let mut gone = stale_ids(&frames, &drawn, 9, t);
+        gone.sort();
+        assert_eq!(gone, ["c", "d", "e", "f", "g"]);
+        // A preview just made, not yet in `drawn`, stays.
+        let frames: HashMap<&str, u64> = [("new", 8)].into_iter().collect();
+        assert!(stale_ids(&frames, &HashMap::new(), 9, t).is_empty());
+    }
 }
