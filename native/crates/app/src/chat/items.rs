@@ -869,13 +869,7 @@ impl ChatView {
                 if let Some(shown) = self.shown.get(&it.id).filter(|_| it.streaming) {
                     super::stream::reveal(&it.id, &it.text, shown.clone())
                 } else {
-                    crate::mermaid::with_mermaid(TextView::markdown(
-                        SharedString::from(format!("md-{}", it.id)),
-                        it.text.clone(),
-                    ))
-                    .selectable(true)
-                    .text_color(theme::tertiary())
-                    .into_any_element()
+                    super::stream::message(&it.id, &it.text, it.streaming)
                 },
             ))
             .when(last, |el| {

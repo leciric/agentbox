@@ -39,6 +39,140 @@ impl Kind {
     pub fn label(self) -> String {
         t(&format!("chat.rich.{}", self.key()))
     }
+
+    /// of is the drawn block a fence's language and meta make, as
+    /// mermaid::with_mermaid reads them: ```mermaid, ```svg (any case) and
+    /// ```html preview. A plain ```html block stays code.
+    pub fn of(lang: &str, meta: &str) -> Option<Kind> {
+        match lang {
+            "mermaid" => Some(Kind::Mermaid),
+            l if l.eq_ignore_ascii_case("svg") => Some(Kind::Svg),
+            "html" if meta.split_whitespace().any(|w| w == "preview") => Some(Kind::Html),
+            _ => None,
+        }
+    }
+}
+
+/// An open fence: a drawn block a message ends inside of, its opening fence
+/// arrived and its closing one not yet (lib/rich.ts openFence).
+#[derive(Debug, PartialEq)]
+pub struct OpenFence<'a> {
+    pub kind: Kind,
+    /// Where the fence starts: the text before it is whole.
+    pub at: usize,
+    /// The fence's language, and what of the block has arrived.
+    pub lang: &'a str,
+    pub code: &'a str,
+}
+
+impl OpenFence<'_> {
+    pub fn lines(&self) -> usize {
+        if self.code.is_empty() {
+            0
+        } else {
+            self.code.split('\n').count()
+        }
+    }
+}
+
+/// open_fence is the drawn block `text` ends inside of, if any. A streaming
+/// reply's block is drawn once it is whole, not on every chunk: until its
+/// closing fence arrives it is generating(), or its code if the reply ended
+/// without one. Other fences, and drawn blocks already closed, are None.
+pub fn open_fence(text: &str) -> Option<OpenFence<'_>> {
+    // The open fence: its character, its length, where it starts, its info.
+    let mut fence: Option<(u8, usize, usize, &str)> = None;
+    let mut at = 0;
+    for line in text.split('\n') {
+        let start = at;
+        at += line.len() + 1;
+        let body = line.trim_end_matches('\r');
+        let indent = body.len() - body.trim_start_matches(' ').len();
+        if indent > 3 {
+            continue;
+        }
+        let rest = &body[indent..];
+        let Some(&c) = rest
+            .as_bytes()
+            .first()
+            .filter(|c| **c == b'`' || **c == b'~')
+        else {
+            continue;
+        };
+        let size = rest.bytes().take_while(|b| *b == c).count();
+        if size < 3 {
+            continue;
+        }
+        let info = rest[size..].trim();
+        match fence {
+            None => fence = Some((c, size, start, info)),
+            Some((open, n, _, _)) if c == open && size >= n && info.is_empty() => fence = None,
+            Some(_) => {}
+        }
+    }
+    let (_, _, at, info) = fence?;
+    let (lang, meta) = info.split_once(char::is_whitespace).unwrap_or((info, ""));
+    let kind = Kind::of(lang, meta)?;
+    let code = text[at..].split_once('\n').map_or("", |(_, rest)| rest);
+    Some(OpenFence {
+        kind,
+        at,
+        lang,
+        code,
+    })
+}
+
+/// generating is a drawn block still arriving (RichBlock's GeneratingCard):
+/// what it will be, how much of it has come, and a shimmer along its foot.
+pub fn generating(open: &OpenFence, id: impl Into<SharedString>) -> AnyElement {
+    let id = id.into();
+    let icon = match open.kind {
+        Kind::Html => "app-window",
+        Kind::Svg => "image",
+        Kind::Mermaid => "workflow",
+    };
+    let bytes = open.code.len();
+    let size = if bytes < 1024 {
+        format!("{bytes} B")
+    } else {
+        format!("{:.1} KB", bytes as f64 / 1024.)
+    };
+    well()
+        .child(
+            h_flex()
+                .h_14()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
+                .child(crate::icons::ic(icon).size_4().flex_none())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(t(&format!("chat.rich.generating.{}", open.kind.key()))),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::faint())
+                        .child(agentbox_i18n::tv(
+                            "chat.rich.generatingSoFar",
+                            &[
+                                ("lines", (open.lines() as i64).into()),
+                                ("size", (&size).into()),
+                            ],
+                        )),
+                ),
+        )
+        .child(crate::motion::skeleton(
+            SharedString::from(format!("{id}-shine")),
+            relative(1.),
+            px(2.),
+        ))
+        .into_any_element()
 }
 
 /// A picture drawn: its SVG, the image GPUI draws of it, and its own size
@@ -398,16 +532,27 @@ pub fn page(src: &str, window: &mut Window) -> AnyElement {
             .child(div().bg(theme::card()).child(body))
             .into_any_element()
     };
+    // As tall as the page, up to FRAME_VIEWPORT of the window; past that it
+    // scrolls inside the block, and Open large shows it whole.
+    let max = crate::webview::frame_max(window);
+    // A page is made once its text has held still for SETTLE: one whose text
+    // is still changing (a fence this side's open_fence didn't see open, a
+    // block edited) shows where it will be and loads only when it stops.
+    if crate::webview::available() && !settled(key, &id) {
+        return block(
+            open(src),
+            crate::webview::placeholder(&id, crate::webview::frame_height(&id, max))
+                .into_any_element(),
+        );
+    }
     // Wayland (or no child webviews): the page as a picture, drawn offscreen.
     #[cfg(target_os = "linux")]
     if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
         return block(
             open(src),
-            crate::snapshot::html_snapshot(id, src.to_string()).into_any_element(),
+            crate::snapshot::html_snapshot(id, src.to_string(), max).into_any_element(),
         );
     }
-    #[cfg(not(target_os = "linux"))]
-    let _ = window;
     if !crate::webview::available() {
         // No webview here (no GTK, or the page failed): its source instead.
         return block(
@@ -429,13 +574,73 @@ pub fn page(src: &str, window: &mut Window) -> AnyElement {
     }
     block(
         open(src),
-        crate::webview::html_preview(id, src.to_string(), px(260.)).into_any_element(),
+        crate::webview::html_preview(id, src.to_string(), max).into_any_element(),
     )
+}
+
+/// How long a page's text holds still before it is made.
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+
+thread_local! {
+    /// When each page's text was first drawn, by its key.
+    static FIRST_SEEN: RefCell<HashMap<u64, std::time::Instant>> = RefCell::new(HashMap::new());
+}
+
+/// settled is whether the page `key` may be made: it has one already (the
+/// same text never makes a second), or its text was first drawn SETTLE ago.
+/// Until then the window is woken when it will be.
+fn settled(key: u64, id: &str) -> bool {
+    if crate::webview::made(id) {
+        return true;
+    }
+    let now = std::time::Instant::now();
+    let first = FIRST_SEEN.with_borrow_mut(|seen| {
+        if seen.len() > 512 {
+            seen.retain(|_, t| now.duration_since(*t) < SETTLE * 40);
+        }
+        *seen.entry(key).or_insert(now)
+    });
+    let due = first + SETTLE;
+    if now >= due {
+        return true;
+    }
+    crate::webview::wake_at(due);
+    false
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{svg_size, with_xmlns};
+    use super::{Kind, open_fence, svg_size, with_xmlns};
+
+    #[test]
+    fn a_drawn_block_is_open_until_its_closing_fence() {
+        let text = "Here:\n\n```html preview\n<b>hi</b>\n<i>there";
+        let open = open_fence(text).unwrap();
+        assert_eq!(open.kind, Kind::Html);
+        assert_eq!(&text[..open.at], "Here:\n\n");
+        assert_eq!(open.lang, "html");
+        assert_eq!(open.code, "<b>hi</b>\n<i>there");
+        assert_eq!(open.lines(), 2);
+        // Only the opening fence so far, or not even its line's end.
+        assert_eq!(open_fence("```html preview").unwrap().code, "");
+        assert_eq!(open_fence("```html preview\n").unwrap().lines(), 0);
+        assert_eq!(open_fence("```mermaid\ngraph").unwrap().kind, Kind::Mermaid);
+        assert_eq!(open_fence("~~~SVG\n<svg").unwrap().kind, Kind::Svg);
+        // Closed: drawn, whatever follows.
+        assert_eq!(open_fence("```html preview\n<b>hi</b>\n```\nmore"), None);
+        assert_eq!(open_fence("```html preview\n<b>\n```  \r\n"), None);
+        // A fence closes only with its own character, at least as long, bare.
+        assert!(open_fence("````html preview\na\n```\n").is_some());
+        assert!(open_fence("```html preview\na\n~~~\n").is_some());
+        assert!(open_fence("```html preview\na\n```js\n").is_some());
+        // Code that stays code, open or not, and fences indented as code.
+        assert_eq!(open_fence("```html\n<b>"), None);
+        assert_eq!(open_fence("```rust\nfn"), None);
+        assert_eq!(open_fence("    ```html preview\n<b>"), None);
+        // A closed code block before an open page.
+        let text = "```sh\nls\n```\n\n```html preview\n<p>";
+        assert_eq!(open_fence(text).unwrap().at, 14);
+    }
 
     #[test]
     fn an_svg_is_as_large_as_it_says() {

@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 thread_local! {
@@ -54,11 +55,156 @@ pub fn available() -> bool {
     !UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Wheel deltas from pages, in pixels: a page doesn't scroll, the chat does.
+/// Wheel deltas from pages, in pixels: what a page can't scroll itself
+/// scrolls the chat.
 static WHEEL: std::sync::Mutex<f32> = std::sync::Mutex::new(0.);
 
-/// The script every page gets: its wheel goes to the app.
-const FORWARD_WHEEL: &str = "addEventListener('wheel', e => { e.preventDefault(); window.ipc.postMessage(String(e.deltaY)); }, { passive: false });";
+/// MEASURE is a page's height in CSS pixels, as a script's value: the
+/// scrolling element's scrollHeight while the page overflows its viewport,
+/// and otherwise its content's (lib/rich.ts's bootstrap), as scrollHeight is
+/// never less than the viewport and a page shorter than its block would keep
+/// the block's height.
+pub(crate) const MEASURE: &str = "(() => { const s = document.scrollingElement || document.documentElement, R = document.documentElement, b = document.body; \
+return Math.ceil(s.scrollHeight > s.clientHeight + 1 ? s.scrollHeight : Math.max(R.getBoundingClientRect().height, b ? b.getBoundingClientRect().bottom : 0)); })()";
+
+/// The script every page in the chat gets. It tells the app the page's
+/// height as it loads and whenever it changes ("h" and MEASURE); a wheel
+/// scrolls the page, or what in it scrolls, while that can go further that
+/// way, and otherwise goes to the app, which scrolls the chat with it.
+fn preview_script() -> String {
+    format!(
+        "(() => {{ const post = m => window.ipc.postMessage(m); let last = -1;\
+const tell = () => {{ const h = {MEASURE}; if (h !== last) {{ last = h; post('h' + h); }} }};\
+const ro = new ResizeObserver(tell); ro.observe(document.documentElement);\
+addEventListener('DOMContentLoaded', () => {{ document.body && ro.observe(document.body); tell(); }}); addEventListener('load', tell);\
+const room = (el, dy) => {{ for (; el; el = el.parentElement) {{ const root = el === document.scrollingElement;\
+if (!root) {{ const o = getComputedStyle(el).overflowY; if (o !== 'auto' && o !== 'scroll') continue; }}\
+if (el.scrollHeight - el.clientHeight < 1) continue; if (dy < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1) return true; }} return false; }};\
+addEventListener('wheel', e => {{ const dy = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * innerHeight : e.deltaY;\
+if (e.ctrlKey || room(e.target instanceof Element ? e.target : document.scrollingElement, dy)) return;\
+e.preventDefault(); post(String(dy)); }}, {{ passive: false }}); }})();"
+    )
+}
+
+/// The heights pages reported, by id, in CSS pixels: a block drawn again (a
+/// chat scrolled back to, a page made again after it was dropped) is the
+/// height it was, not FRAME_DEFAULT first.
+static HEIGHTS: std::sync::Mutex<Option<HashMap<String, f32>>> = std::sync::Mutex::new(None);
+/// Set when a page's height changed, so the pump redraws the windows.
+static RESIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A page's block in the chat: at least FRAME_MIN, FRAME_DEFAULT until the
+/// page tells its height, and at most FRAME_VIEWPORT of the window
+/// (lib/rich.ts's).
+const FRAME_MIN: f32 = 60.;
+const FRAME_DEFAULT: f32 = 160.;
+const FRAME_VIEWPORT: f32 = 0.7;
+
+/// set_height records the page `id`'s height, as it reported it.
+pub(crate) fn set_height(id: &str, h: f32) {
+    if !h.is_finite() || h < 0. {
+        return;
+    }
+    let mut heights = HEIGHTS.lock().unwrap();
+    let heights = heights.get_or_insert_with(HashMap::new);
+    if heights.get(id) == Some(&h) {
+        return;
+    }
+    if heights.len() > 256 {
+        heights.clear();
+    }
+    heights.insert(id.to_string(), h);
+    RESIZED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// height is the page `id`'s height as it last reported it.
+pub(crate) fn height(id: &str) -> Option<f32> {
+    HEIGHTS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|h| h.get(id).copied())
+}
+
+/// frame_max is the most a page's block takes of `window`.
+pub fn frame_max(window: &Window) -> Pixels {
+    (window.viewport_size().height * FRAME_VIEWPORT).max(px(FRAME_MIN))
+}
+
+/// frame_height is the page `id`'s block's height: the page's own, within
+/// FRAME_MIN and `max`.
+pub fn frame_height(id: &str, max: Pixels) -> Pixels {
+    px(height(id).unwrap_or(FRAME_DEFAULT).ceil()).clamp(px(FRAME_MIN), max.max(px(FRAME_MIN)))
+}
+
+/// placeholder is where a page will be, `height` tall, shimmering while it
+/// loads (Electron's skeleton).
+pub fn placeholder(id: &str, height: Pixels) -> impl IntoElement {
+    div()
+        .w_full()
+        .h(height)
+        .flex()
+        .child(crate::motion::skeleton(
+            SharedString::from(format!("{id}-loading")),
+            relative(1.),
+            height,
+        ))
+}
+
+/// made is whether the page `id` has a webview (or a picture) already.
+pub fn made(id: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    if crate::snapshot::made(id) {
+        return true;
+    }
+    VIEWS.with_borrow(|v| v.contains_key(id))
+}
+
+/// When the pump next redraws the windows for a page waiting to be made.
+static WAKE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// wake_at has the windows redrawn at `at` (or sooner).
+pub fn wake_at(at: std::time::Instant) {
+    let mut wake = WAKE.lock().unwrap();
+    if wake.is_none_or(|w| at < w) {
+        *wake = Some(at);
+    }
+}
+
+fn take_wake() -> bool {
+    let mut wake = WAKE.lock().unwrap();
+    if wake.is_some_and(|w| std::time::Instant::now() >= w) {
+        *wake = None;
+        return true;
+    }
+    false
+}
+
+/// framed is a page as a block (or the page open large) loads it: PRELUDE at
+/// the start of its head, wherever the page starts it, so a doctype stays
+/// first and the page out of quirks mode, and a fragment gets one
+/// (lib/rich.ts injectHead).
+pub fn framed(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    for tag in ["<head", "<html", "<!doctype"] {
+        let mut from = 0;
+        while let Some(i) = lower[from..].find(tag) {
+            let at = from + i;
+            from = at + tag.len();
+            // A whole tag's name: `<header>` isn't `<head>`.
+            let next = lower[from..].chars().next();
+            if tag != "<!doctype" && next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-') {
+                continue;
+            }
+            let Some(end) = lower[from..].find('>') else {
+                break;
+            };
+            let end = from + end + 1;
+            return format!("{}{PRELUDE}{}", &html[..end], &html[end..]);
+        }
+    }
+    format!("<!doctype html>{PRELUDE}{html}")
+}
 
 thread_local! {
     /// The list the webviews in view belong to, which a page's wheel scrolls.
@@ -123,8 +269,26 @@ pub fn init(cx: &mut App) {
             while gtk::events_pending() {
                 gtk::main_iteration_do(false);
             }
+            // Pictures let go leave the windows' atlases (on a software
+            // renderer, memory like any other).
             #[cfg(target_os = "linux")]
-            if crate::snapshot::take_dirty() {
+            {
+                let dropped = crate::snapshot::take_dropped();
+                if !dropped.is_empty() {
+                    cx.update(|cx| {
+                        for image in dropped {
+                            cx.drop_image(image, None);
+                        }
+                    });
+                }
+            }
+            #[cfg(target_os = "linux")]
+            let dirty = crate::snapshot::take_dirty();
+            #[cfg(not(target_os = "linux"))]
+            let dirty = false;
+            // A page told its height, or one waiting to settle is due.
+            let resized = RESIZED.swap(false, std::sync::atomic::Ordering::Relaxed);
+            if dirty | resized | take_wake() {
                 cx.update(|cx| cx.refresh_windows());
             }
             let commands = std::mem::take(&mut *LARGE_COMMANDS.lock().unwrap());
@@ -176,6 +340,20 @@ pub fn end() -> impl IntoElement {
                         p.shown = false;
                     }
                 }
+                // Each webview is a web process's share: past KEEP, those
+                // drawn longest ago go, and are made again if scrolled back to.
+                if views.len() > KEEP {
+                    let mut idle: Vec<(u64, String)> = views
+                        .iter()
+                        .filter(|(_, p)| p.frame != now)
+                        .map(|(id, p)| (p.frame, id.clone()))
+                        .collect();
+                    idle.sort();
+                    for (_, id) in idle.into_iter().take(views.len() - KEEP) {
+                        views.remove(&id);
+                        loaded(&id, false);
+                    }
+                }
             });
             flush();
         },
@@ -184,28 +362,81 @@ pub fn end() -> impl IntoElement {
     .size_0()
 }
 
-/// html_preview is a block of `height` that shows `html` in a webview.
-pub fn html_preview(
-    id: impl Into<String>,
-    html: impl Into<String>,
-    height: Pixels,
-) -> impl IntoElement {
+/// The chat's webviews kept at once, those on screen and those scrolled past.
+const KEEP: usize = 8;
+
+/// html_preview is a block that shows `html` in a webview, as tall as the
+/// page up to `max`, past which the page scrolls inside it. The webview is
+/// made once per page, parked out of view until the page has told its height
+/// (the block shimmers until then), and kept as the chat scrolls and draws
+/// it again.
+pub fn html_preview(id: impl Into<String>, html: impl Into<String>, max: Pixels) -> AnyElement {
     let id = id.into();
     let html = html.into();
-    canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            let clip = CLIP
-                .with(|c| c.get())
-                .unwrap_or(window.content_mask().bounds);
-            let inside = !covered()
-                && clip.contains(&bounds.origin)
-                && clip.contains(&bounds.bottom_right().map(|v| v - px(1.)));
-            place(&id, &html, bounds, inside, window);
-        },
-    )
-    .w_full()
-    .h(height)
+    let height = frame_height(&id, max);
+    let ready = height_known(&id);
+    div()
+        .relative()
+        .w_full()
+        .h(height)
+        .when(!ready, |el| el.child(placeholder(&id, height)))
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, _, window, _| {
+                    let clip = CLIP
+                        .with(|c| c.get())
+                        .unwrap_or(window.content_mask().bounds);
+                    let inside = !covered()
+                        && clip.contains(&bounds.origin)
+                        && clip.contains(&bounds.bottom_right().map(|v| v - px(1.)));
+                    place(&id, &html, bounds, inside, ready, window);
+                },
+            )
+            .absolute()
+            .inset_0(),
+        )
+        .into_any_element()
+}
+
+/// The pages whose webview has loaded and told its height since it was made.
+static LOADED: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
+    std::sync::Mutex::new(None);
+
+fn loaded(id: &str, on: bool) {
+    let mut set = LOADED.lock().unwrap();
+    let set = set.get_or_insert_with(Default::default);
+    let changed = if on {
+        set.insert(id.to_string())
+    } else {
+        set.remove(id)
+    };
+    if changed {
+        RESIZED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// height_known is whether the page `id`'s webview has loaded and told its
+/// height: until then it is hidden, as it would show blank, then jump.
+fn height_known(id: &str) -> bool {
+    LOADED
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|s| s.contains(id))
+}
+
+/// heard is what the page `id` posted: its height ("h" and a number), or a
+/// wheel it didn't scroll itself.
+fn heard(id: &str, body: &str) {
+    if let Some(h) = body.strip_prefix('h') {
+        if let Ok(h) = h.parse::<f32>() {
+            set_height(id, h);
+            loaded(id, true);
+        }
+    } else if let Ok(dy) = body.parse::<f32>() {
+        *WHEEL.lock().unwrap() += dy;
+    }
 }
 
 /// Parent is the GPUI window as wry takes it. GPUI's X11 backend hands out an
@@ -252,20 +483,51 @@ fn rect(b: Bounds<Pixels>) -> wry::Rect {
     }
 }
 
-fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mut Window) {
+/// parked is where a page loads before it has told its height: as wide and
+/// tall as its block, just off the window's top left, where X clips it from
+/// view. Shown there, not hidden, as GTK lays out no hidden widget and the
+/// page would be measured at a width it won't have.
+fn parked(b: Bounds<Pixels>) -> Bounds<Pixels> {
+    Bounds::new(
+        point(-b.size.width - px(64.), -b.size.height - px(64.)),
+        b.size,
+    )
+}
+
+/// place keeps the page `id`'s webview over its block: there and shown while
+/// the block is wholly in view and the page `ready`, parked while it is not
+/// ready, hidden otherwise. It is made the first time.
+fn place(
+    id: &str,
+    html: &str,
+    bounds: Bounds<Pixels>,
+    inside: bool,
+    ready: bool,
+    window: &mut Window,
+) {
     let frame = FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    let (at, show) = if ready {
+        (bounds, inside)
+    } else {
+        (parked(bounds), true)
+    };
     VIEWS.with_borrow_mut(|views| {
         if !views.contains_key(id) {
+            loaded(id, false);
+            let (key, on_load) = (id.to_string(), id.to_string());
             let built = wry::WebViewBuilder::new()
-                .with_html(format!("{PRELUDE}{html}"))
-                .with_bounds(rect(bounds))
-                .with_visible(inside)
+                .with_html(framed(html))
+                .with_bounds(rect(at))
+                .with_visible(show)
                 .with_incognito(true)
                 .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:"))
-                .with_initialization_script(FORWARD_WHEEL)
-                .with_ipc_handler(|req| {
-                    if let Ok(dy) = req.body().parse::<f32>() {
-                        *WHEEL.lock().unwrap() += dy;
+                .with_initialization_script(preview_script())
+                .with_ipc_handler(move |req| heard(&key, req.body()))
+                // A page that never tells its height (its script stopped)
+                // shows once loaded, at the height it was or FRAME_DEFAULT.
+                .with_on_page_load_handler(move |event, _| {
+                    if matches!(event, wry::PageLoadEvent::Finished) {
+                        loaded(&on_load, true);
                     }
                 })
                 .build_as_child(&Parent(window));
@@ -273,7 +535,7 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
                 Ok(view) => {
                     // wry maps its X11 container at creation whatever
                     // with_visible says: unmap it when it starts hidden.
-                    if !inside {
+                    if !show {
                         let _ = view.set_visible(false);
                     }
                     views.insert(
@@ -281,8 +543,8 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
                         Placed {
                             view,
                             frame,
-                            shown: inside,
-                            bounds: Some(bounds),
+                            shown: show,
+                            bounds: Some(at),
                         },
                     );
                 }
@@ -295,13 +557,13 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
         }
         let p = views.get_mut(id).unwrap();
         p.frame = frame;
-        if p.bounds != Some(bounds) {
-            let _ = p.view.set_bounds(rect(bounds));
-            p.bounds = Some(bounds);
+        if p.bounds != Some(at) {
+            let _ = p.view.set_bounds(rect(at));
+            p.bounds = Some(at);
         }
-        if p.shown != inside {
-            let _ = p.view.set_visible(inside);
-            p.shown = inside;
+        if p.shown != show {
+            let _ = p.view.set_visible(show);
+            p.shown = show;
         }
     });
     flush();
@@ -537,7 +799,7 @@ fn place_large(id: &str, html: &str, bounds: Bounds<Pixels>, zoom: f32, window: 
             return;
         }
         let built = wry::WebViewBuilder::new()
-            .with_html(format!("{PRELUDE}{html}"))
+            .with_html(framed(html))
             .with_bounds(rect(bounds))
             .with_incognito(true)
             .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:"))
@@ -572,4 +834,41 @@ pub fn close_large() {
         }
     });
     flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PRELUDE, framed};
+
+    #[test]
+    fn a_page_keeps_its_doctype_first() {
+        // A fragment gets a doctype, so it isn't laid out in quirks mode.
+        assert_eq!(
+            framed("<b>hi</b>"),
+            format!("<!doctype html>{PRELUDE}<b>hi</b>")
+        );
+        // The prelude goes at the start of the page's head, or its html, or
+        // after its doctype.
+        let page =
+            "<!DOCTYPE html><html lang=en><head><title>t</title></head><body>x</body></html>";
+        assert_eq!(
+            framed(page),
+            format!(
+                "<!DOCTYPE html><html lang=en><head>{PRELUDE}<title>t</title></head><body>x</body></html>"
+            )
+        );
+        assert_eq!(
+            framed("<!doctype html><html><body>x"),
+            format!("<!doctype html><html>{PRELUDE}<body>x")
+        );
+        assert_eq!(
+            framed("<!doctype html><p>x"),
+            format!("<!doctype html>{PRELUDE}<p>x")
+        );
+        // A <header> isn't the head.
+        assert_eq!(
+            framed("<header>top</header>"),
+            format!("<!doctype html>{PRELUDE}<header>top</header>")
+        );
+    }
 }
