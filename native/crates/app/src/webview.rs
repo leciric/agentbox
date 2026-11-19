@@ -396,14 +396,8 @@ pub fn html_preview(id: impl Into<String>, html: impl Into<String>, max: Pixels)
                 |_, _, _| {},
                 move |bounds, _, window, _| {
                     if let Some(image) = still(&id) {
-                        let _ = window.paint_image(
-                            bounds,
-                            bounds,
-                            Corners::default(),
-                            image,
-                            0,
-                            false,
-                        );
+                        let _ =
+                            window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
                     }
                     let clip = CLIP
                         .with(|c| c.get())
