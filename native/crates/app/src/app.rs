@@ -833,7 +833,11 @@ impl AppView {
             c
         });
         self._chat_sub = Some(cx.subscribe_in(&chat, window, Self::on_chat_action));
-        self.chat = Some(chat);
+        // The chat left (its items, pictures, players) is let go here: its
+        // pages go back to the system once freed (alloc.rs).
+        if self.chat.replace(chat).is_some() {
+            crate::alloc::trim_soon();
+        }
         self.sync_chat_agent(cx);
         if self.open != "lead" {
             self.open_agent_panel(format!("{project}/{}", self.open), cx);

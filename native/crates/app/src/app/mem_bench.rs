@@ -149,8 +149,9 @@ fn children() -> (usize, u64) {
 /// heap is glibc's C heap: bytes handed out, and held free.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn heap() -> String {
+    // As glibc lays it out; only some fields are read.
     #[repr(C)]
-    #[derive(Default)]
+    #[allow(dead_code)]
     struct Mallinfo2 {
         arena: usize,
         ordblks: usize,

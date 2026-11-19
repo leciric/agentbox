@@ -10,6 +10,9 @@ publish.workspace = true
 # platforms (CI's cross-target cargo check) build without it.
 default = ["video"]
 video = ["dep:ffmpeg-next"]
+# Rust's allocations in mimalloc rather than glibc's malloc (alloc.rs): for
+# measuring the two against each other.
+mimalloc = ["dep:mimalloc"]
 
 [dependencies]
 agentbox-api.workspace = true
@@ -75,6 +78,8 @@ notify-rust = "4.18"
 cpal = { version = "0.16", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The mimalloc feature's allocator (alloc.rs).
+mimalloc = { version = "=0.1.52", default-features = false, optional = true }
 # rustls (pure Rust but ring) with Mozilla's roots on Linux, where there's
 # no one system TLS library; the system's own elsewhere (schannel,
 # Security.framework), which also cross-checks for Windows without a C

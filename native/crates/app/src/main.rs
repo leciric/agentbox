@@ -8,6 +8,7 @@
 // A release build on Windows is a GUI program, so starting it from Explorer
 // doesn't open a console window beside it too (stderr goes nowhere there).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod alloc;
 mod app;
 mod bench;
 mod character;
@@ -51,6 +52,8 @@ use gpui::{App, AppContext as _, WindowOptions, px, size};
 use gpui_component::Root;
 
 fn main() {
+    // The C heap's arenas, before any thread starts (alloc.rs).
+    alloc::init();
     // Restarted into by an update: the old version goes first (update.rs).
     let waited = update::wait_for_previous();
     bench::start();
