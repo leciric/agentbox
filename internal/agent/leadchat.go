@@ -62,6 +62,10 @@ func placeLeadChat(dir, proc string, pid int, write func(path, value string) err
 	if err := setCgroupValue(dir, "memory.oom.group", "1", write); err != nil {
 		return dir, err
 	}
+	// Its part of the leads' memory.low, which only counts down to a chat
+	// that claims it when cgroup2 has no memory_recursiveprot; and no swap.
+	_ = setCgroupValue(dir, "memory.low", "max", write)
+	_ = setCgroupValue(dir, "memory.swap.max", "0", write)
 	// The adapter first, so what it starts from now on is born inside; then
 	// what it started before it was moved.
 	for _, p := range processTree(proc, pid) {

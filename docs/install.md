@@ -131,13 +131,14 @@ Agents share the VM's memory, and every agent starts at once. Each agent's machi
 the VM's memory cap (Settings → Storage and machine → **Memory for one agent**, 10% to 90%): a
 process that outgrows that is stopped at once inside that machine, and its agent is told what was
 stopped and to run fewer test workers at once, while the daemon, Incus and the other agents keep
-the rest. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ
+the rest. The VM has no swap: when the agents together need more memory than it has, the
+kernel stops one of their processes, never the daemon, Incus or a project's chat, whose memory is
+kept for them, and that agent's chat says what was stopped and why. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ
 scheduler, and each agent's machine gets a quarter of their weight, so a build writing as fast as it
 can doesn't keep Incus from answering. When memory
 runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
 they asked), and if pressure stays high the newest one already running is paused, its memory moved
-to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
-of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
+to swap, and resumed once it eases. The oldest one
 always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
 **Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
 themselves; any other command can join in as `agentbox heavy -- <command>`. Tests and builds that

@@ -2,28 +2,24 @@ package agent
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// fakeZram is a VM's /proc and /sys as zram setup sees them, and what it ran.
+// fakeZram is a VM's /proc as taking zram away sees it, and what it ran.
 type fakeZram struct {
-	root    string
-	ran     []string
-	wrote   map[string]string
-	modules bool // the kernel has the zram module
-	hotAdd  string
+	root  string
+	ran   []string
+	wrote map[string]string
+	fail  string // a device swapoff fails on
 }
 
 func newFakeZram(t *testing.T, swaps string) *fakeZram {
 	t.Helper()
-	f := &fakeZram{root: t.TempDir(), wrote: map[string]string{}, modules: true, hotAdd: "1\n"}
+	f := &fakeZram{root: t.TempDir(), wrote: map[string]string{}}
 	writeCgroupFile(t, filepath.Join(f.root, "proc/swaps"), "Filename\tType\tSize\tUsed\tPriority\n"+swaps)
-	if err := os.MkdirAll(filepath.Join(f.root, "sys/block/vda"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	return f
 }
 
@@ -36,101 +32,53 @@ func (f *fakeZram) host() zramHost {
 		},
 		run: func(name string, args ...string) error {
 			f.ran = append(f.ran, strings.Join(append([]string{name}, args...), " "))
-			if name == "modprobe" {
-				if !f.modules {
-					return errors.New("modprobe: FATAL: Module zram not found")
-				}
-				// Loading it makes zram0, unset.
-				_ = os.MkdirAll(filepath.Join(f.root, "sys/class/zram-control"), 0o755)
-				_ = os.MkdirAll(filepath.Join(f.root, "sys/block/zram0"), 0o755)
-				_ = os.WriteFile(filepath.Join(f.root, "sys/block/zram0/disksize"), []byte("0\n"), 0o644)
+			if len(args) > 0 && args[0] == f.fail {
+				return errors.New("swapoff: " + f.fail + ": Cannot allocate memory")
 			}
 			return nil
 		},
-		output: func(name string, args ...string) ([]byte, error) {
-			f.ran = append(f.ran, strings.Join(append([]string{name}, args...), " "))
-			return []byte(f.hotAdd), nil
-		},
 	}
 }
 
-func TestEnsureZramLoadsTheModuleAndTurnsSwapOn(t *testing.T) {
+func TestDropZramTurnsOffEveryZramDeviceAndLeavesASwapfile(t *testing.T) {
+	t.Parallel()
+	f := newFakeZram(t, "/dev/zram0 partition 4194300 1024 100\n/swapfile file 2097148 0 -2\n/dev/zram1 partition 4194300 0 100\n")
+	did, err := dropZram(f.host())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"swapoff /dev/zram0", "swapoff /dev/zram1"}; !slices.Equal(f.ran, want) {
+		t.Errorf("ran %q, want %q: the user's swapfile stays", f.ran, want)
+	}
+	if f.wrote["/sys/block/zram0/reset"] != "1" || f.wrote["/sys/block/zram1/reset"] != "1" {
+		t.Errorf("wrote %v, want both devices reset", f.wrote)
+	}
+	if !strings.Contains(did, "/dev/zram0, /dev/zram1") {
+		t.Errorf("did = %q", did)
+	}
+}
+
+func TestDropZramWithNoneDoesNothing(t *testing.T) {
 	t.Parallel()
 	f := newFakeZram(t, "/swapfile file 2097148 0 -2\n")
-	did, err := ensureZram(f.host(), 4*gib)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "modprobe zram num_devices=1|mkswap /dev/zram0|swapon -p 100 /dev/zram0"; strings.Join(f.ran, "|") != want {
-		t.Errorf("ran %q, want %q", f.ran, want)
-	}
-	if f.wrote["/sys/block/zram0/comp_algorithm"] != "zstd" || f.wrote["/sys/block/zram0/disksize"] != "4294967296" {
-		t.Errorf("wrote %v", f.wrote)
-	}
-	if !strings.Contains(did, "4.0 GiB of zram swap (/dev/zram0)") {
-		t.Errorf("said %q", did)
+	did, err := dropZram(f.host())
+	if err != nil || did != "" || len(f.ran) != 0 {
+		t.Errorf("dropZram = %q, %v, ran %q; want nothing", did, err, f.ran)
 	}
 }
 
-func TestEnsureZramDoesNothingWhenItIsOnAlready(t *testing.T) {
+func TestDropZramSaysWhichDeviceStaysOn(t *testing.T) {
 	t.Parallel()
-	f := newFakeZram(t, "/dev/zram0 partition 4194300 0 100\n")
-	did, err := ensureZram(f.host(), 4*gib)
-	if err != nil || len(f.ran) != 0 || len(f.wrote) != 0 || !strings.Contains(did, "already") {
-		t.Errorf("with zram on: %q, %v, ran %v, wrote %v", did, err, f.ran, f.wrote)
+	f := newFakeZram(t, "/dev/zram0 partition 4194300 4000000 100\n/dev/zram1 partition 4194300 0 100\n")
+	f.fail = "/dev/zram0"
+	did, err := dropZram(f.host())
+	if err == nil || !strings.Contains(err.Error(), "Cannot allocate memory") {
+		t.Errorf("err = %v, want swapoff's", err)
 	}
-}
-
-func TestEnsureZramAddsTheRestBesideAQuarterMadeEarlier(t *testing.T) {
-	t.Parallel()
-	// An earlier daemon gave this 16 GiB VM a quarter, 4 GiB, now in use.
-	f := newFakeZram(t, "/dev/zram0 partition 4194300 4194300 100\n")
-	writeCgroupFile(t, filepath.Join(f.root, "sys/class/zram-control/hot_add"), "")
-	writeCgroupFile(t, filepath.Join(f.root, "sys/block/zram0/disksize"), "4294967296\n")
-	did, err := ensureZram(f.host(), 16*gib/ZramShare)
-	if err != nil {
-		t.Fatal(err)
+	if _, reset := f.wrote["/sys/block/zram0/reset"]; reset {
+		t.Error("a device still on was reset")
 	}
-	if want := "cat /sys/class/zram-control/hot_add|mkswap /dev/zram1|swapon -p 100 /dev/zram1"; strings.Join(f.ran, "|") != want {
-		t.Errorf("ran %q, want %q", f.ran, want)
-	}
-	if got := f.wrote["/sys/block/zram1/disksize"]; got != "4294971392" {
-		t.Errorf("sized the new device %s, want the 4 GiB that makes half", got)
-	}
-	if !strings.Contains(did, "more zram swap (/dev/zram1, beside /dev/zram0)") {
-		t.Errorf("said %q", did)
-	}
-}
-
-func TestZramIsHalfTheVM(t *testing.T) {
-	t.Parallel()
-	if got := 18 * gib / ZramShare; got != 9*gib {
-		t.Errorf("an 18 GiB VM gets %d of zram, want half", got)
-	}
-}
-
-func TestEnsureZramAddsADeviceWhenTheModulesAreTaken(t *testing.T) {
-	t.Parallel()
-	f := newFakeZram(t, "")
-	// Loaded already, its one device used for something else.
-	writeCgroupFile(t, filepath.Join(f.root, "sys/class/zram-control/hot_add"), "")
-	writeCgroupFile(t, filepath.Join(f.root, "sys/block/zram0/disksize"), "1073741824\n")
-	if _, err := ensureZram(f.host(), 4*gib); err != nil {
-		t.Fatal(err)
-	}
-	if want := "cat /sys/class/zram-control/hot_add|mkswap /dev/zram1|swapon -p 100 /dev/zram1"; strings.Join(f.ran, "|") != want {
-		t.Errorf("ran %q, want %q", f.ran, want)
-	}
-}
-
-func TestEnsureZramWithoutTheModuleSaysSo(t *testing.T) {
-	t.Parallel()
-	f := newFakeZram(t, "")
-	f.modules = false
-	if _, err := ensureZram(f.host(), 4*gib); err == nil || !strings.Contains(err.Error(), "no zram") {
-		t.Errorf("without the module: %v", err)
-	}
-	if _, err := ensureZram(newFakeZram(t, "").host(), 1<<20); err == nil {
-		t.Error("made a 1 MiB zram device")
+	if !strings.Contains(did, "/dev/zram1") {
+		t.Errorf("did = %q, want the one that went", did)
 	}
 }

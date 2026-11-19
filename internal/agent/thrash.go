@@ -101,8 +101,8 @@ func thrash(dir string, now time.Time) (ThrashSample, bool) {
 	var swapFull bool
 	switch swapMax := read("memory.swap.max"); swapMax {
 	case "max":
-		// Set to none only when the VM has no swap (SwapLimit): full when
-		// it has nothing in it.
+		// No limit (a machine with no memory.max): full when it has
+		// nothing in it, as the VM has no swap.
 		swapFull = swapped == 0
 	case "":
 		swapFull = true // no swap accounting: it can't be told apart

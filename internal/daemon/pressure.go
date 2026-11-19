@@ -145,29 +145,6 @@ func readSample() func() (pressure.Sample, error) {
 	}
 }
 
-// giveZram gives AgentBox's VM its compressed swap in memory as the daemon
-// starts (agent.EnsureZram): without swap the kernel kills before memory
-// pressure shows, and a paused run's memory has nowhere to go. Outside the
-// VM (an earlier release's host install) the machine's swap is its owner's.
-func (s *Server) giveZram() {
-	if !hostos.InVM() {
-		return
-	}
-	// The disks' scheduler first: it decides whether the agents' io.weight
-	// (watchMemory) counts for anything.
-	if did, err := agent.UseBFQ(); err != nil {
-		s.logf("disk scheduler: %v; agents' disk use doesn't yield to the daemon's and Incus's", err)
-	} else if did != "" {
-		s.logf("disk scheduler: %s", did)
-	}
-	did, err := agent.EnsureZram(s.vmMemory() / agent.ZramShare)
-	if err != nil {
-		s.logf("zram swap: %v; memory pressure shows only once the VM has swap (agentbox vm swap on)", err)
-		return
-	}
-	s.logf("zram swap: %s", did)
-}
-
 // runPressure is the pressure loop, and the loops beside it that may wait on
 // SQLite, Incus or sudo: refreshing the agents as runs change, and watching
 // their memory limits and kills.
@@ -217,12 +194,9 @@ func (s *Server) runPressure(ctx context.Context) {
 // back from disk, and the OOM killer told to take others first. That is the
 // VM's daemon only: on a machine of the user's own, its memory is theirs.
 //
-// mlock, not a memory.min: the daemon runs in its ssh session's cgroup,
-// and a memory.min there means nothing unless every cgroup above it has one,
-// while moving the daemon into one of its own would take the lead chats it
-// starts with it, which a lock doesn't (children don't inherit it). Only the
-// executable's mappings (lockMemory): a locked heap can never be given back,
-// and its pages that do go out under pressure come back from zram, not disk.
+// The lock is on top of the memory.min of the scope it runs in
+// (vmprotect.go), which a daemon that couldn't move there lacks. Only the
+// executable's mappings (lockMemory): a locked heap can never be given back.
 func (s *Server) protectDaemon() {
 	if !hostos.InVM() {
 		return
@@ -826,7 +800,7 @@ func (s *Server) watchThrash(ctx context.Context, a state.Agent, limit int64) {
 		return
 	}
 	s.countOOMKills(1)
-	text := fmt.Sprintf("`%s` (pid %d, using %s) was killed for memory: your machine had used all its memory (%s) and swap for %s, "+
+	text := fmt.Sprintf("`%s` (pid %d, using %s) was killed for memory: your machine had used all its memory (%s) for %s, "+
 		"and was reading its programs back from the disk more than running them. "+
 		"Run fewer packages or workers at once (go test -p 2 ./..., vitest --maxWorkers=2, make -j2, one test file at a time) and try again.",
 		v.Name, v.PID, agent.HumanBytes(v.RSS), agent.HumanBytes(limit), thrashFor)

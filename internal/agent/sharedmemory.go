@@ -70,10 +70,12 @@ var (
 var SharedCgroups = hostos.InVM
 
 // GroupLimits is what a parent cgroup is given. A zero memory field is no
-// limit ("max"); a zero weight or PidsMax is left as it is.
+// limit ("max") and no protection; a zero weight or PidsMax is left as it is.
 type GroupLimits struct {
 	High      int64 // memory.high, bytes
 	Max       int64 // memory.max, bytes
+	Low       int64 // memory.low, bytes: what the kernel takes from it last
+	NoSwap    bool  // memory.swap.max 0
 	CPUWeight int   // cpu.weight
 	IOWeight  int   // io.weight and io.bfq.weight
 	PidsMax   int   // pids.max
@@ -99,14 +101,22 @@ func AgentsLimits(total int64, tasks int) GroupLimits {
 // A lead chat is about half a GiB, and a dozen projects' fit in 8 GiB of a 32
 // GiB VM, while one whose shell runs away is killed long before the daemon
 // and the agents feel it. No memory.high: a throttled leads' cgroup would
-// slow every project's chat at once, where a kill ends one turn.
+// slow every project's chat at once, where a kill ends one turn. A
+// memory.low of LeadsLow, so the chats the user talks to aren't read back
+// from the disk while agents fill the VM (vmprotect.go), and no swap.
 func LeadsLimits(total int64) GroupLimits {
 	const gib = int64(1) << 30
 	if total <= 0 {
-		return GroupLimits{}
+		return GroupLimits{NoSwap: true}
 	}
-	return GroupLimits{Max: max(total/4, min(total/2, 4*gib))}
+	limit := max(total/4, min(total/2, 4*gib))
+	return GroupLimits{Max: limit, Low: min(LeadsLow, limit/2), NoSwap: true}
 }
+
+// LeadsLow is agentbox.leads' memory.low: a few projects' chats, which are
+// mostly anonymous memory that can't be taken anyway with no swap, and
+// their code beside it (vmprotect.go, on sizing a protection).
+const LeadsLow = int64(2) << 30
 
 // SetAgentsGroup makes agentbox.agents if it isn't there and writes its
 // limits for a VM of total bytes.
@@ -133,6 +143,10 @@ func setGroup(dir string, l GroupLimits, controllers []string, write func(path, 
 	errs := []error{
 		setCgroupLimit(dir, "memory.high", l.High, write),
 		setCgroupLimit(dir, "memory.max", l.Max, write),
+		setCgroupProtection(dir, "memory.low", l.Low, write),
+	}
+	if l.NoSwap {
+		errs = append(errs, setCgroupValue(dir, "memory.swap.max", "0", write))
 	}
 	if l.CPUWeight > 0 {
 		errs = append(errs, setCgroupValue(dir, "cpu.weight", strconv.Itoa(l.CPUWeight), write))
@@ -171,6 +185,16 @@ func enableControllers(dir string, want []string, write func(path, value string)
 		return nil
 	}
 	return write(filepath.Join(dir, "cgroup.subtree_control"), strings.Join(add, " "))
+}
+
+// setCgroupProtection writes a memory.low or memory.min of bytes, 0 for
+// none, unless the file holds it already or isn't there.
+func setCgroupProtection(dir, file string, bytes int64, write func(path, value string) error) error {
+	want := "0"
+	if bytes > 0 {
+		want = strconv.FormatInt(bytes/4096*4096, 10)
+	}
+	return setCgroupValue(dir, file, want, write)
 }
 
 func hasField(b []byte, f string) bool {

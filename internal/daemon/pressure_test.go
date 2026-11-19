@@ -618,7 +618,7 @@ func TestAgentBeingMadeGetsItsMemoryLimit(t *testing.T) {
 	}
 	// Its swap, CPU weight and task count from the same moment: a fork bomb
 	// or a build in its setup is as bounded as one in a Ready agent.
-	want := agent.Caps{SwapMax: agent.SwapLimit(agent.MemoryLimit(16<<30, 0), 8<<30, 0), CPUWeight: agent.AgentCPUWeight, PidsMax: agent.AgentPidsMax}
+	want := agent.Caps{SetSwap: true, SwapMax: agent.SwapLimit(agent.MemoryLimit(16<<30, 0), 8<<30, 0), CPUWeight: agent.AgentCPUWeight, PidsMax: agent.AgentPidsMax}
 	if got := caps[making.Instance]; got != want {
 		t.Errorf("caps of the agent being made = %+v, want %+v", got, want)
 	}
