@@ -1553,7 +1553,11 @@ impl AppView {
                             })
                         })
                         .map(|el| match last {
-                            Some(p) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
+                            Some(p) => el.child(
+                                img(crate::pictures::file(&p, crate::pictures::Size::Thumb))
+                                    .size_full()
+                                    .object_fit(ObjectFit::Cover),
+                            ),
                             None => el
                                 .flex()
                                 .items_center()

@@ -1709,7 +1709,7 @@ impl ReviewView {
     /// picture is a fetched screenshot, contained in its box.
     fn picture(&self, m: &MediaItem) -> AnyElement {
         match (self.files.get(&m.id), self.failed.get(&m.id)) {
-            (Some(path), _) => img(path.clone())
+            (Some(path), _) => img(crate::pictures::file(path, crate::pictures::Size::Whole))
                 .size_full()
                 .object_fit(ObjectFit::Contain)
                 .into_any_element(),
@@ -1918,8 +1918,8 @@ impl ReviewView {
         zoom::placed(
             fit,
             &self.view,
-            path.clone(),
-            overlay.map(|o| ImageSource::from(o.clone())),
+            crate::pictures::file(path, crate::pictures::Size::Whole),
+            overlay.map(|o| crate::pictures::file(o, crate::pictures::Size::Whole)),
         )
         .into_any_element()
     }
@@ -1962,8 +1962,8 @@ impl ReviewView {
         let picture = zoom::placed(
             fit,
             &self.view,
-            path.clone(),
-            overlay.map(|o| ImageSource::from(o.clone())),
+            crate::pictures::file(path, crate::pictures::Size::Whole),
+            overlay.map(|o| crate::pictures::file(o, crate::pictures::Size::Whole)),
         );
         zoom::attach(
             stage.child(picture),
@@ -2442,9 +2442,14 @@ impl ReviewView {
                                     .items_center()
                                     .justify_center()
                                     .map(|el| match thumb {
-                                        Some(p) => el
-                                            .bg(theme::pitch())
-                                            .child(img(p).size_full().object_fit(ObjectFit::Cover)),
+                                        Some(p) => el.bg(theme::pitch()).child(
+                                            img(crate::pictures::file(
+                                                &p,
+                                                crate::pictures::Size::Thumb,
+                                            ))
+                                            .size_full()
+                                            .object_fit(ObjectFit::Cover),
+                                        ),
                                         None => el
                                             .bg(theme::surface_faint())
                                             .text_color(theme::subtle())

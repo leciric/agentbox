@@ -460,12 +460,16 @@ pub fn picture(kind: Kind, src: &str) -> AnyElement {
             .justify_center()
             .cursor_pointer()
             .child(
-                img(d.image.clone())
-                    .when_some(d.size, |el, (w, _)| el.w(px(w)))
-                    .max_w_full()
-                    .max_h(PICTURE_MAX)
-                    .flex_none()
-                    .object_fit(ObjectFit::Contain),
+                img(crate::pictures::image(
+                    None,
+                    &d.image,
+                    crate::pictures::Size::Whole,
+                ))
+                .when_some(d.size, |el, (w, _)| el.w(px(w)))
+                .max_w_full()
+                .max_h(PICTURE_MAX)
+                .flex_none()
+                .object_fit(ObjectFit::Contain),
             )
             // GPUI has no zoom-in cursor: a hand, and a magnifier at the
             // corner while it is pointed at.

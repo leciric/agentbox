@@ -277,6 +277,7 @@ impl FileBrowser {
             let res = rx.await.unwrap_or_else(|_| Err("render".into()));
             this.update(cx, |this, cx| {
                 if this.selected.as_deref() == Some(path.as_str()) {
+                    this.let_go_pdf();
                     this.pdf = Some((path, res));
                     cx.notify();
                 }
@@ -284,6 +285,16 @@ impl FileBrowser {
             .ok();
         })
         .detach();
+    }
+
+    /// let_go_pdf forgets the PDF shown, its pages out of the atlas too.
+    fn let_go_pdf(&mut self) {
+        if let Some((_, Ok(pages))) = self.pdf.take() {
+            pages
+                .pages
+                .into_iter()
+                .for_each(crate::pictures::drop_later);
+        }
     }
 
     fn toggle_ignored(&mut self, cx: &mut Context<Self>) {
@@ -299,7 +310,7 @@ impl FileBrowser {
     /// open_file picks a file, as a link to it in a chat does too.
     pub fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
         self.sqlite = None;
-        self.pdf = None;
+        self.let_go_pdf();
         self.pdf_zoom = None;
         self.selected = Some(path.clone());
         self.narrow_tree = false;
@@ -956,9 +967,13 @@ impl FileBrowser {
             return div()
                 .p_3()
                 .child(
-                    img(image.clone())
-                        .max_w_full()
-                        .object_fit(ObjectFit::Contain),
+                    img(crate::pictures::image(
+                        None,
+                        image,
+                        crate::pictures::Size::Whole,
+                    ))
+                    .max_w_full()
+                    .object_fit(ObjectFit::Contain),
                 )
                 .into_any_element();
         }

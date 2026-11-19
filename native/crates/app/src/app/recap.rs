@@ -343,9 +343,15 @@ impl RecapView {
                             .shadow(theme::shadow_modal())
                             .relative()
                             .map(|el| match card {
-                                Some(c) => {
-                                    el.child(img(c).size_full().object_fit(ObjectFit::Contain))
-                                }
+                                Some(c) => el.child(
+                                    img(crate::pictures::image(
+                                        None,
+                                        &c,
+                                        crate::pictures::Size::Whole,
+                                    ))
+                                    .size_full()
+                                    .object_fit(ObjectFit::Contain),
+                                ),
                                 // The card is drawn on a thread: a shimmer fills its place.
                                 None => {
                                     el.child(div().absolute().size_full().overflow_hidden().child(

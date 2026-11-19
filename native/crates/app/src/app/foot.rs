@@ -234,6 +234,16 @@ impl AppView {
                         }
                         f.media.extend(p.items);
                         f.next = p.next;
+                        // Thumbnails of what the list no longer holds go,
+                        // out of the atlas too (pictures::drop_later).
+                        let ids: std::collections::HashSet<&str> =
+                            f.media.iter().map(|m| m.id.as_str()).collect();
+                        f.thumbs.borrow_mut().retain(|id, (_, _, image)| {
+                            ids.contains(id.as_str()) || {
+                                crate::pictures::drop_later(image.clone());
+                                false
+                            }
+                        });
                         let list = f.media.clone();
                         this.sync_media_list("", list);
                         this.fetch_thumbs(cx);
@@ -649,7 +659,7 @@ impl AppView {
                 .into_any_element()
         } else if look == media::Look::Picture {
             let picture = |p: &PathBuf| {
-                img(p.clone())
+                img(crate::pictures::file(p, crate::pictures::Size::Whole))
                     .size_full()
                     .object_fit(ObjectFit::Contain)
                     .into_any_element()
@@ -1545,7 +1555,12 @@ impl AppView {
                     if let Some(made) = made {
                         let image =
                             std::sync::Arc::new(RenderImage::new(vec![image::Frame::new(made)]));
-                        f.thumbs.borrow_mut().insert(key.0, (w, h, image));
+                        // One made for another size goes.
+                        if let Some((_, _, old)) =
+                            f.thumbs.borrow_mut().insert(key.0, (w, h, image))
+                        {
+                            crate::pictures::drop_later(old);
+                        }
                         cx.notify();
                     }
                 })
@@ -1629,7 +1644,7 @@ impl AppView {
                         match self.thumb_for(&m.id, Picture::File(p.clone()), inner_w, thumb_h, cx)
                         {
                             Some(t) => img(t).size_full().into_any_element(),
-                            None => img(p)
+                            None => img(crate::pictures::file(&p, crate::pictures::Size::Thumb))
                                 .size_full()
                                 .object_fit(ObjectFit::Cover)
                                 .into_any_element(),
