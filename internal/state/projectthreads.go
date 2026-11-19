@@ -125,6 +125,16 @@ func addProjectMessage(ctx context.Context, tx *trace.Tx, m ProjectMessage) erro
 	return err
 }
 
+// PinProjectThreadSession pins session as project's side of a thread, so
+// every later message of it is shown in, and wakes, that session.
+func (s *Store) PinProjectThreadSession(ctx context.Context, id, project, session string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE project_threads SET
+		project_session = CASE WHEN project = ? THEN ? ELSE project_session END,
+		peer_session = CASE WHEN project = ? THEN peer_session ELSE ? END
+		WHERE id = ?`, project, session, project, session, id)
+	return err
+}
+
 // SettleProjectThread closes an alignment with the summary both leads agreed.
 // It is ErrNotFound for a thread that isn't open.
 func (s *Store) SettleProjectThread(ctx context.Context, id, by, summary string, at time.Time) error {
