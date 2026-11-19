@@ -34,6 +34,30 @@ import (
 // they go with it when the agent is destroyed (nodemods.Store.Remove, Trim).
 // It's on whenever node_modules are kept in the VM (NodeModulesOn).
 
+// A Cargo workspace isn't always there when the agent is made: an agent made
+// from an older commit gets one when it checks out a newer one, and its
+// builds went into the worktree through the shared folder (19 Nov 2026: two
+// agentbox_native builds, 15 to 30 minutes each, with virtiofsd holding 550
+// files open in each target/). So the mounts are looked at again as the
+// machine starts (startMachine), and whatever Cargo builds wherever, its
+// intermediate files — every crate's rlibs and objects, incremental caches,
+// build scripts' output, all but the final binaries — go to the machine's
+// own disk (build.build-dir, cargoBuildDirEnv), one directory a workspace.
+// target/ keeps what scripts and people look for there (target/release/x),
+// so nothing that reads it changes. Cargo before 1.91 ignores the variable.
+
+// CargoBuildDir is where an agent's Cargo puts a workspace's intermediate
+// files: on its machine's own disk, under its home, one directory each.
+func (m *Manager) CargoBuildDir() string {
+	return "/home/" + m.User.Name + "/.cache/agentbox/cargo-build/{workspace-path-hash}"
+}
+
+// cargoBuildDirEnv is the env file's line for it, unless the agent set one.
+func (m *Manager) cargoBuildDirEnv() string {
+	return "# Cargo's intermediate build files on this machine's own disk, not the shared folder.\n" +
+		"[ -n \"${CARGO_BUILD_BUILD_DIR:-}\" ] || export CARGO_BUILD_BUILD_DIR=" + shellQuote(m.CargoBuildDir()) + "\n"
+}
+
 // buildOutputDevice is the prefix of the disk devices that mount them.
 const buildOutputDevice = "build-output-"
 
