@@ -134,11 +134,7 @@ impl ChatView {
                 this.update(cx, |this, cx| {
                     #[cfg(feature = "video")]
                     if let Some(path) = rec_path {
-                        let player = cx.new(|cx| {
-                            let mut p = crate::video::VideoPlayer::new(path, cx);
-                            p.set_bare();
-                            p
-                        });
+                        let player = cx.new(|_| crate::video::VideoPlayer::card(path));
                         this.evidence.players.insert(r2.clone(), player);
                     }
                     #[cfg(not(feature = "video"))]
