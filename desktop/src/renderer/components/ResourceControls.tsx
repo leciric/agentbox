@@ -658,6 +658,24 @@ export function HostFootprint({ vm, className }: { vm: VMPower; className?: stri
   );
 }
 
+// HostLimit says the user's computer is what holds the VM back, while it is:
+// the VM would grow to what its agents need, but the computer has only so
+// much free beyond what it keeps for itself (the supervisor's memoryWanted).
+export function HostLimit({ vm, className }: { vm: VMPower; className?: string }) {
+  const t = useT();
+  if (!vm.memoryWanted || vm.memoryWanted <= vm.memoryGranted) return null;
+  return (
+    <Notice tone="warning" className={cn('text-caption', className)} data-host-limit>
+      {t('shell.machine.hostLimit', {
+        wanted: humanBytes(vm.memoryWanted),
+        granted: humanBytes(vm.memoryGranted),
+        available: humanBytes(vm.hostAvailable ?? 0),
+        keeps: humanBytes(vm.hostKeeps ?? 0),
+      })}
+    </Notice>
+  );
+}
+
 // WSLMemory is the WSL distro's memory: what's in use of all WSL lets it have,
 // which it isn't given up front, so there's no granted share to show.
 function WSLMemory({ vm }: { vm: VMPower }) {

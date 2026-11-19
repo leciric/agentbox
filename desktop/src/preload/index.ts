@@ -109,6 +109,12 @@ export interface VMPower {
   // included, and memoryHostCache what the host caches of its disks besides.
   memoryResident?: number;
   memoryHostCache?: number;
+  // memoryWanted is what the VM would grow to if the host could spare it, set
+  // only while the host's memory is what holds it back; hostAvailable is what
+  // the host had available then, and hostKeeps what it keeps for itself.
+  memoryWanted?: number;
+  hostAvailable?: number;
+  hostKeeps?: number;
   cpus: number;
   error?: string; // why the VM can't be reached or controlled, if it can't
   // pausedForDisk: the supervisor paused it because the host's disk that holds

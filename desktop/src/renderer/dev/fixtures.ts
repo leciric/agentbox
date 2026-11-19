@@ -1555,7 +1555,7 @@ function stopAgents(refs: string[]) {
 // AgentBox's WSL distro running or stopped (wsl-running, wsl-off). tight puts
 // the VM's memory (or the host's) past the top bar's 85%; near puts the Claude
 // account's five-hour window at 92%.
-export function seedPower(queryClient: QueryClient, power: string, { tight = false, near = false } = {}): void {
+export function seedPower(queryClient: QueryClient, power: string, { tight = false, near = false, hostLimited = false } = {}): void {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: (tight ? 29 : 21) * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], claudeLimits(near));
@@ -1589,6 +1589,8 @@ export function seedPower(queryClient: QueryClient, power: string, { tight = fal
         memoryCap: 24 * GiB,
         cpus: 12,
         ...(up ? { disk, hostFree: disk.hostFree } : {}),
+        // The host holds it back: its agents need 21 GiB, it has 16.
+        ...(up && hostLimited ? { memoryWanted: 21 * GiB, hostAvailable: 4.1 * GiB, hostKeeps: 3.8 * GiB } : {}),
       };
   if (state === 'off') {
     const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));

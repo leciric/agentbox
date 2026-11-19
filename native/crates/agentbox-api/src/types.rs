@@ -6355,6 +6355,10 @@ pub struct VMMemory {
     pub granted: i64,
     #[serde(rename = "hostReserve", skip_serializing_if = "is_empty")]
     pub host_reserve: i64,
+    #[serde(rename = "hostAvailable", skip_serializing_if = "is_empty")]
+    pub host_available: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub wanted: i64,
     #[serde(rename = "hostTotal", skip_serializing_if = "is_empty")]
     pub host_total: i64,
     pub used: i64,

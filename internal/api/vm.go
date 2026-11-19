@@ -193,11 +193,19 @@ type VMMemory struct {
 	Min     int64 `json:"min"`     // what it boots with, and never goes below
 	Cap     int64 `json:"cap"`     // the most it may be granted, as the user set it
 	Granted int64 `json:"granted"` // what it may use now
-	// HostReserve is what the host keeps of its memory for itself, the
-	// larger of 4 GiB and a quarter: Cap is never more than the host's
-	// memory less this, and the VM stops growing while the host has less
-	// than this available. 0 when the host's memory is unknown.
+	// HostReserve is what the host keeps available for itself while the VM
+	// runs, the larger of 3 GiB and an eighth of its memory: the VM grows
+	// only into what the host has beyond it, and gives back while the host
+	// has less. 0 when the host's memory is unknown.
 	HostReserve int64 `json:"hostReserve,omitempty"`
+	// HostAvailable is what the host had available at the VM's last look;
+	// 0 when it's off or unknown.
+	HostAvailable int64 `json:"hostAvailable,omitempty"`
+	// Wanted is what the VM would grow to now if the host could spare it,
+	// when the host's memory is what holds it back: it has less than
+	// HostReserve beyond what the VM holds, or it is short of memory itself.
+	// 0 otherwise.
+	Wanted int64 `json:"wanted,omitempty"`
 	// HostTotal is the host's own memory, which Cap may be said as a share
 	// of; 0 when unknown.
 	HostTotal int64 `json:"hostTotal,omitempty"`

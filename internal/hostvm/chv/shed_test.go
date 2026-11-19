@@ -46,6 +46,11 @@ func TestSupervisorHostLoadForMemory(t *testing.T) {
 	if got := s.hostBusyFor(now); got != "" {
 		t.Errorf("busy for the CPU: %q, want nothing", got)
 	}
+	// Nor its disk: a VM short of memory is what keeps it busy.
+	s.noteHostLoad(api.HostLoad{Busy: true, Why: "io", At: now})
+	if got := s.hostBusyFor(now); got != "" {
+		t.Errorf("busy for its disk: %q, want nothing", got)
+	}
 	s.noteHostLoad(api.HostLoad{Busy: false, At: now})
 	if got := s.hostBusyFor(now); got != "" {
 		t.Errorf("calm: %q", got)
