@@ -9,8 +9,10 @@
 //! Keys, as the Electron app's: ← → the proof, N/P the agents, D diff, I
 //! details, R mark reviewed, C request changes, M twice merges, Q a pair's
 //! mode, Space plays (or flips), Esc backs out.
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use agentbox_api::{
     Client, MediaItem, MergeAgentRequest, MergeAgentResult, MergePullRequestRequest,
@@ -33,6 +35,7 @@ use crate::media::{self, Shown};
 use crate::toasts::{self, Kind, Toast};
 #[cfg(feature = "video")]
 use crate::video::VideoPlayer;
+use crate::zoom::{self, Fit, Zoom};
 use crate::{motion, prefs, theme};
 
 pub enum ReviewEvent {
@@ -163,9 +166,19 @@ fn difference_of(before: PathBuf, after: PathBuf, out: PathBuf) -> Difference {
     }
 }
 
-/// The zoom steps (lib/zoom.ts zoomStep) and how far in it goes.
+/// The zoom steps (lib/zoom.ts zoomStep) and how far in it goes, for a
+/// recording; a picture's are zoom.rs's.
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM_MAX: f32 = 8.;
+
+/// stage_fit is a picture's `Fit` on a stage: its own size over the stage as
+/// last drawn, None until both are known.
+fn stage_fit(natural: Option<(f32, f32)>, stage: &Cell<Bounds<Pixels>>) -> Option<Fit> {
+    let natural = natural.filter(|(w, h)| *w > 0. && *h > 0.)?;
+    let size = stage.get().size;
+    let stage = (f32::from(size.width), f32::from(size.height));
+    (stage.0 > 0. && stage.1 > 0.).then_some(Fit { stage, natural })
+}
 
 pub struct ReviewView {
     client: Client,
@@ -186,19 +199,28 @@ pub struct ReviewView {
     players: HashMap<String, Entity<VideoPlayer>>,
     compare: Compare,
     flipped: bool,
+    /// The last click flipped it, which a double-click's second takes back.
+    flip_clicked: bool,
     /// Slider: where the divider is (0..1) and the box it's dragged in.
     slider: f32,
     slider_box: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
     /// Highlight changes is on, and what it found for each pair.
     highlight: bool,
     differences: HashMap<String, Difference>,
-    /// How far what's on stage is zoomed (1 fits it), and whether it's
-    /// open large over the whole review.
+    /// How far a picture on stage is zoomed and where (zoom.rs's, as the
+    /// chat's large view has it); a pair's halves share it, so they zoom and
+    /// pan together. It is fitted by the picture's own size, from its file,
+    /// and the bounds its stage was last drawn in (a pair's two halves have
+    /// one each; the slider's is its box).
+    view: Zoom,
+    sizes: HashMap<String, (f32, f32)>,
+    stages: [Rc<Cell<Bounds<Pixels>>>; 2],
+    /// How far a recording on stage is zoomed (1 fits it), as the players
+    /// read it, and the scroll it pans by.
     zoom: f32,
-    /// The zoom as the players read it, and the scroll every zoomed picture
-    /// pans by: a pair's halves, side by side, pan together.
-    zoom_shared: std::rc::Rc<std::cell::Cell<f32>>,
+    zoom_shared: Rc<Cell<f32>>,
     pan: ScrollHandle,
+    /// Whether what's on stage is open large over the whole review.
     expanded: bool,
     /// The agent's Hatch pages, part of its proof.
     pages: Option<Vec<agentbox_api::Artifact>>,
@@ -272,6 +294,7 @@ impl ReviewView {
                     .unwrap_or("side"),
             ),
             flipped: false,
+            flip_clicked: false,
             slider: 0.5,
             slider_box: Default::default(),
             highlight: prefs::get(COMPARE_KEY)
@@ -280,8 +303,11 @@ impl ReviewView {
                 .and_then(|m| m.as_bool())
                 .unwrap_or(false),
             differences: HashMap::new(),
+            view: Zoom::default(),
+            sizes: HashMap::new(),
+            stages: Default::default(),
             zoom: 1.,
-            zoom_shared: std::rc::Rc::new(std::cell::Cell::new(1.)),
+            zoom_shared: Rc::new(Cell::new(1.)),
             pan: ScrollHandle::new(),
             expanded: false,
             pages: None,
@@ -471,6 +497,7 @@ impl ReviewView {
         self.zoom = zoom;
         self.zoom_shared.set(zoom);
         self.pan.set_offset(point(px(0.), px(0.)));
+        self.view = Zoom::default();
     }
 
     fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
@@ -482,6 +509,70 @@ impl ReviewView {
             self.pan.set_offset(point(px(0.), px(0.)));
         }
         cx.notify();
+    }
+
+    /// on_pictures is whether what's on stage is pictures, zoomed as zoom.rs
+    /// has it, and not a recording, which scrolls.
+    fn on_pictures(&self) -> bool {
+        match self.gallery.get(self.at) {
+            Some(Shown::Screenshot(_)) => true,
+            Some(Shown::Pair(p)) => p.before.kind != "recording",
+            _ => false,
+        }
+    }
+
+    /// stage_fit is the `Fit` of the picture the zoom's limits come from: the
+    /// one on stage, a pair's after under Side and the slider.
+    fn stage_fit(&self) -> Option<Fit> {
+        let (m, stage) = match self.gallery.get(self.at)? {
+            Shown::Screenshot(m) => (m, &self.stages[0]),
+            Shown::Pair(p) => match self.compare {
+                Compare::Side => (&p.after, &self.stages[1]),
+                Compare::Slider => (&p.after, &self.slider_box),
+                Compare::Flip if self.flipped => (&p.before, &self.stages[0]),
+                Compare::Flip => (&p.after, &self.stages[0]),
+            },
+            _ => return None,
+        };
+        stage_fit(self.sizes.get(&m.id).copied(), stage)
+    }
+
+    /// zoom_step is a step in or out of what's on stage.
+    fn zoom_step(&mut self, up: bool, cx: &mut Context<Self>) {
+        if self.on_pictures() {
+            if self.view.step(up, self.stage_fit()) {
+                cx.notify();
+            }
+        } else {
+            let to = if up {
+                self.zoom * ZOOM_STEP
+            } else {
+                self.zoom / ZOOM_STEP
+            };
+            self.set_zoom(to, cx);
+        }
+    }
+
+    /// zoom_fit is back to fit.
+    fn zoom_fit(&mut self, cx: &mut Context<Self>) {
+        if self.on_pictures() {
+            if self.view.reset() {
+                cx.notify();
+            }
+        } else {
+            self.set_zoom(1., cx);
+        }
+    }
+
+    /// zoom_now is the zoom of what's on stage, and whether it's the most.
+    fn zoom_now(&self) -> (f32, bool) {
+        if self.on_pictures() {
+            let scale = self.view.scale;
+            let most = self.stage_fit().is_none_or(|f| scale >= f.max() - 1e-3);
+            (scale, most)
+        } else {
+            (self.zoom, self.zoom >= ZOOM_MAX)
+        }
     }
 
     /// fetch_files reads every picture and recording of the proof into the cache.
@@ -506,6 +597,10 @@ impl ReviewView {
                 this.update(cx, |this, cx| {
                     match res {
                         Ok(p) => {
+                            // Read from its header: what it is fitted by.
+                            if let Ok((w, h)) = image::image_dimensions(&p) {
+                                this.sizes.insert(id.clone(), (w as f32, h as f32));
+                            }
                             this.files.insert(id, p);
                         }
                         Err(e) => {
@@ -647,6 +742,8 @@ impl ReviewView {
     fn pick(&mut self, at: usize, cx: &mut Context<Self>) {
         self.at = at;
         self.flipped = false;
+        // Another picture shows whole, not at the last one's zoom.
+        self.set_zoom_quiet(1.);
         self.sync_players(cx);
         cx.notify();
     }
@@ -1136,7 +1233,11 @@ impl ReviewView {
         if typing || noting {
             return;
         }
-        if k.modifiers.control || k.modifiers.alt || k.modifiers.platform {
+        // Zoom's keys take Ctrl (or ⌘) too, as the chat's large view's do.
+        let zoom_key = !k.modifiers.alt
+            && self.pane() == Pane::Proof
+            && matches!(k.key.as_str(), "+" | "=" | "-" | "_" | "0");
+        if !zoom_key && (k.modifiers.control || k.modifiers.alt || k.modifiers.platform) {
             return;
         }
         if k.key != "m" {
@@ -1158,9 +1259,9 @@ impl ReviewView {
                 self.expanded = !self.expanded;
                 cx.notify();
             }
-            "+" | "=" if self.pane() == Pane::Proof => self.set_zoom(self.zoom * ZOOM_STEP, cx),
-            "-" if self.pane() == Pane::Proof => self.set_zoom(self.zoom / ZOOM_STEP, cx),
-            "0" if self.pane() == Pane::Proof => self.set_zoom(1., cx),
+            "+" | "=" if self.pane() == Pane::Proof => self.zoom_step(true, cx),
+            "-" | "_" if self.pane() == Pane::Proof => self.zoom_step(false, cx),
+            "0" if self.pane() == Pane::Proof => self.zoom_fit(cx),
             "m" => {
                 if self.armed {
                     self.merge(cx);
@@ -1662,22 +1763,6 @@ impl ReviewView {
         let Some(shown) = self.gallery.get(self.at) else {
             return div().into_any_element();
         };
-        // The stage's frame: the picture on black in a ringed card (Still).
-        let frame = |el: AnyElement| {
-            div()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::radius::XL)
-                .border_1()
-                .border_color(theme::line_strong())
-                .bg(theme::pitch())
-                .overflow_hidden()
-                .child(el)
-        };
         let label = |s: String| {
             div()
                 .flex_none()
@@ -1688,10 +1773,10 @@ impl ReviewView {
                 .child(s)
         };
         match shown {
-            Shown::Screenshot(m) => frame(self.zoomed(&m.id, self.picture(m)))
-                .id("review-shot")
+            Shown::Screenshot(m) => self
+                .shot(m, 0, None, cx)
                 .size_full()
-                .when(!self.expanded && self.zoom <= 1., |el| {
+                .when(!self.expanded && !self.view.zoomed(), |el| {
                     el.cursor_pointer()
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.expanded = true;
@@ -1822,99 +1907,79 @@ impl ReviewView {
         }
     }
 
-    /// fitted is a picture contained in a box of size, centred, at sizes in
-    /// pixels: the slider's layers are absolute, where relative heights
-    /// don't reach.
-    fn fitted(&self, m: &MediaItem, size: Size<Pixels>, overlay: Option<&PathBuf>) -> AnyElement {
+    /// layer is a picture on the slider's box, the box its stage: whole at
+    /// fit, zoomed and panned with the other layer (the view's), the changes
+    /// a comparison marks over it when it's the after.
+    fn layer(&self, m: &MediaItem, overlay: Option<&PathBuf>) -> AnyElement {
         let Some(path) = self.files.get(&m.id) else {
             return self.picture(m);
         };
-        let (iw, ih) = image::image_dimensions(path).unwrap_or((16, 10));
-        let k = (f32::from(size.width) / iw.max(1) as f32)
-            .min(f32::from(size.height) / ih.max(1) as f32)
-            * self.zoom;
-        let (w, h) = (px(iw as f32 * k), px(ih as f32 * k));
-        div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                div()
-                    .relative()
-                    .flex_none()
-                    .w(w)
-                    .h(h)
-                    .child(img(path.clone()).w(w).h(h))
-                    .when_some(overlay.cloned(), |el, o| {
-                        el.child(img(o).absolute().top_0().left_0().w(w).h(h))
-                    }),
-            )
-            .into_any_element()
+        let fit = stage_fit(self.sizes.get(&m.id).copied(), &self.slider_box);
+        zoom::placed(
+            fit,
+            &self.view,
+            path.clone(),
+            overlay.map(|o| ImageSource::from(o.clone())),
+        )
+        .into_any_element()
     }
 
-    /// zoomed is a picture at the stage's zoom: past fit it scrolls to pan.
-    fn zoomed(&self, id: &str, el: AnyElement) -> AnyElement {
-        // Its scroll is there at fit too, so the first zoom knows the
-        // view's size and keeps its middle.
-        div()
-            .id(SharedString::from(format!("zoom-{id}")))
-            .size_full()
-            .overflow_scroll()
-            .track_scroll(&self.pan)
-            .when(self.zoom > 1.0001, |el| el.cursor_grab())
-            .map(|el| crate::viewers::drag_pans(el, &self.pan))
-            .child(
-                div()
-                    .flex_none()
-                    .w(relative(self.zoom))
-                    .h(relative(self.zoom))
-                    .child(el),
-            )
-            .into_any_element()
-    }
-
-    /// shot is a pair's screenshot zoomed, with the highlight over it when
-    /// it's the after.
-    fn shot(&self, m: &MediaItem, overlay: Option<&PathBuf>) -> AnyElement {
-        let el = div()
+    /// shot is a screenshot on its stage, framed (the picture on black in a
+    /// ringed card, Still): whole at fit, zoomed and panned as zoom.rs does,
+    /// the changes a comparison marks over it when it's the after. A pair's
+    /// halves are stages 0 and 1 and share the view.
+    fn shot(
+        &self,
+        m: &MediaItem,
+        side: usize,
+        overlay: Option<&PathBuf>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let stage = div()
+            .id(SharedString::from(format!("shot-{}-{side}", m.id)))
             .relative()
-            .size_full()
-            .child(self.picture(m))
-            .when_some(overlay.cloned(), |el, o| {
-                el.child(
-                    img(o)
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .object_fit(ObjectFit::Contain),
-                )
-            })
-            .into_any_element();
-        self.zoomed(&m.id, el)
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .rounded(theme::radius::XL)
+            .border_1()
+            .border_color(theme::line_strong())
+            .bg(theme::pitch())
+            .overflow_hidden();
+        let Some(path) = self.files.get(&m.id) else {
+            // Not here yet, or not to be: what stands in for it.
+            return stage
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(self.picture(m));
+        };
+        let natural = self.sizes.get(&m.id).copied();
+        let bounds = &self.stages[side];
+        let fit = stage_fit(natural, bounds);
+        let measured = bounds.clone();
+        let fit_now = zoom::fit_fn(move |_| stage_fit(natural, &measured));
+        let picture = zoom::placed(
+            fit,
+            &self.view,
+            path.clone(),
+            overlay.map(|o| ImageSource::from(o.clone())),
+        );
+        zoom::attach(
+            stage.child(picture),
+            &self.view,
+            |this: &mut Self| &mut this.view,
+            bounds,
+            fit_now,
+            true,
+            cx,
+        )
     }
 
     /// render_pair is two screenshots compared (ReviewCompare): side by
     /// side, one over the other with a divider to drag, or flipped; the
     /// pixels that changed highlighted over the after.
     fn render_pair(&self, p: &media::Pair, cx: &mut Context<Self>) -> AnyElement {
-        // The stage's frame: the picture on black in a ringed card (Still).
-        let frame = |el: AnyElement| {
-            div()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::radius::XL)
-                .border_1()
-                .border_color(theme::line_strong())
-                .bg(theme::pitch())
-                .overflow_hidden()
-                .child(el)
-        };
         let label = |s: String| {
             div()
                 .flex_none()
@@ -2004,7 +2069,7 @@ impl ReviewView {
                         .h_full()
                         .gap_1()
                         .child(label(t("review.compare.before")))
-                        .child(frame(self.shot(&p.before, None))),
+                        .child(self.shot(&p.before, 0, None, cx)),
                 )
                 .child(
                     v_flex()
@@ -2013,7 +2078,7 @@ impl ReviewView {
                         .h_full()
                         .gap_1()
                         .child(label(t("review.compare.after")))
-                        .child(frame(self.shot(&p.after, overlay))),
+                        .child(self.shot(&p.after, 1, overlay, cx)),
                 )
                 .into_any_element(),
             Compare::Slider => {
@@ -2021,7 +2086,6 @@ impl ReviewView {
                 // The pictures at the box's size, as measured (relative
                 // heights don't reach through the absolute layers).
                 let size = self.slider_box.get().size;
-                let bounds = self.slider_box.clone();
                 let read = self.slider_box.clone();
                 let at = move |pos: Point<Pixels>| {
                     let b = read.get();
@@ -2031,7 +2095,7 @@ impl ReviewView {
                     Some(((pos.x - b.origin.x) / b.size.width).clamp(0., 1.))
                 };
                 let at2 = at.clone();
-                div()
+                let slider = div()
                     .id("review-slider")
                     .flex_1()
                     .min_h_0()
@@ -2042,24 +2106,6 @@ impl ReviewView {
                     .overflow_hidden()
                     .bg(theme::pitch())
                     .cursor_col_resize()
-                    .child({
-                        let me = cx.entity().downgrade();
-                        canvas(
-                            move |b, window, _| {
-                                // Measured: the pictures take its size next frame.
-                                if bounds.get().size != b.size {
-                                    let me = me.clone();
-                                    window.on_next_frame(move |_, cx| {
-                                        me.update(cx, |_, cx| cx.notify()).ok();
-                                    });
-                                }
-                                bounds.set(b)
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full()
-                    })
                     .child(
                         div()
                             .absolute()
@@ -2067,7 +2113,7 @@ impl ReviewView {
                             .left_0()
                             .w(size.width)
                             .h(size.height)
-                            .child(self.fitted(&p.after, size, overlay)),
+                            .child(self.layer(&p.after, overlay)),
                     )
                     .child(
                         div()
@@ -2081,7 +2127,7 @@ impl ReviewView {
                                 div()
                                     .w(size.width)
                                     .h(size.height)
-                                    .child(self.fitted(&p.before, size, None)),
+                                    .child(self.layer(&p.before, None)),
                             ),
                     )
                     // The divider, ringed so it reads on any picture, and
@@ -2166,8 +2212,23 @@ impl ReviewView {
                             this.slider = f;
                             cx.notify();
                         }
-                    }))
-                    .into_any_element()
+                    }));
+                // Its box is the pictures' stage, measured for them (the
+                // pictures take its size next frame). A drag moves the
+                // divider, so only the wheel pans.
+                let natural = self.sizes.get(&p.after.id).copied();
+                let measured = self.slider_box.clone();
+                let fit_now = zoom::fit_fn(move |_| stage_fit(natural, &measured));
+                zoom::attach(
+                    slider,
+                    &self.view,
+                    |this: &mut Self| &mut this.view,
+                    &self.slider_box,
+                    fit_now,
+                    false,
+                    cx,
+                )
+                .into_any_element()
             }
             Compare::Flip => {
                 let (side, m, o) = if self.flipped {
@@ -2181,12 +2242,24 @@ impl ReviewView {
                     .min_h_0()
                     .gap_1()
                     .cursor_pointer()
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.flipped = !this.flipped;
+                    .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
+                        // At fit a click flips. A zoomed picture's clicks end
+                        // drags, and a double-click's second is the zoom's:
+                        // it takes back the flip its first made.
+                        match ev.click_count() {
+                            1 if !this.view.zoomed() => {
+                                this.flipped = !this.flipped;
+                                this.flip_clicked = true;
+                            }
+                            2 if std::mem::take(&mut this.flip_clicked) => {
+                                this.flipped = !this.flipped;
+                            }
+                            _ => this.flip_clicked = false,
+                        }
                         cx.notify();
                     }))
                     .child(label(side))
-                    .child(frame(self.shot(m, o)))
+                    .child(self.shot(m, 0, o, cx))
                     .into_any_element()
             }
         };
@@ -2420,12 +2493,13 @@ impl ReviewView {
         let zoomable = !matches!(self.gallery.get(self.at), None | Some(Shown::Page(_)));
         let mut out = Vec::new();
         if zoomable {
+            let (scale, most) = self.zoom_now();
             out.push(controls::button(
                 "zoom-out",
                 "−",
                 Btn::Ghost,
-                self.zoom <= 1.,
-                cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(this.zoom / ZOOM_STEP, cx)),
+                scale <= 1.001,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_step(false, cx)),
             ));
             out.push(
                 div()
@@ -2443,10 +2517,10 @@ impl ReviewView {
                         gpui_component::tooltip::Tooltip::new(t("review.zoom.fitTitle"))
                             .build(w, cx)
                     })
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(1., cx)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_fit(cx)))
                     .child(format!(
                         "{}% · {}",
-                        (self.zoom * 100.).round(),
+                        (scale * 100.).round(),
                         t("review.zoom.fit")
                     ))
                     .into_any_element(),
@@ -2455,8 +2529,8 @@ impl ReviewView {
                 "zoom-in",
                 "+",
                 Btn::Ghost,
-                self.zoom >= ZOOM_MAX,
-                cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(this.zoom * ZOOM_STEP, cx)),
+                most,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_step(true, cx)),
             ));
         }
         if let Some(Shown::Page(p)) = self.gallery.get(self.at)
@@ -2550,9 +2624,10 @@ impl ReviewView {
             .into_any_element()
     }
 
-    /// on_wheel zooms with Ctrl (or ⌘) held, as the Electron app does.
+    /// on_wheel zooms a recording with Ctrl (or ⌘) held, as the Electron app
+    /// does; a picture's stage takes the wheel itself (zoom.rs).
     fn on_wheel(&mut self, ev: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if !(ev.modifiers.control || ev.modifiers.platform) {
+        if self.on_pictures() || !(ev.modifiers.control || ev.modifiers.platform) {
             return;
         }
         let dy = match ev.delta {

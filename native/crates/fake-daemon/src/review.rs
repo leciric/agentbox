@@ -6,7 +6,9 @@
 //! `settings-after.png` and `home.png` (screenshots of the display, `ffmpeg -f
 //! x11grab -frames:v 1`) and `walkthrough.mp4` (a 9 s x11grab recording, H.264
 //! High, yuv420p, +faststart, as `agentbox media record` saves them). Missing
-//! ones are made from FFmpeg's test source on start.
+//! ones are made from FFmpeg's test source on start. `tall.png` and
+//! `wide.png` stand for a long page's full-page screenshot and a panorama:
+//! far past the display's shape, framed in red so an edge cut off shows.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -18,8 +20,20 @@ const FILES: &[(&str, &str, &str)] = &[
     ("settings-before.png", "screenshot", "image/png"),
     ("settings-after.png", "screenshot", "image/png"),
     ("home.png", "screenshot", "image/png"),
+    ("tall.png", "screenshot", "image/png"),
+    ("wide.png", "screenshot", "image/png"),
     ("walkthrough.mp4", "recording", "video/mp4"),
 ];
+
+/// A file's size in pixels: the display's, but for the tall and the wide
+/// screenshots.
+fn size_of(file: &str) -> (i64, i64) {
+    match file {
+        "tall.png" => (900, 3200),
+        "wide.png" => (3200, 700),
+        _ => (1440, 900),
+    }
+}
 
 /// The recording's length, in seconds.
 const RECORDING: f64 = 9.0;
@@ -50,7 +64,14 @@ pub fn make_files(dir: &Path) {
                 "+faststart",
             ]);
         } else {
-            cmd.args(["testsrc2=size=1440x900", "-frames:v", "1"]);
+            let (w, h) = size_of(file);
+            // The tall and wide ones get a red frame at their very edge.
+            let frame = if size_of(file) == (1440, 900) {
+                String::new()
+            } else {
+                format!(",drawbox=x=0:y=0:w={w}:h={h}:color=red:t=24")
+            };
+            cmd.args([&format!("testsrc2=size={w}x{h}{frame}"), "-frames:v", "1"]);
         }
         let ok = cmd.arg("-y").arg(&path).status().is_ok_and(|s| s.success());
         eprintln!("made {} from the test source: {ok}", path.display());
@@ -126,7 +147,7 @@ const FIXTURES: &[Fixture] = &[
             "The doctor no longer flags them, but the setup page still shows a stale warning until it is reopened.",
             &["Setup's warning is stale until reopened"],
         )),
-        media: &["home"],
+        media: &["home", "tall", "wide"],
     },
     Fixture {
         agent: "agent-05",
@@ -390,8 +411,8 @@ impl Review {
                 size: size as i64,
                 source: "agent".into(),
                 meta: MediaMeta {
-                    width: 1440,
-                    height: 900,
+                    width: size_of(file).0,
+                    height: size_of(file).1,
                     duration: if *kind == "recording" { RECORDING } else { 0. },
                     target: "display".into(),
                     pair: pair.into(),
@@ -452,6 +473,20 @@ impl Review {
                     "home",
                     "home.png",
                     during(RECORDING) - Duration::from_secs(40),
+                    "",
+                    "",
+                )),
+                "tall" => out.push(file(
+                    "tall",
+                    "tall.png",
+                    during(RECORDING) - Duration::from_secs(50),
+                    "",
+                    "",
+                )),
+                "wide" => out.push(file(
+                    "wide",
+                    "wide.png",
+                    during(RECORDING) - Duration::from_secs(60),
                     "",
                     "",
                 )),
