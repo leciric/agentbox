@@ -12,14 +12,15 @@ import (
 	"agentbox/internal/state"
 )
 
-// Heavy commands are gated where every AI tool, and the terminal, goes
+// Heavy commands are seen where every AI tool, and the terminal, goes
 // through: the commands themselves. Each machine has a directory of small
 // shims named after the build and test tools (go, cargo, npm, pnpm, make,
 // docker…), first in PATH. A shim runs `agentbox heavy-shim`, which runs
 // the real command at once unless it is a heavy one (a build, a test run,
-// a dev server), and otherwise asks the daemon first, waits its turn, joins
-// a cgroup of its own and starts with as many jobs as the VM's memory
-// allows (WorkerEnv), as `agentbox heavy` does. Inside a heavy command
+// a dev server), and otherwise tells the daemon it starts (so the agent
+// counts as working), joins a cgroup of its own and starts at once with as
+// many jobs as the VM's memory allows (WorkerEnv), as `agentbox heavy`
+// does. Nothing waits for memory (19 Nov 2026). Inside a heavy command
 // (AGENTBOX_HEAVY set) a shim runs the real one straight from the shell.
 //
 // Claude Code's hook around its Bash tool did this for Claude Code alone,

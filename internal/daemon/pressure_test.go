@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -20,15 +21,14 @@ import (
 )
 
 // fakeRunCgroups is the runs' cgroups, as a test sees them: what was placed,
-// frozen, reclaimed and removed, and whether each still has processes.
+// frozen and removed, and whether each still has processes.
 type fakeRunCgroups struct {
-	mu        sync.Mutex
-	placed    map[string]int  // instance/key: the pid placed
-	frozen    map[string]bool // instance/key
-	reclaimed []string
-	removed   []string
-	empty     map[string]bool // instance/key: its processes have all gone
-	placeErr  error
+	mu       sync.Mutex
+	placed   map[string]int  // instance/key: the pid placed
+	frozen   map[string]bool // instance/key
+	removed  []string
+	empty    map[string]bool // instance/key: its processes have all gone
+	placeErr error
 }
 
 func runID(instance, key string) string { return instance + "/" + key }
@@ -53,13 +53,6 @@ func (f *fakeRunCgroups) Freeze(instance, key string, on bool) error {
 		f.frozen = map[string]bool{}
 	}
 	f.frozen[runID(instance, key)] = on
-	return nil
-}
-
-func (f *fakeRunCgroups) Reclaim(_ context.Context, instance, key string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.reclaimed = append(f.reclaimed, runID(instance, key))
 	return nil
 }
 
@@ -137,48 +130,62 @@ func (p *pressureTest) setAvailable(avail, swapped float64) {
 }
 
 // start asks for key to start, waiting at most wait.
-func (p *pressureTest) start(t *testing.T, key string, wait time.Duration) bool {
+// start asks for a heavy command of the agent's as its shim does, POST
+// /v1/self/heavy, and reports whether the daemon said it started.
+func (p *pressureTest) start(t *testing.T, key string) bool {
 	t.Helper()
-	out, err := p.srv.askHeavy(context.Background(), p.ref, p.instance, key, "go test ./"+key, time.Hour, wait)
-	if err != nil {
+	r := httptest.NewRequest(http.MethodPost, "/v1/self/heavy", strings.NewReader(`{"key":"`+key+`","command":"go test ./`+key+`","waitSeconds":600}`))
+	w := httptest.NewRecorder()
+	if err := p.srv.startHeavy(p.instance)(w, r); err != nil {
+		t.Fatal(err)
+	}
+	var out api.HeavyStart
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
 	return out.Started
 }
 
-func TestHeavyStartsOrWaits(t *testing.T) {
+// A heavy command starts the moment it asks, whatever the VM's memory says
+// (19 Nov 2026, the user's decision): under pressure, nearly out of memory,
+// the agents throttled at their shared limit. What the reading says is how
+// short memory is, which builds run fewer jobs for, and nothing holds it.
+func TestHeavyStartsAtOnceWhateverTheMemory(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
-	if !p.start(t, "first", time.Second) {
-		t.Fatal("a command didn't start in a calm VM")
+	ctx := context.Background()
+	for i, reading := range []func(){
+		func() { p.set(1, 0) },
+		func() { p.set(62, 8) },                      // 19 Nov 2026: agents stalled at their shared limit
+		func() { p.set(5, 5); p.setAvailable(1, 4) }, // nearly out, swap full
+	} {
+		reading()
+		p.srv.stepPressure(ctx)
+		key := "k" + strconv.Itoa(i)
+		if !p.start(t, key) {
+			t.Fatalf("%s waits", key)
+		}
 	}
-	p.set(50, 0)
-	out, err := p.srv.askHeavy(context.Background(), p.ref, p.instance, "second", "go test ./...", time.Hour, 100*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Started || !strings.Contains(out.Why, "under pressure (50%") {
-		t.Fatalf("under pressure, with one going: %+v", out)
-	}
-	// Its place is kept for the asker to ask again, and shows on the agent.
-	if h := p.srv.memoryHold(p.ref); h == nil || h.Waiting != 1 || h.Paused != 0 {
-		t.Fatalf("the agent's hold = %+v, want one waiting", h)
-	}
-	p.set(1, 0)
-	if !p.start(t, "second", time.Second) {
-		t.Fatal("the waiting command didn't start once pressure eased")
+	if why := p.srv.heavy.g.Why(); why != pressure.Low {
+		t.Errorf("memory short for %q, want %q", why, pressure.Low)
 	}
 	if h := p.srv.memoryHold(p.ref); h != nil {
-		t.Errorf("with both going, the hold = %+v", h)
+		t.Errorf("the agent's hold = %+v, with nothing waiting or paused", h)
+	}
+	if ps, err := p.client.Pressure(ctx); err != nil || len(ps.Runs) != 3 || ps.Runs[0].State != "running" {
+		t.Fatalf("GET /v1/pressure = %+v, %v", ps, err)
 	}
 }
 
-func TestPressurePausesNewest(t *testing.T) {
+// Nothing pauses a run for memory, however long pressure stays high or
+// however little is left; a run that ends has its cgroup removed, and one
+// whose processes all went ends at the next step.
+func TestPressureNeverPausesARun(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
 	ctx := context.Background()
 	for _, key := range []string{"old", "new"} {
-		if !p.start(t, key, time.Second) {
+		if !p.start(t, key) {
 			t.Fatalf("%s didn't start", key)
 		}
 		if err := p.srv.runCgroups.Place(p.instance, key, 100); err != nil {
@@ -189,31 +196,18 @@ func TestPressurePausesNewest(t *testing.T) {
 		p.srv.heavy.mu.Unlock()
 	}
 	p.set(90, 60)
-	p.srv.stepPressure(ctx)
-	p.srv.stepPressure(ctx)
-	if !p.cg.isFrozen(p.instance, "new") || p.cg.isFrozen(p.instance, "old") {
-		t.Fatalf("frozen = %v, want only the newer run", p.cg.frozen)
+	p.setAvailable(0.5, 4)
+	for range 5 {
+		p.srv.stepPressure(ctx)
 	}
-	if h := p.srv.memoryHold(p.ref); h == nil || h.Paused != 1 {
-		t.Fatalf("the agent's hold = %+v, want one paused", h)
+	if p.cg.isFrozen(p.instance, "new") || p.cg.isFrozen(p.instance, "old") {
+		t.Fatalf("frozen = %v, want none", p.cg.frozen)
 	}
-	waitFor(t, "the paused run's memory to be pushed out", func() bool {
-		p.cg.mu.Lock()
-		defer p.cg.mu.Unlock()
-		return len(p.cg.reclaimed) == 1
-	})
-	waitFor(t, "the agent to be told", func() bool {
-		events, err := p.srv.memory().Events(ctx, "hello-stack", memory.EventFilter{Types: []string{"memory_paused"}})
-		return err == nil && len(events) == 1
-	})
-
-	p.set(1, 0)
-	p.srv.stepPressure(ctx)
-	if p.cg.isFrozen(p.instance, "new") {
-		t.Fatal("the paused run didn't resume once calm")
+	if h := p.srv.memoryHold(p.ref); h != nil {
+		t.Fatalf("the agent's hold = %+v", h)
 	}
 	// The old run ends: its cgroup goes.
-	p.srv.endRuns(ctx, func(g *pressure.Governor) []*pressure.Run { return []*pressure.Run{g.End(p.ref, "old")} })
+	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run { return []*pressure.Run{g.End(p.ref, "old")} })
 	if len(p.cg.removed) != 1 || p.cg.removed[0] != runID(p.instance, "old") {
 		t.Errorf("removed %v", p.cg.removed)
 	}
@@ -227,63 +221,26 @@ func TestPressurePausesNewest(t *testing.T) {
 	}
 }
 
-func TestRunningOutPausesBeforePressureShows(t *testing.T) {
+// Dropping an agent's runs, as it stops or goes, ends every one of them.
+func TestHeavyDropEndsAnAgentsRuns(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
-	ctx := context.Background()
-	for _, key := range []string{"old", "mid", "new"} {
-		if !p.start(t, key, time.Second) {
-			t.Fatalf("%s didn't start", key)
+	for _, key := range []string{"a", "b"} {
+		if !p.start(t, key) {
+			t.Fatal("didn't start")
 		}
-		if err := p.srv.runCgroups.Place(p.instance, key, 100); err != nil {
-			t.Fatal(err)
-		}
-		p.srv.heavy.mu.Lock()
-		p.srv.heavy.g.Place(p.ref, key)
-		p.srv.heavy.mu.Unlock()
 	}
-	// No pressure to speak of yet, but 1 GiB left and swap full.
-	p.set(5, 5)
-	p.setAvailable(1, 4)
-	p.srv.stepPressure(ctx)
-	if !p.cg.isFrozen(p.instance, "new") || !p.cg.isFrozen(p.instance, "mid") || p.cg.isFrozen(p.instance, "old") {
-		t.Fatalf("frozen = %v, want all but the oldest", p.cg.frozen)
+	p.srv.dropHeavy(p.ref)
+	if runs := p.srv.heavy.g.Running(); len(runs) != 0 {
+		t.Errorf("still running: %d", len(runs))
 	}
-	out, err := p.srv.askHeavy(ctx, p.ref, p.instance, "later", "go test ./...", time.Hour, 50*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Started || !strings.Contains(out.Why, "nearly out of memory (1.0 GiB of 16.0 GiB available, swap full") {
-		t.Fatalf("out of memory, a new command: %+v", out)
-	}
-}
-
-func TestHeavyDropWakes(t *testing.T) {
-	t.Parallel()
-	p := newPressureTest(t)
-	if !p.start(t, "going", time.Second) {
-		t.Fatal("didn't start")
-	}
-	p.set(80, 0)
-	done := make(chan bool)
-	go func() {
-		out, _ := p.srv.askHeavy(context.Background(), p.ref, p.instance, "waiting", "", time.Hour, time.Minute)
-		done <- out.Started
-	}()
-	waitFor(t, "the second command to wait", func() bool { return p.srv.memoryHold(p.ref) != nil })
-	p.srv.dropHeavy(context.Background(), p.ref)
-	select {
-	case started := <-done:
-		if started {
-			t.Error("a dropped waiter was told to start")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("dropping the agent left its waiter waiting")
+	if p.srv.heavyHeld(p.ref) {
+		t.Error("an agent whose runs were dropped still works")
 	}
 }
 
 // A run's shell joins it once it has started, and a join that fails leaves
-// it unplaced, which is never paused.
+// it unplaced, which even pausing whole agents never pauses.
 func TestHeavyJoin(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
@@ -295,7 +252,7 @@ func TestHeavyJoin(t *testing.T) {
 	if err := join("never-asked", 7); err == nil {
 		t.Error("a run that never started was joined")
 	}
-	if !p.start(t, "k", time.Second) {
+	if !p.start(t, "k") {
 		t.Fatal("didn't start")
 	}
 	if err := join("k", 7); err != nil {
@@ -305,7 +262,7 @@ func TestHeavyJoin(t *testing.T) {
 		t.Fatalf("placed %v", p.cg.placed)
 	}
 	p.cg.placeErr = errors.New("no process 8 in the machine")
-	if !p.start(t, "other", time.Second) {
+	if !p.start(t, "other") {
 		t.Fatal("didn't start")
 	}
 	if err := join("other", 8); err == nil || p.srv.heavy.g.Get(p.ref, "other").Placed {
@@ -533,10 +490,9 @@ func TestAgentMemoryShare(t *testing.T) {
 	}
 }
 
-// A busy host holds a heavy command back, says so, and drops the VM's
-// caches when asked, at most once a while; a report that goes stale holds
-// nothing.
-func TestHostLoadHoldsHeavyCommands(t *testing.T) {
+// A busy host holds no heavy command back: builds run fewer jobs (Why
+// "host"), and the VM's caches are dropped when asked, at most once a while.
+func TestHostLoadHoldsNoHeavyCommand(t *testing.T) {
 	t.Parallel()
 	var drops atomic.Int32
 	p := newPressureTest(t, func(s *Server) {
@@ -545,21 +501,15 @@ func TestHostLoadHoldsHeavyCommands(t *testing.T) {
 		t.Cleanup(func() { dropVMCaches = old })
 	})
 	ctx := context.Background()
-	if !p.start(t, "first", time.Second) {
-		t.Fatal("a command didn't start in a calm VM")
-	}
 	busy := api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", Reclaim: true, At: time.Now()}
 	for range 2 {
 		if err := p.client.PutHostLoad(ctx, busy); err != nil {
 			t.Fatal(err)
 		}
 	}
-	out, err := p.srv.askHeavy(ctx, p.ref, p.instance, "second", "go test ./...", time.Hour, 100*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Started || !strings.Contains(out.Why, "computer, outside the VM, is busy (memory, 30% stalled)") {
-		t.Fatalf("host busy: %+v", out)
+	p.srv.stepPressure(ctx)
+	if !p.start(t, "busy") {
+		t.Fatal("a command waited for a busy host")
 	}
 	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || !ps.Host.Busy || ps.Why != string(pressure.HostBusy) {
 		t.Fatalf("GET /v1/pressure = %+v, %v", ps, err)
@@ -570,13 +520,6 @@ func TestHostLoadHoldsHeavyCommands(t *testing.T) {
 	}
 	if n := drops.Load(); n != 1 {
 		t.Fatalf("caches dropped %d times for two reports, want once", n)
-	}
-	// Stale: as good as calm.
-	p.srv.hostLoad.mu.Lock()
-	p.srv.hostLoad.got = time.Now().Add(-api.HostLoadTTL - time.Second)
-	p.srv.hostLoad.mu.Unlock()
-	if !p.start(t, "second", time.Second) {
-		t.Fatal("a stale busy report still held the command")
 	}
 }
 

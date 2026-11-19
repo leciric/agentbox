@@ -100,7 +100,6 @@ func (f *fleetTest) step(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.srv.syncFleet(ctx, agents)
-	f.srv.countRunning(agents)
 	f.srv.stepPressure(ctx)
 }
 
@@ -129,12 +128,12 @@ func TestFleetOffFreezesNothing(t *testing.T) {
 	if f.mc.isFrozen(f.newer.Instance) || f.mc.isFrozen(f.instance) {
 		t.Fatal("a machine was frozen with the setting off")
 	}
-	// A boot still waits for the memory, On hold: admission is everybody's
-	// (admission.go, TestBootWaitsOnHoldForMemory).
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// Nor does a boot wait for memory: off, nothing does (admission.go,
+	// TestBootDoesNotWaitForMemory).
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := f.srv.admitMachine(ctx, f.newer); err == nil {
-		t.Fatal("a machine booted with 0.5 GiB available")
+	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
+		t.Fatalf("a machine waited to boot with the setting off: %v", err)
 	}
 }
 
@@ -143,7 +142,7 @@ func TestFleetFreezesNewerThawsOnCalm(t *testing.T) {
 	f := newFleetTest(t, true)
 	ctx := context.Background()
 	// The older agent works: a heavy command of its runs.
-	if !f.start(t, "build", time.Second) {
+	if !f.start(t, "build") {
 		t.Fatal("the build didn't start")
 	}
 	f.setAvailable(0.5, 2.5) // under the floor, swap with room to push it out to
@@ -186,11 +185,11 @@ func TestFleetFreezesNewerThawsOnCalm(t *testing.T) {
 func TestFleetStartsHeavyAtOnce(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "first", time.Second) {
+	if !f.start(t, "first") {
 		t.Fatal("first didn't start")
 	}
 	f.set(50, 0)
-	if !f.start(t, "second", 100*time.Millisecond) {
+	if !f.start(t, "second") {
 		t.Fatal("a heavy command waited with whole agents paused instead")
 	}
 }
@@ -198,7 +197,7 @@ func TestFleetStartsHeavyAtOnce(t *testing.T) {
 func TestFleetBootWaitsForMemory(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "build", time.Second) { // the older agent works
+	if !f.start(t, "build") { // the older agent works
 		t.Fatal("the build didn't start")
 	}
 	f.setAvailable(2, 4) // 2 GiB: a 1.25 GiB boot over a 1.6 GiB floor doesn't fit
@@ -230,7 +229,7 @@ func TestFleetBootWaitsForMemory(t *testing.T) {
 func TestFleetOffThaws(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "build", time.Second) {
+	if !f.start(t, "build") {
 		t.Fatal("the build didn't start")
 	}
 	f.setAvailable(0.5, 2.5)
@@ -249,10 +248,7 @@ func TestFleetOffThaws(t *testing.T) {
 // startNewer has a heavy command of the newer agent's start, placed.
 func (f *fleetTest) startNewer(t *testing.T, key string) {
 	t.Helper()
-	out, err := f.srv.askHeavy(context.Background(), f.newer.Ref(), f.newer.Instance, key, "vue-tsc --noEmit", time.Hour, time.Second)
-	if err != nil || !out.Started {
-		t.Fatalf("%s didn't start: %v", key, err)
-	}
+	f.srv.startRun(f.newer.Ref(), f.newer.Instance, key, "vue-tsc --noEmit", time.Hour)
 	if err := f.srv.runCgroups.Place(f.newer.Instance, key, 100); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +260,7 @@ func (f *fleetTest) startNewer(t *testing.T, key string) {
 func TestFleetWithSwapFullPausesTheBuildRatherThanTheMachine(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "build", time.Second) { // the older agent works
+	if !f.start(t, "build") { // the older agent works
 		t.Fatal("the build didn't start")
 	}
 	f.startNewer(t, "tsc")
@@ -295,7 +291,7 @@ func TestFleetWithSwapFullPausesTheBuildRatherThanTheMachine(t *testing.T) {
 func TestFleetWithSwapFullLeavesAnIdleMachineAndSaysSoOnce(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "build", time.Second) {
+	if !f.start(t, "build") {
 		t.Fatal("the build didn't start")
 	}
 	f.setAvailable(0.5, 4)
@@ -313,7 +309,7 @@ func TestFleetWithSwapFullLeavesAnIdleMachineAndSaysSoOnce(t *testing.T) {
 func TestFleetFreezesAMachineOnceWhileItReadsAsNotFrozenYet(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
-	if !f.start(t, "build", time.Second) {
+	if !f.start(t, "build") {
 		t.Fatal("the build didn't start")
 	}
 	f.mc.mu.Lock()
@@ -342,7 +338,7 @@ func TestFleetThawsOneItForgot(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, true)
 	ctx := context.Background()
-	if !f.start(t, "build", time.Second) {
+	if !f.start(t, "build") {
 		t.Fatal("the build didn't start")
 	}
 	f.setAvailable(0.5, 2.5)

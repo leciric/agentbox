@@ -82,10 +82,10 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
             &[("place", place.into())],
         )),
         "paused" => Some(tv("agent.status.machinePaused", &[("place", place.into())])),
-        // Held for the user's computer, not the VM's memory: it says so.
-        "waiting" if m.why == "host" => {
-            Some(tv("agent.status.onHoldHost", &[("place", place.into())]))
-        }
+        // Its boot waits its turn, a few seconds, or for the user's computer
+        // below its hard floor; with pausing whole agents on, for memory.
+        "waiting" if m.why == "host" => Some(t("agent.status.onHoldHost")),
+        "waiting" if m.why == "turn" => Some(t("agent.status.onHoldBoot")),
         "waiting" => Some(tv(
             "agent.status.machineWaiting",
             &[("place", place.into())],
@@ -94,8 +94,9 @@ fn machine_hold(m: &MemoryHold) -> Option<String> {
     }
 }
 
-/// memory_hold is the words for its tests or builds held back for memory, or
-/// for the user's computer.
+/// memory_hold is the words for its machine held back (machine_hold), or for
+/// its tests or builds paused by pausing whole agents. Nothing else holds
+/// them: they start at once.
 fn memory_hold(a: &impl AgentLike) -> Option<String> {
     let m = a.memory()?;
     if !m.machine.is_empty() {
@@ -110,12 +111,6 @@ fn memory_hold(a: &impl AgentLike) -> Option<String> {
         } else {
             "agent.status.memoryPaused"
         }));
-    }
-    if m.waiting > 0 && m.why == "host" {
-        return Some(t("agent.status.hostWaiting"));
-    }
-    if m.waiting > 0 {
-        return Some(t("agent.status.memoryWaiting"));
     }
     None
 }
@@ -467,17 +462,15 @@ mod tests {
     }
 
     #[test]
-    fn a_hold_for_the_users_computer_says_so() {
+    fn a_boot_on_hold_says_why_with_no_place_in_line() {
+        // Commands no longer wait: an older daemon saying so shows nothing.
         let mut builds = agent("running", "ready");
         builds.memory = Some(MemoryHold {
             waiting: 1,
             why: "host".into(),
             ..Default::default()
         });
-        assert_eq!(
-            memory_hold(&builds).as_deref(),
-            Some("Waiting for your computer")
-        );
+        assert_eq!(memory_hold(&builds), None);
         let mut boot = agent("stopped", "");
         boot.memory = Some(MemoryHold {
             machine: "waiting".into(),
@@ -486,9 +479,12 @@ mod tests {
         });
         assert_eq!(
             memory_hold(&boot).as_deref(),
-            Some("On hold: waiting for your computer, 1st in line")
+            Some("On hold: waiting for your computer")
         );
-        boot.memory.as_mut().unwrap().why = "builds".into();
+        boot.memory.as_mut().unwrap().why = "turn".into();
+        assert_eq!(memory_hold(&boot).as_deref(), Some("On hold: starting"));
+        // Pausing whole agents (experimental) still waits for memory.
+        boot.memory.as_mut().unwrap().why = "low".into();
         assert_eq!(
             memory_hold(&boot).as_deref(),
             Some("Waiting for memory, 1st in line")
