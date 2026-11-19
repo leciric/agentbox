@@ -5,40 +5,42 @@ import (
 	"time"
 )
 
-// The governor. An agent's heavy command (a test run, a build: a run) asks
-// before it starts, and starts at once while the VM is calm. Once memory
-// pressure is up, new runs wait, holding only what their agents hold idle,
-// and start in the order they asked as it falls. When pressure stays high
-// anyway, from runs already going, the newest of those is paused (its cgroup
-// frozen, its memory pushed out to swap by the daemon), then the next newest,
-// and they resume, oldest first, once it has stayed calm.
+// Heavy commands. An agent's test runs and builds (runs) start the moment
+// they are asked for, and nothing waits or is paused for memory (19 Nov 2026,
+// the user's decision): like T3 Code, the kernel's limits are what protect
+// the VM, each agent's memory.max and every agent's together under
+// agentbox.agents' memory.high and memory.max (package agent), with the
+// agent told what was killed when one is reached. Until then the governor
+// held runs back on the VM's PSI, which also counts tasks stalled at those
+// limits of their own: with the VM at its 8 GiB cap and 2 to 4 GiB of it
+// free, the agents throttled at their shared limit kept builds waiting and
+// paused for twenty minutes and more, and every boot behind them.
 //
-// One run always makes progress: the oldest one is never paused, and when it
-// ends the next oldest resumes at once; when nothing runs, the first waiter
-// starts whatever the pressure. So the VM never fills with paused runs that
-// can't finish, and every run does in turn. A run too big for the VM even
-// alone is the agent's memory.max's to stop, not this.
+// What is left is Runs, which runs go, for what knows whether an agent works
+// (idle reclaim, the VM's own idle shrink, the shared package cache); how
+// short the VM's memory is (Runs.Why: the headroom Judge works out, or PSI
+// stalling), for builds to run fewer jobs meanwhile (the daemon's
+// memoryjobs.go) and nothing else; and, with the experimental "pause whole
+// agents" on, the Fleet, which still pauses a machine's runs or the machine.
 //
 // Pressure alone comes too late. PSI is an average over the last 10 seconds,
 // and it rises only once tasks already stall: on 2026-10-11, eight agents'
 // runs growing 50 MB/s each filled an 18 GiB VM and its 4.5 GiB of zram in 20
-// seconds while full pressure read 7, 11, then 5%, and the VM then thrashed
-// for seven minutes until the kernel killed in every agent; full pressure
-// read 66% only after. So the governor also watches headroom: once the VM
-// has been given all the memory it may have (short of its cap the host grows
-// it), what it has available, how fast that falls and how fast memory pushed
-// out comes back say how close it is to running out, now rather than ten
-// seconds ago. See Judge.
+// seconds while full pressure read 7, 11, then 5%. So the headroom is judged
+// too: once the VM has been given all the memory it may have (short of its
+// cap the host grows it), what it has available, how fast that falls and how
+// fast memory pushed out comes back say how close it is to running out, now
+// rather than ten seconds ago. See Judge.
 //
 // Not how full swap is, nor a share of memory: on 2026-10-12 the VM sat at
 // its 17.8 GiB cap with 6.2 GiB available and its zram 97% full of idle
-// agents' cold pages, PSI flat, for hours, which #273's rules (under 35%
-// available with swap 90% full) took for running out, and paused and held
-// tests with 6 GiB free. Swap fills with cold pages and stays full; that is
-// the normal state of a VM that has been up a while, not pressure.
+// agents' cold pages, PSI flat, for hours. Swap fills with cold pages and
+// stays full; that is the normal state of a VM that has been up a while, not
+// pressure.
 
-// Policy is when runs start, pause and resume. Pressures are PSI avg10
-// percentages; shares of memory are 0 to 1, of MemTotal.
+// Policy is when the Fleet freezes and thaws machines, and when the VM's
+// memory counts as short (Runs.Why). Pressures are PSI avg10 percentages;
+// shares of memory are 0 to 1, of MemTotal.
 type Policy struct {
 	// Admit is the some pressure under which waiting runs start.
 	Admit float64
@@ -141,10 +143,6 @@ const (
 	Easing Reason = "easing"
 	// HostBusy: the user's computer is loaded (Sample.HostBusy).
 	HostBusy Reason = "host"
-	// Full: calm, but what is available doesn't fit another run on top of
-	// those that just started (Governor.BuildCost): runs wait for one to
-	// end, or for idle agents' memory to go out to swap.
-	Full Reason = "full"
 )
 
 // floor is the memory the VM keeps available, in bytes.
@@ -232,94 +230,181 @@ var DefaultPolicy = Policy{
 	HeadroomStep: 2 * time.Second,
 }
 
-// Run is one heavy command of an agent's: waiting to start, running, or
-// paused.
+// Run is one heavy command of an agent's, from when it is asked for until it
+// ends. Only the Fleet pauses one.
 type Run struct {
 	Agent   string // the agent's ref
 	Key     string // the run's key, unique within its agent
 	Command string // what it runs, for saying what was paused
-	Asked   time.Time
-	Started time.Time // zero while it waits
+	Started time.Time
 	Paused  bool
 	// PausedAt is when it was last paused.
 	PausedAt time.Time
 	// Why is why it was last paused.
 	Why Reason
-	// ForFleet: the fleet paused it (PauseAgent), not the governor, and
-	// only the fleet resumes it.
+	// ForFleet: the fleet paused it (PauseAgent), and only the fleet resumes
+	// it.
 	ForFleet bool
 	// Placed says its processes are in a cgroup of its own, which is what
 	// pausing it freezes: a run that isn't is never paused.
 	Placed bool
-	// Until is when it lapses unless asked for again: a waiter's place, or
-	// a run that isn't placed (a placed run lasts while its cgroup has
-	// processes).
+	// Until is when a run that isn't placed lapses unless asked for again
+	// (a placed run lasts while its cgroup has processes).
 	Until time.Time
 }
 
 // ID is the run's agent and key together.
 func (r *Run) ID() string { return r.Agent + "/" + r.Key }
 
-// Actions is what a step decided, for the daemon to apply.
-type Actions struct {
-	Start, Pause, Resume []*Run
+// Runs keeps the heavy commands going, oldest first, and the VM's memory as
+// last observed. It holds none back. It isn't safe for concurrent use.
+type Runs struct {
+	Policy  Policy
+	running []*Run
+	last    Sample
+	trend   Trend
+	why     Reason
+	trends  trends
 }
 
-// Empty reports whether there is nothing to apply.
-func (a Actions) Empty() bool { return len(a.Start)+len(a.Pause)+len(a.Resume) == 0 }
+// NewRuns is Runs judging memory by policy.
+func NewRuns(policy Policy) *Runs { return &Runs{Policy: policy} }
 
-// Governor keeps the runs. It isn't safe for concurrent use.
-type Governor struct {
-	Policy Policy
-	// running are the started runs, paused or not, in the order they
-	// started; waiting the rest, in the order they asked.
-	running, waiting []*Run
-	highSince        time.Time // since when full pressure has been at Freeze or over
-	calmSince        time.Time // since when it has been calm
-	changed          time.Time // the last pause or resume
-	admitted         time.Time // the last start
-	last             Sample
-	trend            Trend
-	why              Reason
-	trends           trends
-	// BuildCost is what a run is held to take until it shows in the
-	// readings (BuildSettle after it starts): a build ramps over tens of
-	// seconds, so four asking at once would otherwise all fit the same
-	// gigabyte. DefaultBuildCost until a test sets another.
-	BuildCost   int64
-	BuildSettle time.Duration
+// Ask is a run asking to start, or asking again: it starts at once, and is
+// reported. ttl is how long a run that isn't placed lasts unless asked for
+// again.
+func (g *Runs) Ask(agent, key, command string, ttl time.Duration, now time.Time) *Run {
+	if r := g.Get(agent, key); r != nil {
+		r.Until = laterOf(r.Until, now.Add(ttl))
+		return r
+	}
+	r := &Run{Agent: agent, Key: key, Command: command, Started: now, Until: now.Add(ttl)}
+	g.running = append(g.running, r)
+	return r
 }
 
-// Fitting runs: what the governor holds against available memory for each
-// run that started within BuildSettle.
-const (
-	DefaultBuildCost   = int64(1) << 30 // 1 GiB
-	DefaultBuildSettle = 20 * time.Second
-)
+func laterOf(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
 
-// fits reports whether one more run fits in m now: what is available, with
-// what the VM may still grow by, less what the runs started within
-// BuildSettle are still to take, over a BuildCost and the floor. Swap's room
-// doesn't count: the kernel makes room there by stalling the VM, which is
-// what holding a run back is to spare. Unknown memory always fits.
-func (g *Governor) fits(m Mem, now time.Time) bool {
-	if !m.Known() || g.BuildCost <= 0 {
-		return true
+// Place marks a run's processes as in a cgroup of their own.
+func (g *Runs) Place(agent, key string) bool {
+	r := g.Get(agent, key)
+	if r != nil {
+		r.Placed = true
 	}
-	room := float64(m.Available)
-	if m.Cap > m.Total {
-		room += float64(m.Cap - m.Total)
-	}
+	return r != nil
+}
+
+// Get is a run by agent and key, nil for none.
+func (g *Runs) Get(agent, key string) *Run {
 	for _, r := range g.running {
-		if !r.Paused && now.Sub(r.Started) < g.BuildSettle {
-			room -= float64(g.BuildCost)
+		if r.Agent == agent && r.Key == key {
+			return r
 		}
 	}
-	return room-float64(g.BuildCost) >= g.Policy.floor(m)
+	return nil
 }
 
-// Fits reports whether a run asking now would fit, as of the last reading.
-func (g *Governor) Fits(now time.Time) bool { return g.fits(g.last.Mem, now) }
+// End takes a run out and reports it, nil when there was none. A paused one
+// is the daemon's to resume.
+func (g *Runs) End(agent, key string) *Run {
+	gone := g.remove(func(r *Run) bool { return r.Agent == agent && r.Key == key })
+	if len(gone) == 0 {
+		return nil
+	}
+	return gone[0]
+}
+
+// Drop takes out every run of an agent, as it stops or goes.
+func (g *Runs) Drop(agent string) []*Run {
+	return g.remove(func(r *Run) bool { return r.Agent == agent })
+}
+
+// Expire takes out the runs alive says are over, and reports them.
+func (g *Runs) Expire(alive func(*Run) bool) []*Run {
+	return g.remove(func(r *Run) bool { return !alive(r) })
+}
+
+// remove takes out the runs gone says, and reports them.
+func (g *Runs) remove(gone func(*Run) bool) []*Run {
+	var out []*Run
+	kept := g.running[:0]
+	for _, r := range g.running {
+		if gone(r) {
+			out = append(out, r)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	g.running = kept
+	return out
+}
+
+// Running are the runs, oldest first.
+func (g *Runs) Running() []*Run { return append([]*Run(nil), g.running...) }
+
+// Observe takes the VM's memory at now: Last, Trend and Why report it after.
+func (g *Runs) Observe(now time.Time, s Sample) {
+	g.last = s
+	g.trend = g.trends.observe(g.Policy, now, s)
+	room, why := g.Policy.Judge(s.Mem, g.trend)
+	switch {
+	case room != Room:
+		g.why = why
+	case s.Full.Avg10 >= g.Policy.Freeze || s.Some.Avg10 >= g.Policy.Admit:
+		g.why = Stalling
+	case s.HostBusy:
+		g.why = HostBusy
+	default:
+		g.why = ""
+	}
+}
+
+// Last is the sample last observed.
+func (g *Runs) Last() Sample { return g.last }
+
+// Trend is how the VM's memory was moving at the last observation.
+func (g *Runs) Trend() Trend { return g.trend }
+
+// Why is how short the VM's memory was at the last observation, "" for not
+// at all: running out (Judge's Low, Falling or Churning), its tasks stalling
+// on it (Stalling), or the user's computer busy (HostBusy). Builds run fewer
+// jobs while it is anything; nothing waits or is paused for it.
+func (g *Runs) Why() Reason { return g.why }
+
+// PauseAgent pauses, for the fleet, an agent's runs that go and are placed,
+// rather than its whole machine (Fleet.toHold): it reports them, for the
+// daemon to apply.
+func (g *Runs) PauseAgent(agent string, now time.Time, why Reason) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.Agent == agent && r.Placed && !r.Paused {
+			r.Paused, r.PausedAt, r.Why, r.ForFleet = true, now, why, true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ResumeAgent resumes the runs the fleet paused of an agent, or of every
+// agent for "": it reports them, for the daemon to apply.
+func (g *Runs) ResumeAgent(agent string) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.ForFleet && (agent == "" || r.Agent == agent) {
+			r.ForFleet = false
+			if r.Paused {
+				r.Paused = false
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
 
 // trends keeps the readings of the last Policy.Window, at least a second
 // apart, oldest first, that a Trend is worked out from.
@@ -332,128 +417,6 @@ type reading struct {
 	at                   time.Time
 	available, refaulted int64
 }
-
-// NewGovernor is a governor with policy.
-func NewGovernor(policy Policy) *Governor {
-	return &Governor{Policy: policy, BuildCost: DefaultBuildCost, BuildSettle: DefaultBuildSettle}
-}
-
-// Ask is a run asking to start, or asking again: it reports the run, and
-// whether it has started. A run that waits starts in a later Step. ttl is how
-// long a run that isn't placed lasts unless asked for again.
-func (g *Governor) Ask(agent, key, command string, ttl time.Duration, now time.Time) (*Run, bool) {
-	if r := g.find(g.running, agent, key); r != nil {
-		r.Until = laterOf(r.Until, now.Add(ttl))
-		return r, true
-	}
-	if r := g.find(g.waiting, agent, key); r != nil {
-		r.Until = now.Add(max(g.Policy.Grace, ttl))
-		return r, false
-	}
-	r := &Run{Agent: agent, Key: key, Command: command, Asked: now, Until: now.Add(max(g.Policy.Grace, ttl))}
-	g.waiting = append(g.waiting, r)
-	return r, false
-}
-
-// Keep extends a waiter's place to grace from now, while its asker still
-// waits.
-func (g *Governor) Keep(agent, key string, ttl time.Duration, now time.Time) {
-	if r := g.find(g.waiting, agent, key); r != nil {
-		r.Until = laterOf(r.Until, now.Add(max(g.Policy.Grace, ttl)))
-	}
-}
-
-func laterOf(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-
-// Place marks a running run's processes as in a cgroup of their own.
-func (g *Governor) Place(agent, key string) bool {
-	r := g.find(g.running, agent, key)
-	if r != nil {
-		r.Placed = true
-	}
-	return r != nil
-}
-
-// Get is a run by agent and key, running or waiting.
-func (g *Governor) Get(agent, key string) *Run {
-	if r := g.find(g.running, agent, key); r != nil {
-		return r
-	}
-	return g.find(g.waiting, agent, key)
-}
-
-func (g *Governor) find(runs []*Run, agent, key string) *Run {
-	for _, r := range runs {
-		if r.Agent == agent && r.Key == key {
-			return r
-		}
-	}
-	return nil
-}
-
-// End takes a run out, running or waiting, and reports it, nil when there was
-// none. A paused one is the daemon's to resume.
-func (g *Governor) End(agent, key string) *Run {
-	gone := g.remove(func(r *Run) bool { return r.Agent == agent && r.Key == key })
-	if len(gone) == 0 {
-		return nil
-	}
-	return gone[0]
-}
-
-// Drop takes out every run of an agent, as it stops or goes.
-func (g *Governor) Drop(agent string) []*Run {
-	return g.remove(func(r *Run) bool { return r.Agent == agent })
-}
-
-// Expire takes out the waiters whose place lapsed and the runs alive says are
-// over, and reports them.
-func (g *Governor) Expire(now time.Time, alive func(*Run) bool) []*Run {
-	return g.remove(func(r *Run) bool {
-		if r.Started.IsZero() {
-			return now.After(r.Until)
-		}
-		return !alive(r)
-	})
-}
-
-// remove takes out the runs gone says, and reports them.
-func (g *Governor) remove(gone func(*Run) bool) []*Run {
-	var out []*Run
-	keep := func(runs []*Run) []*Run {
-		kept := runs[:0]
-		for _, r := range runs {
-			if gone(r) {
-				out = append(out, r)
-				continue
-			}
-			kept = append(kept, r)
-		}
-		return kept
-	}
-	g.running = keep(g.running)
-	g.waiting = keep(g.waiting)
-	return out
-}
-
-// Running are the started runs, oldest first; Waiting the rest, in order.
-func (g *Governor) Running() []*Run { return append([]*Run(nil), g.running...) }
-func (g *Governor) Waiting() []*Run { return append([]*Run(nil), g.waiting...) }
-
-// Last is the sample the last step saw.
-func (g *Governor) Last() Sample { return g.last }
-
-// Trend is how the VM's memory was moving at the last step.
-func (g *Governor) Trend() Trend { return g.trend }
-
-// Why is why, at the last step, runs were held back: waiters kept waiting
-// and paused runs kept paused; "" when nothing held them.
-func (g *Governor) Why() Reason { return g.why }
 
 // observe keeps s's reading, and works out the Trend from those before it.
 func (g *trends) observe(p Policy, now time.Time, s Sample) Trend {
@@ -488,190 +451,4 @@ func (g *trends) observe(p Policy, now time.Time, s Sample) Trend {
 		g.seen = append(g.seen, reading{now, s.Mem.Available, s.Mem.Refaulted})
 	}
 	return tr
-}
-
-// Step decides, from the sample now, what starts, pauses and resumes.
-func (g *Governor) Step(now time.Time, s Sample) Actions {
-	g.last = s
-	p := g.Policy
-	psi := s.PSI
-	tr := g.trends.observe(p, now, s)
-	g.trend = tr
-	room, why := p.Judge(s.Mem, tr)
-	high := psi.Full.Avg10 >= p.Freeze
-	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr) && !s.HostBusy
-	if !high {
-		g.highSince = time.Time{}
-	} else if g.highSince.IsZero() {
-		g.highSince = now
-	}
-	if !calm {
-		g.calmSince = time.Time{}
-	} else if g.calmSince.IsZero() {
-		g.calmSince = now
-	}
-	stalling := high || psi.Some.Avg10 >= p.Admit
-	switch {
-	case room != Room:
-		g.why = why
-	case stalling:
-		g.why = Stalling
-	case s.HostBusy && (len(g.waiting) > 0 || g.paused() > 0):
-		g.why = HostBusy
-	default:
-		g.why = ""
-	}
-	var out Actions
-
-	// The oldest run always runs: when the one that was ended, the next
-	// resumes now, whatever the pressure.
-	if len(g.running) > 0 && g.running[0].Paused {
-		out.Resume = append(out.Resume, g.resume(g.running[0], now))
-	}
-	paused := g.paused()
-	switch {
-	case paused == 0 && len(g.running) == 0 && len(g.waiting) > 0:
-		// Nothing runs: the first waiter starts, whatever the pressure, or
-		// nothing ever would.
-		out.Start = append(out.Start, g.start(now))
-	case room == Out:
-		// Running out now: everything that could grow stops at once.
-		for r := g.newestPausable(); r != nil; r = g.newestPausable() {
-			g.pause(r, now, why)
-			out.Pause = append(out.Pause, r)
-		}
-	case room == Short && now.Sub(g.changed) >= p.HeadroomStep:
-		if r := g.newestPausable(); r != nil {
-			g.pause(r, now, why)
-			out.Pause = append(out.Pause, r)
-		}
-	case high && now.Sub(g.highSince) >= p.FreezeAfter && now.Sub(g.changed) >= p.Step:
-		if r := g.newestPausable(); r != nil {
-			g.pause(r, now, Stalling)
-			out.Pause = append(out.Pause, r)
-		}
-	case calm && paused > 0 && now.Sub(g.calmSince) >= p.CalmAfter && now.Sub(g.changed) >= p.Step:
-		for _, r := range g.running {
-			if r.Paused {
-				out.Resume = append(out.Resume, g.resume(r, now))
-				break
-			}
-		}
-	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && !s.HostBusy && now.Sub(g.admitted) >= p.AdmitStep && g.fits(s.Mem, now):
-		// Calm enough, and it fits: the first waiter starts. Not while any
-		// run is paused, which resumes first.
-		out.Start = append(out.Start, g.start(now))
-	}
-	if g.why == "" && g.paused() > 0 {
-		g.why = Easing
-	}
-	if g.why == "" && len(g.waiting) > 0 && !g.fits(s.Mem, now) {
-		g.why = Full
-	}
-	return out
-}
-
-func (g *Governor) paused() int {
-	n := 0
-	for _, r := range g.running {
-		if r.Paused {
-			n++
-		}
-	}
-	return n
-}
-
-func (g *Governor) pause(r *Run, now time.Time, why Reason) {
-	r.Paused, r.PausedAt, r.Why = true, now, why
-	g.changed = now
-}
-
-func (g *Governor) resume(r *Run, now time.Time) *Run {
-	r.Paused = false
-	g.changed = now
-	return r
-}
-
-func (g *Governor) start(now time.Time) *Run {
-	r := g.waiting[0]
-	g.waiting = g.waiting[1:]
-	r.Started = now
-	g.running = append(g.running, r)
-	g.admitted = now
-	return r
-}
-
-// newestPausable is the newest run that is running, placed and not the
-// oldest, or nil.
-func (g *Governor) newestPausable() *Run {
-	for i := len(g.running) - 1; i > 0; i-- {
-		if r := g.running[i]; !r.Paused && r.Placed {
-			return r
-		}
-	}
-	return nil
-}
-
-// StartAll starts every waiting run and resumes every paused one, as
-// pausing whole machines (Fleet) takes over from the governor: it reports
-// them, for the daemon to apply.
-func (g *Governor) StartAll(now time.Time) Actions {
-	var out Actions
-	for _, r := range g.running {
-		if r.Paused && !r.ForFleet {
-			out.Resume = append(out.Resume, g.resume(r, now))
-		}
-	}
-	for len(g.waiting) > 0 {
-		out.Start = append(out.Start, g.start(now))
-	}
-	return out
-}
-
-// PauseAgent pauses, for the fleet, an agent's runs that go and are placed,
-// rather than its whole machine (Fleet.toHold): it reports them, for the
-// daemon to apply.
-func (g *Governor) PauseAgent(agent string, now time.Time, why Reason) []*Run {
-	var out []*Run
-	for _, r := range g.running {
-		if r.Agent == agent && r.Placed && !r.Paused {
-			g.pause(r, now, why)
-			r.ForFleet = true
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// ResumeAgent resumes the runs the fleet paused of an agent, or of every
-// agent for "": it reports them, for the daemon to apply.
-func (g *Governor) ResumeAgent(agent string, now time.Time) []*Run {
-	var out []*Run
-	for _, r := range g.running {
-		if r.ForFleet && (agent == "" || r.Agent == agent) {
-			r.ForFleet = false
-			if r.Paused {
-				out = append(out, g.resume(r, now))
-			}
-		}
-	}
-	return out
-}
-
-// Prefer moves agent's waiting runs to the front of the line, in the order
-// they asked, ahead of everybody else's: the agent the user is looking at
-// waits least. The others keep their order.
-func (g *Governor) Prefer(agent string) {
-	if agent == "" {
-		return
-	}
-	var first, rest []*Run
-	for _, r := range g.waiting {
-		if r.Agent == agent {
-			first = append(first, r)
-		} else {
-			rest = append(rest, r)
-		}
-	}
-	g.waiting = append(first, rest...)
 }

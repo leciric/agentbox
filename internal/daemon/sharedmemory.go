@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/chat"
 	"agentbox/internal/state"
 )
@@ -34,6 +35,7 @@ type sharedCgroups struct {
 	setAgents func(total int64) error
 	setLeads  func(total int64) error
 	events    func(dir string) (agent.MemoryCounts, bool)
+	use       func(dir string) (api.AgentsMemory, bool)
 	place     func(ref string, pid int) (string, error)
 	kills     func(dir string) (int64, bool)
 	kill      func(dir string) error
@@ -47,6 +49,10 @@ type sharedCgroups struct {
 	agents, leads           agent.MemoryCounts
 	agentsKnown, leadsKnown bool
 	agentsHit, leadsHit     time.Time
+	// agentsUse is the agents' parent's memory at the last look, and
+	// agentsUseKnown whether there was one (GET /v1/pressure).
+	agentsUse      api.AgentsMemory
+	agentsUseKnown bool
 	// swept is whether the lead chats a daemon before this one left were
 	// cleared.
 	swept bool
@@ -77,6 +83,7 @@ func newSharedCgroups() *sharedCgroups {
 		setAgents: agent.SetAgentsGroup,
 		setLeads:  agent.SetLeadsGroup,
 		events:    agent.GroupEvents,
+		use:       agent.GroupUse,
 		place:     agent.PlaceLeadChat,
 		kills:     agent.LeadChatKills,
 		kill:      agent.KillCgroup,
@@ -105,7 +112,9 @@ func (s *Server) watchShared(total int64) (agentsHit bool, agentsLimit int64) {
 	now := time.Now()
 	agents, aok := sc.events(sc.agentsDir)
 	leads, lok := sc.events(sc.leadsDir)
+	use, uok := sc.use(sc.agentsDir)
 	sc.mu.Lock()
+	sc.agentsUse, sc.agentsUseKnown = use, uok
 	if aok {
 		if sc.agentsKnown && agents.OwnLimit > sc.agents.OwnLimit {
 			sc.agentsHit = now
@@ -146,6 +155,15 @@ func (s *Server) watchShared(total int64) (agentsHit bool, agentsLimit int64) {
 		}
 	}
 	return agentsHit, agents.Limit
+}
+
+// agentsUse is every agent's machine together under their shared limit, as
+// the memory watch last read it; ok is false outside the VM, or before.
+func (s *Server) agentsUse() (api.AgentsMemory, bool) {
+	sc := s.shared
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.agentsUse, sc.agentsUseKnown
 }
 
 // sweepLeadChats removes the cgroups lead chats of an earlier daemon left

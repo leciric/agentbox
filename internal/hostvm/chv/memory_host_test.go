@@ -171,9 +171,10 @@ func TestRecordedBootBurstStopsAtTheHostsCeiling(t *testing.T) {
 // kept the target at the cap, and held trims off. Now the host comes first:
 // with trims held off, it shrinks within seconds to its use, the cache
 // allowance and 2 GiB; with them not, a trim gives the host back its reserve
-// at once, and it shrinks to what the host can spare. Either way it holds
-// boots, grows back only once the host has been calm a while and only as far
-// as the host can spare, and the host keeps its reserve from then on.
+// at once, and it shrinks to what the host can spare. Either way it grows
+// back only once the host has been calm a while and only as far as the host
+// can spare, and the host keeps its reserve from then on. Boots aren't held:
+// 6 GiB is far over the host's hard floor.
 func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
 	reserve := HostReserve(nov18Host)
 	used := 4*GiB + 800<<20
@@ -220,10 +221,8 @@ func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
 			if recovered < 0 || recovered > memShrinkAfterHost+memTick {
 				t.Errorf("the host had its reserve again at %s", recovered)
 			}
-			// Boots are held from the first sample until memHoldBootsFor
-			// after the host was last short.
-			if len(heldAt) == 0 || heldAt[0] != 0 || heldAt[len(heldAt)-1] < memHoldBootsFor-memTick || heldAt[len(heldAt)-1] > memHoldBootsFor+recovered {
-				t.Errorf("boots held at %v, want from 0 to about %s", heldAt, memHoldBootsFor)
+			if len(heldAt) != 0 {
+				t.Errorf("boots held at %v, with the host over its hard floor", heldAt)
 			}
 			// Grown back, if at all, once it's been calm, by steps, to what
 			// the host can spare.
@@ -394,5 +393,35 @@ func TestHostUnderItsFloorShedsAgents(t *testing.T) {
 	run(&st, 45*time.Second, time.Minute, 3*GiB)
 	if len(sheds) > 0 {
 		t.Errorf("stopped agents at %v with the host over its floor", sheds)
+	}
+}
+
+// Boots are held only while the host is below its hard floor, the larger of
+// 2 GiB and 6% of it, and from the moment it is over it again. On 19 Nov
+// 2026 the host had 8.2 of its 30.5 GiB free, under its 7.6 GiB reserve
+// within two minutes, and every boot was held while its own memory pressure
+// read 0.
+func TestBootsAreHeldOnlyBelowTheHostsHardFloor(t *testing.T) {
+	host := 61 * GiB / 2
+	var st memState
+	now := time.Now()
+	for _, c := range []struct {
+		available int64
+		want      bool
+	}{
+		{82 * GiB / 10, false}, // 19 Nov 2026: under its reserve
+		{3 * GiB, false},
+		{3 * GiB / 2, true}, // under 2 GiB
+		{21 * GiB / 10, false},
+	} {
+		now = now.Add(memTick)
+		st.observeHost(memSample{HostTotal: host, HostAvailable: c.available}, now)
+		if st.HoldBoots != c.want {
+			t.Errorf("host at %s of %s: HoldBoots = %v, want %v", gib(c.available), gib(host), st.HoldBoots, c.want)
+		}
+	}
+	big := int64(64 * GiB)
+	if want := int64(memHostFloorShare * float64(big)); hostFloor(big) != want {
+		t.Errorf("a 64 GiB host's floor is %s, want 6%% of it", gib(hostFloor(big)))
 	}
 }
