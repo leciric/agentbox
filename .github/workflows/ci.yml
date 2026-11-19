@@ -153,94 +153,10 @@ jobs:
           fi
           printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "native=$native" "native_windows=$native_windows" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
-  # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
-  # below the floor in .github/coverage-floor.txt. This includes
-  # TestTypeScriptTypesAreUpToDate, which keeps desktop/src/shared/api.ts
-  # generated from internal/api.
-  #
-  # Caches are saved by main's runs only, keyed by commit, and restored by
-  # everyone from main's latest: a PR's run never saves one of its own, and
-  # the cache follows main rather than freezing at the first go.sum it saw.
-  # Test results are in the build cache, so a package no change reaches
-  # isn't tested again: the coverage floor still sees every package, from
-  # the cache's results.
-  go-test:
-    name: Go tests and coverage
-    needs: changes
-    if: needs.changes.outputs.go == 'true' && github.event.action != 'labeled'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-
-      # Go's version comes from mise.toml, so CI and a checkout can't drift.
-      # ttyd and pnpm are the host's tools, and nothing here needs them.
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: go
-
-      - uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-test-${{ runner.os }}-
-
-      # TestRecordingsPlayInChromium encodes with a recording's own arguments
-      # and checks the file with ffprobe; without them it skips.
-      - timeout-minutes: 5
-        run: sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q --no-install-recommends ffmpeg
-
-      # The tests' temporary files, their SQLite databases first, on a tmpfs,
-      # as in an agent's machine: on disk, every fsync waits, and the slow
-      # packages take minutes rather than seconds.
-      - name: Temporary files in memory
-        run: |
-          sudo mkdir -p /t
-          sudo mount -t tmpfs -o size=8g,mode=1777 tmpfs /t
-          echo TMPDIR=/t >>"$GITHUB_ENV"
-
-      # A test that opens a file in the repository (testdata/, api.ts, a
-      # package's own files) is cached by that file's size and mtime, and a
-      # checkout gives every file a new mtime: those packages, internal/agent
-      # and internal/daemon among them, were tested again on every run. Each
-      # file's and directory's mtime from its git object id instead, so it
-      # changes when, and only when, the content does.
-      - name: Files' times from their contents
-        run: |
-          python3 - <<'EOF'
-          import os, subprocess
-          def mtime(oid):  # 1990 to 2007, to the nanosecond
-              h = int(oid[:16], 16)
-              return (631152000 + (h >> 34) % (1 << 29)) * 10**9 + (h & (1 << 30) - 1) % 10**9
-          git = lambda *a: subprocess.run(["git", *a], capture_output=True, check=True).stdout
-          dirs = [(b".", mtime(git("rev-parse", "HEAD^{tree}").strip()))]
-          for entry in git("ls-tree", "-r", "-t", "-z", "HEAD").split(b"\0")[:-1]:
-              meta, path = entry.split(b"\t", 1)
-              _, kind, oid = meta.split()
-              if kind == b"tree":
-                  dirs.append((path, mtime(oid)))
-              elif kind == b"blob":
-                  os.utime(path, ns=(mtime(oid),) * 2, follow_symlinks=False)
-          for path, ns in reversed(dirs):
-              os.utime(path, ns=(ns, ns))
-          EOF
-
-      - run: scripts/check-coverage.sh
-
-      - uses: actions/cache/save@v6
-        if: github.event_name == 'push'
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-
-  # Everything about the Go code but its tests, beside them so neither waits
-  # for the other: vet, golangci-lint, go mod tidy, and the builds for a Mac.
+  # Everything about the Go code: vet, golangci-lint, go mod tidy, and the
+  # builds for a Mac. CI runs no Go tests: each change tests the packages it
+  # touches before it lands. The cache it saves on main's runs, keyed by
+  # commit, is the one the other Go jobs restore.
   go-check:
     name: Go vet, lint, tidy
     needs: changes
@@ -323,10 +239,10 @@ jobs:
       - uses: actions/cache/restore@v6
         with:
           path: ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-test-${{ runner.os }}-
+            go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-check-${{ runner.os }}-
 
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
@@ -558,8 +474,8 @@ jobs:
       - run: npm --prefix mobile test
 
   # The hub's npm packages, npx agentbox-hub: built for every platform it
-  # ships to, and this one's installed from its tarballs and run. Its Go tests
-  # are in go-test with everyone's.
+  # ships to, and this one's installed from its tarballs and run. CI runs no
+  # Go tests, its own included.
   hub:
     name: Hub npm package
     needs: changes
@@ -573,14 +489,14 @@ jobs:
         with:
           install_args: go node
 
-      # main's module cache, which go-test saves; nothing is saved here.
+      # main's module cache, which go-check saves; nothing is saved here.
       - uses: actions/cache/restore@v6
         with:
           path: ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-test-${{ runner.os }}-
+            go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-check-${{ runner.os }}-
 
       - run: hub/scripts/npm-check.sh "$RUNNER_TEMP/hub-npm"
 

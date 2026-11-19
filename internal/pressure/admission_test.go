@@ -85,3 +85,47 @@ func TestGovernorPrefersTheViewedAgent(t *testing.T) {
 		t.Errorf("order %v", order)
 	}
 }
+
+// What was last resumed has settled once the VM's memory doesn't stall, its
+// disk isn't paged to, the computer isn't busy and, while asked, memory
+// isn't falling fast.
+func TestUnsettled(t *testing.T) {
+	p := DefaultPolicy
+	calm := Sample{PSI: PSI{Some: Stall{Avg10: 2}, Full: Stall{Avg10: 1}}}
+	for _, c := range []struct {
+		name   string
+		s      Sample
+		t      Trend
+		steady bool
+		want   bool
+	}{
+		{"calm", calm, Trend{}, true, false},
+		{"some stall", Sample{PSI: PSI{Some: Stall{Avg10: p.Admit}}}, Trend{}, true, true},
+		{"full stall", Sample{PSI: PSI{Full: Stall{Avg10: p.Calm}}}, Trend{}, true, true},
+		{"disk swap", Sample{Mem: Mem{Total: 8 << 30, DiskSwapTotal: 4 << 30, DiskSwapFree: 4<<30 - DiskSwapTolerance}}, Trend{}, true, true},
+		{"host busy", Sample{HostBusy: true}, Trend{}, true, true},
+		{"falling", calm, Trend{Fall: SettleFall}, true, true},
+		{"falling, steady no longer asked", calm, Trend{Fall: SettleFall}, false, false},
+		{"falling slowly", calm, Trend{Fall: SettleFall / 2}, true, false},
+	} {
+		if got := p.Unsettled(c.s, c.t, c.steady); (got != "") != c.want {
+			t.Errorf("%s: Unsettled() = %q, want unsettled %v", c.name, got, c.want)
+		}
+	}
+}
+
+// With the user's computer short of memory lately (api.HostLoad.HoldBoots),
+// nothing boots, the first machine with nothing running included, until it
+// clears.
+func TestAdmissionWaitsForAShortHost(t *testing.T) {
+	a := NewAdmission(DefaultPolicy)
+	a.Ask("p/a", t0, t0)
+	a.HostShort = true
+	if got := a.Step(t0, roomy(12), "", 0); len(got) != 0 || a.Why() != WaitHost {
+		t.Fatalf("booted %v with the host short (%q)", got, a.Why())
+	}
+	a.HostShort = false
+	if got := a.Step(t0.Add(time.Second), roomy(12), "", 0); len(got) != 1 {
+		t.Fatalf("booted %v once the host was calm, want p/a", got)
+	}
+}

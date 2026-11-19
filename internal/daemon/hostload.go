@@ -9,6 +9,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hostload"
 	"agentbox/internal/hostos"
+	"agentbox/internal/pressure"
 )
 
 // The user's computer comes first: its front end reports how loaded it is
@@ -46,6 +47,23 @@ func (h *hostLoad) busy(now time.Time) bool {
 	return ok && l.Busy
 }
 
+// holdBoots reports whether a fresh report says to boot no machine: the
+// host has been short of memory lately (api.HostLoad.HoldBoots).
+func (h *hostLoad) holdBoots(now time.Time) bool {
+	l, ok := h.current(now)
+	return ok && l.HoldBoots
+}
+
+// withCeiling is m with its cap lowered to what a fresh report says the VM
+// may grow to now (api.HostLoad.VMCeiling): growth the host can't spare
+// isn't room to boot or build in.
+func (h *hostLoad) withCeiling(m pressure.Mem, now time.Time) pressure.Mem {
+	if l, ok := h.current(now); ok && l.VMCeiling > 0 && m.Cap > l.VMCeiling {
+		m.Cap = l.VMCeiling
+	}
+	return m
+}
+
 // putHostLoad is PUT /v1/host/load.
 func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	var load api.HostLoad
@@ -55,7 +73,8 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	now := time.Now()
 	h := &s.hostLoad
 	h.mu.Lock()
-	was := !h.got.IsZero() && now.Sub(h.got) <= api.HostLoadTTL && h.last.Busy
+	fresh := !h.got.IsZero() && now.Sub(h.got) <= api.HostLoadTTL
+	was, held := fresh && h.last.Busy, fresh && h.last.HoldBoots
 	h.last, h.got = load, now
 	reclaim := load.Reclaim && now.Sub(h.lastReclaim) >= hostReclaimEvery
 	if reclaim {
@@ -67,6 +86,13 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 			s.logf("host load: this computer, outside the VM, is busy (%s): heavy commands wait to start, and machines to boot", hostload.Words(load))
 		} else {
 			s.logf("host load: this computer is calm again")
+		}
+	}
+	if load.HoldBoots != held {
+		if load.HoldBoots {
+			s.logf("host load: this computer is short of memory (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
+		} else {
+			s.logf("host load: this computer has kept its memory to spare for a while: agents' machines may boot again")
 		}
 	}
 	if reclaim {

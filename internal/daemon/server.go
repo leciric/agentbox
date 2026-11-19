@@ -424,6 +424,9 @@ type Server struct {
 	frozen *fleetState
 	// admit (admission.go) is when agents' machines boot, and those On hold.
 	admit *admitState
+	// resumes (restart.go) carries on, one at a time, what a restart cut
+	// short, and holds it for the user after AgentBox stopped unexpectedly.
+	resumes *resumeState
 	// view (viewing.go) is the agent the app shows.
 	view           viewingState
 	machineCgroups machineCgroups
@@ -527,6 +530,7 @@ func New(cfg Config) (*Server, error) {
 		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
 		admit:            newAdmitState(),
+		resumes:          newResumeState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
@@ -948,8 +952,18 @@ func (s *Server) projectBySlug(r *http.Request) {
 }
 
 func (s *Server) routes() http.Handler {
+	mux, _ := s.apiRoutes()
+	return traceAPI("", mux, true)
+}
+
+// apiRoutes is the API's mux, and the pattern of every route on it: what
+// TestEveryRouteIsClassifiedForPhones walks, as each must be decided on for
+// phones (lan.go).
+func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	mux := http.NewServeMux()
+	var patterns []string
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		patterns = append(patterns, pattern)
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			defer s.recoverPanic(w, r)
 			s.projectBySlug(r)
@@ -1254,6 +1268,10 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/usage/disk", s.diskUsage)
 	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
+	// What AgentBox didn't carry on by itself after it stopped
+	// unexpectedly, and the user's Resume all (restart.go).
+	h("GET /v1/restart-hold", s.getRestartHold)
+	h("POST /v1/restart-hold/resume", s.postResumeAll)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("GET /v1/usage/host", s.hostMemory)
@@ -1314,6 +1332,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
+	patterns = append(patterns, lanNetPrefix+"/")
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))
 
 	h("POST /v1/snaps", s.takeSnap)
@@ -1331,7 +1350,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/jobs/{id}/log", s.jobLog)
 	h("POST /v1/jobs/{id}/cancel", s.cancelJob)
 	h("GET /v1/events", s.eventStream)
-	return traceAPI("", mux, true)
+	return mux, patterns
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) error {

@@ -242,6 +242,10 @@ const (
 	// SettingBootCosts is what the last machines' boots took, a JSON list of
 	// bytes, newest last: what the fleet holds a new machine's start to.
 	SettingBootCosts = "boot_costs"
+	// SettingRestartHold is why what AgentBox didn't carry on as it started
+	// waits for the user (daemon/restart.go), a JSON object, until they
+	// resume it.
+	SettingRestartHold = "restart_hold"
 	// SettingBlockFullSuite says whether a Claude Code agent's whole test
 	// suite (`go test ./...`, a bare `npm test`) is refused before it runs,
 	// with what to run instead (internal/cli/fullsuite.go), unless its

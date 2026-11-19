@@ -683,6 +683,8 @@ export interface HostLoad {
   busy: boolean;
   why?: string;
   reclaim?: boolean;
+  vmCeiling?: number;
+  holdBoots?: boolean;
   at: string;
 }
 
@@ -818,6 +820,19 @@ export interface DiskGuardDisk {
   floor: number;
   level: string;
   advice?: string;
+}
+
+export interface RestartHold {
+  unexpected?: boolean;
+  why?: string;
+  since?: string;
+  agents: string[];
+  chats: string[];
+}
+
+export interface ResumeAllResult {
+  agents: number;
+  chats: number;
 }
 
 export interface MemoryUsageAgent {
@@ -4267,6 +4282,7 @@ export const EventRemoteAgents = "remote-agents";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventDisk = "disk";
+export const EventRestartHold = "restart-hold";
 export const DiskOK = "ok";
 export const DiskLow = "low";
 export const DiskFull = "full";

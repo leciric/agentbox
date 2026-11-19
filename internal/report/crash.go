@@ -212,6 +212,21 @@ type marker struct {
 
 func (cs Crashes) markerPath() string { return filepath.Join(cs.Dir, "running.json") }
 
+// Unclean reports whether the last daemon didn't stop as it should (its
+// running.json is still there: it crashed, was killed, or the machine went
+// down under it), with when it started if that can be read. Read before
+// Start, which marks this one running. Whichever process it was: a machine
+// that booted again may well give the next daemon the same PID.
+func (cs Crashes) Unclean() (started time.Time, unclean bool) {
+	b, err := os.ReadFile(cs.markerPath())
+	if err != nil {
+		return time.Time{}, false
+	}
+	var last marker
+	_ = json.Unmarshal(b, &last)
+	return last.Started, true
+}
+
 // CrashOutput is where the runtime writes a fatal traceback.
 func (cs Crashes) CrashOutput() string { return filepath.Join(cs.Dir, "crash.out") }
 

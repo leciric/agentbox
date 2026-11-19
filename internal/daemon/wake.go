@@ -119,6 +119,12 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 // wakeAside starts a stopped agent's machine aside, once at a time for each
 // agent, and hands its chat what was held for it once it runs.
 func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent, why string) {
+	go s.wakeNow(context.WithoutCancel(ctx), m, a, why)
+}
+
+// wakeNow is wakeAside, waiting for it: it reports whether it started a's
+// machine, which it doesn't when another wake of it already runs.
+func (s *Server) wakeNow(ctx context.Context, m *agent.Manager, a state.Agent, why string) bool {
 	ref := a.Ref()
 	s.mu.Lock()
 	if s.waking == nil {
@@ -128,24 +134,22 @@ func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent,
 	s.waking[ref] = true
 	s.mu.Unlock()
 	if already {
-		return
+		return false
 	}
-	go func() {
-		ctx := context.WithoutCancel(ctx)
-		defer func() {
-			s.mu.Lock()
-			delete(s.waking, ref)
-			s.mu.Unlock()
-		}()
-		if err := s.startMachine(ctx, m, a, why); err != nil {
-			s.logf("%s: starting its machine for %s: %v", ref, why, err)
-			return
-		}
-		s.refreshAgents(ctx)
-		if err := s.chat.Release(a); err != nil {
-			s.logf("%s: handing over what was held for it: %v", ref, err)
-		}
+	defer func() {
+		s.mu.Lock()
+		delete(s.waking, ref)
+		s.mu.Unlock()
 	}()
+	if err := s.startMachine(ctx, m, a, why); err != nil {
+		s.logf("%s: starting its machine for %s: %v", ref, why, err)
+		return false
+	}
+	s.refreshAgents(ctx)
+	if err := s.chat.Release(a); err != nil {
+		s.logf("%s: handing over what was held for it: %v", ref, err)
+	}
+	return true
 }
 
 // startMachine starts a stopped agent's machine, with its in-agent API: what

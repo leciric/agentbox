@@ -18,16 +18,23 @@ func TestSupervisorArgv(t *testing.T) {
 	t.Cleanup(func() { systemdScope = saved })
 
 	systemdScope = func() bool { return false }
-	if got := supervisorArgv("/bin/agentbox", "agentbox"); !slices.Equal(got, []string{"/bin/agentbox", "vm", "run"}) {
+	savedTotal := hostTotal
+	t.Cleanup(func() { hostTotal = savedTotal })
+	hostTotal = func() int64 { return 32 * GiB }
+	c := Config{Name: "agentbox", MemoryMin: 4 * GiB, MemoryCap: 14 * GiB}
+	if got := supervisorArgv("/bin/agentbox", c); !slices.Equal(got, []string{"/bin/agentbox", "vm", "run"}) {
 		t.Errorf("without systemd: %q", got)
 	}
 
 	systemdScope = func() bool { return true }
-	got := supervisorArgv("/bin/agentbox", "my vm/1")
+	c.Name = "my vm/1"
+	got := supervisorArgv("/bin/agentbox", c)
 	line := strings.Join(got, " ")
 	for _, want := range []string{
 		"systemd-run --user --scope ", "--slice=app.slice", "--unit=agentbox-vm-my-vm-1-",
 		"-p CPUWeight=20", "-p IOWeight=20", " -- /bin/agentbox vm run",
+		// 14 GiB and 512 MiB, and a GiB more.
+		"-p MemoryHigh=15569256448", "-p MemoryMax=16642998272",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("argv %q lacks %q", line, want)
@@ -132,5 +139,87 @@ func TestDiskScheduler(t *testing.T) {
 	gaps := strings.Join(priorityGaps(file), "\n")
 	if !strings.Contains(gaps, "scheduler is none") {
 		t.Fatalf("gaps %q lack the scheduler", gaps)
+	}
+}
+
+// The scope's limits sit at the VM's cap and a little more, a GiB at least
+// between them; a cap that fits the host's 32 GiB is kept.
+func TestScopeMemory(t *testing.T) {
+	for _, tc := range []struct{ cap, high, hard int64 }{
+		{14 * GiB, 14*GiB + 512<<20, 15*GiB + 512<<20},
+		{4 * GiB, 4*GiB + 512<<20, 5*GiB + 512<<20},
+		{48 * GiB, 48*GiB + 512<<20, 51*GiB + 512<<20},
+	} {
+		if high, hard := scopeMemory(tc.cap); high != tc.high || hard != tc.hard {
+			t.Errorf("scopeMemory(%s) = %s, %s; want %s, %s", gib(tc.cap), gib(high), gib(hard), gib(tc.high), gib(tc.hard))
+		}
+	}
+}
+
+// limitScope bounds only a scope of the VM's own, with the memory controller,
+// through systemd or else its cgroup's files, and never below what it holds.
+func TestLimitScope(t *testing.T) {
+	savedRoot, savedOwn, savedSet := cgroupRoot, ownCgroup, setScopeMemory
+	t.Cleanup(func() { cgroupRoot, ownCgroup, setScopeMemory = savedRoot, savedOwn, savedSet })
+	cgroupRoot = t.TempDir()
+	scope := "/user.slice/user-1000.slice/user@1000.service/app.slice/agentbox-vm-agentbox-abc.scope"
+	dir := cgroupRoot + scope
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ownCgroup = func() string { return scope }
+	var setUnit string
+	var setHigh, setHard int64
+	setScopeMemory = func(unit string, high, hard int64) error {
+		setUnit, setHigh, setHard = unit, high, hard
+		return nil
+	}
+
+	// No memory controller: said, and nothing set.
+	if msg := limitScope(14 * GiB); !strings.Contains(msg, "no memory controller") || setUnit != "" {
+		t.Errorf("no controller: %q, set %q", msg, setUnit)
+	}
+	for _, f := range []string{"memory.high", "memory.max"} {
+		if err := os.WriteFile(dir+"/"+f, []byte("max\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(dir+"/memory.current", []byte(strconv.FormatInt(2*GiB, 10)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msg := limitScope(14 * GiB)
+	if setUnit != "agentbox-vm-agentbox-abc.scope" || setHigh != 14*GiB+512<<20 || setHard != 15*GiB+512<<20 {
+		t.Errorf("set %q %s %s", setUnit, gib(setHigh), gib(setHard))
+	}
+	if !strings.Contains(msg, "14.5 GiB before the kernel reclaims") || !strings.Contains(msg, "15.5 GiB at most") {
+		t.Errorf("message %q", msg)
+	}
+	// A cap lowered under what the scope holds: never under it.
+	if err := os.WriteFile(dir+"/memory.current", []byte(strconv.FormatInt(10*GiB, 10)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limitScope(6 * GiB)
+	if setHigh != 10*GiB+512<<20 || setHard != 11*GiB+512<<20 {
+		t.Errorf("under what it holds: %s, %s", gib(setHigh), gib(setHard))
+	}
+	// systemctl failing: the cgroup's own files.
+	setScopeMemory = func(string, int64, int64) error { return os.ErrPermission }
+	if err := os.WriteFile(dir+"/memory.current", []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limitScope(14 * GiB)
+	if got := readTrim(dir + "/memory.high"); got != strconv.FormatInt(14*GiB+512<<20, 10) {
+		t.Errorf("memory.high = %q", got)
+	}
+	if got := readTrim(dir + "/memory.max"); got != strconv.FormatInt(15*GiB+512<<20, 10) {
+		t.Errorf("memory.max = %q", got)
+	}
+	// The app's own scope, where the supervisor runs without systemd-run:
+	// not its to bound.
+	ownCgroup = func() string { return "/user.slice/user-1000.slice/user@1000.service/app.slice/app-agentbox.scope" }
+	setUnit = ""
+	setScopeMemory = savedSet
+	if msg := limitScope(14 * GiB); !strings.Contains(msg, "not in a scope of its own") {
+		t.Errorf("the app's scope: %q", msg)
 	}
 }

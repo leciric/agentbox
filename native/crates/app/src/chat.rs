@@ -182,6 +182,9 @@ pub struct ChatView {
     title: SharedString,
     /// Whether it draws its own title bar: not under the project's header.
     pub header: bool,
+    /// Only the composer (and what went wrong): cockpit mode's feed shows
+    /// the conversation itself and answers a lead with this (app/cockpit.rs).
+    pub composer_only: bool,
     /// The chat's ref, as chat events name it (project/lead, project/agent-01).
     pub agent: String,
     /// Its agent's name, for the composer's words (the lead: none).
@@ -343,6 +346,7 @@ impl ChatView {
             prefix,
             title,
             header: true,
+            composer_only: false,
             row_width: Default::default(),
             agent,
             agent_name: String::new(),
@@ -1294,6 +1298,27 @@ impl Render for ChatView {
                 bench::report();
             }
         }
+        if self.composer_only {
+            return v_flex()
+                .id("chat")
+                .key_context("Chat")
+                .track_focus(&self.focus)
+                .relative()
+                .w_full()
+                .bg(theme::chat())
+                .when_some(self.error.clone(), |el, e| {
+                    el.child(
+                        div()
+                            .px_6()
+                            .py_1()
+                            .text_xs()
+                            .text_color(theme::error())
+                            .child(e),
+                    )
+                })
+                .child(self.render_composer(window, cx))
+                .into_any_element();
+        }
         let view = cx.entity();
         let working = self.working();
         let background = self.render_background(window, cx);
@@ -1417,5 +1442,6 @@ impl Render for ChatView {
                     .child(crate::spot::spot("composer")),
             )
             .children(background)
+            .into_any_element()
     }
 }

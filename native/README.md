@@ -73,6 +73,20 @@ Settings → General → Office (off by default) adds the Office to the sidebar:
 projects' rooms, where you walk to an agent and open its chat at its desk.
 `AGENTBOX_NATIVE_OFFICE=1` opens it at start.
 
+## Cockpit mode
+
+Settings → Experimental → Interface → Cockpit mode (the daemon's `cockpitMode`, off by default) adds a
+Cockpit mode button to the top bar: every project's lead in one feed beside a live wall of agents, and
+one project's agent on a stage (`crates/app/src/app/cockpit.rs`, as the Electron app's
+`components/cockpit`). Esc or the button again leaves it. `AGENTBOX_NATIVE_COCKPIT=1` opens it at
+start, `=<project>` or `=<project>/<agent>` focused there; the fake daemon's `--cockpit` turns the
+setting on, and its `--neighbours` give their leads a short conversation each:
+
+```bash
+cargo run -p fake-daemon -- --listen /t/fake.sock --neighbours storefront:4,quill:3 --cockpit
+AGENTBOX_NATIVE_SIZE=3440x1440 AGENTBOX_NATIVE_COCKPIT=demo cargo run --release -p agentbox-native -- --socket /t/fake.sock
+```
+
 - `crates/office` has no GPUI: the layout, the model, walking and the camera ported from #668's
   TypeScript (with its tests), the rooms, props and robots built in code as #668 builds them, and
   Kenney's models (`assets/kenney`, CC0). It draws with wgpu (the version GPUI uses) offscreen, on a

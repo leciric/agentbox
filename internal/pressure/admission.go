@@ -21,7 +21,10 @@ import (
 // agent's; and never while the user's computer, outside the VM, is busy
 // (WaitHost), for no longer than it is. One boots at a time, BootStep apart, so each boot shows in
 // the reading before the next is judged. When no machine runs at all, the
-// first in line boots whatever the reading, or nothing ever would.
+// first in line boots whatever the reading, or nothing ever would; but
+// nothing boots, the first included, while the user's computer, outside the
+// VM, has been short of memory lately (HostShort): every boot then is memory
+// the host's kernel would have to find by killing something, the VM first.
 //
 // Unlike pressure.Fleet's queue, nobody boots for having waited long
 // (Queue.MaxHeld): a machine started into memory that isn't there gets an
@@ -37,6 +40,9 @@ type Admission struct {
 	last    time.Time // the last boot
 	mem     Mem
 	why     string
+	// HostShort, set before each Step, says the host has been short of
+	// memory lately (api.HostLoad.HoldBoots).
+	HostShort bool
 }
 
 // AdmitWaiter is a machine asking to boot.
@@ -51,7 +57,7 @@ type AdmitWaiter struct {
 const (
 	WaitMemory = "memory" // the VM hasn't the memory for another boot
 	WaitBuilds = "builds" // agents' builds wait or are paused for memory
-	WaitHost   = "host"   // the user's computer, outside the VM, is busy
+	WaitHost   = "host"   // the user's computer, outside the VM, is busy or has been short of memory lately
 	WaitTurn   = "turn"   // another machine boots just before it
 )
 
@@ -171,6 +177,9 @@ func (a *Admission) Step(now time.Time, m Mem, held string, running int) []strin
 		return nil
 	}
 	switch {
+	case a.HostShort:
+		a.why = WaitHost
+		return nil
 	case running == 0 && len(a.booting) == 0:
 		// Nothing runs: the first boots whatever the reading.
 	case !a.last.IsZero() && now.Sub(a.last) < a.BootStep:
@@ -192,4 +201,30 @@ func (a *Admission) Step(now time.Time, m Mem, held string, running int) []strin
 		a.why = WaitTurn
 	}
 	return []string{w.Agent}
+}
+
+// SettleFall is how fast, in bytes a second, the VM's available memory may
+// still be falling for what was last started to count as settled
+// (Unsettled): a machine booting or a chat loading its session takes its
+// memory in its first seconds, and falls slower once it has.
+const SettleFall = 32 << 20 // 32 MiB/s
+
+// Unsettled says what keeps the VM from being settled at s, with t, for one
+// more piece of work a restart cut short to be carried on after the last,
+// or "" when nothing does: a memory stall (some pressure at Admit, or full
+// at Calm), the VM paging to its disk, the user's computer busy, and, while
+// steady is asked for, its memory still falling at SettleFall or faster.
+// Whether a machine's boot fits is Admission's to say.
+func (p Policy) Unsettled(s Sample, t Trend, steady bool) string {
+	switch {
+	case s.Some.Avg10 >= p.Admit || s.Full.Avg10 >= p.Calm:
+		return "memory pressure in the VM (" + s.String() + ")"
+	case s.Mem.DiskSwapOut():
+		return "the VM paging out to its disk"
+	case s.HostBusy:
+		return "your computer being busy"
+	case steady && t.Fall >= SettleFall:
+		return "the VM's memory still falling"
+	}
+	return ""
 }

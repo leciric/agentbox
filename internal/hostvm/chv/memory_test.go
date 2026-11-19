@@ -67,18 +67,19 @@ func TestMemPolicyGrowsUnderPressure(t *testing.T) {
 	if d := p.decide(&st, sample(2*GiB, 8*GiB, 0, 25), now); d.Target != 0 {
 		t.Fatalf("stalls with 6 GiB available: %+v, want nothing", d)
 	}
-	// Short, and stalling: a step more than the numbers alone ask for.
+	// Short, and stalling: a step more than the numbers alone ask for, of
+	// which memGrowMax at once.
 	d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now)
-	if d.Target != 10*GiB {
-		t.Fatalf("decide = %+v, want a grow to 10 GiB", d)
+	if d.Target != 9*GiB || !strings.Contains(d.Reason, "stalled") {
+		t.Fatalf("decide = %+v, want a grow to 9 GiB", d)
 	}
 	// Not again until the grow has had time to help (the guest hasn't seen
 	// all of it yet).
 	if d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now.Add(memTick)); d.Target != 0 {
 		t.Errorf("within the cooldown: %+v, want nothing", d)
 	}
-	if d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now.Add(memGrowCooldown)); d.Target != 12*GiB {
-		t.Errorf("after the cooldown: %+v, want 12 GiB", d)
+	if d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now.Add(memGrowCooldown)); d.Target != 10*GiB {
+		t.Errorf("after the cooldown: %+v, want 10 GiB", d)
 	}
 	st.Requested = 16 * GiB
 	if d := p.decide(&st, sample(15*GiB, 16*GiB, 0, 50), now.Add(time.Minute)); d.Target != 0 {
@@ -173,18 +174,23 @@ func TestMemPolicyGrowsAheadOfABurst(t *testing.T) {
 	st := memState{Requested: 4 * GiB}
 	now := time.Now()
 	p.decide(&st, sample(GiB, 4*GiB, 1, 0), now)
-	// 1 GiB in half a second: 2 GiB a second, so 6 GiB ahead of 2 GiB used.
+	// 1 GiB in half a second: 2 GiB a second, so 6 GiB ahead of 2 GiB used,
+	// 8 GiB, of which memGrowMax at once.
 	d := p.decide(&st, sample(2*GiB, 4*GiB, 1, 0), now.Add(memTick))
-	if d.Target != 8*GiB || !strings.Contains(d.Reason, "rising") {
-		t.Fatalf("decide = %+v, want 8 GiB for a rise of 2 GiB a second", d)
+	if d.Target != 5*GiB || !strings.Contains(d.Reason, "rising") {
+		t.Fatalf("decide = %+v, want 5 GiB, on the way to 8 for a rise of 2 GiB a second", d)
 	}
-	// A flat sample within memRateWindow keeps the headroom.
-	if d := p.decide(&st, sample(2*GiB, 8*GiB, 1, 0), now.Add(2*memTick)); d.Target != 0 || st.rate < float64(GiB) {
+	// A flat sample within memRateWindow keeps the headroom, and the next
+	// step waits memGrowEvery.
+	if d := p.decide(&st, sample(2*GiB, 5*GiB, 1, 0), now.Add(2*memTick)); d.Target != 0 || st.rate < float64(GiB) {
 		t.Errorf("flat sample: %+v, rate %.0f", d, st.rate)
 	}
+	if d := p.decide(&st, sample(2*GiB, 5*GiB, 1, 0), now.Add(memTick+memGrowEvery)); d.Target != 6*GiB {
+		t.Errorf("after memGrowEvery: %+v, want the next GiB", d)
+	}
 	// Once the burst is over, the rate goes back to what it is.
-	for i := 3; i < 10; i++ {
-		p.decide(&st, sample(2*GiB, 8*GiB, 1, 0), now.Add(time.Duration(i)*memTick))
+	for i := 6; i < 14; i++ {
+		p.decide(&st, sample(2*GiB, 6*GiB, 1, 0), now.Add(time.Duration(i)*memTick))
 	}
 	if st.rate != 0 {
 		t.Errorf("rate after the burst = %.0f, want 0", st.rate)
@@ -234,7 +240,8 @@ func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
 		for i := range 600 { // 300 s
 			x := s(1, 3*GiB, 1, i)
 			if short {
-				x.HostTotal, x.HostAvailable = 32*GiB, 2*GiB
+				// Below its 8 GiB reserve, not down to half of it.
+				x.HostTotal, x.HostAvailable = 32*GiB, 6*GiB
 			}
 			if d := p.decide(&st, x, start.Add(time.Duration(i)*memTick)); d.Reclaim {
 				reclaims = append(reclaims, i)
@@ -277,7 +284,7 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	run := func(s *memSample, ticks int) (trims []memDecision) {
 		// At what it should have: use, the cache it keeps, 3 GiB of headroom.
 		var st memState
-		st.Requested = p.target(*s, 0, st.keep(*s, p))
+		st.Requested = p.target(*s, 0, st.keep(*s, p, start))
 		for i := range ticks {
 			x := *s
 			x.CPUTotal, x.CPUBusy = uint64(i)*100, uint64(i)*90
@@ -297,9 +304,9 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	if len(trims) != int(120*time.Second/memTrimEvery) || trims[0].Trim != memTrimMax || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "stalled") {
 		t.Errorf("host stalling: %+v", trims)
 	}
-	// The host has little available: what's beyond the floor, 3 GiB less
-	// 2 of the allowance, though more is inactive.
-	trims = run(busy(3*GiB, 2*GiB+GiB/2, 2*GiB, 0), 2)
+	// The host has less than its reserve: what's beyond the allowance, 3 GiB
+	// less 2, though more is inactive.
+	trims = run(busy(3*GiB, 2*GiB+GiB/2, 6*GiB, 0), 2)
 	if len(trims) != 1 || trims[0].Trim != GiB || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "keeping 2.0 GiB") {
 		t.Errorf("host short: %+v", trims)
 	}
@@ -308,8 +315,8 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	// all of it active, or the host unknown.
 	for name, s := range map[string]*memSample{
 		"host fine, big cache": busy(7*GiB, 5*GiB, 20*GiB, 0),
-		"within the floor":     busy(2*GiB, GiB, 2*GiB, 30),
-		"all active":           busy(7*GiB, 100<<20, 2*GiB, 30),
+		"within the floor":     busy(2*GiB, GiB, 6*GiB, 30),
+		"all active":           busy(7*GiB, 100<<20, 6*GiB, 30),
 		"host unknown":         busy(7*GiB, 5*GiB, 0, 0),
 	} {
 		if s.HostAvailable == 0 {
@@ -362,7 +369,8 @@ func TestMemPolicyRefaultsRaiseTheFloor(t *testing.T) {
 	x := sample(8*GiB, 16*GiB, 3, 0)
 	x.FileCache, x.InactiveFile = 4*GiB, 3*GiB
 	x.Resident = 14 * GiB
-	x.HostTotal, x.HostAvailable = 32*GiB, 5*GiB // short: keeps 6.4
+	// Short: stalling on memory, with its 8 GiB reserve available.
+	x.HostTotal, x.HostAvailable, x.HostPressure = 32*GiB, 12*GiB, 25
 	x.RefaultsKnown = true
 	st := memState{Requested: 16 * GiB}
 	at := func(i int) time.Time { return start.Add(time.Duration(i) * memTick) }
@@ -383,9 +391,15 @@ func TestMemPolicyRefaultsRaiseTheFloor(t *testing.T) {
 	if st.floor < 4*GiB+200<<20 || st.trimBackoff < memTrimBackoff {
 		t.Fatalf("floor %s, backoff %s: want above the 4 GiB cached, and trims held off", gib(st.floor), st.trimBackoff)
 	}
-	// The VM keeps the floor: its target includes it.
-	if keep := st.keep(*x, p); keep != x.FileCache {
+	// The VM keeps the floor: its target includes it. Not with the host
+	// below its reserve: then only the allowance.
+	if keep := st.keep(*x, p, start); keep != x.FileCache {
 		t.Errorf("keeps %s of %s cached", gib(keep), gib(x.FileCache))
+	}
+	below := *x
+	below.HostAvailable = 5 * GiB
+	if keep := st.keep(below, p, start); keep != below.cacheAllowance() {
+		t.Errorf("host below its reserve: keeps %s of %s cached, want the %s allowance", gib(keep), gib(x.FileCache), gib(below.cacheAllowance()))
 	}
 	// Still refaulting after the first backoff: it doubles.
 	first := st.trimBackoff
@@ -519,10 +533,11 @@ func TestMemPolicyRealHostHeadroom(t *testing.T) {
 		t.Errorf("four idle: shrinks %v, trims %v; want one to 12 GiB trimming 1.5", shrinks, trims)
 	}
 
-	// The idle four start a turn: the VM grows on the next sample.
+	// The idle four start a turn: the VM grows on the next sample, by
+	// memGrowMax at a time.
 	x.Idle = 0
-	if d := p.decide(&st, x, start.Add(601*memTick)); d.Target != 15*GiB || d.Shrink {
-		t.Errorf("all busy again: %+v, want a grow to 15 GiB at once", d)
+	if d := p.decide(&st, x, start.Add(601*memTick)); d.Target != 13*GiB || d.Shrink {
+		t.Errorf("all busy again: %+v, want a grow to 13 GiB at once", d)
 	}
 }
 
@@ -581,8 +596,8 @@ func TestFitHost(t *testing.T) {
 }
 
 // Growing stops where the host would be left less than its reserve,
-// whatever the agents want or the guest's stalls say; with the host
-// unknown it grows as before.
+// whatever the agents want or the guest's stalls say, a GiB at a time; with
+// the host unknown it grows as before.
 func TestMemPolicyHostGate(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
 	now := time.Now()
@@ -596,27 +611,31 @@ func TestMemPolicyHostGate(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		avail int64
-		want  int64 // 0: no grow
+		want  int64 // where it settles
 	}{
 		{"plenty", 20 * GiB, 11 * GiB},
 		{"room for 1.5 GiB more", 9*GiB + 512<<20, 9*GiB + 512<<20},
-		{"at the reserve", 8*GiB + 400<<20, 0},
-		{"below it", 3 * GiB, 0},
+		{"at the reserve", 8*GiB + 400<<20, 8 * GiB},
+		{"below it", 6 * GiB, 5 * GiB}, // gives back down to 3 in use and 2 of headroom
 	} {
 		st := memState{Requested: 8 * GiB}
-		d := p.decide(&st, host(tc.avail), now)
-		if d.Target != tc.want || d.Shrink {
-			t.Errorf("%s: %+v, want a target of %s", tc.name, d, gib(tc.want))
+		x := host(tc.avail)
+		got, _ := settle(p, &st, x, now, 30*time.Second)
+		if got != tc.want {
+			t.Errorf("%s: settles at %s, want %s", tc.name, gib(got), gib(tc.want))
 		}
-		if tc.want != 0 && tc.want != 11*GiB && !strings.Contains(d.Reason, "keeps 8.0 GiB for itself") {
-			t.Errorf("%s: reason %q", tc.name, d.Reason)
-		}
+	}
+	// One step at a time, and the reason says why it stopped.
+	st := memState{Requested: 8 * GiB}
+	d := p.decide(&st, host(9*GiB+512<<20), now)
+	if d.Target != 9*GiB || !strings.Contains(d.Reason, "keeps 8.0 GiB for itself") {
+		t.Errorf("room for 1.5 GiB more: %+v, want a GiB, as the host keeps 8 GiB", d)
 	}
 	// What's plugged stands in for what's held when that's unknown.
 	x := host(9*GiB + 512<<20)
 	x.Resident = 0
-	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 9*GiB+512<<20 {
-		t.Errorf("held unknown: %+v", d)
+	if d := p.decide(&memState{Requested: 8*GiB + 512<<20}, x, now); d.Target != 9*GiB+512<<20 {
+		t.Errorf("held unknown: %+v, want 9.5 GiB", d)
 	}
 	// A stall doesn't get past it.
 	x = host(6 * GiB)
@@ -628,9 +647,39 @@ func TestMemPolicyHostGate(t *testing.T) {
 	// The host unknown: no gate.
 	x = host(0)
 	x.HostTotal = 0
-	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 11*GiB {
-		t.Errorf("host unknown: %+v", d)
+	if got, _ := settle(p, &memState{Requested: 8 * GiB}, x, now, 30*time.Second); got != 11*GiB {
+		t.Errorf("host unknown: settles at %s", gib(got))
 	}
+}
+
+// settle runs p from x for d, the guest given what it's told (Total follows
+// each target, and a trim or reclaim drops that much cache, and as much of
+// what it holds of the host), and returns where it ends and every target.
+func settle(p memPolicy, st *memState, x *memSample, at time.Time, d time.Duration) (int64, []int64) {
+	var targets []int64
+	for i := range int(d / memTick) {
+		dec := p.decide(st, x, at.Add(time.Duration(i)*memTick))
+		if dec.Reclaim {
+			x.Resident = max(x.Resident-x.FileCache, x.Used())
+			x.FileCache, x.InactiveFile = 0, 0
+		}
+		if dec.Trim > 0 {
+			x.FileCache -= dec.Trim
+			x.InactiveFile = max(x.InactiveFile-dec.Trim, 0)
+			x.Resident = max(x.Resident-dec.Trim, x.Used())
+		}
+		if dec.Target > 0 {
+			targets = append(targets, dec.Target)
+			x.Available += dec.Target - x.Total
+			if dec.Target < x.Total && x.Resident > dec.Target {
+				// Unplugged: the host gets it back.
+				x.HostAvailable += x.Resident - dec.Target
+				x.Resident = dec.Target
+			}
+			x.Total = dec.Target
+		}
+	}
+	return st.Requested, targets
 }
 
 // With the host below its reserve, the VM gives back within
@@ -681,10 +730,14 @@ func TestMemPolicyHostStallStopsGrowth(t *testing.T) {
 	if d := p.decide(&st, x, now); d.Target != 0 {
 		t.Fatalf("host stalling: %+v, want no grow", d)
 	}
-	// Calm again: it grows as it would have.
+	// Calm again: it grows as it would have, once that has lasted
+	// memHostCalm, a GiB at a time.
 	x.HostPressure = 0
-	if d := p.decide(&st, x, now); d.Target != 11*GiB {
-		t.Fatalf("host calm: %+v, want 11 GiB", d)
+	if d := p.decide(&st, x, now.Add(memHostCalm-time.Second)); d.Target != 0 {
+		t.Fatalf("host calm for less than %s: %+v, want no grow yet", memHostCalm, d)
+	}
+	if d := p.decide(&st, x, now.Add(memHostCalm)); d.Target != 9*GiB {
+		t.Fatalf("host calm: %+v, want 9 GiB", d)
 	}
 	// Stalling with more than it needs: it gives back soon.
 	st = memState{Requested: 16 * GiB}

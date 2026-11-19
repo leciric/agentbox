@@ -1571,7 +1571,13 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
-			err = s.stopOnPurpose(a.Ref(), func() error { return s.stopAgent(ctx, m, a, "the agent was stopped") })
+			// ?why= is what its chat is told: the VM's supervisor stopping
+			// it for the host's memory says so (chv/shed.go).
+			why := "the agent was stopped"
+			if q := strings.TrimSpace(r.URL.Query().Get("why")); q != "" && len(q) <= 200 {
+				why = q
+			}
+			err = s.stopOnPurpose(a.Ref(), func() error { return s.stopAgent(ctx, m, a, why) })
 		case "pause":
 			err = s.stopOnPurpose(a.Ref(), func() error { return m.Pause(ctx, a) })
 		case "resume":
