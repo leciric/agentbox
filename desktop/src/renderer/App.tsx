@@ -53,6 +53,7 @@ import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { BuiltWithBadgeOffer } from "./components/BuiltWithBadgeOffer";
 import { StartingNotice } from "./components/StartingNotice";
+import { RestartHoldNotice } from "./components/RestartHoldNotice";
 import { StaleDaemonNotice, useStaleDaemon } from "./components/StaleDaemonNotice";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
@@ -752,6 +753,7 @@ export function App({ initial }: { initial?: View } = {}) {
                 <StaleDaemonNotice stale={stale} />
               </div>
             )}
+            {!fullPage && connection.state === "connected" && <RestartHoldNotice />}
             {!fullPage && connection.state !== "disconnected" && <BuiltWithBadgeOffer />}
             {!fullPage && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">

@@ -424,6 +424,9 @@ type Server struct {
 	frozen *fleetState
 	// admit (admission.go) is when agents' machines boot, and those On hold.
 	admit *admitState
+	// resumes (restart.go) carries on, one at a time, what a restart cut
+	// short, and holds it for the user after AgentBox stopped unexpectedly.
+	resumes *resumeState
 	// view (viewing.go) is the agent the app shows.
 	view           viewingState
 	machineCgroups machineCgroups
@@ -527,6 +530,7 @@ func New(cfg Config) (*Server, error) {
 		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
 		admit:            newAdmitState(),
+		resumes:          newResumeState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
@@ -1264,6 +1268,10 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("GET /v1/usage/disk", s.diskUsage)
 	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
+	// What AgentBox didn't carry on by itself after it stopped
+	// unexpectedly, and the user's Resume all (restart.go).
+	h("GET /v1/restart-hold", s.getRestartHold)
+	h("POST /v1/restart-hold/resume", s.postResumeAll)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("GET /v1/usage/host", s.hostMemory)

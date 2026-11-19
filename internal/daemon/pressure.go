@@ -105,6 +105,11 @@ type heavyRuns struct {
 	// refresh asks for the agents to be refreshed (refreshAgents), aside
 	// from the loop.
 	refresh chan struct{}
+	// reading is the loop's last reading of the VM, taken at readAt, with
+	// the trend it made (resuming after a restart waits on them).
+	reading pressure.Sample
+	trend   pressure.Trend
+	readAt  time.Time
 }
 
 func newHeavyRuns() *heavyRuns {
@@ -168,7 +173,6 @@ func (s *Server) giveZram() {
 // their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
 	s.loadFleet(ctx)
-	go s.resumeHeld(ctx)
 	go func() {
 		for {
 			select {
@@ -278,6 +282,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		acts = h.g.Step(now, sample)
 	}
 	trend, why := h.g.Trend(), h.g.Why()
+	h.reading, h.trend, h.readAt = sample, trend, now
 	type change struct {
 		run      pressure.Run
 		instance string

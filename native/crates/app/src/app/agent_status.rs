@@ -18,6 +18,7 @@ pub trait AgentLike {
     fn memory(&self) -> Option<&MemoryHold>;
     fn waiting_for_image(&self) -> bool;
     fn changes_requested(&self) -> bool;
+    fn hold(&self) -> &str;
 }
 
 macro_rules! agent_like {
@@ -52,6 +53,9 @@ macro_rules! agent_like {
             }
             fn changes_requested(&self) -> bool {
                 !self.changes_requested.is_empty()
+            }
+            fn hold(&self) -> &str {
+                &self.hold
             }
         }
     };
@@ -129,6 +133,11 @@ pub fn chat_label(a: &impl AgentLike) -> (String, Tone) {
     }
     if let Some(m) = a.memory().and_then(machine_hold) {
         return (m, Tone::Warning);
+    }
+    // On hold after AgentBox stopped unexpectedly, until you resume it
+    // (onHold, restart_hold.rs): its machine isn't running.
+    if a.hold() == "restart" && state != "running" && state != "paused" {
+        return (t("agent.status.onHoldRestart"), Tone::Warning);
     }
     if state == "initializing" || state == "queued" {
         return (t("agent.status.initializing"), Tone::Live);
@@ -443,6 +452,18 @@ mod tests {
             chat: chat.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_agent_held_after_an_unexpected_stop_says_so_until_it_runs() {
+        let mut held = agent("stopped", "");
+        held.hold = "restart".into();
+        assert_eq!(
+            chat_label(&held),
+            (t("agent.status.onHoldRestart"), Tone::Warning)
+        );
+        held.state = "running".into();
+        assert_ne!(chat_label(&held).0, t("agent.status.onHoldRestart"));
     }
 
     #[test]

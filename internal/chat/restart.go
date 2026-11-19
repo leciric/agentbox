@@ -245,6 +245,26 @@ func (m *Manager) NoteNotResumed(a state.Agent, rt state.RunningTurn, why string
 	c.flush(true)
 }
 
+// heldPrefix begins what NoteHeld says.
+const heldPrefix = "AgentBox restarted while this turn was running, and didn't resume it by itself: "
+
+// NoteHeld tells a conversation that its turn, cut short by a restart, waits
+// for the user to resume it, and why. The record stays, held (the daemon's
+// Resume all carries it on); a message sent meanwhile is newer work, and
+// replaces it.
+func (m *Manager) NoteHeld(a state.Agent, rt state.RunningTurn, why string) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return
+	}
+	defer c.mu.Unlock()
+	if c.byID[rt.Turn] == nil {
+		return
+	}
+	c.add("notice", rt.Turn).Text = heldPrefix + why + ". It waits for you: Resume all carries it on, and so does a message."
+	c.flush(true)
+}
+
 // handoffBefore is the context transfer for a fresh session that replaces
 // one which couldn't be resumed: the conversation up to the running turn,
 // whose own prompt follows it. The conversation is locked.

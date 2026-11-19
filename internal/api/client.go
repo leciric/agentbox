@@ -1348,6 +1348,19 @@ func (c *Client) DiskGuard(ctx context.Context) (DiskGuard, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/disk", nil, &out)
 }
 
+// RestartHold is what waits for the user after AgentBox stopped
+// unexpectedly.
+func (c *Client) RestartHold(ctx context.Context) (RestartHold, error) {
+	var out RestartHold
+	return out, c.do(ctx, http.MethodGet, "/v1/restart-hold", nil, &out)
+}
+
+// ResumeAll resumes everything RestartHold has, one at a time.
+func (c *Client) ResumeAll(ctx context.Context) (ResumeAllResult, error) {
+	var out ResumeAllResult
+	return out, c.do(ctx, http.MethodPost, "/v1/restart-hold/resume", struct{}{}, &out)
+}
+
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)

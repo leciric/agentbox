@@ -20,6 +20,12 @@ import (
 // machine: the fleet reads git and the store, not incus.
 func addAgent(t *testing.T, d testDaemon, repo, project, name, title string) state.Agent {
 	t.Helper()
+	return addAgentMade(t, d, repo, project, name, title, time.Now())
+}
+
+// addAgentMade is addAgent for an agent made at made.
+func addAgentMade(t *testing.T, d testDaemon, repo, project, name, title string, made time.Time) state.Agent {
+	t.Helper()
 	ctx := context.Background()
 	worktree := d.paths.Worktree(project, name)
 	// Named after the work, as Create names it, so nothing here gets to
@@ -36,7 +42,7 @@ func addAgent(t *testing.T, d testDaemon, repo, project, name, title string) sta
 	a := state.Agent{
 		Project: project, Name: name, Title: title, Instance: "ab-" + project + "-" + name,
 		AI: "claude", Branch: branch, BaseRef: "main", BaseCommit: commit,
-		Worktree: worktree, Status: state.AgentReady, CreatedAt: time.Now(),
+		Worktree: worktree, Status: state.AgentReady, CreatedAt: made,
 		Interface: state.InterfaceChat,
 	}
 	if err := d.srv.store.AddAgent(ctx, a); err != nil {

@@ -132,11 +132,14 @@ export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip
 }
 
 // onHold is an agent On hold whose place in line the daemon doesn't hold
-// now (T.Agent.hold): after sitting idle, until something touches it, or for
-// memory, before a restarted daemon has it back in line. undefined otherwise.
+// now (T.Agent.hold): after sitting idle, until something touches it; after
+// AgentBox stopped unexpectedly, until you resume it (RestartHoldNotice); or
+// for memory, before a restarted daemon has it back in line. undefined
+// otherwise.
 export function onHold(agent: Pick<T.Agent, 'hold' | 'state' | 'memory'>): { text: string; tip: string } | undefined {
   if (!agent.hold || agent.state === 'running' || agent.state === 'paused' || agent.memory?.machine) return undefined;
   if (agent.hold === 'idle') return { text: t('agent.status.onHoldIdle'), tip: t('agent.status.onHoldIdleTip') };
+  if (agent.hold === 'restart') return { text: t('agent.status.onHoldRestart'), tip: t('agent.status.onHoldRestartTip') };
   return { text: t('agent.status.onHoldMemoryNoPlace'), tip: t('agent.status.onHoldMemoryTip') };
 }
 

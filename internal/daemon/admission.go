@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"sort"
 	"sync"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 // they like; those that don't fit are On hold (state.HoldMemory), machine
 // stopped, and boot by themselves, oldest first, as room frees. The mark is
 // kept in the database, so a daemon that restarts starts them again in the
-// same order (resumeHeld), and it is only ever a mark: nothing removes an
+// same order (continueTurns, restart.go), and it is only ever a mark: nothing removes an
 // agent for being on hold.
 //
 // The heavy commands' governor (pressure.go) comes first: while a build
@@ -90,7 +89,7 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 			}
 			ad.mu.Unlock()
 			// It no longer waits: On hold, it would show as waiting with
-			// nothing to boot it (resumeHeld runs only as the daemon starts).
+			// nothing to boot it (continueTurns runs only as the daemon starts).
 			s.unhold(context.WithoutCancel(ctx), a, state.HoldMemory)
 			s.refreshAgents(context.WithoutCancel(ctx))
 			return ctx.Err()
@@ -105,13 +104,21 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 // unhold takes an agent off hold as its machine boots, whatever put it
 // there: running, it is held for nothing.
 func (s *Server) unhold(ctx context.Context, a state.Agent, _ string) {
-	if a.Hold == "" {
-		if cur, err := s.store.Agent(ctx, a.Project, a.Name); err != nil || cur.Hold == "" {
-			return
-		}
+	was := a.Hold
+	if cur, err := s.store.Agent(ctx, a.Project, a.Name); err == nil {
+		was = cur.Hold
+	} else if was == "" {
+		return
+	}
+	if was == "" {
+		return
 	}
 	if err := s.store.SetHold(ctx, a.Project, a.Name, ""); err != nil {
 		s.logf("memory: taking %s off hold: %v", a.Ref(), err)
+	}
+	if was == state.HoldRestart {
+		// Started by hand or by a message: one fewer waits for Resume all.
+		s.publishRestartHold(ctx)
 	}
 }
 
@@ -233,45 +240,6 @@ func (s *Server) admitHold(ref string) *api.MemoryHold {
 		out.Why = api.HoldWhyHost
 	}
 	return &out
-}
-
-// resumeHeld starts, as the daemon starts, every agent a daemon before it
-// left On hold for memory, oldest first: each waits its turn in admission
-// again. Those on hold for being idle stay stopped until touched.
-func (s *Server) resumeHeld(ctx context.Context) {
-	agents, err := s.store.Agents(ctx, "")
-	if err != nil {
-		s.logf("memory: agents on hold: %v", err)
-		return
-	}
-	// A turn to carry on starts its agent itself (continueTurns).
-	turns, _ := s.store.RunningTurns(ctx)
-	resuming := map[string]bool{}
-	for _, rt := range turns {
-		resuming[rt.Project+"/"+rt.Agent] = true
-	}
-	var held []state.Agent
-	for _, a := range agents {
-		if a.Hold == state.HoldMemory && !a.IsLead() && a.Status == state.AgentReady && !resuming[a.Ref()] {
-			held = append(held, a)
-		}
-	}
-	if len(held) == 0 {
-		return
-	}
-	sort.SliceStable(held, func(i, j int) bool { return held[i].CreatedAt.Before(held[j].CreatedAt) })
-	// Judged on a reading of the VM's memory, not before one.
-	for wait := 0; wait < 30 && !s.lastMem().Known() && s.pressureEvery > 0; wait++ {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second):
-		}
-	}
-	m := s.manager(s.cfg.Log)
-	for _, a := range held {
-		s.wakeAside(ctx, m, a, "its turn, on hold for memory before AgentBox restarted")
-	}
 }
 
 // holdOf is Agent.Hold for an agent whose machine is in state: none while

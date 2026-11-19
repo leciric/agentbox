@@ -103,6 +103,11 @@ test('an agent On hold says why and its place in line, and stops saying it once 
   assert.deepEqual(chatLabel(idle), { text: 'On hold: idle', tone: 'muted' });
   assert.match(statusTip(idle) ?? '', /opening it, a message or its lead starts it again/);
   assert.equal(onHold({ ...agent('running'), hold: 'idle' } as T.Agent), undefined);
+  // After AgentBox stopped unexpectedly, until you resume it: not memory.
+  const restart = { ...agent('stopped'), hold: 'restart' } as T.Agent;
+  assert.deepEqual(chatLabel(restart), { text: 'On hold: AgentBox stopped unexpectedly', tone: 'warning' });
+  assert.match(statusTip(restart) ?? '', /Resume all, a message or starting it carries on/);
+  assert.equal(onHold({ ...agent('running'), hold: 'restart' } as T.Agent), undefined);
 });
 
 test('a machine or a command paused with swap full says pausing it frees nothing', () => {

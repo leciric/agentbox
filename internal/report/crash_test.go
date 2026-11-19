@@ -148,3 +148,23 @@ func TestHeadKeepsTheBeginning(t *testing.T) {
 		t.Errorf("head = %q", s)
 	}
 }
+
+// A daemon that stopped as it should leaves nothing Unclean; one that didn't
+// leaves its marker, whichever boot or process reads it.
+func TestUncleanIsADaemonThatDidntStop(t *testing.T) {
+	cs := Crashes{Dir: t.TempDir()}
+	if _, unclean := cs.Unclean(); unclean {
+		t.Fatal("Unclean() with no daemon ever run")
+	}
+	stop, err := cs.Start(NewRedactor(), "0.15.0", "boot-1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started, unclean := cs.Unclean(); !unclean || started.IsZero() {
+		t.Fatalf("Unclean() = %v, %v while one runs", started, unclean)
+	}
+	stop()
+	if _, unclean := cs.Unclean(); unclean {
+		t.Fatal("Unclean() after the daemon stopped")
+	}
+}

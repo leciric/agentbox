@@ -194,6 +194,9 @@
 //                           and the About line (fixtures.ts)
 //   ?olddaemon=1            the app updated while its daemon ran jobs: the
 //                           banner saying the daemon is still the old version
+//   ?restarthold=1          AgentBox stopped unexpectedly: two agents On hold and
+//                           the project's chat wait for you, with Resume all
+//                           over the page (use ?app=)
 //   ?loading=hold           the first launch before the daemon has answered:
 //                           the sidebar, Home and the rail with no lists yet.
 //                           ?loading=3000 answers them from the fixtures after
@@ -371,7 +374,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedRestartHold, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -956,6 +959,7 @@ if (params.get('cache') === 'due') {
 }
 if (params.get('tabgroups')) chooseSession(PROJECT, 'main');
 if (params.get('olddaemon') === '1') seedStaleDaemon();
+if (params.get('restarthold') === '1') seedRestartHold(queryClient);
 // ?settle=demo: the Onboarding copy session, its work all in, settles into
 // History a few seconds in, with its Undo toast.
 if (appView) settleDemo(queryClient);
