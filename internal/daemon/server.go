@@ -438,6 +438,7 @@ type Server struct {
 	idle           *idleState
 	idleCgroups    idleCgroups
 	vmMemory       func() int64
+	vmCap          func() int64 // the VM's memory cap as its front end set it (configuredCap)
 	setMemoryLimit func(instance string, limit int64) error
 	setIOWeight    func(instance string, weight int) error
 	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
@@ -542,6 +543,7 @@ func New(cfg Config) (*Server, error) {
 		idle:             newIdleState(),
 		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
+		vmCap:            configuredCap,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		setIOWeight:      agent.SetIOWeight,
 		vmSwap:           agent.VMSwap,

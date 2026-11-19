@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
-// The fleet: the governor's rules applied to whole agents' machines rather
-// than to their heavy commands, behind Settings → Experimental ("Pause whole
-// agents for memory"). Off, it isn't used and the Governor alone holds runs.
+// The fleet: memory pressure pausing whole agents' machines, behind
+// Settings → Experimental ("Pause whole agents for memory"), from the rules
+// the heavy commands' governor had until 19 Nov 2026. Off, as it is by
+// default, it isn't used, and nothing waits or is paused for memory.
 //
 // With many agents across projects the VM ran out of memory and every one of
 // them crawled; pausing only heavy commands left the rest to grow: a dev

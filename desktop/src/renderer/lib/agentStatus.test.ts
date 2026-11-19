@@ -45,28 +45,23 @@ test('a queued agent, left by an earlier release, reads like one starting', () =
   assert.deepEqual(chatLabel(agent('queued')), { text: 'Initializing', tone: 'live' });
 });
 
-test('memory pressure holding back a running agent’s commands shows as a warning', () => {
+test('commands paused by pausing whole agents show as a warning; nothing shows them waiting', () => {
   const since = '2026-10-10T10:00:00Z';
   const paused = { ...agent('running', 'running'), memory: { paused: 1, since } } as T.Agent;
   assert.deepEqual(chatLabel(paused), { text: 'Paused for memory', tone: 'warning' });
   assert.match(memoryHold(paused)?.tip ?? '', /resume by themselves/);
+  // Commands no longer wait for memory: a daemon before 19 Nov 2026 saying so shows nothing.
   const waiting = { ...agent('running', 'ready'), memory: { waiting: 2, since } } as T.Agent;
-  assert.deepEqual(chatLabel(waiting), { text: 'Waiting for memory', tone: 'warning' });
-  // Paused wins over waiting; neither shows once nothing is held or the machine isn't running.
-  assert.equal(chatLabel({ ...paused, memory: { paused: 1, waiting: 1, since } } as T.Agent).text, 'Paused for memory');
+  assert.equal(memoryHold(waiting), undefined);
   assert.deepEqual(chatLabel({ ...paused, memory: { since } } as T.Agent), { text: 'Working', tone: 'live' });
   assert.equal(memoryHold({ ...paused, state: 'stopped' }), undefined);
-  // The tip says what holds them now, as the daemon judged it.
+  // The tip says what holds them now, as the fleet judged it.
   const gib = 1024 ** 3;
-  const low = { ...waiting, memory: { waiting: 1, since, why: 'low', available: 1.5 * gib, total: 17.8 * gib } } as T.Agent;
-  assert.match(memoryHold(low)?.tip ?? '', /start by themselves\. The VM is nearly out of memory: 1\.5 GiB of 17\.8 GiB available, swap full\./);
   const falling = { ...paused, memory: { paused: 1, since, why: 'falling', rate: 200 * 1024 ** 2, available: 5.9 * gib, total: 17.8 * gib } } as T.Agent;
   assert.match(memoryHold(falling)?.tip ?? '', /falling 200\.0 MiB a second/);
-  const turn = { ...waiting, memory: { waiting: 1, since, available: 6.2 * gib, total: 17.8 * gib } } as T.Agent;
-  assert.match(memoryHold(turn)?.tip ?? '', /its turn comes next/);
   // Needing you still comes first, and a hold isn't settled.
   assert.deepEqual(chatLabel({ ...paused, chat: 'waiting' } as T.Agent), { text: 'Needs you', tone: 'urgent' });
-  assert.equal(settled(waiting), false);
+  assert.equal(settled(paused), false);
 });
 
 test('a whole machine paused or waiting for memory says its place in line, in its row and its chat', () => {
@@ -83,22 +78,19 @@ test('a whole machine paused or waiting for memory says its place in line, in it
   assert.match(statusTip(booting) ?? '', /memory to boot it/);
 });
 
-test('an agent On hold says why and its place in line, and stops saying it once it runs', () => {
-  const gib = 1024 ** 3;
-  const waiting = { ...agent('stopped'), hold: 'memory', memory: { machine: 'waiting', ahead: 3, since: '2026-11-06T10:00:00Z', why: 'builds', available: gib, total: 16 * gib } } as T.Agent;
-  assert.deepEqual(chatLabel(waiting), { text: 'On hold: waiting for memory, 4th in line', tone: 'warning' });
-  assert.match(statusTip(waiting) ?? '', /oldest agent first.*builds are waiting for memory/);
-  // Held for the user's computer, not the VM's memory: it says so.
-  const forHost = { ...waiting, memory: { ...waiting.memory, ahead: 0, why: 'host' } } as T.Agent;
-  assert.deepEqual(chatLabel(forHost), { text: 'On hold: waiting for your computer, 1st in line', tone: 'warning' });
-  assert.match(statusTip(forHost) ?? '', /busy outside AgentBox’s VM.*once it calms down/);
-  assert.doesNotMatch(statusTip(forHost) ?? '', /memory/);
-  const builds = { ...agent('running', 'ready'), memory: { waiting: 1, since: '2026-11-18T10:00:00Z', why: 'host' } } as T.Agent;
-  assert.deepEqual(chatLabel(builds), { text: 'Waiting for your computer', tone: 'warning' });
-  assert.match(memoryHold(builds)?.tip ?? '', /while your computer is busy/);
+test('an agent On hold to boot says why, with no place in line, and stops saying it once it runs', () => {
+  // Its turn: a few seconds after the machine before it.
+  const waiting = { ...agent('stopped'), hold: 'memory', memory: { machine: 'waiting', since: '2026-11-06T10:00:00Z', why: 'turn' } } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'On hold: starting', tone: 'warning' });
+  assert.match(statusTip(waiting) ?? '', /a few seconds apart/);
+  assert.doesNotMatch(statusTip(waiting) ?? '', /memory|in line/);
+  // The user's computer below its hard floor: it says so.
+  const forHost = { ...waiting, memory: { ...waiting.memory, why: 'host' } } as T.Agent;
+  assert.deepEqual(chatLabel(forHost), { text: 'On hold: waiting for your computer', tone: 'warning' });
+  assert.match(statusTip(forHost) ?? '', /nearly out of memory outside AgentBox’s VM/);
   // Back from a restart, before the daemon has it in line again.
   const noPlace = { ...agent('stopped'), hold: 'memory' } as T.Agent;
-  assert.deepEqual(chatLabel(noPlace), { text: 'On hold: waiting for memory', tone: 'warning' });
+  assert.deepEqual(chatLabel(noPlace), { text: 'On hold: starting', tone: 'warning' });
   const idle = { ...agent('stopped'), hold: 'idle' } as T.Agent;
   assert.deepEqual(chatLabel(idle), { text: 'On hold: idle', tone: 'muted' });
   assert.match(statusTip(idle) ?? '', /opening it, a message or its lead starts it again/);

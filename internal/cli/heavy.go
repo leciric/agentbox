@@ -25,13 +25,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Heavy commands inside an agent: a test run or a build asks the daemon
-// before it starts, waits while the VM's memory is under pressure, and joins
-// a cgroup of its own as it starts, so the daemon can pause it alone if
-// pressure stays high (internal/daemon/pressure.go). Claude Code agents ask
-// by themselves through heavy-hook, which their settings run around Bash
-// tool calls (internal/agent/heavyhooks.go); `agentbox heavy` asks around any
-// other command.
+// Heavy commands inside an agent: a test run or a build tells the daemon as
+// it starts, which is how the daemon knows the agent works, runs with fewer
+// jobs while the VM's memory is short, and joins a cgroup of its own, which
+// only the experimental "pause whole agents" pauses
+// (internal/daemon/pressure.go). Nothing waits for memory. The shims for go,
+// cargo, npm, make… do it by themselves (agent/heavyshims.go); `agentbox
+// heavy` does it around any other command.
 
 // heavyClient is the part of the in-agent API heavy commands go through.
 type heavyClient interface {
@@ -53,11 +53,11 @@ const (
 func newHeavyCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "heavy [--] <command> [args...]",
-		Short: "Run a heavy command, waiting while the VM's memory is under pressure",
+		Short: "Run a heavy command, with fewer jobs while the VM's memory is short",
 		Long: `Runs a command that needs a lot of memory for a while (a test suite, a big
-build, an emulator) the way an agent's tests and builds run: it waits to start
-while the VM's memory is under pressure, saying why once, starts in turn as it
-eases, and may be paused, and resumed, if pressure stays high while it runs.
+build, an emulator) the way an agent's tests and builds run: it starts at once,
+with half the jobs (GOMAXPROCS, CARGO_BUILD_JOBS, MAKEFLAGS…) while the VM's
+memory is short, and the daemon counts the agent as working while it runs.
 
 Run it inside an agent. Claude Code agents do this by themselves around tests
 and builds; use it for anything else.`,
@@ -109,13 +109,12 @@ type heavyCommandRun struct {
 }
 
 // workersFor is the worker counts a heavy command starts with: the
-// machine's cores, halved when the VM's memory is short or the command had
-// to wait for it. A variable for tests.
-var workersFor = func(env []string, waited bool) []string {
-	short := waited
-	if b, err := os.ReadFile(agent.MemoryShortFile); err == nil && len(strings.TrimSpace(string(b))) > 0 {
-		short = true
-	}
+// machine's cores, fewer for the memory available, and halved while the
+// daemon says the VM's memory is short (agent.MemoryShortFile). A variable
+// for tests.
+var workersFor = func(env []string) []string {
+	b, err := os.ReadFile(agent.MemoryShortFile)
+	short := err == nil && len(strings.TrimSpace(string(b))) > 0
 	return agent.WorkerEnv(env, machineCPUs("/sys/fs/cgroup/cpu.max"), memAvailable(), short)
 }
 
@@ -152,27 +151,15 @@ func memAvailable() int64 {
 	return 0
 }
 
-// runHeavyCommand asks the daemon before run starts, waiting its turn,
-// starts it in a cgroup of its own with the worker counts the VM's memory
-// allows, and says it ended once it does.
+// runHeavyCommand tells the daemon run starts, starts it at once in a
+// cgroup of its own with the worker counts the VM's memory allows, and says
+// it ended once it does.
 func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (int, error) {
 	env := os.Environ()
-	waited := false
 	key := "heavy-" + randomKey()
 	if c != nil {
 		req := api.HeavyRequest{Key: key, Command: run.command, TTLSeconds: int(heavyTTL.Seconds())}
-		start, err := c.StartHeavy(ctx, withWait(req, 2))
-		if err == nil && !start.Started {
-			waited = true
-			// Why says what holds it: the VM's memory, or the computer
-			// outside it.
-			_, _ = fmt.Fprintf(stderr, "agentbox: %s waits to start: %s. It starts by itself in turn.\n", headWordsCLI(run.command, 60), start.Why)
-			// Each ask waits up to 10 minutes; asking again keeps its place.
-			for err == nil && !start.Started {
-				start, err = c.StartHeavy(ctx, req)
-			}
-		}
-		if err != nil {
+		if _, err := c.StartHeavy(ctx, req); err != nil {
 			if ctx.Err() != nil {
 				return 0, ctx.Err()
 			}
@@ -196,12 +183,12 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 					case <-stop:
 						return
 					case <-tick.C:
-						_, _ = c.StartHeavy(ctx, withWait(req, 1))
+						_, _ = c.StartHeavy(ctx, req)
 					}
 				}
 			}()
 		}
-		env = workersFor(env, waited)
+		env = workersFor(env)
 	}
 	env = append(env, agent.HeavyEnv+"="+key)
 	child := exec.Command(run.path)
@@ -229,18 +216,6 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 	return 0, err
 }
 
-// headWordsCLI is s cut to n characters on a word, with an ellipsis.
-func headWordsCLI(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= n {
-		return s
-	}
-	if i := strings.LastIndexByte(s[:n], ' '); i > n/2 {
-		return s[:i] + "…"
-	}
-	return s[:n] + "…"
-}
-
 // The shims (agent/heavyshims.go): go, cargo, npm, make… are first in an
 // agent's PATH, and run `agentbox heavy-shim <name> <shim dir> args…`, which
 // runs the real command at once unless it is heavy, and otherwise as
@@ -249,7 +224,7 @@ func headWordsCLI(s string, n int) string {
 func newHeavyShimCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "heavy-shim <name> <shim dir> [args...]",
-		Short:  "Run a shimmed command, waiting for memory when it is heavy (internal)",
+		Short:  "Run a shimmed command, as agentbox heavy when it is heavy (internal)",
 		Hidden: true,
 		Args:   cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -309,11 +284,6 @@ func shellJoin(argv []string) string {
 	return strings.Join(out, " ")
 }
 
-func withWait(req api.HeavyRequest, seconds int) api.HeavyRequest {
-	req.WaitSeconds = seconds
-	return req
-}
-
 func randomKey() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
@@ -326,7 +296,8 @@ func randomKey() string {
 // may start, isn't heavy, or the daemon can't be reached. Only when the
 // command is a whole test suite the agent may not run (fullsuite.go) does it
 // print, and exit 2, which keeps the tool from running and tells the model
-// why. Waiting for memory is the shims' (heavyShim), for every tool alike.
+// why. Telling the daemon a heavy command runs is the shims' (heavyShim),
+// for every tool alike.
 
 // heavyCommand matches a Bash command that runs tests, builds or the app:
 // the commands an agent's memory spikes in. Only a command's own words count,
@@ -436,9 +407,9 @@ func heavyHook(ctx context.Context, in io.Reader, stderr io.Writer, c heavyClien
 			}
 		}
 	}
-	// A heavy command waits its turn in its shim (agent/heavyshims.go),
-	// whichever tool runs it: the hook no longer asks for it as well. An
-	// earlier hook's join line, if one is left, goes.
+	// A heavy command tells the daemon in its shim (agent/heavyshims.go),
+	// whichever tool runs it: the hook no longer does as well. An earlier
+	// hook's join line, if one is left, goes.
 	if b, err := os.ReadFile(envFile); err == nil && len(b) > 0 {
 		writeEnvFile(envFile, "")
 	}

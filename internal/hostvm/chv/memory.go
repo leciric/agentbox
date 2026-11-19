@@ -111,8 +111,10 @@ import (
 // trims, but the floor holds. Below hostCriticalAt (hostCritical) it shrinks at
 // once to its use and memHeadroomLeast and drops its caches: an agent's
 // process the guest kills is better than the host's kernel killing the VM.
-// The host falling short also holds boots (holdBoots, for memHoldBootsFor
-// after the last time), which the supervisor tells the daemon.
+// Only the host under its hard floor holds boots (HoldBoots, now: under its
+// reserve no longer does, as on 19 Nov 2026 a host with 8.2 GiB free under
+// a 7.6 GiB reserve within two minutes held every boot while its own memory
+// pressure read 0), which the supervisor tells the daemon.
 //
 // The last resort is the host's hard floor (hostFloor, the larger of 2 GiB
 // and 6% of it): with less than that available for memEmergencyAfter, the
@@ -160,9 +162,6 @@ const (
 	// memHostCalm is how long growing waits after the host was last short
 	// or busy.
 	memHostCalm = 30 * time.Second
-	// memHoldBootsFor is how long boots stay held after the host was last
-	// short of memory.
-	memHoldBootsFor = 2 * time.Minute
 	// memIdleAfterAll is how long every agent must have been idle, by the
 	// daemon, before the VM gives back its cache beyond the allowance.
 	memIdleAfterAll = 5 * time.Minute
@@ -434,15 +433,14 @@ type memState struct {
 	noTrimUntil   time.Time     // no trim before this: the floor was too low
 
 	allIdleSince time.Time // since when every agent has been idle, by the daemon
-	hostShortAt  time.Time // when the host was last short of memory
 	hostBusyAt   time.Time // when it was last short or busy (memSample.HostBusy)
 	floorSince   time.Time // since when the host has been under its floor
 	lastShed     time.Time // when an agent was last stopped for it
 	// Ceiling is the most the VM may grow to now, by the last sample: the
 	// cap, or less where the host can't spare that (hostCeiling); 0 when the
-	// host can't be read. HoldBoots says the host has been short of memory
-	// within memHoldBootsFor: no agent's machine should boot. Both are told
-	// to the daemon (hostLoadLoop).
+	// host can't be read. HoldBoots says the host is below its hard floor
+	// now (hostFloor): no agent's machine should boot. Both are told to the
+	// daemon (hostLoadLoop).
 	Ceiling   int64
 	HoldBoots bool
 	// Wanted is what the VM would grow to now if the host could spare it,
@@ -453,16 +451,13 @@ type memState struct {
 	Wanted int64
 }
 
-// observeHost keeps when the host was last short of memory or busy, and
-// what that means for growing and booting.
+// observeHost keeps when the host was last short of memory or busy, for
+// growing, and whether it is under its floor, for booting and shedding.
 func (st *memState) observeHost(s memSample, now time.Time) {
-	if s.hostShort() {
-		st.hostShortAt = now
-	}
 	if s.hostShort() || s.HostBusy != "" {
 		st.hostBusyAt = now
 	}
-	st.HoldBoots = !st.hostShortAt.IsZero() && now.Sub(st.hostShortAt) < memHoldBootsFor
+	st.HoldBoots = s.belowFloor()
 	switch {
 	case !s.belowFloor():
 		st.floorSince = time.Time{}

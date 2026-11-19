@@ -1,12 +1,10 @@
 package agent
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 )
 
 func TestMemoryLimitIsTheAgentsShareOfTheVM(t *testing.T) {
@@ -141,7 +139,7 @@ func TestPlaceRunMovesTheMachinesProcessByItsOwnNumber(t *testing.T) {
 	}
 }
 
-func TestFreezeReclaimAndPopulated(t *testing.T) {
+func TestFreezeAndPopulated(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	var wrote []string
@@ -149,12 +147,9 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 		wrote = append(wrote, filepath.Base(path)+"="+value)
 		return nil
 	}
-	// No cgroup yet: nothing to freeze or reclaim, and nothing in it.
+	// No cgroup yet: nothing to freeze, and nothing in it.
 	if err := freezeRun(root, "m", "k", true, write); err != nil || len(wrote) != 0 {
 		t.Fatalf("freezing a run with no cgroup: %v, %v", wrote, err)
-	}
-	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error { return write(path, value) }); err != nil || len(wrote) != 0 {
-		t.Fatalf("reclaiming a run with no cgroup: %v, %v", wrote, err)
 	}
 	if runPopulated(root, "m", "k") {
 		t.Fatal("a run with no cgroup has processes")
@@ -166,13 +161,7 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil {
 		t.Fatal(err)
 	}
-	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error {
-		wrote = append(wrote, filepath.Base(path)+"="+value)
-		return errReclaimShort // the kernel got what it could
-	}); err != nil {
-		t.Fatalf("a short reclaim is an error: %v", err)
-	}
-	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=134217728" { // one chunk, then it fell short
+	if len(wrote) != 1 || wrote[0] != "cgroup.freeze=1" {
 		t.Errorf("wrote %v", wrote)
 	}
 	if !runPopulated(root, "m", "k") {

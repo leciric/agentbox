@@ -11,39 +11,95 @@ import (
 	"agentbox/internal/testutil"
 )
 
-// With pausing whole agents off, as it is by default, a machine still boots
-// only once the VM has the memory for it: meanwhile its agent is On hold,
-// marked in the database (so a daemon that restarts starts it again), with
-// its place in line; it boots by itself as room frees, and the mark goes.
-func TestBootWaitsOnHoldForMemory(t *testing.T) {
-	t.Parallel()
-	f := newFleetTest(t, false)
-	ctx := context.Background()
-	f.setAvailable(2, 4) // 2 GiB: a 1.25 GiB boot over a 1.6 GiB floor doesn't fit
-	f.step(t)
-	waiter := state.Agent{
+// waiterAgent is a third agent, made after the fleet test's two, whose
+// machine asks to boot.
+func waiterAgent(t *testing.T, f *fleetTest) state.Agent {
+	t.Helper()
+	a := state.Agent{
 		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
 		Branch: "agentbox/agent-03", Worktree: "/worktrees/agent-03", Status: state.AgentReady, CreatedAt: time.Now().Add(2 * time.Minute),
 	}
-	if err := f.srv.store.AddAgent(ctx, waiter); err != nil {
+	if err := f.srv.store.AddAgent(context.Background(), a); err != nil {
 		t.Fatal(err)
 	}
+	return a
+}
+
+// belowFloor has the host report, as its supervisor does, that it is below
+// its hard floor (on) or not. Tests that use it give the daemon a reading
+// first (setAvailable): a test daemon with none, and no loop, boots at once.
+func (f *fleetTest) belowFloor(t *testing.T, on bool) {
+	t.Helper()
+	load := api.HostLoad{OS: "linux", Memory: 0, HoldBoots: on, MemoryTotal: 30 << 30, Available: 1 << 30, At: time.Now()}
+	if err := f.client.PutHostLoad(context.Background(), load); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A machine boots when asked, never held for the VM's memory, nor for
+// builds, nor for the host being busy or under its reserve (19 Nov 2026,
+// the user's decision): the readings of that day held every boot for twenty
+// minutes and more.
+func TestBootDoesNotWaitForMemory(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, false)
+	ctx := context.Background()
+	f.setAvailable(0.5, 4) // under the floor, swap full
+	f.set(62, 8)           // every agent stalled at the shared limit
+	f.step(t)
+	f.srv.heavy.mu.Lock()
+	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, time.Now())
+	f.srv.heavy.mu.Unlock()
+	// The host busy, under its reserve but over its floor: nothing held.
+	if err := f.client.PutHostLoad(ctx, api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", MemoryTotal: 30 << 30, Available: 8 << 30, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if f.srv.bootWaits() {
+		t.Fatal("a boot would wait")
+	}
+	waiter := waiterAgent(t, f)
 	done := make(chan error, 1)
 	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
-	waitFor(t, "the boot to wait On hold", func() bool {
-		held := f.srv.memoryHold(waiter.Ref())
-		a, _ := f.srv.store.Agent(ctx, waiter.Project, waiter.Name)
-		return held != nil && held.Machine == "waiting" && held.Ahead == 0 && held.Why == api.HoldWhyMemory && a.Hold == state.HoldMemory
-	})
 	select {
 	case err := <-done:
-		t.Fatalf("booted with 2 GiB available: %v", err)
-	case <-time.After(100 * time.Millisecond):
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the boot waits: %+v", f.srv.memoryHold(waiter.Ref()))
 	}
-	if got := holdOf(mustAgent(t, f, waiter), "stopped"); got != api.HoldMemory {
-		t.Errorf("the app is told hold %q", got)
+	if a := mustAgent(t, f, waiter); a.Hold != "" {
+		t.Errorf("On hold (%q) though it booted", a.Hold)
 	}
-	f.setAvailable(8, 1)
+}
+
+// Machines asked for at once boot a BootStep apart: the next waits On hold
+// for its turn, says so with no place in line, and boots by itself.
+func TestBootsAreStaggered(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, false)
+	ctx := context.Background()
+	f.setAvailable(12, 0)
+	f.step(t)
+	f.srv.admit.mu.Lock()
+	f.srv.admit.a.BootStep = time.Hour
+	f.srv.admit.mu.Unlock()
+	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
+		t.Fatal(err)
+	}
+	waiter := waiterAgent(t, f)
+	done := make(chan error, 1)
+	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
+	waitFor(t, "the next boot to wait its turn On hold", func() bool {
+		held := f.srv.memoryHold(waiter.Ref())
+		return held != nil && held.Machine == "waiting" && held.Why == api.HoldWhyTurn && held.Ahead == 0 && mustAgent(t, f, waiter).Hold == state.HoldMemory
+	})
+	if !f.srv.bootWaits() {
+		t.Error("a start request now wouldn't wait its turn")
+	}
+	f.srv.admit.mu.Lock()
+	f.srv.admit.a.BootStep = 0
+	f.srv.admit.mu.Unlock()
 	f.step(t)
 	select {
 	case err := <-done:
@@ -51,7 +107,7 @@ func TestBootWaitsOnHoldForMemory(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("the boot still waits with 8 GiB available")
+		t.Fatal("the next boot still waits once its turn came")
 	}
 	if a := mustAgent(t, f, waiter); a.Hold != "" {
 		t.Errorf("still On hold (%q) once it booted", a.Hold)
@@ -61,76 +117,38 @@ func TestBootWaitsOnHoldForMemory(t *testing.T) {
 	}
 }
 
-// While a build waits for memory, a new machine doesn't boot ahead of it.
-func TestBootWaitsBehindHeldBuilds(t *testing.T) {
+// While the user's computer is below its hard floor (the supervisor's
+// HoldBoots), no machine boots, the first included, and the hold says it is
+// the computer; once it is over it, the machine boots at the next step.
+func TestBootWaitsOnlyWhileTheHostIsBelowItsFloor(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, false)
-	f.srv.heavy.mu.Lock()
-	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, time.Now())
-	f.srv.heavy.g.Ask(f.newer.Ref(), "k2", "cargo test", time.Hour, time.Now())
-	f.srv.heavy.mu.Unlock()
-	f.srv.admit.mu.Lock()
-	f.srv.admit.running = 2
-	f.srv.admit.mu.Unlock()
-	if !f.srv.buildsHeld() {
-		t.Fatal("two builds asked and none started: they should be waiting")
-	}
-	f.srv.stepAdmission(time.Now(), roomyMem(), f.srv.bootHeld(time.Now()))
-	f.srv.admit.mu.Lock()
-	f.srv.admit.a.Ask("hello-stack/agent-09", time.Now(), time.Now())
-	f.srv.admit.mu.Unlock()
-	f.srv.stepAdmission(time.Now(), roomyMem(), f.srv.bootHeld(time.Now()))
-	if held := f.srv.admitHold("hello-stack/agent-09"); held == nil || held.Why != api.HoldWhyBuilds {
-		t.Errorf("held = %+v, want waiting behind the builds", held)
-	}
-}
-
-// While the user's computer is busy, a machine waits to boot and says it is
-// for the computer, not for the VM's memory, with builds the host held back
-// in line too; once it is calm, it boots as soon as those builds start.
-func TestBootWaitsForABusyHostOnlyWhileItIs(t *testing.T) {
-	t.Parallel()
-	f := newFleetTest(t, false)
-	now := time.Now()
-	f.srv.hostLoad.mu.Lock()
-	f.srv.hostLoad.last = api.HostLoad{OS: "linux", Memory: 25, Busy: true, Why: "memory", At: now}
-	f.srv.hostLoad.got = now
-	f.srv.hostLoad.mu.Unlock()
-	f.srv.heavy.mu.Lock()
-	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, now)
-	f.srv.heavy.g.Ask(f.newer.Ref(), "k2", "cargo test", time.Hour, now)
-	f.srv.heavy.g.Step(now, pressure.Sample{Mem: roomyMem(), HostBusy: true})
-	why := f.srv.heavy.g.Why()
-	f.srv.heavy.mu.Unlock()
-	if why != pressure.HostBusy {
-		t.Fatalf("governor holds builds for %q, want the host", why)
-	}
-	if f.srv.buildsHeld() {
-		t.Error("builds the host holds back count as held for the VM's memory")
+	ctx := context.Background()
+	f.setAvailable(12, 0)
+	f.belowFloor(t, true)
+	f.step(t)
+	waiter := waiterAgent(t, f)
+	done := make(chan error, 1)
+	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
+	waitFor(t, "the boot to wait for the host", func() bool {
+		held := f.srv.memoryHold(waiter.Ref())
+		return held != nil && held.Machine == "waiting" && held.Why == api.HoldWhyHost && mustAgent(t, f, waiter).Hold == state.HoldMemory
+	})
+	f.belowFloor(t, false)
+	f.step(t)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the boot still waits with the host over its floor")
 	}
 	f.srv.admit.mu.Lock()
-	f.srv.admit.running = 2
-	f.srv.admit.a.Ask("hello-stack/agent-09", now, now)
+	why := f.srv.admit.a.Why()
 	f.srv.admit.mu.Unlock()
-	f.srv.stepAdmission(now, roomyMem(), f.srv.bootHeld(now))
-	if held := f.srv.admitHold("hello-stack/agent-09"); held == nil || held.Why != api.HoldWhyHost {
-		t.Fatalf("held = %+v, want waiting for the host", held)
-	}
-	// The computer calms down, and the build it held starts.
-	f.srv.hostLoad.mu.Lock()
-	f.srv.hostLoad.last.Busy, f.srv.hostLoad.last.Why = false, ""
-	f.srv.hostLoad.mu.Unlock()
-	later := now.Add(3 * time.Second)
-	f.srv.heavy.mu.Lock()
-	f.srv.heavy.g.Step(later, pressure.Sample{Mem: roomyMem()})
-	waiting := len(f.srv.heavy.g.Waiting())
-	f.srv.heavy.mu.Unlock()
-	if waiting != 0 {
-		t.Fatalf("%d builds still wait with the computer calm", waiting)
-	}
-	f.srv.stepAdmission(later, roomyMem(), f.srv.bootHeld(later))
-	if held := f.srv.admitHold("hello-stack/agent-09"); held != nil {
-		t.Errorf("still held once the computer calmed down: %+v", held)
+	if why == pressure.WaitHost {
+		t.Error("admission still says the host holds boots")
 	}
 }
 
@@ -143,27 +161,17 @@ func mustAgent(t *testing.T, f *fleetTest, a state.Agent) state.Agent {
 	return got
 }
 
-func roomyMem() pressure.Mem {
-	const gib = 1 << 30
-	return pressure.Mem{Total: 16 * gib, Cap: 16 * gib, Available: 12 * gib, SwapTotal: 4 * gib, SwapFree: 4 * gib}
-}
-
-// A start request whose boot must wait for memory answers at once, the agent
-// On hold, rather than waiting in the request for as long as the memory
-// takes: the app gives up on a request after minutes.
-func TestStartRequestDoesNotWaitForMemory(t *testing.T) {
+// A start request whose boot must wait answers at once, the agent On hold,
+// rather than waiting in the request for as long as the host takes: the app
+// gives up on a request after minutes.
+func TestStartRequestDoesNotWaitForTheHost(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, false)
 	ctx := context.Background()
-	f.setAvailable(2, 4)
+	f.setAvailable(12, 0)
+	f.belowFloor(t, true)
 	f.step(t)
-	waiter := state.Agent{
-		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
-		Branch: "agentbox/agent-03", Worktree: "/worktrees/agent-03", Status: state.AgentReady, CreatedAt: time.Now().Add(2 * time.Minute),
-	}
-	if err := f.srv.store.AddAgent(ctx, waiter); err != nil {
-		t.Fatal(err)
-	}
+	waiter := waiterAgent(t, f)
 	// Its machine stopped, beside agent-01's running one.
 	script := `#!/bin/sh
 case "$1" in
@@ -172,7 +180,7 @@ case "$1" in
 esac`
 	testutil.WriteExecutable(t, f.srv.cfg.Incus.Bin, []byte(script)) // the daemon forks meanwhile: not os.WriteFile
 	if !f.srv.bootWaits() {
-		t.Fatal("with 2 GiB available a boot should wait")
+		t.Fatal("with the host below its floor a boot should wait")
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -196,15 +204,10 @@ func TestCancelledBootLeavesNoHold(t *testing.T) {
 	t.Parallel()
 	f := newFleetTest(t, false)
 	ctx := context.Background()
-	f.setAvailable(2, 4)
+	f.setAvailable(12, 0)
+	f.belowFloor(t, true)
 	f.step(t)
-	waiter := state.Agent{
-		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
-		Branch: "agentbox/agent-03", Worktree: "/worktrees/agent-03", Status: state.AgentReady, CreatedAt: time.Now().Add(2 * time.Minute),
-	}
-	if err := f.srv.store.AddAgent(ctx, waiter); err != nil {
-		t.Fatal(err)
-	}
+	waiter := waiterAgent(t, f)
 	waitCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- f.srv.admitBoot(waitCtx, waiter) }()

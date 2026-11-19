@@ -2216,7 +2216,7 @@
   },
   {
     "id": "on-hold-v2-dark",
-    "description": "At 1920×1080, the lead's panel scrolled to agents On hold: agent-84 waiting to boot (its tooltip saying why), agent-83 waiting its turn for memory behind other agents' builds (2nd in line), agent-82 stopped after it sat idle — dark",
+    "description": "At 1920×1080, the lead's panel scrolled to agents On hold: agent-84 waiting to boot (its tooltip saying why), agent-83 waiting its turn to boot, a few seconds (no place in line), agent-82 stopped after it sat idle — dark",
     "query": "app=project&theme=dark",
     "width": 1920,
     "height": 1080,
@@ -3079,7 +3079,7 @@
   },
   {
     "id": "topbar-busy-host-tip-dark",
-    "description": "The 'Computer busy' mark's tip: why, and that agents' builds and tests wait for it — dark",
+    "description": "The 'Computer busy' mark's tip: why, and that agents' builds and tests run fewer jobs meanwhile — dark",
     "query": "app=project&busy=host&theme=dark",
     "width": 1440,
     "height": 900,

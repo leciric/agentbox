@@ -186,8 +186,8 @@ func TestHeavyJoin(t *testing.T) {
 	}
 }
 
-// agentbox heavy waits, saying why once, joins its run, runs the command and
-// says it ended; outside an agent it just runs it.
+// agentbox heavy says it starts, joins its run, runs the command and says it
+// ended; outside an agent it just runs it.
 func TestRunHeavy(t *testing.T) {
 	t.Parallel()
 	f := &fakeHeavy{start: true}
@@ -207,34 +207,16 @@ func TestRunHeavy(t *testing.T) {
 	}
 }
 
-// A command that waits says why once, and starts once it may.
-func TestRunHeavyWaitsItsTurn(t *testing.T) {
+// A command never waits for memory: told by the daemon it hasn't started,
+// as one before 19 Nov 2026 would, it runs at once anyway, asking once.
+func TestRunHeavyNeverWaits(t *testing.T) {
 	t.Parallel()
 	f := &fakeHeavy{}
-	w := &waitThenStart{fakeHeavy: f, after: 3}
 	var stderr bytes.Buffer
-	if code, err := runHeavy(context.Background(), w, []string{"true"}, &stderr); code != 0 || err != nil {
+	if code, err := runHeavy(context.Background(), f, []string{"true"}, &stderr); code != 0 || err != nil {
 		t.Fatalf("exit %d, %v", code, err)
 	}
-	if strings.Count(stderr.String(), "waits to start") != 1 || !strings.Contains(stderr.String(), "2 commands are ahead") {
-		t.Errorf("stderr = %q", stderr.String())
+	if stderr.Len() != 0 || len(f.asked) != 1 || len(f.ended) != 1 {
+		t.Errorf("stderr %q, asked %+v, ended %v", stderr.String(), f.asked, f.ended)
 	}
-	if len(f.asked) != 3 || f.asked[0].Key != f.asked[2].Key {
-		t.Errorf("asked %+v: want three asks with one key", f.asked)
-	}
-}
-
-type waitThenStart struct {
-	*fakeHeavy
-	after int
-}
-
-func (w *waitThenStart) StartHeavy(ctx context.Context, req api.HeavyRequest) (api.HeavyStart, error) {
-	out, _ := w.fakeHeavy.StartHeavy(ctx, req)
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if len(w.asked) >= w.after {
-		return api.HeavyStart{Started: true}, nil
-	}
-	return out, nil
 }
