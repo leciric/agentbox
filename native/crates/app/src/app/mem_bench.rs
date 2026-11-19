@@ -104,8 +104,9 @@ fn print(start: Instant, step: &str) {
         .collect::<Vec<_>>()
         .join(" ");
     let (count, arena_rss) = arenas();
+    let (kids, kids_pss) = children();
     eprintln!(
-        "mem {:>6.0}s {step:<10} rss={}M anon={}M hwm={}M threads={} {} arenas={count} ({}M resident) {live}",
+        "mem {:>6.0}s {step:<10} rss={}M anon={}M hwm={}M threads={} {} arenas={count} ({}M resident) webkit={kids} ({}M pss) {live}",
         start.elapsed().as_secs_f64(),
         kb("VmRSS:") / 1024,
         kb("RssAnon:") / 1024,
@@ -113,7 +114,36 @@ fn print(start: Instant, step: &str) {
         kb("Threads:"),
         heap(),
         arena_rss / 1024,
+        kids_pss / 1024,
     );
+}
+
+/// children is the app's child processes (WebKit's web and network
+/// processes, one each per webview) and their proportional memory, in KiB.
+fn children() -> (usize, u64) {
+    let me = std::process::id().to_string();
+    let (mut n, mut pss) = (0, 0);
+    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let path = e.path();
+        let Ok(stat) = std::fs::read_to_string(path.join("stat")) else {
+            continue;
+        };
+        // pid (comm) state ppid …: comm may hold spaces, so after its ")".
+        let ppid = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().nth(1));
+        if ppid != Some(me.as_str()) {
+            continue;
+        }
+        n += 1;
+        pss += std::fs::read_to_string(path.join("smaps_rollup"))
+            .unwrap_or_default()
+            .lines()
+            .find_map(|l| l.strip_prefix("Pss:"))
+            .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0);
+    }
+    (n, pss)
 }
 
 /// heap is glibc's C heap: bytes handed out, and held free.
