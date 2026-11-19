@@ -3,6 +3,44 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.19.0](https://github.com/leciric/agentbox/compare/v0.18.0...v0.19.0) (2026-11-19)
+
+
+### Added
+
+* a cleaner, quieter look in both apps, after macOS: flat panels, hairlines, softer colour, one set of design tokens ([#756](https://github.com/leciric/agentbox/issues/756)) ([a49a181](https://github.com/leciric/agentbox/commit/a49a1816fadf9acfab292165438271a9704b35ef))
+* add any folder as a project: AgentBox makes it a git repository, and agents' branches merge locally when there's no remote ([#762](https://github.com/leciric/agentbox/issues/762)) ([efa93f4](https://github.com/leciric/agentbox/commit/efa93f4126aaa8cad07fa24dc68448907a4d1478))
+* agents see and drive the iOS Simulator by its accessibility tree, with agentbox ios ui, tap, type --into, scroll-to and wait ([#746](https://github.com/leciric/agentbox/issues/746)) ([563c32c](https://github.com/leciric/agentbox/commit/563c32c785f3593bcab80305ccdce3bf9b384fdd))
+* agents together and project chats each get a memory ceiling in the VM, and a chat killed for memory says so and starts again ([#755](https://github.com/leciric/agentbox/issues/755)) ([de9601d](https://github.com/leciric/agentbox/commit/de9601dbc5f1b3a734d9fd0cefb6a4a202f9c611))
+* browse a project's memories in the native app, and share them with co-workers through the repository ([#772](https://github.com/leciric/agentbox/issues/772)) ([88ea6e7](https://github.com/leciric/agentbox/commit/88ea6e7890404952d3e3227df65156a77b06948e))
+* cockpit mode in the native app ([#775](https://github.com/leciric/agentbox/issues/775)) ([365f542](https://github.com/leciric/agentbox/commit/365f54211153a119929b453150287b34b08d590f))
+* cockpit mode, an experimental view of every project's lead and agent at once for very wide screens ([#770](https://github.com/leciric/agentbox/issues/770)) ([c41105d](https://github.com/leciric/agentbox/commit/c41105d858ecbaf00eb2ff734ca320c648402928))
+* diagrams, pictures and pages in the native app's chat open large, with zoom and pan ([#778](https://github.com/leciric/agentbox/issues/778)) ([db873f2](https://github.com/leciric/agentbox/commit/db873f2f2c69db8f5c97eeb1e52f1752b7b59669))
+* drag the projects in no section into your own order in the sidebar ([#748](https://github.com/leciric/agentbox/issues/748)) ([294484f](https://github.com/leciric/agentbox/commit/294484ff17e7680c23fcfc09900c8060ce9acdb3))
+* group the project chat's session tabs, each group one button with its sessions in a menu ([#765](https://github.com/leciric/agentbox/issues/765)) ([5257181](https://github.com/leciric/agentbox/commit/52571818819a77d3e382052ab6dc8f783e9e362f))
+* install with one line on a Mac and on Windows, Setup installs WSL itself, and the native app gets a Windows installer and sets AgentBox up ([#759](https://github.com/leciric/agentbox/issues/759)) ([19b9fd3](https://github.com/leciric/agentbox/commit/19b9fd3010a647769a8e843dd9eb03a55dd53934))
+* new project chats start on Bypass permissions, like new agents ([#760](https://github.com/leciric/agentbox/issues/760)) ([452fc31](https://github.com/leciric/agentbox/commit/452fc317f7bd4a5c2da4ed7213aeaa86f984aded))
+* projects have a todo list you and the project's chat can keep, and a todo starts an agent in one click ([#763](https://github.com/leciric/agentbox/issues/763)) ([7044de9](https://github.com/leciric/agentbox/commit/7044de9a0611fc75bca144084238836f09d71b20))
+* the phone page installs as an app on the home screen, and pairs from inside it ([#758](https://github.com/leciric/agentbox/issues/758)) ([f7b3743](https://github.com/leciric/agentbox/commit/f7b3743869a048006e58000b8a9c519a282b16ef))
+
+
+### Fixed
+
+* a paired phone reads only what its app shows, and its page runs only AgentBox's own scripts ([#779](https://github.com/leciric/agentbox/issues/779)) ([7e3b0cc](https://github.com/leciric/agentbox/commit/7e3b0cc4bd6abb3b4b9a7f322629d09ea1bdc01d))
+* a project whose chat is working moves to the top of the native sidebar, even with no agents running ([#773](https://github.com/leciric/agentbox/issues/773)) ([23882bc](https://github.com/leciric/agentbox/commit/23882bca110dbc4f7fe27ed4c68f21f4f5dc5f2f))
+* agents resume one at a time after a restart, and wait for you after AgentBox stops unexpectedly ([#782](https://github.com/leciric/agentbox/issues/782)) ([9dba2c2](https://github.com/leciric/agentbox/commit/9dba2c26778b07d1549ae2b69fc8e0510c462a8e))
+* an agent stops showing "Needs you" as soon as its request is answered ([#774](https://github.com/leciric/agentbox/issues/774)) ([d5106ee](https://github.com/leciric/agentbox/commit/d5106ee099d85aa527db029cd0beb53e49056376))
+* **native:** an agent's credential and connector requests show a card to answer, in its chat and the project's ([#767](https://github.com/leciric/agentbox/issues/767)) ([7647166](https://github.com/leciric/agentbox/commit/7647166bd1c3260ad90b0ddf210661b3c31fcbf3))
+* the agent's desktop in the native app fits whole when the window or panel is resized, stays sharp, and clicks land where you point ([#768](https://github.com/leciric/agentbox/issues/768)) ([b981d5c](https://github.com/leciric/agentbox/commit/b981d5ca78ce19f8b649c6329e44523b85083160))
+* the agent's desktop in the native app is no longer cut off at the bottom when the panel or window is made wider ([#776](https://github.com/leciric/agentbox/issues/776)) ([ddb9db0](https://github.com/leciric/agentbox/commit/ddb9db0424c8fd21dceb01882bf6968108d59107))
+* the desktop view no longer gets blacklisted by TigerVNC and stuck on "Too many security failures" ([#766](https://github.com/leciric/agentbox/issues/766)) ([7479013](https://github.com/leciric/agentbox/commit/7479013d1f3d308ae94da2f150670ba92e7c1420))
+* the native app no longer blanks and reloads the agent list when you pick the open project, and switching projects shows each project's agents at once ([#777](https://github.com/leciric/agentbox/issues/777)) ([96a66ef](https://github.com/leciric/agentbox/commit/96a66efb5cb4e559aa56e21abf342e54664508ad))
+* the native app says AgentBox is starting instead of a connection error while the daemon comes up ([#771](https://github.com/leciric/agentbox/issues/771)) ([89a3ae9](https://github.com/leciric/agentbox/commit/89a3ae9c578aeee4581d113d4c53adaf112c07d9))
+* the native app shows a new release while it runs, nightlies included ([#761](https://github.com/leciric/agentbox/issues/761)) ([72030b0](https://github.com/leciric/agentbox/commit/72030b0d9616bc22e439d13d2d17557399ee37b2))
+* the native app updates its daemon after updating itself, and ships the agentbox tool to do it ([#749](https://github.com/leciric/agentbox/issues/749)) ([07dfb79](https://github.com/leciric/agentbox/commit/07dfb79d7afaa482a084b8a7392303dca26ebbc8))
+* tool updates no longer grow the agents' base image by gigabytes ([#764](https://github.com/leciric/agentbox/issues/764)) ([dba6f92](https://github.com/leciric/agentbox/commit/dba6f9274dbaa303e23ac50115906352139e673a))
+* when your computer holds agents' builds and boots back, AgentBox says it is your computer, not the VM's memory ([#780](https://github.com/leciric/agentbox/issues/780)) ([a0a0b49](https://github.com/leciric/agentbox/commit/a0a0b49e4aad3a4bc6fa386e74c10af9f5c1405b))
+
 ## [0.18.0](https://github.com/leciric/agentbox/compare/v0.17.0...v0.18.0) (2026-11-15)
 
 
