@@ -140,7 +140,7 @@ pub fn generating(open: &OpenFence, id: impl Into<SharedString>) -> AnyElement {
     well()
         .child(
             h_flex()
-                .h_14()
+                .h(px(56.))
                 .items_center()
                 .gap_3()
                 .px_3()
@@ -550,7 +550,7 @@ pub fn page(src: &str, window: &mut Window) -> AnyElement {
     if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
         return block(
             open(src),
-            crate::snapshot::html_snapshot(id, src.to_string(), max).into_any_element(),
+            crate::snapshot::html_snapshot(id, src.to_string(), Some(max)).into_any_element(),
         );
     }
     if !crate::webview::available() {
