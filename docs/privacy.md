@@ -122,6 +122,9 @@ added to it), since `agentbox.linting.dev` only answers with stable releases. Go
 **To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
 `agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.
+Neither does an AgentBox running inside an agent's machine, such as the daemon of a nested
+`agentbox host setup`: agents have `DO_NOT_TRACK=1` set, and AgentBox refuses to check, count or send
+from one anyway, so an agent is never counted as an install.
 
 ## Reporting a problem
 
@@ -138,4 +141,4 @@ as the update check, and is kept for 90 days.
 error, where in the app it happened, and the app's version and OS, with no logs and nothing you
 typed. They are off until you turn them on: the first time an error happens, the app asks. Switch
 **Send error reports automatically** under **Settings → General** to change your answer. They are
-never sent while `DO_NOT_TRACK=1` is set.
+never sent while `DO_NOT_TRACK=1` is set, or from inside an agent's machine.

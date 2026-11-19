@@ -25,6 +25,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"agentbox/internal/hostos"
+	"agentbox/internal/inagent"
 )
 
 // DefaultURL is where the check goes unless AGENTBOX_UPDATE_URL says otherwise.
@@ -132,9 +133,13 @@ func canonical(v string) string {
 }
 
 // Blocked says why the check is off whatever the setting says, or "" when it
-// isn't: a development build has no release to compare with, and
+// isn't: a development build has no release to compare with,
 // AGENTBOX_NO_UPDATE_CHECK=1 or DO_NOT_TRACK=1 in the daemon's environment
-// turns it off outright.
+// turns it off outright, and so does running on an agent's own machine. The
+// daemon copies its released binary into every agent, and a daemon started
+// there (`agentbox host setup`, a test's) is not an install: it would count as
+// one, with a release version, whatever the environment it was started with
+// says (InAgent).
 func Blocked(version string) string {
 	switch {
 	case version == "dev" || version == "":
@@ -143,6 +148,17 @@ func Blocked(version string) string {
 		return "AGENTBOX_NO_UPDATE_CHECK=1 is set"
 	case os.Getenv("DO_NOT_TRACK") == "1":
 		return "DO_NOT_TRACK=1 is set"
+	case InAgent():
+		return InAgentReason
 	}
 	return ""
 }
+
+// InAgentReason is why nothing is sent from an agent's machine.
+const InAgentReason = "this runs inside an agent's machine, not on an install of its own"
+
+// InAgent reports whether this process runs on an agent's own machine, where
+// nothing may be sent: not the update check, the usage stats or an error
+// report. It doesn't depend on DO_NOT_TRACK, which a nested daemon may have
+// lost on its way from the agent's shell.
+func InAgent() bool { return inagent.Inside() }

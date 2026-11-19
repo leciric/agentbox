@@ -182,6 +182,7 @@ install ID, the version, OS and architecture, counts of which features were used
 events such as a turn's length and tokens or an error's code and its redacted wording; never your
 names, paths, code or prompts. **Settings → General** shows exactly what the next check would send,
 and turns the stats or the whole check off, as do `DO_NOT_TRACK=1` and `AGENTBOX_NO_UPDATE_CHECK=1`.
+An AgentBox running inside an agent's machine never checks for updates or sends usage stats or error reports.
 Problem reports and error reports are sent only when you say so. [docs/privacy.md](docs/privacy.md)
 lists every field.
 

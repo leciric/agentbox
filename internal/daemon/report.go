@@ -91,6 +91,12 @@ func (s *Server) errorReportsAllowed(ctx context.Context) error {
 	if os.Getenv("DO_NOT_TRACK") == "1" {
 		return errors.New("automatic error reports aren't sent while DO_NOT_TRACK=1 is set")
 	}
+	// A throwaway daemon in an agent's machine isn't an install, and its
+	// errors are the agent's own work's, not AgentBox's. This covers crash
+	// reports too, which go through here.
+	if update.InAgent() {
+		return errors.New("automatic error reports aren't sent from an agent's machine")
+	}
 	return nil
 }
 

@@ -913,6 +913,9 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	}
 	steps = append(steps,
 		setConfig(a.Instance, "raw.idmap="+image.IDMap(m.User)),
+		// Every `incus exec` into the machine, and so nothing in it, reports
+		// to anyone (doNotTrackEnv says why).
+		setConfig(a.Instance, doNotTrackConfig),
 		// Same paths as on the host, so the worktree's .git pointer resolves inside the agent.
 		func(ctx context.Context, c incus.Client) error {
 			return c.AddDevice(ctx, a.Instance, "worktree", "disk", "source="+a.Worktree, "path="+a.Worktree)
@@ -1298,6 +1301,7 @@ set -g pane-border-style "fg=#27272a"
 set -g pane-active-border-style "fg=#7c3aed"
 set -g message-style "bg=#18181b,fg=#e4e4e7"
 set -g mode-style "bg=#7c3aed,fg=#ffffff"
+set-environment -g DO_NOT_TRACK 1
 `
 
 // configure writes the agent's git identity, AI tool logins and brief.
@@ -1452,6 +1456,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				// pressure, by themselves (heavyhooks.go).
 				withHeavyHooks,
 				m.withBashEnv,
+				withDoNotTrack,
 				withClaudeAttribution(m.creditAITool(ctx)),
 			)
 		}); err != nil {
@@ -1790,6 +1795,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// Every agent of a project uses the same Compose project name, so a fork or
 	// a project base finds the containers and volumes it was copied with.
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
+	env += doNotTrackEnv
 	env += m.packageCacheEnv()
 	env += workersScript
 	env += shimPathLine
@@ -2110,7 +2116,6 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // is a shell, and window 1 runs the AI tool's command line, unless you use the
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
-	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
 	// Only a session about to be made opens the tool's window.
 	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
@@ -2119,6 +2124,11 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	if err := m.writeHeavyShims(ctx, a); err != nil {
 		m.logf("%s: %v; its builds and tests won't wait for memory", a.Ref(), err)
 	}
+	// DO_NOT_TRACK goes into the tmux server's own environment too, so the
+	// windows made from here on have it whatever the shell that started the
+	// server had: a session that kept running through a pause was started
+	// before this daemon wrote it.
+	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && { tmux set-environment -g DO_NOT_TRACK 1; exit 0; }\ntmux new-session -d -e DO_NOT_TRACK=1 -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
 	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return err
@@ -2202,6 +2212,11 @@ func (m *Manager) startedMeanwhile(ctx context.Context, a state.Agent) bool {
 func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, error) {
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	if err != nil {
+		return inst, err
+	}
+	// An agent made before this is written, running or not: the key takes
+	// effect for the next command run in the machine.
+	if err := m.Incus.SetConfig(ctx, a.Instance, doNotTrackConfig); err != nil {
 		return inst, err
 	}
 	var booted bool

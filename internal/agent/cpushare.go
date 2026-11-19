@@ -250,7 +250,7 @@ func (m *Manager) BashEnvPath() string { return "/home/" + m.User.Name + "/.conf
 
 func (m *Manager) bashEnv() string {
 	heavy := shellQuote("/home/" + m.User.Name + "/" + HeavyEnvFile)
-	return "# Written by AgentBox.\n" + workersScript + m.bashEnvSecrets() + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
+	return "# Written by AgentBox.\n" + workersScript + doNotTrackEnv + m.bashEnvSecrets() + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
 }
 
 func (m *Manager) writeBashEnv(ctx context.Context, a state.Agent) error {
@@ -261,3 +261,25 @@ func (m *Manager) writeBashEnv(ctx context.Context, a state.Agent) error {
 func (m *Manager) withBashEnv(b []byte) ([]byte, error) {
 	return withClaudeEnv(b, map[string]string{"BASH_ENV": m.BashEnvPath()})
 }
+
+// doNotTrackEnv is the part of every agent's shells' environment (the env file
+// and bash_env) that says nothing in the machine may report to anyone.
+// AgentBox copies its released binary into each agent as
+// /usr/local/bin/agentbox, and a daemon of it started there (`agentbox host
+// setup`, a test's) would otherwise count as an install in the usage stats and
+// the update check; the daemon refuses to send from an agent anyway
+// (update.InAgent), and this keeps the project's own tools quiet too, as
+// DO_NOT_TRACK is meant to.
+const doNotTrackEnv = "export DO_NOT_TRACK=1\n"
+
+// withDoNotTrack sets DO_NOT_TRACK in Claude Code's settings.json "env", which
+// it copies into its own environment and its tools'.
+func withDoNotTrack(b []byte) ([]byte, error) {
+	return withClaudeEnv(b, map[string]string{"DO_NOT_TRACK": "1"})
+}
+
+// doNotTrackConfig is the Incus configuration key that puts DO_NOT_TRACK=1
+// into the environment of every command run in the machine with `incus exec`,
+// as root or not, whatever shell it starts. (A login shell of the agent's user,
+// `runuser -l`, starts from a clean environment and reads the env file instead.)
+const doNotTrackConfig = "environment.DO_NOT_TRACK=1"

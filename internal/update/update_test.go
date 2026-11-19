@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
 	"agentbox/internal/hostos"
+	"agentbox/internal/inagent"
 )
 
 // TestCheckSendsExactlyTheFourFields pins what leaves the machine: the README
@@ -112,7 +115,18 @@ func TestNewer(t *testing.T) {
 	}
 }
 
+// onAMachineOfItsOwn makes Blocked see no agent: these tests may run on one,
+// whose marker, socket and hostname are all real.
+func onAMachineOfItsOwn(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv(inagent.MarkerEnv, filepath.Join(dir, "no-marker"))
+	t.Setenv(inagent.SocketEnv, filepath.Join(dir, "no.sock"))
+	t.Setenv(inagent.HostnameEnv, "front-end-host")
+}
+
 func TestBlocked(t *testing.T) {
+	onAMachineOfItsOwn(t)
 	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
 	t.Setenv("DO_NOT_TRACK", "")
 	if got := Blocked("0.16.0"); got != "" {
@@ -129,5 +143,49 @@ func TestBlocked(t *testing.T) {
 	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "1")
 	if Blocked("0.16.0") == "" {
 		t.Error("AGENTBOX_NO_UPDATE_CHECK=1 doesn't block the check")
+	}
+}
+
+// TestBlockedInsideAnAgent: AgentBox copies its released binary into every
+// agent's machine, so a daemon started there (`agentbox host setup`, a test's)
+// has a release version, and would count as an install and send its errors
+// unless it knows where it runs. It does, whatever the environment it was
+// started with says: DO_NOT_TRACK is empty here, as when it was dropped.
+func TestBlockedInsideAnAgent(t *testing.T) {
+	for name, inside := range map[string]func(t *testing.T){
+		"the image's marker": func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "agentbox-image")
+			if err := os.WriteFile(marker, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(inagent.MarkerEnv, marker)
+		},
+		"the container's hostname": func(t *testing.T) {
+			t.Setenv(inagent.HostnameEnv, "ab-hello-stack-agent-01")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			onAMachineOfItsOwn(t)
+			t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+			t.Setenv("DO_NOT_TRACK", "")
+			if got := Blocked("0.16.0"); got != "" {
+				t.Fatalf("Blocked() = %q off an agent, with nothing in the way", got)
+			}
+			inside(t)
+			if got := Blocked("0.16.0"); got != InAgentReason {
+				t.Errorf("Blocked() = %q in an agent, want %q", got, InAgentReason)
+			}
+			if !InAgent() {
+				t.Error("InAgent() is false in an agent")
+			}
+			// The other rules still say their own reasons first.
+			if got := Blocked("dev"); got == InAgentReason || got == "" {
+				t.Errorf("Blocked(dev) = %q in an agent, want the development build's reason", got)
+			}
+			t.Setenv("DO_NOT_TRACK", "1")
+			if got := Blocked("0.16.0"); got != "DO_NOT_TRACK=1 is set" {
+				t.Errorf("Blocked() = %q with DO_NOT_TRACK=1 in an agent, want that reason", got)
+			}
+		})
 	}
 }
