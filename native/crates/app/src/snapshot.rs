@@ -630,9 +630,15 @@ fn done(slot: usize, n: u64, image: Option<Arc<RenderImage>>) {
     });
 }
 
+/// release hands a picture no longer drawn to the pump, which drops it from
+/// the windows' atlases.
+pub(crate) fn release(image: Arc<RenderImage>) {
+    DROPPED.with_borrow_mut(|d| d.push(image));
+}
+
 /// to_image copies a snapshot (cairo ARGB32: BGRA bytes on little-endian, as
 /// GPUI's RenderImage takes them) into a RenderImage.
-fn to_image(surface: gtk::cairo::Surface) -> Option<Arc<RenderImage>> {
+pub(crate) fn to_image(surface: gtk::cairo::Surface) -> Option<Arc<RenderImage>> {
     let surface = gtk::cairo::ImageSurface::try_from(surface).ok()?;
     // A page taller than CAPTURE_MAX is pictured down to there.
     let (w, h, stride) = (

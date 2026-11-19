@@ -68,7 +68,8 @@ pub(crate) const MEASURE: &str = "(() => { const s = document.scrollingElement |
 return Math.ceil(s.scrollHeight > s.clientHeight + 1 ? s.scrollHeight : Math.max(R.getBoundingClientRect().height, b ? b.getBoundingClientRect().bottom : 0)); })()";
 
 /// The script every page in the chat gets. It tells the app the page's
-/// height as it loads and whenever it changes ("h" and MEASURE); a wheel
+/// height as it loads and whenever it changes ("h" and MEASURE), and when it
+/// scrolled ("s", for its still: see STILLS); a wheel
 /// scrolls the page, or what in it scrolls, while that can go further that
 /// way, and otherwise goes to the app, which scrolls the chat with it.
 fn preview_script() -> String {
@@ -77,6 +78,7 @@ fn preview_script() -> String {
 const tell = () => {{ const h = {MEASURE}; if (h !== last) {{ last = h; post('h' + h); }} }};\
 const ro = new ResizeObserver(tell); ro.observe(document.documentElement);\
 addEventListener('DOMContentLoaded', () => {{ document.body && ro.observe(document.body); tell(); }}); addEventListener('load', tell);\
+addEventListener('scroll', () => post('s'), {{ capture: true, passive: true }});\
 const room = (el, dy) => {{ for (; el; el = el.parentElement) {{ const root = el === document.scrollingElement;\
 if (!root) {{ const o = getComputedStyle(el).overflowY; if (o !== 'auto' && o !== 'scroll') continue; }}\
 if (el.scrollHeight - el.clientHeight < 1) continue; if (dy < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1) return true; }} return false; }};\
@@ -95,10 +97,13 @@ static RESIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 
 /// A page's block in the chat: at least FRAME_MIN, FRAME_DEFAULT until the
 /// page tells its height, and at most FRAME_VIEWPORT of the window
-/// (lib/rich.ts's).
+/// (lib/rich.ts's), and FRAME_CLIP of the chat's view: its webview is shown
+/// live only while the block is wholly in view, which a block about as tall
+/// as the view hardly ever is.
 const FRAME_MIN: f32 = 60.;
 const FRAME_DEFAULT: f32 = 160.;
 const FRAME_VIEWPORT: f32 = 0.7;
+const FRAME_CLIP: f32 = 0.8;
 
 /// set_height records the page `id`'s height, as it reported it.
 pub(crate) fn set_height(id: &str, h: f32) {
@@ -128,7 +133,11 @@ pub(crate) fn height(id: &str) -> Option<f32> {
 
 /// frame_max is the most a page's block takes of `window`.
 pub fn frame_max(window: &Window) -> Pixels {
-    (window.viewport_size().height * FRAME_VIEWPORT).max(px(FRAME_MIN))
+    let mut max = window.viewport_size().height * FRAME_VIEWPORT;
+    if let Some(clip) = CLIP.with(|c| c.get()) {
+        max = max.min(clip.size.height * FRAME_CLIP);
+    }
+    max.max(px(FRAME_MIN))
 }
 
 /// frame_height is the page `id`'s block's height: the page's own, within
@@ -352,6 +361,7 @@ pub fn end() -> impl IntoElement {
                     for (_, id) in idle.into_iter().take(views.len() - KEEP) {
                         views.remove(&id);
                         loaded(&id, false);
+                        drop_still(&id);
                     }
                 }
             });
@@ -375,15 +385,26 @@ pub fn html_preview(id: impl Into<String>, html: impl Into<String>, max: Pixels)
     let html = html.into();
     let height = frame_height(&id, max);
     let ready = height_known(&id);
+    let pictured = still(&id).is_some();
     div()
         .relative()
         .w_full()
         .h(height)
-        .when(!ready, |el| el.child(placeholder(&id, height)))
+        .when(!ready && !pictured, |el| el.child(placeholder(&id, height)))
         .child(
             canvas(
                 |_, _, _| {},
                 move |bounds, _, window, _| {
+                    if let Some(image) = still(&id) {
+                        let _ = window.paint_image(
+                            bounds,
+                            bounds,
+                            Corners::default(),
+                            image,
+                            0,
+                            false,
+                        );
+                    }
                     let clip = CLIP
                         .with(|c| c.get())
                         .unwrap_or(window.content_mask().bounds);
@@ -433,10 +454,88 @@ fn heard(id: &str, body: &str) {
         if let Ok(h) = h.parse::<f32>() {
             set_height(id, h);
             loaded(id, true);
+            still_soon(id);
         }
+    } else if body == "s" {
+        still_soon(id);
     } else if let Ok(dy) = body.parse::<f32>() {
         *WHEEL.lock().unwrap() += dy;
     }
+}
+
+thread_local! {
+    /// The last picture of each page's webview (Linux: WebKitGTK's snapshot
+    /// of what it shows), drawn in the block under it. A child window can't
+    /// be clipped by the chat, so it shows only while its block is wholly in
+    /// view; the rest of the time, the block partly scrolled out, the block
+    /// shows this, clipped as the chat clips anything, rather than nothing.
+    static STILLS: RefCell<HashMap<String, std::sync::Arc<RenderImage>>> = RefCell::new(HashMap::new());
+    /// The still each page is due, by number: the last one asked for wins.
+    static STILL_DUE: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
+}
+
+/// still_soon has the page `id`'s still taken again once it has held still
+/// for a moment: it loaded, changed height or scrolled.
+fn still_soon(id: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let n = STILL_DUE.with_borrow_mut(|due| {
+            let n = due.entry(id.to_string()).or_insert(0);
+            *n += 1;
+            *n
+        });
+        let id = id.to_string();
+        gtk::glib::timeout_add_local_once(Duration::from_millis(150), move || {
+            if STILL_DUE.with_borrow(|due| due.get(&id) == Some(&n)) {
+                take_still(&id);
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = id;
+}
+
+/// take_still snapshots what the page `id`'s webview shows, as its still.
+#[cfg(target_os = "linux")]
+fn take_still(id: &str) {
+    use webkit2gtk::WebViewExt as _;
+    use wry::WebViewExtUnix as _;
+    let Some(view) = VIEWS.with_borrow(|v| v.get(id).map(|p| p.view.webview())) else {
+        return;
+    };
+    let id = id.to_string();
+    view.snapshot(
+        webkit2gtk::SnapshotRegion::Visible,
+        webkit2gtk::SnapshotOptions::NONE,
+        None::<&gtk::gio::Cancellable>,
+        move |result| {
+            let Some(image) = result.ok().and_then(crate::snapshot::to_image) else {
+                return;
+            };
+            // Its webview was dropped meanwhile.
+            if !VIEWS.with_borrow(|v| v.contains_key(&id)) {
+                return;
+            }
+            let old = STILLS.with_borrow_mut(|s| s.insert(id, image));
+            if let Some(old) = old {
+                crate::snapshot::release(old);
+            }
+            RESIZED.store(true, std::sync::atomic::Ordering::Relaxed);
+        },
+    );
+}
+
+/// drop_still lets go of the page `id`'s still, its webview gone.
+fn drop_still(id: &str) {
+    STILL_DUE.with_borrow_mut(|due| due.remove(id));
+    #[cfg(target_os = "linux")]
+    if let Some(old) = STILLS.with_borrow_mut(|s| s.remove(id)) {
+        crate::snapshot::release(old);
+    }
+}
+
+fn still(id: &str) -> Option<std::sync::Arc<RenderImage>> {
+    STILLS.with_borrow(|s| s.get(id).cloned())
 }
 
 /// Parent is the GPUI window as wry takes it. GPUI's X11 backend hands out an
@@ -528,6 +627,7 @@ fn place(
                 .with_on_page_load_handler(move |event, _| {
                     if matches!(event, wry::PageLoadEvent::Finished) {
                         loaded(&on_load, true);
+                        still_soon(&on_load);
                     }
                 })
                 .build_as_child(&Parent(window));
