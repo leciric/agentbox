@@ -31,8 +31,8 @@ const HeavyEnvFile = ".cache/agentbox/heavy.env"
 const heavyHookMatcher = "Bash"
 
 // heavyHookTimeout is how long Claude Code lets the PreToolUse hook run, in
-// seconds: beyond the daemon's longest wait to start (heavyMaxWait, 10
-// minutes), so the wait running out is the hook's to report, not a kill.
+// seconds: from when the hook waited for memory, which it no longer does;
+// kept, as a change rewrites every agent's settings.json.
 const heavyHookTimeout = 660
 
 // withHeavyHooks merges the heavy-phase hooks into settings.json's "hooks",

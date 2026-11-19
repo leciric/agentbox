@@ -5,45 +5,24 @@ import (
 	"time"
 )
 
-func roomy(avail float64) Mem {
-	return Mem{Total: gibs(16), Cap: gibs(16), Available: gibs(avail), SwapTotal: gibs(4), SwapFree: gibs(4)}
-}
-
-// Machines boot oldest first, one a BootStep, only while one fits, and
-// never while builds wait for memory; with nothing running, the first boots
-// whatever the reading.
-func TestAdmissionBootsOldestFirstWhileOneFits(t *testing.T) {
-	a := NewAdmission(DefaultPolicy)
+// Machines boot when asked, oldest first, one a BootStep, whatever the VM's
+// memory: nothing waits for it (19 Nov 2026, the user's decision).
+func TestAdmissionBootsWhenAskedOneABootStep(t *testing.T) {
+	a := NewAdmission()
 	now := t0
 	a.Ask("p/new", t0.Add(time.Hour), now)
 	a.Ask("p/old", t0, now)
-	if n, ok := a.Place("p/new"); !ok || n != 1 {
-		t.Fatalf("p/new is %d in line (%v), want behind the older p/old", n, ok)
+	if !a.Waits("p/new") || a.Waiting()[0].Agent != "p/old" {
+		t.Fatalf("waiting %v, want the older p/old first", a.Waiting())
 	}
-	// Nothing runs: the first boots, whatever the memory.
-	if got := a.Step(now, roomy(0.5), "", 0); len(got) != 1 || got[0] != "p/old" {
-		t.Fatalf("with nothing running booted %v, want p/old", got)
+	if got := a.Step(now); len(got) != 1 || got[0] != "p/old" || a.Why() != WaitTurn {
+		t.Fatalf("booted %v (%q), want p/old, p/new next", got, a.Why())
 	}
-	// Room for one more, but within BootStep of the last.
-	if got := a.Step(now.Add(2*time.Second), roomy(8), "", 1); len(got) != 0 || a.Why() != WaitTurn {
+	if got := a.Step(now.Add(2 * time.Second)); len(got) != 0 || a.Why() != WaitTurn {
 		t.Fatalf("booted %v within BootStep (%q)", got, a.Why())
 	}
-	now = now.Add(10 * time.Second)
-	// Builds wait for memory: they come first.
-	if got := a.Step(now, roomy(8), WaitBuilds, 1); len(got) != 0 || a.Why() != WaitBuilds {
-		t.Fatalf("booted %v while builds were held (%q)", got, a.Why())
-	}
-	// The user's computer is busy: it says so, not the VM's memory.
-	if got := a.Step(now, roomy(8), WaitHost, 1); len(got) != 0 || a.Why() != WaitHost {
-		t.Fatalf("booted %v while the host was busy (%q)", got, a.Why())
-	}
-	// Short of a boot over the floor: 1.6 GiB floor + 1.25 GiB boot, less
-	// the 1.25 GiB of the boot not yet showing.
-	if got := a.Step(now, roomy(3.5), "", 1); len(got) != 0 || a.Why() != WaitMemory {
-		t.Fatalf("booted %v with 3.5 GiB and a boot still settling (%q)", got, a.Why())
-	}
-	if got := a.Step(now, roomy(4.5), "", 1); len(got) != 1 || got[0] != "p/new" {
-		t.Fatalf("booted %v with 4.5 GiB available", got)
+	if got := a.Step(now.Add(DefaultBootStep)); len(got) != 1 || got[0] != "p/new" {
+		t.Fatalf("booted %v a BootStep later, want p/new", got)
 	}
 	if len(a.Waiting()) != 0 || a.Why() != "" {
 		t.Errorf("still waiting: %v (%q)", a.Waiting(), a.Why())
@@ -51,38 +30,34 @@ func TestAdmissionBootsOldestFirstWhileOneFits(t *testing.T) {
 	if !a.Booted("p/new") || !a.Ask("p/new", t0, now) {
 		t.Error("a booted machine asking again waits")
 	}
-}
-
-// Nobody boots for having waited long: a boot into memory that isn't there
-// gets processes killed.
-func TestAdmissionNeverBootsIntoMissingMemory(t *testing.T) {
-	a := NewAdmission(DefaultPolicy)
-	a.Ask("p/a", t0, t0)
-	for sec := 0; sec < 3600; sec += 2 {
-		if got := a.Step(t0.Add(time.Duration(sec)*time.Second), roomy(2), "", 5); len(got) != 0 {
-			t.Fatalf("booted %v after %ds with 2 GiB available", got, sec)
-		}
-	}
-	a.Cancel("p/a")
-	if _, ok := a.Place("p/a"); ok {
+	a.Ask("p/later", t0, now)
+	a.Cancel("p/later")
+	if a.Waits("p/later") {
 		t.Error("still in line after it gave up")
 	}
 }
 
-// The agent the user is looking at goes first among the waiting builds; the
-// others keep their order.
-func TestGovernorPrefersTheViewedAgent(t *testing.T) {
-	g := NewGovernor(DefaultPolicy)
-	for _, a := range []string{"p/a", "p/b", "p/c"} {
-		g.Ask(a, "k", "go test", time.Hour, t0)
+// The readings of 19 Nov 2026, VM at its 8 GiB cap: 2 to 4 GiB of it free,
+// every agent throttled at the shared limit with builds waiting, and the
+// host with 8.2 of 30.5 GiB free, under its 7.6 GiB reserve, its own memory
+// pressure 0: every boot waited, for twenty minutes and more. None of that
+// is admission's to read any more: what holds a boot is the host under its
+// hard floor (2 GiB, or 6% of it: 1.8 GiB of 30.5) now, and nothing else.
+func TestAdmissionWaitsOnlyForTheHostsHardFloor(t *testing.T) {
+	a := NewAdmission()
+	a.Ask("p/a", t0, t0)
+	a.HostShort = true
+	for sec := 0; sec < 60; sec += 2 {
+		if got := a.Step(t0.Add(time.Duration(sec) * time.Second)); len(got) != 0 || a.Why() != WaitHost {
+			t.Fatalf("booted %v with the host under its floor (%q)", got, a.Why())
+		}
 	}
-	g.Prefer("p/c")
-	var order []string
-	for _, r := range g.Waiting() {
-		order = append(order, r.Agent)
+	if a.Holds(t0) != WaitHost {
+		t.Errorf("Holds() = %q with the host under its floor", a.Holds(t0))
 	}
-	if got := order[0] + order[1] + order[2]; got != "p/cp/ap/b" {
-		t.Errorf("order %v", order)
+	a.HostShort = false
+	if got := a.Step(t0.Add(time.Minute)); len(got) != 1 {
+		t.Fatalf("booted %v once the host was over its floor, want p/a", got)
 	}
 }
 
@@ -111,21 +86,5 @@ func TestUnsettled(t *testing.T) {
 		if got := p.Unsettled(c.s, c.t, c.steady); (got != "") != c.want {
 			t.Errorf("%s: Unsettled() = %q, want unsettled %v", c.name, got, c.want)
 		}
-	}
-}
-
-// With the user's computer short of memory lately (api.HostLoad.HoldBoots),
-// nothing boots, the first machine with nothing running included, until it
-// clears.
-func TestAdmissionWaitsForAShortHost(t *testing.T) {
-	a := NewAdmission(DefaultPolicy)
-	a.Ask("p/a", t0, t0)
-	a.HostShort = true
-	if got := a.Step(t0, roomy(12), "", 0); len(got) != 0 || a.Why() != WaitHost {
-		t.Fatalf("booted %v with the host short (%q)", got, a.Why())
-	}
-	a.HostShort = false
-	if got := a.Step(t0.Add(time.Second), roomy(12), "", 0); len(got) != 1 {
-		t.Fatalf("booted %v once the host was calm, want p/a", got)
 	}
 }

@@ -12,40 +12,43 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
-	"agentbox/internal/hostload"
 	"agentbox/internal/hostos"
 	"agentbox/internal/pressure"
 	"agentbox/internal/state"
 )
 
-// Memory goes by what the VM measures, not by guesses. An agent's machine
-// boots once the VM has the memory for it (admission.go), the agent On hold
-// until then. Each has a hard memory.max (agent.MemoryLimit), so a process that
-// outgrows what one agent can have alone is killed at once, and the agent is
-// told what was killed and at what size (watchMemory). What memory pressure
-// holds back is heavy commands (test runs, builds): they ask the daemon
-// before they start, wait while the VM's PSI says memory is short, and the
-// newest of those already going is paused when it stays short, then resumed
-// in order (package pressure decides; this applies it).
+// Memory is the kernel's to protect, as in T3 Code (19 Nov 2026, the user's
+// decision): each agent's machine has a hard memory.max (agent.MemoryLimit),
+// and every agent's together a memory.high and memory.max under
+// agentbox.agents (agent/sharedmemory.go), so a process that outgrows what
+// it may have is killed at once, and the agent is told what was killed, at
+// what size and for which limit (watchMemory). Nothing waits or is paused
+// for memory: an agent's machine boots when asked (admission.go), and a
+// heavy command (a test run, a build) starts the moment it asks. Until then
+// heavy commands waited while the VM's PSI said memory was short and were
+// paused when it stayed short, and PSI counts tasks stalled at those limits
+// of their own too: on 19 Nov 2026 the agents throttled at their shared
+// limit kept builds waiting and paused, and every boot behind them, for
+// twenty minutes and more with the VM's memory free.
 //
-// Inside an agent a heavy command asks through the in-agent API: the shims
-// for go, cargo, npm, make… first in every agent's PATH, whatever its AI
-// tool (agent/heavyshims.go, cli.heavyShim), or `agentbox heavy -- <cmd>`
-// around anything else. A run waits while the VM's memory is under
-// pressure, and also while one more doesn't fit on top of those that just
-// started (pressure.Governor.BuildCost); the agent the app shows goes first,
-// and idle agents' memory is pushed out before any run waits. As it starts, its shell
-// joins a cgroup of its own under the agent's machine's (agent.PlaceRun), so
-// pausing it freezes that command and what it started, not the agent, and
-// its memory is pushed out to swap while it is paused.
+// A heavy command still asks, through the in-agent API: the shims for go,
+// cargo, npm, make… first in every agent's PATH, whatever its AI tool
+// (agent/heavyshims.go, cli.heavyShim), or `agentbox heavy -- <cmd>` around
+// anything else. Asking is how the daemon knows an agent works (idle
+// reclaim, the VM's own idle shrink, the package cache), and how a build is
+// told to run fewer jobs while the VM's memory is short (memoryjobs.go, by
+// pressure.Runs.Why). As it starts, its shell joins a cgroup of its own
+// under the agent's machine's (agent.PlaceRun), which the experimental
+// "pause whole agents" (agentfreeze.go) freezes rather than the whole
+// machine when freezing that would free nothing.
 //
-// The loop that reads the VM's memory and pauses runs is what must still
-// work when the VM has none to spare: a reading allocates nothing and opens
-// nothing (pressure.Sampler), the loop does nothing else (the agents' limits
-// and kills are watched on a loop of their own, and the app told aside, as
-// that asks Incus), a run's freezer is written directly rather than through
-// sudo (agent.PlaceRun hands its cgroup to the daemon's user), and in the VM
-// the daemon's own memory is locked in and the OOM killer told to spare it
+// The loop that reads the VM's memory is what must still work when the VM
+// has none to spare: a reading allocates nothing and opens nothing
+// (pressure.Sampler), the loop does nothing else (the agents' limits and
+// kills are watched on a loop of their own, and the app told aside, as that
+// asks Incus), a run's freezer is written directly rather than through sudo
+// (agent.PlaceRun hands its cgroup to the daemon's user), and in the VM the
+// daemon's own memory is locked in and the OOM killer told to spare it
 // (protectDaemon).
 
 const (
@@ -60,16 +63,13 @@ const (
 	// the most a request may ask for.
 	heavyTTL    = 15 * time.Minute
 	heavyMaxTTL = time.Hour
-	// heavyMaxWait is the longest one request waits to start.
-	heavyMaxWait = 10 * time.Minute
 )
 
-// runCgroups is what applying the governor's decisions does to the runs'
-// cgroups: agent's functions, or a test's.
+// runCgroups is what the daemon does to the runs' cgroups: agent's
+// functions, or a test's.
 type runCgroups interface {
 	Place(instance, key string, pid int) error
 	Freeze(instance, key string, on bool) error
-	Reclaim(ctx context.Context, instance, key string) error
 	Populated(instance, key string) bool
 	Remove(instance, key string) error
 }
@@ -82,23 +82,20 @@ func (agentRunCgroups) Place(instance, key string, pid int) error {
 func (agentRunCgroups) Freeze(instance, key string, on bool) error {
 	return agent.FreezeRun(instance, key, on)
 }
-func (agentRunCgroups) Reclaim(ctx context.Context, instance, key string) error {
-	return agent.ReclaimRun(ctx, instance, key)
-}
 func (agentRunCgroups) Populated(instance, key string) bool {
 	return agent.RunPopulated(instance, key)
 }
 func (agentRunCgroups) Remove(instance, key string) error { return agent.RemoveRun(instance, key) }
 
-// heavyRuns is the governor and what the daemon keeps beside it, under mu.
+// heavyRuns is the heavy commands going and what the daemon keeps beside
+// them, under mu.
 type heavyRuns struct {
 	mu sync.Mutex
-	g  *pressure.Governor
-	// started is closed as a waiting run starts, by run ID.
-	started map[string]chan struct{}
+	g  *pressure.Runs
 	// instance is each run's agent's machine, by run ID.
 	instance map[string]string
-	// told are the runs whose agents were told they were paused, by run ID.
+	// told are the runs whose agents were told the fleet paused them, by
+	// run ID.
 	told map[string]bool
 	// psiErr is the last error reading the VM's pressure, logged once.
 	psiErr string
@@ -114,8 +111,7 @@ type heavyRuns struct {
 
 func newHeavyRuns() *heavyRuns {
 	return &heavyRuns{
-		g:        pressure.NewGovernor(pressure.DefaultPolicy),
-		started:  map[string]chan struct{}{},
+		g:        pressure.NewRuns(pressure.DefaultPolicy),
 		instance: map[string]string{},
 		told:     map[string]bool{},
 		refresh:  make(chan struct{}, 1),
@@ -146,8 +142,8 @@ func readSample() func() (pressure.Sample, error) {
 }
 
 // giveZram gives AgentBox's VM its compressed swap in memory as the daemon
-// starts (agent.EnsureZram): without swap the kernel kills before memory
-// pressure shows, and a paused run's memory has nowhere to go. Outside the
+// starts (agent.EnsureZram): without swap the kernel kills as soon as
+// memory runs out, where it could push idle agents' cold pages out. Outside the
 // VM (an earlier release's host install) the machine's swap is its owner's.
 func (s *Server) giveZram() {
 	if !hostos.InVM() {
@@ -169,8 +165,8 @@ func (s *Server) giveZram() {
 }
 
 // runPressure is the pressure loop, and the loops beside it that may wait on
-// SQLite, Incus or sudo: refreshing the agents as runs change, and watching
-// their memory limits and kills.
+// SQLite, Incus or sudo: refreshing the agents as what holds them changes,
+// and watching their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
 	s.loadFleet(ctx)
 	go func() {
@@ -247,18 +243,21 @@ func (s *Server) refreshSoon() {
 	}
 }
 
-// stepPressure reads the VM's pressure and applies what the governor makes
-// of it: runs that ended go, waiting ones start, going ones pause or resume.
+// stepPressure reads the VM's memory: for the fleet, with pausing whole
+// agents on, which decides from it; for builds to run fewer jobs while it is
+// short (memoryShort); and for what a restart carries on to wait to settle.
+// It also lets the next machine in line boot (admission.go), and forgets the
+// runs that ended.
 func (s *Server) stepPressure(ctx context.Context) {
 	sample, err := s.readPressure()
 	h := s.heavy
 	h.mu.Lock()
 	if err != nil {
-		// No PSI (not Linux, or a kernel without it): nothing is ever held,
-		// which is what memory pressure of 0 makes of it.
+		// No PSI (not Linux, or a kernel without it): memory is never short
+		// to the loop, which is what memory pressure of 0 makes of it.
 		if msg := err.Error(); msg != h.psiErr {
 			h.psiErr = msg
-			s.logf("memory pressure: %v; heavy commands run without waiting", err)
+			s.logf("memory pressure: %v; builds run as many jobs whatever the memory", err)
 		}
 		sample = pressure.Sample{}
 	}
@@ -266,90 +265,44 @@ func (s *Server) stepPressure(ctx context.Context) {
 	sample.HostBusy = s.hostLoad.busy(now)
 	sample.Mem = s.hostLoad.withCeiling(sample.Mem, now)
 	s.watchPSI(now, sample.PSI)
-	gone := h.g.Expire(now, func(r *pressure.Run) bool {
+	gone := h.g.Expire(func(r *pressure.Run) bool {
 		if r.Placed {
 			return s.runCgroups.Populated(h.instance[r.ID()], r.Key)
 		}
 		return now.Before(r.Until)
 	})
-	// Pausing whole agents (agentfreeze.go) holds their machines instead:
-	// every run starts at once, and none is paused on its own.
-	fleetOn := s.fleetOn()
-	var acts pressure.Actions
-	if fleetOn {
-		acts = h.g.StartAll(now)
-	} else {
-		acts = h.g.Step(now, sample)
-	}
+	h.g.Observe(now, sample)
 	trend, why := h.g.Trend(), h.g.Why()
 	h.reading, h.trend, h.readAt = sample, trend, now
-	type change struct {
+	type ended struct {
 		run      pressure.Run
 		instance string
 	}
-	var ended, paused, resumed []change
+	var ends []ended
 	for _, r := range gone {
-		ended = append(ended, change{*r, h.instance[r.ID()]})
+		ends = append(ends, ended{*r, h.instance[r.ID()]})
 		h.forget(r)
-	}
-	for _, r := range acts.Start {
-		if ch := h.started[r.ID()]; ch != nil {
-			close(ch)
-			delete(h.started, r.ID())
-		}
-	}
-	for _, r := range acts.Pause {
-		paused = append(paused, change{*r, h.instance[r.ID()]})
-	}
-	for _, r := range acts.Resume {
-		resumed = append(resumed, change{*r, h.instance[r.ID()]})
 	}
 	h.mu.Unlock()
 
 	// Removing a cgroup may take sudo: aside.
-	for _, c := range ended {
+	for _, c := range ends {
 		if c.run.Placed {
-			go func(c change) {
+			go func(c ended) {
 				if err := s.runCgroups.Remove(c.instance, c.run.Key); err != nil {
 					s.logf("memory pressure: %s: removing its cgroup: %v", c.run.ID(), err)
 				}
 			}(c)
 		}
 	}
-	for _, c := range resumed {
-		s.logf("memory pressure: resuming %s (%s)", c.run.ID(), c.run.Command)
-		if err := s.runCgroups.Freeze(c.instance, c.run.Key, false); err != nil {
-			s.logf("memory pressure: resuming %s: %v", c.run.ID(), err)
-		}
-	}
-	for _, c := range paused {
-		s.logf("memory pressure: pausing %s (%s): %s: %s", c.run.ID(), c.run.Command, reasonWords(c.run.Why, sample, trend), sample)
-		if err := s.runCgroups.Freeze(c.instance, c.run.Key, true); err != nil {
-			s.logf("memory pressure: pausing %s: %v", c.run.ID(), err)
-			continue
-		}
-		s.countRunPause()
-		// Out to swap, so the paused run doesn't hold the VM's memory. It
-		// takes a while for gigabytes; nothing waits for it.
-		go func(c change) {
-			if !s.mayReclaimRun(context.WithoutCancel(ctx), c.instance, c.run.Key) {
-				return
-			}
-			if err := s.runCgroups.Reclaim(s.background(), c.instance, c.run.Key); err != nil {
-				s.logf("memory pressure: pushing %s's memory out: %v", c.run.ID(), err)
-			}
-		}(c)
-		// Told aside, so a chat slow to take it doesn't hold up the loop.
-		go s.tellPaused(context.WithoutCancel(ctx), c.run)
-	}
-	if len(ended)+len(paused)+len(resumed)+len(acts.Start) > 0 {
+	if len(ends) > 0 {
 		s.refreshSoon()
 	}
-	if fleetOn {
+	if s.fleetOn() {
 		s.stepFleet(ctx, now, sample)
 		why = s.fleetWhyNow()
 	} else {
-		s.stepAdmission(now, sample.Mem, s.bootHeld(now))
+		s.stepAdmission(now)
 	}
 	s.notePressure(now, sample, err == nil, why)
 	s.memoryShort.note(now, why)
@@ -358,16 +311,12 @@ func (s *Server) stepPressure(ctx context.Context) {
 // forget drops what the daemon kept beside a run that went. Under mu.
 func (h *heavyRuns) forget(r *pressure.Run) {
 	id := r.ID()
-	if ch := h.started[id]; ch != nil {
-		close(ch) // a waiter still asking hears it went; it reads the governor again
-		delete(h.started, id)
-	}
 	delete(h.instance, id)
 	delete(h.told, id)
 }
 
-// tellPaused tells an agent, once a run, that one of its commands was paused
-// for memory.
+// tellPaused tells an agent, once a run, that pausing whole agents
+// (agentfreeze.go) paused one of its commands for memory.
 func (s *Server) tellPaused(ctx context.Context, r pressure.Run) {
 	s.heavy.mu.Lock()
 	already := s.heavy.told[r.ID()]
@@ -385,7 +334,7 @@ func (s *Server) tellPaused(ctx context.Context, r pressure.Run) {
 		what = fmt.Sprintf("Your command `%s`", headWords(c, 120))
 	}
 	text := what + " was paused for memory: the VM's memory is under pressure from several agents' tests and builds at once. " +
-		"It resumes by itself, in turn, once that eases, and loses nothing. If it timed out meanwhile, run it again: it waits its turn. " +
+		"It resumes by itself once that eases, and loses nothing. If it timed out meanwhile, run it again. " +
 		"Running fewer packages or workers at once (go test -p 2, vitest --maxWorkers=2, make -j2) gets it through sooner."
 	if _, err := s.tellUnlessRetired(ctx, a, text); err != nil {
 		s.logf("memory pressure: telling %s its command was paused: %v", r.Agent, err)
@@ -403,7 +352,8 @@ func (s *Server) agentByRef(ctx context.Context, ref string) (state.Agent, error
 }
 
 // startHeavy is POST /v1/self/heavy: a heavy command of the calling agent's
-// asking to start, answered once it may, or when the request's wait runs out.
+// starting, or asking again while it runs. It starts at once: nothing waits
+// for memory (api.HeavyRequest.WaitSeconds is a daemon before this one's).
 func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var req api.HeavyRequest
@@ -418,122 +368,32 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 		if req.TTLSeconds > 0 {
 			ttl = min(time.Duration(req.TTLSeconds)*time.Second, heavyMaxTTL)
 		}
-		wait := heavyMaxWait
-		if req.WaitSeconds > 0 {
-			wait = min(time.Duration(req.WaitSeconds)*time.Second, heavyMaxWait)
-		}
-		ctx := r.Context()
-		a, err := s.store.AgentByInstance(ctx, instance)
+		a, err := s.store.AgentByInstance(r.Context(), instance)
 		if err != nil {
 			return err
 		}
 		s.wakeIdle(a.Ref())
-		out, err := s.askHeavy(ctx, a.Ref(), instance, key, req.Command, ttl, wait)
-		if err != nil {
-			return err
-		}
-		return writeJSON(w, http.StatusOK, out)
+		s.startRun(a.Ref(), instance, key, req.Command, ttl)
+		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true})
 	}
 }
 
-func (s *Server) askHeavy(ctx context.Context, ref, instance, key, command string, ttl, wait time.Duration) (api.HeavyStart, error) {
+// startRun has the heavy command key of agent ref, in instance, start now,
+// or renews it for ttl.
+func (s *Server) startRun(ref, instance, key, command string, ttl time.Duration) {
 	h := s.heavy
 	h.mu.Lock()
-	run, started := h.g.Ask(ref, key, command, ttl, time.Now())
-	id := run.ID()
-	h.instance[id] = instance
-	if !started && ref == s.viewed() {
-		h.g.Prefer(ref)
-	}
-	if !started && s.fleetOn() {
-		// Its machine is what pauses, not the run: it starts now.
-		h.g.StartAll(time.Now())
-		started = true
-	}
-	if started {
-		h.mu.Unlock()
-		return api.HeavyStart{Started: true}, nil
-	}
-	ch := h.started[id]
-	asked := ch == nil
-	if asked {
-		ch = make(chan struct{})
-		h.started[id] = ch
-	}
+	run := h.g.Ask(ref, key, command, ttl, time.Now())
+	fresh := h.instance[run.ID()] == ""
+	h.instance[run.ID()] = instance
 	h.mu.Unlock()
-	// Calm and nothing ahead of it: this step starts it now.
-	s.stepPressure(ctx)
-	if asked {
-		// Before it waits, what idle agents hold goes out to swap.
-		s.reclaimIdleSoon(ctx)
-		// Still waiting, it shows on the agent ("Waiting for memory").
-		select {
-		case <-ch:
-		default:
-			s.refreshAgents(ctx)
-		}
-	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	keep := time.NewTicker(pressure.DefaultPolicy.Grace / 3)
-	defer keep.Stop()
-	for {
-		select {
-		case <-ch:
-			h.mu.Lock()
-			r := h.g.Get(ref, key)
-			h.mu.Unlock()
-			if r == nil || r.Started.IsZero() {
-				return api.HeavyStart{Why: "it was dropped while it waited: its agent stopped"}, nil
-			}
-			return api.HeavyStart{Started: true}, nil
-		case <-keep.C:
-			h.mu.Lock()
-			h.g.Keep(ref, key, ttl, time.Now())
-			h.mu.Unlock()
-		case <-timer.C:
-			return api.HeavyStart{Why: s.heavyWhy(ref, key)}, nil
-		case <-ctx.Done():
-			return api.HeavyStart{}, ctx.Err()
-		}
+	if fresh {
+		s.refreshSoon()
 	}
 }
 
-// heavyWhy says why a run waits: a clause its asker words its line around.
-func (s *Server) heavyWhy(ref, key string) string {
-	h := s.heavy
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	ahead, paused := 0, 0
-	for _, r := range h.g.Waiting() {
-		if r.Agent == ref && r.Key == key {
-			break
-		}
-		ahead++
-	}
-	for _, r := range h.g.Running() {
-		if r.Paused {
-			paused++
-		}
-	}
-	why := reasonWords(h.g.Why(), h.g.Last(), h.g.Trend())
-	if load, ok := s.hostLoad.current(time.Now()); ok && h.g.Why() == pressure.HostBusy {
-		why = fmt.Sprintf("the user's computer, outside the VM, is busy (%s), and its own programs come first", hostload.Words(load))
-	}
-	if why == "" {
-		why = "other commands started just before it"
-	}
-	if paused > 0 && h.g.Why() != pressure.Easing {
-		why += fmt.Sprintf(", %d paused %s resume first", paused, plural(paused, "command is to", "commands are to"))
-	}
-	if ahead > 0 {
-		why += fmt.Sprintf(", and %d %s ahead of it", ahead, plural(ahead, "command is", "commands are"))
-	}
-	return why
-}
-
-// reasonWords says why runs are held, a clause for the agents and the log;
-// "" for nothing.
+// reasonWords says why the fleet holds machines or runs, a clause for the
+// agents and the log; "" for nothing.
 func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) string {
 	avail := fmt.Sprintf("%s of %s available", agent.HumanBytes(s.Mem.Available), agent.HumanBytes(s.Mem.Total))
 	switch why {
@@ -549,8 +409,6 @@ func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) stri
 		return "the VM's memory has eased, and commands paused for it resume first, one at a time"
 	case pressure.HostBusy:
 		return "the user's computer, outside the VM, is busy, and its own programs come first"
-	case pressure.Full:
-		return fmt.Sprintf("the VM hasn't the memory for another build on top of those running (%s)", avail)
 	}
 	return ""
 }
@@ -574,9 +432,8 @@ func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Requ
 		h := s.heavy
 		h.mu.Lock()
 		run := h.g.Get(a.Ref(), key)
-		started := run != nil && !run.Started.IsZero()
 		h.mu.Unlock()
-		if !started {
+		if run == nil {
 			return fmt.Errorf("%s hasn't started", key)
 		}
 		if err := s.runCgroups.Place(instance, key, req.PID); err != nil {
@@ -598,7 +455,7 @@ func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Reque
 		if err != nil {
 			return err
 		}
-		s.endRuns(r.Context(), func(g *pressure.Governor) []*pressure.Run {
+		s.endRuns(func(g *pressure.Runs) []*pressure.Run {
 			if run := g.End(a.Ref(), r.PathValue("key")); run != nil {
 				return []*pressure.Run{run}
 			}
@@ -610,14 +467,12 @@ func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Reque
 }
 
 // dropHeavy ends every run of an agent, as it stops or goes.
-func (s *Server) dropHeavy(ctx context.Context, ref string) {
-	s.endRuns(ctx, func(g *pressure.Governor) []*pressure.Run { return g.Drop(ref) })
+func (s *Server) dropHeavy(ref string) {
+	s.endRuns(func(g *pressure.Runs) []*pressure.Run { return g.Drop(ref) })
 }
 
-// endRuns ends the runs end takes out of the governor: their cgroups resumed
-// and removed, and the next step taken at once, which resumes or starts what
-// they leave room for.
-func (s *Server) endRuns(ctx context.Context, end func(*pressure.Governor) []*pressure.Run) {
+// endRuns ends the runs end takes out: their cgroups removed.
+func (s *Server) endRuns(end func(*pressure.Runs) []*pressure.Run) {
 	h := s.heavy
 	h.mu.Lock()
 	gone := end(h.g)
@@ -635,12 +490,14 @@ func (s *Server) endRuns(ctx context.Context, end func(*pressure.Governor) []*pr
 		}
 	}
 	if len(gone) > 0 {
-		s.stepPressure(ctx)
+		s.refreshSoon()
 	}
 }
 
-// memoryHold is what the daemon holds of an agent's heavy commands, nil for
-// nothing.
+// memoryHold is what memory holds of an agent, nil for nothing: what
+// admission holds of its machine's boot (admission.go), or, with pausing
+// whole agents on, what the fleet pauses of it, its machine or its heavy
+// commands. Nothing else waits or is paused for memory.
 func (s *Server) memoryHold(ref string) *api.MemoryHold {
 	if held := s.machineHold(ref); held != nil {
 		return held
@@ -649,42 +506,19 @@ func (s *Server) memoryHold(ref string) *api.MemoryHold {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var out api.MemoryHold
-	note := func(at time.Time) {
-		if out.Since.IsZero() || at.Before(out.Since) {
-			out.Since = at
-		}
-	}
 	for _, r := range h.g.Running() {
 		if r.Agent == ref && r.Paused {
 			out.Paused++
-			note(r.PausedAt)
+			if out.Since.IsZero() || r.PausedAt.Before(out.Since) {
+				out.Since = r.PausedAt
+			}
 		}
 	}
-	for _, r := range h.g.Waiting() {
-		if r.Agent == ref {
-			out.Waiting++
-			note(r.Asked)
-		}
-	}
-	if out.Paused+out.Waiting == 0 {
+	if out.Paused == 0 {
 		return nil
 	}
-	// Pausing whole agents on, the fleet paused them (the governor only
-	// starts runs): what holds them is what it saw.
-	if s.fleetWhy(&out) {
-		return &out
-	}
-	last, tr := h.g.Last(), h.g.Trend()
-	out.Why = string(h.g.Why())
-	out.Available, out.Total = last.Mem.Available, last.Mem.Total
-	switch h.g.Why() {
-	case pressure.Stalling:
-		out.Stalled = last.Some.Avg10
-	case pressure.Falling:
-		out.Rate = int64(tr.Fall)
-	case pressure.Churning:
-		out.Rate = int64(tr.Churn)
-	}
+	// Only the fleet pauses a run: what holds it is what the fleet saw.
+	s.fleetWhy(&out)
 	return &out
 }
 
@@ -704,10 +538,10 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 		}
 		out.Runs = append(out.Runs, api.HeavyRun{Agent: run.Agent, Key: run.Key, Command: run.Command, State: st, Since: since, Placed: run.Placed})
 	}
-	for _, run := range h.g.Waiting() {
-		out.Runs = append(out.Runs, api.HeavyRun{Agent: run.Agent, Key: run.Key, Command: run.Command, State: "waiting", Since: run.Asked})
-	}
 	h.mu.Unlock()
+	if use, ok := s.agentsUse(); ok {
+		out.Agents = &use
+	}
 	return writeJSON(w, http.StatusOK, out)
 }
 
@@ -720,7 +554,6 @@ func (s *Server) watchMemory(ctx context.Context) {
 		return
 	}
 	s.syncFleet(ctx, agents)
-	s.countRunning(agents)
 	share := s.agentMemoryShare(ctx)
 	total := s.vmMemory()
 	agentsHit, agentsLimit := s.watchShared(s.reachableMemory(total, time.Now()))
@@ -768,7 +601,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 		if known && now.Kills > seen.Kills {
 			// A limit nested in the machine, when one reached it since; else
 			// its own, when it did; else the VM ran out.
-			k := killCause{limit: now.Limit, own: now.OwnLimit > seen.OwnLimit, shared: agentsHit, sharedLimit: agentsLimit, total: total}
+			k := killCause{limit: now.Limit, own: now.OwnLimit > seen.OwnLimit, shared: agentsHit, sharedLimit: agentsLimit, total: total, atCap: s.vmAtCap()}
 			for path, n := range now.Nested {
 				if n.Reached > seen.Nested[path].Reached && (k.nestedPath == "" || path < k.nestedPath) {
 					k.nestedPath, k.nestedLimit = path, n.Limit
@@ -778,6 +611,34 @@ func (s *Server) watchMemory(ctx context.Context) {
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, k)
 		}
 	}
+}
+
+// vmAtCap is the VM's memory cap when the VM has grown all the way to it,
+// by the pressure loop's last reading: raising it (agentbox vm resize
+// --memory-cap) is then what gives every agent more. 0 short of it, where
+// the host grows the VM or can't spare more (api.HostLoad.VMCeiling), and
+// for a VM that doesn't grow.
+func (s *Server) vmAtCap() int64 {
+	vmCap := s.vmCap()
+	if vmCap <= 0 || !(pressure.Mem{Total: s.lastMem().Total, Cap: vmCap}).AtCap() {
+		return 0
+	}
+	return vmCap
+}
+
+// configuredCap is the VM's memory cap as its front end set it
+// (agent.VMMemoryCapEnv): 0 for a VM that doesn't grow, or outside one.
+func configuredCap() int64 {
+	n, _ := strconv.ParseInt(os.Getenv(agent.VMMemoryCapEnv), 10, 64)
+	return max(n, 0)
+}
+
+// lastMem is the VM's memory as the pressure loop last read it.
+func (s *Server) lastMem() pressure.Mem {
+	h := s.heavy
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.g.Last().Mem
 }
 
 // thrashFor is how long an agent stays spent — its memory and swap — and
@@ -898,6 +759,9 @@ type killCause struct {
 	shared      bool
 	sharedLimit int64
 	total       int64
+	// atCap is the VM's memory cap when it had grown all the way to it
+	// (vmAtCap), 0 otherwise.
+	atCap int64
 }
 
 // tellKilled tells an agent that n of its processes were killed for memory,
@@ -929,6 +793,10 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n int64, k killC
 		why += ", which keeps the rest for AgentBox and the project chats; your machine was under its own"
 	default:
 		why = "the VM ran out of memory, with every agent's work together"
+	}
+	if k.atCap > 0 && k.nestedPath == "" && !k.own {
+		// More for every agent comes from a bigger VM.
+		why += fmt.Sprintf("; the VM is at its %s memory cap, which the user can raise with `agentbox vm resize --memory-cap` on their computer", agent.HumanBytes(k.atCap))
 	}
 	text := fmt.Sprintf("%s killed for memory: %s. "+
 		"Run fewer packages or workers at once (go test -p 2 ./..., vitest --maxWorkers=2, make -j2, one test file at a time) and try again.",

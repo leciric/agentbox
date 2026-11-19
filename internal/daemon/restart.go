@@ -404,8 +404,8 @@ func (s *Server) continueAgent(ctx context.Context, it resumeItem) bool {
 			return false
 		}
 		if s.bootWaits() {
-			// Its boot waits its turn for memory, On hold (admission.go):
-			// messages to it meanwhile don't wait behind it.
+			// Its boot waits its turn, or for the user's computer, On hold
+			// (admission.go): messages to it meanwhile don't wait behind it.
 			unlock()
 			return s.continueOnHold(ctx, a, rt)
 		}
@@ -491,8 +491,8 @@ func (s *Server) resumeChat(a state.Agent, rt state.RunningTurn) bool {
 
 // waitSettled waits until the resume begun at since has settled, for the
 // next to start: resumeSettle after it, a reading of the VM past that whose
-// memory stall is calm, with room for a machine's boot and no builds held
-// for memory, and, for up to resumeSteadyFor, its memory no longer falling.
+// memory stall is calm, and, for up to resumeSteadyFor, its memory no longer
+// falling.
 // A daemon with no pressure loop (a test's) doesn't wait.
 func (s *Server) waitSettled(ctx context.Context, since time.Time) error {
 	if s.pressureEvery <= 0 {
@@ -508,7 +508,7 @@ func (s *Server) waitSettled(ctx context.Context, since time.Time) error {
 		now := time.Now()
 		why := "a reading of the VM's memory"
 		if !at.IsZero() && (since.IsZero() || at.After(since.Add(resumeSettle))) {
-			why = s.unsettled(reading, trend, now.Sub(start) < resumeSteadyFor, now)
+			why = s.unsettled(reading, trend, now.Sub(start) < resumeSteadyFor)
 		}
 		if why == "" {
 			return nil
@@ -525,23 +525,10 @@ func (s *Server) waitSettled(ctx context.Context, since time.Time) error {
 	}
 }
 
-// unsettled is pressure.Policy.Unsettled, with admission's say on whether a
-// boot fits and builds held for memory.
-func (s *Server) unsettled(reading pressure.Sample, trend pressure.Trend, steady bool, now time.Time) string {
-	if why := pressure.DefaultPolicy.Unsettled(reading, trend, steady); why != "" {
-		return why
-	}
-	if s.buildsHeld() {
-		return "builds held for memory"
-	}
-	ad := s.admit
-	ad.mu.Lock()
-	fits := ad.a.Fits(reading.Mem, now)
-	ad.mu.Unlock()
-	if !fits {
-		return "the memory to boot a machine"
-	}
-	return ""
+// unsettled is pressure.Policy.Unsettled: what the next turn a restart
+// carries on waits for, after the one before it.
+func (s *Server) unsettled(reading pressure.Sample, trend pressure.Trend, steady bool) string {
+	return pressure.DefaultPolicy.Unsettled(reading, trend, steady)
 }
 
 // notResumed forgets a turn that isn't carried on, saying why in its chat.

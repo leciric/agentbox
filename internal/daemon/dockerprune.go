@@ -27,7 +27,7 @@ func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent,
 	s.wakeIdle(a.Ref())
 	s.pruneDocker(ctx, m, a)
 	err := m.Stop(ctx, a)
-	s.dropHeavy(ctx, a.Ref())
+	s.dropHeavy(a.Ref())
 	// Stopped on purpose, whatever held it before; idle reclaim marks its
 	// own stops On hold again after this (stopFinishedIdle).
 	if err == nil && a.Hold != "" {

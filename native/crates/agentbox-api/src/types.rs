@@ -1212,6 +1212,8 @@ pub struct PressureStatus {
     pub runs: Vec<HeavyRun>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<HostLoad>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents: Option<AgentsMemory>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1252,6 +1254,18 @@ pub struct HostLoad {
     #[serde(rename = "holdBoots", skip_serializing_if = "is_empty")]
     pub hold_boots: bool,
     pub at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentsMemory {
+    pub used: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub high: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub max: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub stalled: f64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

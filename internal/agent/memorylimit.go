@@ -349,19 +349,6 @@ func freezeRun(root, instance, key string, on bool, write func(path, value strin
 	return write(path, value)
 }
 
-// ReclaimRun asks the kernel to push a paused run's memory out to swap (and
-// drop its page cache), so a paused run doesn't hold the VM's RAM. Without
-// swap only the cache goes. It is bounded (reclaimCgroup): the kernel
-// falling short isn't an error here.
-func ReclaimRun(ctx context.Context, instance, key string) error {
-	return reclaimRun(ctx, cgroupRoot, instance, key, writeReclaim)
-}
-
-func reclaimRun(ctx context.Context, root, instance, key string, write reclaimWriter) error {
-	_, _, err := reclaimCgroup(ctx, runCgroup(root, instance, key), write)
-	return err
-}
-
 // writeKernfs writes a cgroup file with plain blocking system calls. Not
 // os.WriteFile: cgroup files can be polled, so os makes them non-blocking,
 // and a memory.reclaim the kernel falls short on (EAGAIN) then waits for the
@@ -519,8 +506,10 @@ func machineFrozen(root, instance string) bool {
 	return err == nil && strings.Contains(string(b), "frozen 1")
 }
 
-// ReclaimMachine pushes a frozen machine's memory out to swap, as ReclaimRun
-// does a run's.
+// ReclaimMachine pushes a frozen machine's memory out to swap (and drops its
+// page cache), so a frozen machine doesn't hold the VM's RAM; without swap
+// only the cache goes. It is bounded (reclaimCgroup): the kernel falling
+// short isn't an error here.
 func ReclaimMachine(ctx context.Context, instance string) error {
 	_, _, err := reclaimCgroup(ctx, agentCgroup(cgroupRoot, instance), writeReclaim)
 	return err

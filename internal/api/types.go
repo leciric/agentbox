@@ -1101,9 +1101,9 @@ type Agent struct {
 	// its worktree and branch are there, and its machine is made as soon as
 	// the image is ready.
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
-	// Memory is what the daemon holds of the agent's heavy commands for
-	// memory: paused or waiting to start (package pressure). Absent when it
-	// holds nothing.
+	// Memory is what the daemon holds of the agent: its machine waiting to
+	// boot, or, with pausing whole agents on, its machine or heavy commands
+	// paused for memory. Absent when it holds nothing.
 	Memory *MemoryHold `json:"memory,omitempty"`
 	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
 	// "frozen" when what it left running is frozen and pushed out to swap,
@@ -1111,8 +1111,9 @@ type Agent struct {
 	// otherwise.
 	Reclaimed string `json:"reclaimed,omitempty"`
 	// Hold says the agent is On hold, its machine stopped or not yet booted:
-	// HoldMemory while it waits its turn for the VM's memory (Memory says
-	// its place in line and why), and boots by itself; HoldIdle after it sat
+	// HoldMemory while its boot waits its turn, a few seconds, or for the
+	// user's computer to be over its hard floor (Memory says which), and
+	// boots by itself; HoldIdle after it sat
 	// idle, until a message, opening it or its lead starts it again;
 	// HoldRestart after AgentBox stopped unexpectedly, or restarted too many
 	// times in a row while it worked, until the user resumes it
@@ -1287,27 +1288,33 @@ type CreateAgentRequest struct {
 	LeadSession string `json:"-"`
 }
 
-// MemoryHold is what the daemon holds of an agent's heavy commands (test
-// runs, builds) for memory.
+// MemoryHold is what the daemon holds of an agent: its machine's boot, in
+// turn or for the user's computer, or, with pausing whole agents on
+// (Settings.AgentFreeze), its machine or heavy commands for the VM's memory.
+// Nothing else waits or is paused for memory.
 type MemoryHold struct {
-	// Paused is how many of them are paused (frozen) while the VM's memory
-	// is under pressure, and Waiting how many wait to start until it eases.
+	// Paused is how many of its heavy commands pausing whole agents paused
+	// (frozen) while the VM's memory is under pressure. Waiting is a daemon
+	// before 19 Nov 2026's: heavy commands no longer wait.
 	Paused  int `json:"paused,omitempty"`
 	Waiting int `json:"waiting,omitempty"`
-	// Machine is what Settings.AgentFreeze holds of the agent's whole
-	// machine: "paused" (frozen for memory, it thaws by itself) or "waiting"
-	// (to start until the VM has the memory to boot it); "" for neither.
-	// Ahead is how many machines thaw or start before it.
+	// Machine is what holds the agent's whole machine: "waiting" to boot
+	// (Why "turn" or "host"; with pausing whole agents on, until the VM has
+	// the memory to boot it), or "paused" by pausing whole agents (frozen
+	// for memory, it thaws by itself); "" for neither. Ahead is, with
+	// pausing whole agents on, how many machines thaw or start before it.
 	Machine string `json:"machine,omitempty"`
 	Ahead   int    `json:"ahead,omitempty"`
 	// Since is when the oldest of them was paused or began to wait.
 	Since time.Time `json:"since"`
-	// Why is what holds them now (pressure.Reason): "stalling" (tasks stall
-	// on memory, Stalled percent of the last 10 seconds), "falling" (what is
-	// available falls Rate bytes a second toward running out), "churning"
-	// (memory pushed out to swap comes back Rate bytes a second), "low"
-	// (little available with swap full), "easing" (it eased: paused
-	// commands resume first, one at a time), or "" (their turn comes next).
+	// Why is what holds them now: for a machine waiting to boot, HoldWhyTurn
+	// or HoldWhyHost; with pausing whole agents on, a pressure.Reason:
+	// "stalling" (tasks stall on memory, Stalled percent of the last 10
+	// seconds), "falling" (what is available falls Rate bytes a second
+	// toward running out), "churning" (memory pushed out to swap comes back
+	// Rate bytes a second), "low" (little available with swap full),
+	// "easing" (it eased: paused ones resume first, one at a time), or ""
+	// (their turn comes next).
 	Why     string  `json:"why,omitempty"`
 	Stalled float64 `json:"stalled,omitempty"`
 	Rate    int64   `json:"rate,omitempty"`
@@ -1320,22 +1327,41 @@ type MemoryHold struct {
 	SwapFull bool `json:"swapFull,omitempty"`
 }
 
-// PressureStatus is the VM's memory pressure and the heavy commands the
-// daemon decides about from it: GET /v1/pressure.
+// PressureStatus is the VM's memory pressure and the heavy commands going:
+// GET /v1/pressure.
 type PressureStatus struct {
 	// Some and Full are the VM's memory PSI, avg10: the share of the last 10
 	// seconds, in percent, some task (Some) or every task (Full) stalled
 	// waiting for memory.
 	Some float64 `json:"some"`
 	Full float64 `json:"full"`
-	// Why is what holds runs back now, as in MemoryHold.Why.
+	// Why is how short the VM's memory is now, as in MemoryHold.Why, for
+	// builds to run fewer jobs; nothing waits for it. With pausing whole
+	// agents on, what the fleet holds machines back for.
 	Why string `json:"why,omitempty"`
-	// Runs are the heavy commands running, oldest first, then those
-	// waiting, in the order they start.
+	// Runs are the heavy commands going, oldest first: running, or paused
+	// by pausing whole agents.
 	Runs []HeavyRun `json:"runs"`
 	// Host is the last report of the user's computer's own load
 	// (internal/hostload), when one came within HostLoadTTL.
 	Host *HostLoad `json:"host,omitempty"`
+	// Agents is every agent's machine together under their shared limit,
+	// in AgentBox's VM; nil outside it.
+	Agents *AgentsMemory `json:"agents,omitempty"`
+}
+
+// AgentsMemory is every agent's machine together under the shared limit
+// they are placed in (agentbox.agents): what they use, the memory.high they
+// are throttled at and the memory.max past which the kernel kills in them
+// (0 for none), and the share of the last 10 seconds, in percent, some task
+// of theirs stalled on memory. The VM's cap less a small reserve, it is what
+// they may have of the VM; nothing waits for it, they slow and then are
+// killed at it.
+type AgentsMemory struct {
+	Used    int64   `json:"used"`
+	High    int64   `json:"high,omitempty"`
+	Max     int64   `json:"max,omitempty"`
+	Stalled float64 `json:"stalled,omitempty"`
 }
 
 // HostLoadTTL is how long the daemon goes by a HostLoad: a front end reports
@@ -1344,9 +1370,9 @@ type PressureStatus struct {
 const HostLoadTTL = 15 * time.Second
 
 // HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
-// end reads it, PUT /v1/host/load. While Busy, heavy commands wait to start
-// and paused ones stay paused (Why "host"), so the user's own programs come
-// first.
+// end reads it, PUT /v1/host/load. While Busy, builds and tests run fewer
+// jobs at once, so the user's own programs come first; nothing waits for
+// it.
 type HostLoad struct {
 	OS string `json:"os"` // "linux", "darwin" or "windows"
 	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
@@ -1370,14 +1396,15 @@ type HostLoad struct {
 	// back to the host: set by front ends that don't size the VM's memory
 	// themselves (Lima, WSL), while the host is short of memory.
 	Reclaim bool `json:"reclaim,omitempty"`
-	// VMCeiling is the most the VM may grow to now, which the daemon counts
-	// boots and builds against rather than the cap: what it holds of the
+	// VMCeiling is the most the VM may grow to now, which the agents'
+	// shared limit follows rather than the cap: what it holds of the
 	// host's memory and what the host has available beyond its reserve, no
 	// more than the cap. 0 when the front end doesn't size the VM itself.
 	VMCeiling int64 `json:"vmCeiling,omitempty"`
-	// HoldBoots says the host has fallen short of memory within the last
-	// couple of minutes: no agent's machine boots until it clears, the VM
-	// giving back meanwhile (Cloud Hypervisor's supervisor).
+	// HoldBoots says the host is below its hard floor now (the larger of
+	// 2 GiB and 6% of its memory, Cloud Hypervisor's supervisor): no agent's
+	// machine boots until it is over it again, the supervisor stopping
+	// agents meanwhile.
 	HoldBoots bool      `json:"holdBoots,omitempty"`
 	At        time.Time `json:"at"`
 }
@@ -3182,13 +3209,14 @@ const (
 )
 
 // Why machines waiting to boot wait (MemoryHold.Why, with Machine
-// "waiting" and pausing whole agents off): the VM hasn't the memory for
-// another boot, agents' builds wait or are paused for it, which come first,
-// or the user's computer, outside the VM, is busy (HostLoad.Busy).
+// "waiting" and pausing whole agents off): another machine boots just
+// before it, a few seconds (pressure.DefaultBootStep), or the user's
+// computer, outside the VM, is below its hard floor (HostLoad.HoldBoots).
+// Never for the VM's memory: a daemon before 19 Nov 2026 also said
+// "memory" and "builds".
 const (
-	HoldWhyMemory = "memory"
-	HoldWhyBuilds = "builds"
-	HoldWhyHost   = "host"
+	HoldWhyTurn = "turn"
+	HoldWhyHost = "host"
 )
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
@@ -3197,29 +3225,27 @@ const (
 	ReclaimedStopped = "stopped"
 )
 
-// HeavyRequest asks, from inside an agent, to start a heavy command (a test
-// run, a build): at once while the VM's memory is calm, else once it eases,
-// in the order asked (package pressure). Asking again with the same key
-// renews a started one, or keeps a waiting one's place.
+// HeavyRequest says, from inside an agent, that a heavy command (a test
+// run, a build) starts: it does at once, whatever the VM's memory. Asking
+// again with the same key renews it.
 type HeavyRequest struct {
 	Key string `json:"key"`
-	// Command is what it runs, for saying what waits or was paused.
+	// Command is what it runs, for saying what was paused.
 	Command string `json:"command,omitempty"`
 	// TTLSeconds is how long a command not in a cgroup of its own (one that
 	// didn't join its run, HeavyJoin) counts as running without being asked
 	// for again or ended: 15 minutes when 0.
 	TTLSeconds int `json:"ttlSeconds,omitempty"`
-	// WaitSeconds is how long to wait to start, at most 600; 0 waits that
-	// long.
+	// WaitSeconds is how long a daemon before 19 Nov 2026 waited to start
+	// it; nothing waits now.
 	WaitSeconds int `json:"waitSeconds,omitempty"`
 }
 
-// HeavyStart is the answer to a HeavyRequest.
+// HeavyStart is the answer to a HeavyRequest: Started, always, from a
+// daemon since 19 Nov 2026. Why was an earlier daemon's reason it waited.
 type HeavyStart struct {
-	Started bool `json:"started"`
-	// Why is why it hasn't, a clause like "the VM's memory is under
-	// pressure (some 34%) and 2 commands are ahead of it".
-	Why string `json:"why,omitempty"`
+	Started bool   `json:"started"`
+	Why     string `json:"why,omitempty"`
 }
 
 // TestPolicy is what the in-agent API says about the agent's test runs

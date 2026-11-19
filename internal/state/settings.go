@@ -232,9 +232,8 @@ const (
 	SettingAgentGPU = "agent_gpu"
 	// SettingAgentFreeze says whether memory pressure freezes whole agents'
 	// machines, newest first, and new machines start on the VM's real free
-	// memory (pressure.Fleet), rather than only heavy commands being held
-	// (pressure.Governor). Experimental: off until somebody turns it on
-	// (Flag).
+	// memory (pressure.Fleet), rather than nothing waiting or being paused
+	// for memory. Experimental: off until somebody turns it on (Flag).
 	SettingAgentFreeze = "agent_freeze"
 	// SettingAgentFreezeFrozen is the agents the fleet froze, a JSON list of
 	// refs, so a daemon that restarts thaws them.

@@ -131,18 +131,20 @@ Agents share the VM's memory, and every agent starts at once. Each agent's machi
 the VM's memory cap (Settings → Storage and machine → **Memory for one agent**, 10% to 90%): a
 process that outgrows that is stopped at once inside that machine, and its agent is told what was
 stopped and to run fewer test workers at once, while the daemon, Incus and the other agents keep
-the rest. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ
-scheduler, and each agent's machine gets a quarter of their weight, so a build writing as fast as it
-can doesn't keep Incus from answering. When memory
-runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
-they asked), and if pressure stays high the newest one already running is paused, its memory moved
-to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
-of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
-always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
-**Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
-themselves; any other command can join in as `agentbox heavy -- <command>`. Tests and builds that
-start while memory is short also run half as many parallel jobs (Go, make, cargo, vitest, turbo,
-nx, pnpm workspaces), back to the usual count two minutes after it eases.
+the rest. All the agents together may use the VM's memory up to its cap less 3 GiB, which stays for
+AgentBox, Incus and the project chats; past that they slow down, and 2 GiB short of the cap a
+process of theirs is stopped the same way. Nothing waits for memory: an agent's machine starts when
+you ask (a few seconds after the one before it, when several start at once), and its tests and
+builds start at once and are never paused. The one exception is your computer itself: while it is
+nearly out of memory (under 2 GiB free, or 6% of its memory when that's more), no agent's machine
+starts and AgentBox stops agents to give memory back, and they start again as soon as it is over
+that. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ scheduler, and each agent's
+machine gets a quarter of their weight, so a build writing as fast as it can doesn't keep Incus from
+answering. The VM gets compressed swap in memory (zram, a quarter of its cap) as AgentBox starts,
+used before any swapfile from `agentbox vm swap on`. Tests and builds that start while memory is
+short run half as many parallel jobs (Go, make, cargo, vitest, turbo, nx, pnpm workspaces), back to
+the usual count two minutes after it eases; any other command can join in as `agentbox heavy --
+<command>`. To give every agent more, raise the VM's cap (`agentbox vm resize --memory-cap`).
 
 An agent that's only editing code holds little: its browser closes after five minutes unused (no
 browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,

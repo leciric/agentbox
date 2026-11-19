@@ -660,6 +660,7 @@ export interface PressureStatus {
   why?: string;
   runs: HeavyRun[];
   host?: HostLoad;
+  agents?: AgentsMemory;
 }
 
 export interface HeavyRun {
@@ -686,6 +687,13 @@ export interface HostLoad {
   vmCeiling?: number;
   holdBoots?: boolean;
   at: string;
+}
+
+export interface AgentsMemory {
+  used: number;
+  high?: number;
+  max?: number;
+  stalled?: number;
 }
 
 export interface Job {
