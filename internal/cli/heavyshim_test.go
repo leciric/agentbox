@@ -85,46 +85,32 @@ func TestHeavyShimRunsALightCommandAsItIs(t *testing.T) {
 	}
 }
 
-// A heavy command runs once it may, in its run (AGENTBOX_HEAVY, so the
-// shims under it don't ask again), with the worker counts set, and halved
-// when it had to wait.
+// A heavy command runs at once, in its run (AGENTBOX_HEAVY, so the shims
+// under it don't ask again), with the worker counts set: halved while
+// memory is short.
 func TestHeavyCommandRunsWithWorkerCounts(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "env")
 	was := workersFor
-	var waitedSeen []bool
-	workersFor = func(env []string, waited bool) []string {
-		waitedSeen = append(waitedSeen, waited)
-		return agent.WorkerEnv(env, 8, 0, waited)
-	}
 	defer func() { workersFor = was }()
 	for _, tc := range []struct {
-		wait  int
+		short bool
 		jobs  string
-		waits bool
-	}{{0, "-p=8", false}, {2, "-p=4", true}} {
-		f := &fakeHeavy{}
-		var c heavyClient = f
-		if tc.wait > 0 {
-			c = &waitThenStart{fakeHeavy: f, after: tc.wait}
-		} else {
-			f.start = true
-		}
+	}{{false, "-p=8"}, {true, "-p=4"}} {
+		workersFor = func(env []string) []string { return agent.WorkerEnv(env, 8, 0, tc.short) }
+		f := &fakeHeavy{start: true}
 		run := heavyCommandRun{path: "/bin/sh", argv: []string{"sh", "-c", `echo "$AGENTBOX_HEAVY $GOFLAGS" > ` + out}, command: "go test ./x"}
 		var stderr bytes.Buffer
-		if code, err := runHeavyCommand(context.Background(), c, run, &stderr); code != 0 || err != nil {
+		if code, err := runHeavyCommand(context.Background(), f, run, &stderr); code != 0 || err != nil {
 			t.Fatalf("exit %d, %v", code, err)
 		}
 		b, _ := os.ReadFile(out)
 		fields := strings.Fields(string(b))
 		if len(fields) != 2 || !strings.HasPrefix(fields[0], "heavy-") || fields[1] != tc.jobs {
-			t.Errorf("waited %d: the command saw %q, want its key and %s", tc.wait, b, tc.jobs)
+			t.Errorf("short %v: the command saw %q, want its key and %s", tc.short, b, tc.jobs)
 		}
-		if len(f.ended) != 1 {
-			t.Errorf("ended %v", f.ended)
+		if len(f.asked) != 1 || len(f.ended) != 1 {
+			t.Errorf("asked %v, ended %v", f.asked, f.ended)
 		}
-	}
-	if len(waitedSeen) != 2 || waitedSeen[0] || !waitedSeen[1] {
-		t.Errorf("waited = %v", waitedSeen)
 	}
 }
 

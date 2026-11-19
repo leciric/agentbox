@@ -188,15 +188,20 @@ func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
 		want string
 	}{
 		{&api.MemoryHold{Machine: "paused", Ahead: 1}, "paused, waiting for memory, 2nd in line"},
-		{&api.MemoryHold{Machine: "waiting"}, "waiting for memory to boot, 1st in line"},
-		{&api.MemoryHold{Machine: "waiting", Ahead: 10}, "waiting for memory to boot, 11th in line"},
+		// Pausing whole agents on: it still boots only into memory there is.
+		{&api.MemoryHold{Machine: "waiting", Ahead: 10, Why: "low"}, "waiting for memory to boot, 11th in line"},
 		{&api.MemoryHold{Paused: 1}, "1 test/build command paused for memory"},
-		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyHost}, "waiting to boot until the user's computer is less busy, 1st in line"},
-		{&api.MemoryHold{Waiting: 2, Why: "host"}, "2 test/build commands waiting until the user's computer is less busy"},
+		// Off, as it is by default: its turn, or the user's computer.
+		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyTurn}, "booting in turn, a few seconds after the machine before it"},
+		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyHost}, "waiting to boot until the user's computer, nearly out of memory, has more to spare"},
 	} {
 		if got := memoryHeld(c.h); !strings.HasPrefix(got, c.want) {
 			t.Errorf("memoryHeld(%+v) = %q, want %q", *c.h, got, c.want)
 		}
+	}
+	// Commands no longer wait: a daemon before 19 Nov 2026 saying so is nothing.
+	if got := memoryHeld(&api.MemoryHold{Waiting: 2, Why: "host"}); got != "" {
+		t.Errorf("waiting commands: %q", got)
 	}
 	if got := ordinal(23); got != "23rd" {
 		t.Errorf("ordinal(23) = %q", got)

@@ -89,11 +89,11 @@ export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'ou
   return undefined;
 }
 
-// memoryHold is what the VM's memory pressure, or the user's computer being
-// busy, is doing to a running agent's heavy commands, in words, with the sentences that explain it for a tooltip:
-// what it does, then what holds them now, and that swap is full when it is, as the daemon's governor judged it
-// (T.MemoryHold.why). undefined when nothing is held. Pausing wins over
-// waiting: a paused command has already started.
+// memoryHold is what holds an agent, in words, with the sentences that
+// explain it for a tooltip: its machine (machineHold), or, with pausing
+// whole agents on, its heavy commands paused for memory, what holds them now
+// and that swap is full when it is (T.MemoryHold.why). Nothing else holds
+// them: they start at once. undefined when nothing is held.
 export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: string; tip: string } | undefined {
   const held = agent.memory;
   if (held?.machine) return machineHold(agent);
@@ -104,16 +104,16 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
     if (held.swapFull) return { text: t('agent.status.memoryPausedSwapFull'), tip: `${tip('agent.status.memoryPausedTip')} ${t('agent.status.memorySwapFull')}` };
     return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
   }
-  // Held for the user's computer, not the VM's memory: say so.
-  if ((held.waiting ?? 0) > 0 && held.why === 'host') return { text: t('agent.status.hostWaiting'), tip: t('agent.status.hostWaitingTip') };
-  if ((held.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: tip('agent.status.memoryWaitingTip') };
   return undefined;
 }
 
-// machineHold is what pausing whole agents for memory (Settings →
-// Experimental) does to an agent's machine: "Paused: waiting for memory, 3rd
-// in line" while it is frozen, "Waiting for memory, 2nd in line" while it
-// waits to boot, with what holds it for a tooltip. undefined when neither.
+// machineHold is what holds an agent's machine: "On hold: starting" for the
+// few seconds its boot waits its turn, "On hold: waiting for your computer"
+// while the user's computer is below its hard floor, and, with pausing whole
+// agents for memory on (Settings → Experimental), "Paused: waiting for
+// memory, 3rd in line" while it is frozen and "On hold: waiting for memory,
+// 2nd in line" while it waits to boot, with what holds it for a tooltip.
+// Nothing else waits for memory. undefined when nothing holds it.
 export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip: string } | undefined {
   const held = agent.memory;
   if (!held?.machine) return undefined;
@@ -124,23 +124,23 @@ export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip
     return { text: t('agent.status.machinePausedSwapFull', { place }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
   }
   if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { place }), tip: tip('agent.status.machinePausedTip') };
-  // Waiting to boot: On hold, machine stopped (T.Agent.hold), until its turn;
-  // for the user's computer, when that is what holds it.
-  if (held.machine === 'waiting' && held.why === 'host') return { text: t('agent.status.onHoldHost', { place }), tip: t('agent.status.onHoldHostTip') };
+  // Waiting to boot: On hold, machine stopped (T.Agent.hold), for its turn or
+  // the user's computer; with pausing whole agents on, for memory.
+  if (held.machine === 'waiting' && held.why === 'host') return { text: t('agent.status.onHoldHost'), tip: t('agent.status.onHoldHostTip') };
+  if (held.machine === 'waiting' && held.why === 'turn') return { text: t('agent.status.onHoldBoot'), tip: t('agent.status.bootTurnTip') };
   if (held.machine === 'waiting') return { text: t('agent.status.onHoldMemory', { place }), tip: tip('agent.status.onHoldMemoryTip') };
   return undefined;
 }
 
-// onHold is an agent On hold whose place in line the daemon doesn't hold
-// now (T.Agent.hold): after sitting idle, until something touches it; after
+// onHold is an agent On hold that the daemon doesn't hold in line now
+// (T.Agent.hold): after sitting idle, until something touches it; after
 // AgentBox stopped unexpectedly, until you resume it (RestartHoldNotice); or
-// for memory, before a restarted daemon has it back in line. undefined
-// otherwise.
+// to boot, before a restarted daemon starts it again. undefined otherwise.
 export function onHold(agent: Pick<T.Agent, 'hold' | 'state' | 'memory'>): { text: string; tip: string } | undefined {
   if (!agent.hold || agent.state === 'running' || agent.state === 'paused' || agent.memory?.machine) return undefined;
   if (agent.hold === 'idle') return { text: t('agent.status.onHoldIdle'), tip: t('agent.status.onHoldIdleTip') };
   if (agent.hold === 'restart') return { text: t('agent.status.onHoldRestart'), tip: t('agent.status.onHoldRestartTip') };
-  return { text: t('agent.status.onHoldMemoryNoPlace'), tip: t('agent.status.onHoldMemoryTip') };
+  return { text: t('agent.status.onHoldBoot'), tip: t('agent.status.onHoldBootTip') };
 }
 
 // frozenTip is why an agent is frozen, for the "Frozen" badge on its row, or
@@ -165,10 +165,6 @@ const memoryWhys: Record<string, MessageKey> = {
   churning: 'agent.status.memoryWhy.churning',
   low: 'agent.status.memoryWhy.low',
   easing: 'agent.status.memoryWhy.easing',
-  host: 'agent.status.memoryWhy.host',
-  full: 'agent.status.memoryWhy.full',
-  memory: 'agent.status.memoryWhy.bootMemory',
-  builds: 'agent.status.memoryWhy.bootBuilds',
 };
 
 // memoryWhy is what holds an agent's commands now, a sentence; '' from a

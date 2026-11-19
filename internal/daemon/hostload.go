@@ -13,10 +13,11 @@ import (
 )
 
 // The user's computer comes first: its front end reports how loaded it is
-// (internal/hostload, PUT /v1/host/load), and while it is busy the pressure
-// loop starts no heavy command and resumes no paused one (Sample.HostBusy),
-// and builds run fewer jobs (memoryjobs.go counts it as short). What runs
-// goes on: an agent may stall, the desktop doesn't. Where the front end has
+// (internal/hostload, PUT /v1/host/load), and while it is busy builds run
+// fewer jobs (Sample.HostBusy; memoryjobs.go counts it as short), and while
+// it is below its hard floor no agent's machine boots (HoldBoots,
+// admission.go). Nothing else waits for it: an agent may stall, the
+// desktop doesn't. Where the front end has
 // no memory loop of its own (Lima, WSL), a report short of memory also has
 // the daemon drop the VM's caches, at most every hostReclaimEvery, which free
 // page reporting (or WSL's autoMemoryReclaim) then gives back to the host.
@@ -48,7 +49,7 @@ func (h *hostLoad) busy(now time.Time) bool {
 }
 
 // holdBoots reports whether a fresh report says to boot no machine: the
-// host has been short of memory lately (api.HostLoad.HoldBoots).
+// host is below its hard floor (api.HostLoad.HoldBoots).
 func (h *hostLoad) holdBoots(now time.Time) bool {
 	l, ok := h.current(now)
 	return ok && l.HoldBoots
@@ -109,16 +110,16 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	h.mu.Unlock()
 	if load.Busy != was {
 		if load.Busy {
-			s.logf("host load: this computer, outside the VM, is busy (%s): heavy commands wait to start, and machines to boot", hostload.Words(load))
+			s.logf("host load: this computer, outside the VM, is busy (%s): builds and tests run fewer jobs", hostload.Words(load))
 		} else {
 			s.logf("host load: this computer is calm again")
 		}
 	}
 	if load.HoldBoots != held {
 		if load.HoldBoots {
-			s.logf("host load: this computer is short of memory (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
+			s.logf("host load: this computer is below the memory it can't go under (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
 		} else {
-			s.logf("host load: this computer has kept its memory to spare for a while: agents' machines may boot again")
+			s.logf("host load: this computer is over its hard floor again: agents' machines may boot")
 		}
 	}
 	if reclaim {

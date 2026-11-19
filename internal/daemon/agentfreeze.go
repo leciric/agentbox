@@ -140,9 +140,6 @@ func (s *Server) loadFleet(ctx context.Context) {
 	fl.on = on
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
-	s.admit.mu.Lock()
-	s.admit.a.BootCost = pressure.MedianBootCost(costs)
-	s.admit.mu.Unlock()
 	for _, ref := range left {
 		a, err := s.agentByRef(ctx, ref)
 		if err != nil || a.Instance == "" {
@@ -205,38 +202,8 @@ func (s *Server) setFleet(ctx context.Context, on bool) error {
 		fl.mu.Unlock()
 		s.saveFleetFrozen(ctx, nil)
 	}
-	if on && !was {
-		s.startAllHeavy()
-	}
 	s.refreshSoon()
 	return nil
-}
-
-// startAllHeavy starts every heavy command waiting and resumes every paused
-// one, as pausing whole agents takes over from the heavy commands' governor.
-func (s *Server) startAllHeavy() {
-	h := s.heavy
-	h.mu.Lock()
-	acts := h.g.StartAll(time.Now())
-	type resume struct {
-		instance, key string
-	}
-	var resumed []resume
-	for _, r := range acts.Start {
-		if ch := h.started[r.ID()]; ch != nil {
-			close(ch)
-			delete(h.started, r.ID())
-		}
-	}
-	for _, r := range acts.Resume {
-		resumed = append(resumed, resume{h.instance[r.ID()], r.Key})
-	}
-	h.mu.Unlock()
-	for _, r := range resumed {
-		if err := s.runCgroups.Freeze(r.instance, r.key, false); err != nil {
-			s.logf("memory pressure: resuming %s's %s: %v", r.instance, r.key, err)
-		}
-	}
 }
 
 // isChatBusy is whether a's chat runs a turn.
@@ -465,7 +432,7 @@ func (s *Server) resumeRuns(ref string, now time.Time) {
 	h.mu.Lock()
 	type resumed struct{ id, instance, key string }
 	var out []resumed
-	for _, r := range h.g.ResumeAgent(ref, now) {
+	for _, r := range h.g.ResumeAgent(ref) {
 		out = append(out, resumed{r.ID(), h.instance[r.ID()], r.Key})
 	}
 	h.mu.Unlock()
@@ -652,9 +619,6 @@ func (s *Server) measureBoot(ctx context.Context, instance string) {
 	fl.mu.Lock()
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
-	s.admit.mu.Lock()
-	s.admit.a.BootCost = pressure.MedianBootCost(costs)
-	s.admit.mu.Unlock()
 }
 
 // machineHold is what pausing whole agents holds of an agent's machine, nil

@@ -21,12 +21,6 @@ func (s *Server) mayReclaim(ctx context.Context, instance string) bool {
 	return running
 }
 
-// mayReclaimRun is mayReclaim for a paused run: its agent the daemon's and
-// ready, and the run's cgroup still holding processes.
-func (s *Server) mayReclaimRun(ctx context.Context, instance, key string) bool {
-	return s.reclaimsAgent(ctx, instance) && s.runCgroups.Populated(instance, key)
-}
-
 // reclaimsAgent reports whether instance is one of the daemon's agents,
 // ready.
 func (s *Server) reclaimsAgent(ctx context.Context, instance string) bool {
