@@ -449,7 +449,12 @@ fn fit_within(w: u32, h: u32, max: u32) -> (u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not super::*: that brings gpui's own `test` macro in over #[test].
+    use super::{bytes, fit_within, format_of, over_budget, shrink};
+    use gpui::{ImageFormat, RenderImage};
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn only_idle_pictures_go_the_oldest_first() {
