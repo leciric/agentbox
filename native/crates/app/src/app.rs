@@ -24,6 +24,7 @@ mod home_status;
 mod issues;
 mod kept;
 mod machine_setup;
+mod mem_bench;
 mod memories;
 mod merge;
 mod new_agent;
@@ -304,6 +305,7 @@ impl AppView {
             })
             .detach();
         }
+        this.start_mem_bench(window, cx);
         this
     }
 

@@ -43,6 +43,7 @@ pub struct VideoPlayer {
     /// when it ends, and is only its frame, a click on which is the card's.
     bare: bool,
     _task: Option<Task<()>>,
+    _live: crate::bench::Live,
 }
 
 impl VideoPlayer {
@@ -60,6 +61,7 @@ impl VideoPlayer {
             zoom: None,
             bare: false,
             _task: None,
+            _live: crate::bench::Live::new("video"),
         };
         this.play(cx);
         this

@@ -266,6 +266,7 @@ pub struct ChatView {
     /// scrolled into view never does.
     pub(crate) entering: std::collections::HashMap<String, std::time::Instant>,
     _subs: Vec<Subscription>,
+    _live: crate::bench::Live,
 }
 
 impl EventEmitter<ChatAction> for ChatView {}
@@ -389,6 +390,7 @@ impl ChatView {
             _tick: None,
             entering: Default::default(),
             _subs: subs,
+            _live: crate::bench::Live::new("chat"),
         };
         this.load(cx);
         this

@@ -39,6 +39,39 @@ pub fn sample(name: &'static str, d: Duration) {
     }
 }
 
+static LIVE: Mutex<Vec<(&'static str, i64)>> = Mutex::new(Vec::new());
+
+/// Live counts the views of a kind that exist, held as a field of each: the
+/// memory bench (app/mem_bench.rs) checks that moving between chats lets go
+/// of the ones left.
+pub struct Live(&'static str);
+
+impl Live {
+    pub fn new(kind: &'static str) -> Self {
+        bump(kind, 1);
+        Self(kind)
+    }
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        bump(self.0, -1);
+    }
+}
+
+fn bump(kind: &'static str, by: i64) {
+    let mut live = LIVE.lock().unwrap();
+    match live.iter_mut().find(|(k, _)| *k == kind) {
+        Some((_, n)) => *n += by,
+        None => live.push((kind, by)),
+    }
+}
+
+/// live is how many views of each kind exist now.
+pub fn live() -> Vec<(&'static str, i64)> {
+    LIVE.lock().unwrap().clone()
+}
+
 /// report prints and clears the percentiles of every sample kind.
 pub fn report() {
     if !on() {

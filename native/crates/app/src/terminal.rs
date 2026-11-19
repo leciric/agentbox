@@ -66,6 +66,7 @@ pub struct TerminalView {
     status: Option<SharedString>,
     focus: FocusHandle,
     _task: Option<Task<()>>,
+    _live: crate::bench::Live,
 }
 
 impl TerminalView {
@@ -86,6 +87,7 @@ impl TerminalView {
             status: Some(agentbox_i18n::t("device.connecting").into()),
             focus: cx.focus_handle(),
             _task: None,
+            _live: crate::bench::Live::new("terminal"),
         };
         this.connect(client, path, cx);
         this
