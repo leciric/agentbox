@@ -20,7 +20,9 @@ import (
 //     policy, sent with the account; the config.toml key it once read is gone.
 //   - Cursor: nothing either. Its SDK always asks for attribution; only the
 //     Cursor app's own settings could turn it off.
-//   - OpenCode adds none of its own.
+//   - OpenCode and Gemini CLI add none of their own. Neither does GitHub
+//     Copilot CLI in a commit it makes with git; the brief asks it not to add a
+//     co-author, and the hook below takes one out.
 //
 // And for every tool, a commit-msg hook in the agent's git (githooks/) takes
 // the AI tools' co-author trailers out of each commit as it is made. A pull
@@ -59,6 +61,17 @@ func (m *Manager) creditAITool(ctx context.Context) bool {
 	on, err := m.Store.Flag(ctx, state.SettingCreditAITool)
 	if err != nil {
 		m.logf("reading whether to credit the AI tool: %v", err)
+		return false
+	}
+	return on
+}
+
+// builtWithBadge reads whether pull requests end with the "Built with
+// AgentBox" line. An error reads as off, the default.
+func (m *Manager) builtWithBadge(ctx context.Context) bool {
+	on, err := m.Store.Flag(ctx, state.SettingBuiltWithBadge)
+	if err != nil {
+		m.logf("reading whether to add the Built with AgentBox badge: %v", err)
 		return false
 	}
 	return on

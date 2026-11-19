@@ -324,3 +324,32 @@ func Filter(cookies []Cookie, domains []string) []Cookie {
 	}
 	return out
 }
+
+// Accept validates and tidies cookies the desktop app read and decrypted on
+// the host (a Windows app-bound browser, over CDP), the same way readChromium
+// does the ones it reads itself: a default path, a lowercased domain, expired
+// and malformed ones dropped, and the whole capped at MaxBrowserCookies. It
+// never logs or returns a cookie's value in an error.
+func Accept(cookies []Cookie, now time.Time) ([]Cookie, error) {
+	var out []Cookie
+	for _, c := range cookies {
+		c.Domain = strings.ToLower(c.Domain)
+		if c.Path == "" {
+			c.Path = "/"
+		}
+		if c.Expires != 0 && c.Expires <= now.Unix() {
+			continue
+		}
+		if c.check() != nil {
+			continue
+		}
+		out = append(out, c)
+		if len(out) > MaxBrowserCookies {
+			return nil, fmt.Errorf("the browser has more than %d cookies", MaxBrowserCookies)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("the browser had no cookies that haven't expired")
+	}
+	return out, nil
+}

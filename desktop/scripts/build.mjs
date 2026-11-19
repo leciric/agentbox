@@ -2,7 +2,7 @@
 // esbuild, the renderer with Vite. Everything is bundled, so a packaged app
 // needs no node_modules. out/web is the same renderer for a browser, which
 // the hub's --web serves.
-import { copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build as esbuild } from 'esbuild';
@@ -33,28 +33,13 @@ const node = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', 
 await esbuild({ ...node, entryPoints: [join(root, 'src/main/index.ts')], outfile: join(root, 'out/main/index.cjs') });
 await esbuild({ ...node, entryPoints: [join(root, 'src/preload/index.ts')], outfile: join(root, 'out/preload/index.cjs') });
 await vite({ configFile: join(root, 'vite.config.mts'), logLevel: 'warn' });
+// The phone page's service worker (src/renderer/web/sw.ts), at the page's
+// root so its scope is the whole page, and the icons its manifest names
+// besides those in src/renderer/public: phones get them from out/renderer
+// (src/main/phoneweb.ts), a hub from out/web.
+await esbuild({ bundle: true, format: 'iife', target: 'es2022', minify: true, logLevel: 'warning', entryPoints: [join(root, 'src/renderer/web/sw.ts')], outfile: join(root, 'out/renderer/sw.js') });
+for (const icon of ['icon.svg', 'icon.png']) copyFileSync(join(root, 'build', icon), join(root, 'out/renderer', icon));
 copyRecursive(join(root, 'out/renderer'), join(root, 'out/web'));
 rmSync(join(root, 'out/web/index.html'));
 renameSync(join(root, 'out/web/web.html'), join(root, 'out/web/index.html'));
-// The web app's icon, and a manifest, so a phone can keep it on its home screen.
-for (const icon of ['icon.svg', 'icon.png']) copyFileSync(join(root, 'build', icon), join(root, 'out/web', icon));
-writeFileSync(
-  join(root, 'out/web/manifest.webmanifest'),
-  JSON.stringify(
-    {
-      name: 'AgentBox',
-      short_name: 'AgentBox',
-      start_url: './',
-      display: 'standalone',
-      background_color: '#07070b',
-      theme_color: '#07070b',
-      icons: [
-        { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' },
-        { src: 'icon.png', type: 'image/png', purpose: 'any' },
-      ],
-    },
-    null,
-    2,
-  ),
-);
 console.log('built', join(root, 'out'));

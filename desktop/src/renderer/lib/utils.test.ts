@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { bytesOf, duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
+import { bytesOf, cn, duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
 
 test('humanBytes picks the largest unit that keeps the number small', () => {
   assert.equal(humanBytes(500), '500 B');
@@ -104,10 +104,22 @@ test('githubErrorSentence explains each kind of GitHub failure', () => {
     githubErrorSentence({ ...base, account: '', kind: T.GitHubNoAccount } as T.GitHubError),
     "No GitHub account is stored, so org/repo's pull requests can't be read.",
   );
+  assert.equal(
+    githubErrorSentence({ ...base, kind: T.GitHubRateLimited, message: "GitHub's rate limit for this account: API rate limit exceeded" } as T.GitHubError),
+    "acct has used up GitHub's hourly limit, shared with its agents' own gh. AgentBox reads GitHub again once it resets; what's shown was read before.",
+  );
+  const limited = githubErrorSentence({ ...base, kind: T.GitHubRateLimited, resetAt: '2026-10-29T15:42:00Z' } as T.GitHubError);
+  assert.match(limited, /^acct has used up GitHub's hourly limit, .* again at \S.*; what's shown was read before\.$/);
+  assert.doesNotMatch(limited, /403|API rate limit/);
   assert.equal(githubErrorSentence({ ...base, kind: 'other' } as unknown as T.GitHubError), 'GitHub: boom');
 });
 
 test('githubErrorSentence leads with the login when there is one', () => {
   const err = { account: 'acct', login: 'octocat', repo: 'org/repo', message: 'boom', kind: T.GitHubNoAccess } as T.GitHubError;
   assert.equal(githubErrorSentence(err), "The account acct (octocat) can't see org/repo.");
+});
+
+test('cn keeps a size from the type scale beside a colour, and merges two sizes', () => {
+  assert.equal(cn('text-ui font-medium', 'text-title'), 'text-ui font-medium text-title');
+  assert.equal(cn('text-caption text-subtle', 'text-body'), 'text-subtle text-body');
 });

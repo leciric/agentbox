@@ -7,7 +7,7 @@ import (
 	"agentbox/internal/api"
 )
 
-// list_project_threads says which threads wait on this lead, and what a
+// message_project threads says which threads wait on this lead, and what a
 // settled one agreed.
 func TestDescribeProjectThreads(t *testing.T) {
 	if got := describeProjectThreads(nil); !strings.Contains(got, "No threads") {

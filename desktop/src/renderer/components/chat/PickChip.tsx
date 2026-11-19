@@ -34,10 +34,10 @@ function Chip({ n, label, selector, place, src, onRemove }: { n: number; label: 
       <Tip label={selector}>
         <span className="flex min-w-0 flex-col leading-tight">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="flex size-4 shrink-0 items-center justify-center rounded bg-brand-500/30 text-[10px] font-semibold tabular-nums text-brand-100">{n}</span>
-            <span className="truncate font-mono text-[12px] text-primary">{label}</span>
+            <span className="flex size-4 shrink-0 items-center justify-center rounded bg-brand-500/30 text-caption font-semibold tabular-nums text-brand-100">{n}</span>
+            <span className="truncate font-mono text-caption text-primary">{label}</span>
           </span>
-          <span className="truncate text-[11px] text-subtle">{place}</span>
+          <span className="truncate text-caption text-subtle">{place}</span>
         </span>
       </Tip>
       {onRemove && (

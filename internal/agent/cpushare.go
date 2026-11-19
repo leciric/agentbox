@@ -168,7 +168,7 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 
 // workersScript sets the worker counts of the tools that don't follow the
 // machine's share by themselves: make, which runs one job unless told, and
-// the explicit counts go, cargo and vitest (VITEST_MAX_WORKERS, the only one
+// the explicit counts go, cargo (also capped by available memory) and vitest (VITEST_MAX_WORKERS, the only one
 // vitest 4 still reads; it otherwise follows os.availableParallelism(), which
 // the cpuset caps) read, which agents' commands and projects' scripts often
 // pass on, and how many packages a monorepo's task runner runs at once (turbo,
@@ -177,14 +177,34 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 // share as agents start and stop rather than staying what they were when the
 // AI tool started. A variable set to something else, by the user or a
 // project's scripts, is left alone: only the value this script set last,
-// remembered in AGENTBOX_CPUS, is replaced.
-const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc).
+// remembered in AGENTBOX_CPUS, is replaced. While the VM's memory is short
+// (MemoryShortFile has something in it) every count is halved, as each job
+// holds memory of its own.
+const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc),
+# halved while the VM's memory is short.
 _ab_n=$(nproc 2>/dev/null)
+if [ -n "$_ab_n" ] && [ -s "${AGENTBOX_MEMORY_SHORT_FILE:-` + MemoryShortFile + `}" ]; then _ab_n=$(((_ab_n + 1) / 2)); fi
 if [ -n "$_ab_n" ]; then
-  for _ab_v in GOMAXPROCS CARGO_BUILD_JOBS VITEST_MAX_WORKERS; do
+  for _ab_v in GOMAXPROCS VITEST_MAX_WORKERS; do
     eval "_ab_c=\${$_ab_v-}"
     if [ -z "$_ab_c" ] || [ "$_ab_c" = "${AGENTBOX_CPUS-}" ]; then export "$_ab_v=$_ab_n"; fi
   done
+  # A rustc takes a gigabyte or two, so cargo's jobs are also capped by the
+  # memory available now: min(cores, max(1, MemAvailable / 1.5 GiB)). A value
+  # this script set earlier (AGENTBOX_CARGO_JOBS, or the core count older
+  # shells set) is replaced; one somebody else set stays.
+  _ab_j=$_ab_n
+  _ab_m=
+  while read -r _ab_k _ab_x _ab_y; do
+    if [ "$_ab_k" = "MemAvailable:" ]; then _ab_m=$_ab_x; break; fi
+  done < "${AGENTBOX_MEMINFO:-/proc/meminfo}" 2>/dev/null
+  case $_ab_m in ''|*[!0-9]*) ;; *)
+    _ab_m=$((_ab_m / 1572864)); [ "$_ab_m" -ge 1 ] || _ab_m=1
+    [ "$_ab_m" -ge "$_ab_j" ] || _ab_j=$_ab_m ;;
+  esac
+  if [ -z "${CARGO_BUILD_JOBS-}" ] || [ "$CARGO_BUILD_JOBS" = "${AGENTBOX_CARGO_JOBS-none}" ] || [ "$CARGO_BUILD_JOBS" = "${AGENTBOX_CPUS-none}" ]; then
+    export CARGO_BUILD_JOBS="$_ab_j" AGENTBOX_CARGO_JOBS="$_ab_j"
+  fi
   # Task runners start one package per slot, each with a worker pool of its
   # own, so they get half the share (at least one): turbo's default is 10.
   _ab_h=$((_ab_n / 2)); [ "$_ab_h" -ge 1 ] || _ab_h=1
@@ -203,8 +223,23 @@ if [ -n "$_ab_n" ]; then
   export GOFLAGS="${_ab_f# }"
   export AGENTBOX_CPUS="$_ab_n"
 fi
-unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w
+unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w _ab_j _ab_m _ab_k _ab_x _ab_y
 `
+
+// MemoryShortFile is the file in each machine the daemon writes "short" into
+// while the VM's memory is short, and empties once it isn't
+// (SetMemoryShort).
+const MemoryShortFile = "/run/agentbox/memory-short"
+
+// SetMemoryShort tells a's machine whether the VM's memory is short, which
+// the worker counts of the shells started from then on follow.
+func (m *Manager) SetMemoryShort(ctx context.Context, a state.Agent, short bool) error {
+	content := ""
+	if short {
+		content = "short\n"
+	}
+	return m.Incus.WriteFile(ctx, a.Instance, MemoryShortFile, []byte(content), 0, 0, 0o644)
+}
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
 // every Bash tool call's shell reads: the worker counts, the heavy command's

@@ -40,6 +40,11 @@ test("a Mac's VM comes first", () => {
   assert.deepEqual(setupCard({ state: 'connecting' }, { ...windowsBeforeSetup, vm, wsl: null }), { kind: 'vm', vm });
 });
 
+test("a Mac's VM being remade with krunkit is no VM to set up", () => {
+  const vm = { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: false, problem: "AgentBox's Linux VM isn't set up" };
+  assert.equal(setupCard({ state: 'disconnected', error: 'x' }, { ...windowsBeforeSetup, vm, wsl: null, remaking: true }), null);
+});
+
 const linux = { mode: 'vm' as const, kvm: true, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 };
 const linuxBeforeSetup: HostSetupStatus = {
   pkexec: '/usr/bin/pkexec',

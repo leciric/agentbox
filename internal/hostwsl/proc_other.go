@@ -26,3 +26,7 @@ func runForeground(cmd *exec.Cmd) error {
 	defer signal.Reset(os.Interrupt)
 	return cmd.Run()
 }
+
+// windowsMemory is the computer's memory; 0 off Windows, where the front end
+// runs only in tests and .wslconfig is left alone.
+func windowsMemory() int64 { return 0 }

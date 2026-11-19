@@ -37,20 +37,24 @@ import (
 // phone deletes it and ends whatever it has open, its event stream first.
 //
 // Where the port is opened depends on where the daemon runs. On a machine of
-// its own, it listens itself, on every interface. In AgentBox's VM on a Linux
-// host (hostos.Linux), the network is the host's: the VM's supervisor opens
-// the port there and passes each request on over the daemon's socket, under
+// its own, it listens itself, on every interface. In AgentBox's VM, the
+// network is the computer's the VM runs on: a process there (lan.Forward)
+// opens the port and passes each request on over the daemon's socket, under
 // /v1/lan/net/, and reports how that went (PUT /v1/lan/host). The socket is
-// already forwarded to the host, so this needs nothing new of the VM. The
-// Mac's vz VM runs under the same supervisor, which does the same there, and
-// its report wins over the daemon's own port. In Lima's VM on a Mac and in
-// Windows' nothing brings the network to the daemon yet.
+// already forwarded to that computer, so this needs nothing new of the VM.
+// That process is the VM's supervisor on a Linux host and for the Mac's vz
+// driver, `agentbox vm lan` beside Lima's VM on a Mac, and the app's relay on
+// Windows. The daemon doesn't listen itself there: Lima and WSL would bring
+// its port to the computer's, where it would take the port from the
+// forwarder.
 //
 // It is plain HTTP: the phone and the daemon share no certificate. The
 // cookie is HttpOnly and SameSite=Strict, and a phone reaches only what its
-// scopes allow (lanRouteOf), never the machine's secrets, terminals or
-// settings, so what someone on the same network could take by listening is
-// a chat, not the machine.
+// scopes allow (lanRouteOf), reads included, from a list of what the phone's
+// app uses: never the machine's secrets, terminals or worktrees, nor a
+// change to its settings, so what someone on the same network could take by
+// listening is a chat, not the machine. The page runs only its own scripts
+// (lanCSP).
 //
 // From anywhere else, a Cloudflare Tunnel brings the same page to an https
 // address on the internet (lantunnel.go). Pairing is as mandatory there, the
@@ -61,7 +65,7 @@ import (
 const pairingTTL = 10 * time.Minute
 
 // hostReportTTL is how old the supervisor's last report may be before the
-// supervisor is taken as gone: it reports every lanReportEvery.
+// supervisor is taken as gone: it reports every lan.ReportEvery.
 const hostReportTTL = 10 * time.Second
 
 // lanCookie holds a paired phone's token.
@@ -72,6 +76,11 @@ const lanCookie = "agentbox_phone"
 const lanNetPrefix = "/v1/lan/net"
 
 type lanState struct {
+	// applying serializes applyLAN: each works out the tunnel from the
+	// settings and applies it as one step, so a config read before another
+	// call's newer one (a hub's answer arriving meanwhile) can't land after
+	// it and undo it. Taken before mu, never while holding it.
+	applying  sync.Mutex
 	mu        sync.Mutex
 	srv       *http.Server // the daemon's own listener, when it has one
 	port      int          // what srv listens on
@@ -83,7 +92,7 @@ type lanState struct {
 	seen      map[string]time.Time                        // when each phone's last visit was recorded
 	api       http.Handler                                // routes(), as phones reach it
 	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
-	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
+	tunnel    *lanTunnel                                  // the tunnel, when it runs (lantunnel.go)
 
 	// The tunnel the hub makes for this machine (lantunnel.go), by hubKey:
 	// which hub and environment it was last asked of this run, and the one
@@ -95,12 +104,17 @@ type lanState struct {
 
 	// cloudflared finds cloudflared, downloading it the first time, and
 	// tunnelPort is where a named tunnel reaches the daemon (0: any free
-	// port). Fields for tests: nil is tunnel.Installer's.
+	// port). Fields for tests: nil is tunnel.Installer's. resolve looks a
+	// quick tunnel's name up (nil: its zone's nameservers).
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
+	resolve     func(ctx context.Context, host string) error
+	// tailscale finds the directory of tailscale and tailscaled, for a hub
+	// that gives out tailnet addresses; nil is tunnel.TailscaleInstaller's.
+	tailscale func(ctx context.Context, status func(string)) (string, error)
 
-	// own says the daemon opens the port itself: everywhere but in the
-	// Linux host's VM, whose supervisor opens it on the host. addresses are
+	// own says the daemon opens the port itself: everywhere but in
+	// AgentBox's VM, where the computer it runs on opens it. addresses are
 	// this machine's, for when it does. Fields for tests.
 	own       bool
 	addresses func() []string
@@ -109,7 +123,7 @@ type lanState struct {
 func newLANState() *lanState {
 	return &lanState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{}, seen: map[string]time.Time{},
-		own: hostos.OS() != hostos.Linux, addresses: lan.Addresses,
+		own: !hostos.InVM(), addresses: lan.Addresses,
 		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort, hubRetry: 30 * time.Second,
 	}
 }
@@ -134,13 +148,15 @@ func (s *Server) applyLAN(ctx context.Context) {
 		s.logf("phones: %v", err)
 		return
 	}
+	l := s.lan
+	l.applying.Lock()
 	port, _ := s.lanPort(ctx)
 	tun := s.lanTunnelConfig(ctx, on)
-	l := s.lan
 	l.mu.Lock()
 	stop := s.applyTunnelLocked(ctx, tun)
 	defer func() {
 		l.mu.Unlock()
+		l.applying.Unlock()
 		if stop != nil {
 			stop()
 		}
@@ -222,18 +238,15 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 	case l.host != nil && time.Since(l.hostAt) < hostReportTTL:
 		out.Listening = l.host.Listening && l.host.Port == port
 		out.Error = l.host.Error
+		out.Warning = l.host.Warning
 		addrs = l.host.Addresses
 	case l.own:
 		out.Listening = l.srv != nil
 		out.Error = l.listenErr
 		addrs = l.addresses()
-		if on && hostos.InVM() {
-			// Lima's VM on a Mac and WSL have no supervisor to bring the
-			// VM's port to the network of the computer it runs on.
-			out.Listening = false
-			out.Error = fmt.Sprintf("phones can't reach AgentBox's VM on %s yet: this works on Linux for now", hostos.Name())
-			addrs = nil
-		}
+	case on && hostos.OS() == hostos.Windows:
+		// The app's relay opens it, and runs while the app does.
+		out.Error = "waiting for the AgentBox app to open the port on Windows: phones reach AgentBox while the app is open"
 	case on:
 		out.Error = "waiting for AgentBox's VM to open the port on this computer"
 	}
@@ -402,7 +415,7 @@ func (s *Server) lanHostReport(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.lan.mu.Lock()
 	changed := s.lan.host == nil || time.Since(s.lan.hostAt) >= hostReportTTL || s.lan.host.Listening != req.Listening ||
-		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
+		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || s.lan.host.Warning != req.Warning || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
 	s.lan.host, s.lan.hostAt = &req, time.Now()
 	s.lan.mu.Unlock()
 	if changed {
@@ -427,10 +440,18 @@ func (s *Server) lanWebVersion() string {
 		return ""
 	}
 	v := strings.TrimSpace(string(b))
-	if !lanWebVersionRe.MatchString(v) {
+	if !lanWebVersionRe.MatchString(v) || !hasLANWebPage(filepath.Join(s.lanWebDir(), v)) {
 		return ""
 	}
 	return v
+}
+
+// hasLANWebPage says dir has a web.html with something in it. An empty one
+// came of an install cut short by the daemon restarting, and is installed
+// again by the app, which installs whatever version the daemon hasn't.
+func hasLANWebPage(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "web.html"))
+	return err == nil && st.Size() > 0
 }
 
 // maxLANWebFile bounds one file of the web app: the largest, the app's main
@@ -475,7 +496,7 @@ func (s *Server) installLANWeb(w http.ResponseWriter, r *http.Request) error {
 	}
 	dir := s.lanWebDir()
 	staging := filepath.Join(dir, ".staging-"+version)
-	if _, err := os.Stat(filepath.Join(staging, "web.html")); err != nil {
+	if !hasLANWebPage(staging) {
 		return fmt.Errorf("version %s has no web.html: put its files first", version)
 	}
 	final := filepath.Join(dir, version)
@@ -525,6 +546,13 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
+		host := r.Host
+		if fwd := r.Header.Get("X-Forwarded-Host"); viaSocket && fwd != "" {
+			host = fwd
+		}
+		// Every answer, not only the page: a picture or a file sent in a
+		// chat and opened on its own runs nothing either.
+		h.Set("Content-Security-Policy", lanCSP(host))
 		on, err := s.store.Flag(r.Context(), state.SettingLAN)
 		if err != nil || !on {
 			http.Error(w, "Chatting from a phone is off in AgentBox.", http.StatusServiceUnavailable)
@@ -539,6 +567,10 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			}
 		case via == lanViaTunnel && r.Header.Get("Cf-Connecting-IP") != "":
 			addr = r.Header.Get("Cf-Connecting-IP")
+		case via == lanViaTunnel && r.Header.Get("X-Forwarded-For") != "":
+			// tailscale serve, from a device in the tailnet.
+			parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			addr = strings.TrimSpace(parts[len(parts)-1])
 		default:
 			if host, _, err := net.SplitHostPort(addr); err == nil {
 				addr = host
@@ -568,6 +600,8 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 			s.publishLAN(r.Context())
 			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/lan/push" || r.URL.Path == "/lan/push/test":
+			s.lanPush(w, r, addr)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			s.lanAPI(w, r, addr)
 		default:
@@ -848,8 +882,39 @@ var lanNever = []struct {
 	{"job logs", regexp.MustCompile(`^\S+ /v1/jobs/[^/]+/log(/|$)`)},
 }
 
-// lanWrites are what a phone may change, and the scope each needs. Reading,
-// anything else lanNever doesn't refuse, needs "read".
+// lanChat is what a chat's routes start with: a project's (or one of its
+// sessions'), or an agent's.
+const lanChat = `/v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat`
+
+// lanReads are what a phone may read (GET or HEAD), with "read", matched
+// against the path: what the phone's web app (desktop
+// src/renderer/web/PhoneApp.tsx and what it imports) and the phone app
+// (mobile/) ask for, and the event stream. Nothing else is read from a phone:
+// a new route reaches phones only once it is listed here, and
+// TestEveryRouteIsClassifiedForPhones has every route of the API either
+// reach phones or be refused on purpose (lanRefused).
+var lanReads = []*regexp.Regexp{
+	regexp.MustCompile(`^/v1/events$`),
+	// The app's version, which a request it has no route for is checked
+	// against (lib/api.ts), and the computer's theme and language: the
+	// phone looks and reads as the app does (Settings.language).
+	regexp.MustCompile(`^/v1/(version|theme|settings)$`),
+	regexp.MustCompile(`^/v1/(projects|agents|groups|review)$`),
+	// A project: its chat's sessions, what its agents are doing, their
+	// questions and finished work, its pull requests, its pages, its skills
+	// (the composer's slash menu) and its icon.
+	regexp.MustCompile(`^/v1/projects/[^/]+/(lead|sessions|session-groups|fleet|questions|review|pulls|artifacts|skills|icon)$`),
+	regexp.MustCompile(`^/v1/projects/[^/]+/sessions/[^/]+/(lead|output)$`),
+	// A chat: its items, a search of them, the pictures and files sent in
+	// it, its background tasks' output, its cache card and its runners.
+	regexp.MustCompile(`^` + lanChat + `(/(search|cache|runners|images/[^/]+|files/[^/]+|background/[^/]+))?$`),
+	// An agent's turns (each chat turn's marker) and its media, which the
+	// card of its finished work shows.
+	regexp.MustCompile(`^/v1/agents/[^/]+/[^/]+/(checkpoints|media)$`),
+	regexp.MustCompile(`^/v1/media/[^/]+/file$`),
+}
+
+// lanWrites are what a phone may change, and the scope each needs.
 var lanWrites = []struct {
 	scope string
 	re    *regexp.Regexp
@@ -859,9 +924,12 @@ var lanWrites = []struct {
 	// the card its lead's chat shows (leadpermissions.go): what the agent
 	// asks, like a question.
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/chat/permissions/[^/]+$`), state.PhoneScopeChat},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+(/sessions/[^/]+)?/chat/cache$`), ""},
+	// Opening a session of a project's chat is chatting; renaming or deleting
+	// one is the app's.
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`), ""},
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`), ""},
 	// Marking an agent's work reviewed, or asking it for changes, is what the
@@ -869,6 +937,311 @@ var lanWrites = []struct {
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(review|request-changes)$`), ""},
 	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`), ""},
 	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`), ""},
+	// A session shown on the phone is read there, which is reading.
+	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions/[^/]+/seen$`), ""},
+}
+
+// lanRefused is what phones are refused on purpose besides lanNever, by
+// route pattern as routes() registers it (server.go), each for a reason. A
+// phone reaches nothing lanReads and lanWrites don't list anyway: this is how
+// TestEveryRouteIsClassifiedForPhones tells a route decided on from one
+// nobody thought about. A new route goes in lanReads or lanWrites, if phones
+// need it, or here.
+var lanRefused = []struct {
+	why    string
+	routes []string
+}{
+	{"Worktree files, which the phone doesn't show: the code stays on the computer", []string{
+		"GET /v1/projects/{project}/files",
+		"GET /v1/projects/{project}/sessions/{session}/files",
+		"GET /v1/projects/{project}/files/list",
+		"GET /v1/projects/{project}/sessions/{session}/files/list",
+		"GET /v1/projects/{project}/files/read",
+		"GET /v1/projects/{project}/sessions/{session}/files/read",
+		"GET /v1/projects/{project}/files/status",
+		"GET /v1/projects/{project}/sessions/{session}/files/status",
+		"GET /v1/projects/{project}/files/sqlite",
+		"GET /v1/projects/{project}/sessions/{session}/files/sqlite",
+		"GET /v1/archived-agents/{project}/{agent}/files",
+		"GET /v1/archived-agents/{project}/{agent}/files/list",
+		"GET /v1/archived-agents/{project}/{agent}/files/read",
+		"GET /v1/archived-agents/{project}/{agent}/files/status",
+		"GET /v1/archived-agents/{project}/{agent}/files/sqlite",
+		"GET /v1/agents/{project}/{agent}/files",
+		"GET /v1/agents/{project}/{agent}/files/list",
+		"GET /v1/agents/{project}/{agent}/files/read",
+		"GET /v1/agents/{project}/{agent}/files/status",
+		"GET /v1/agents/{project}/{agent}/files/sqlite",
+	}},
+	{"Diffs, and pull requests' details, labels and merging when green: the phone lists pull requests and merges one, and shows no diff", []string{
+		"POST /v1/projects/{project}/pulls/{number}/merge-when-green",
+		"DELETE /v1/projects/{project}/pulls/{number}/merge-when-green",
+		"POST /v1/projects/{project}/pulls/{number}/labels",
+		"GET /v1/projects/{project}/labels",
+		"GET /v1/projects/{project}/pulls/{number}",
+		"GET /v1/projects/{project}/pulls/{number}/diff",
+		"GET /v1/projects/{project}/pulls/image",
+		"GET /v1/archived-agents/{project}/{agent}/diff",
+		"GET /v1/agents/{project}/{agent}/diff",
+		"GET /v1/projects/{project}/pulls/{number}/files",
+	}},
+	{"Changing the app's settings, theme, sidebar and sections, and what only the app on the computer reads: its notifications and who is looking", []string{
+		"PATCH /v1/theme",
+		"PATCH /v1/settings",
+		"GET /v1/sections",
+		"POST /v1/sections",
+		"PATCH /v1/sections/{id}",
+		"DELETE /v1/sections/{id}",
+		"PUT /v1/projects/layout",
+		"GET /v1/sidebar",
+		"PUT /v1/sidebar",
+		"GET /v1/presence",
+		"PUT /v1/presence",
+		"DELETE /v1/presence/{client}",
+		"GET /v1/notifications",
+		"POST /v1/notifications/seen",
+	}},
+	{"Tokens, usage, limits and the machine's load", []string{
+		"GET /v1/tokens",
+		"GET /v1/tokens/turns",
+		"GET /v1/recap",
+		"GET /v1/limits",
+		"GET /v1/pressure",
+		"GET /v1/agents/{project}/{agent}/disk",
+		"GET /v1/agents/{project}/{agent}/resources",
+		"GET /v1/usage",
+		"GET /v1/usage/disk",
+		"POST /v1/usage/disk/trim",
+		"GET /v1/disk",
+		"GET /v1/usage/memory",
+		"GET /v1/usage/cpu",
+		"GET /v1/usage/host",
+		"GET /v1/usage-stats/pending",
+		"POST /v1/usage-events/setup",
+	}},
+	{"What AgentBox held for you after it stopped unexpectedly, and Resume all (restart.go): the phone's app doesn't show it, and resuming every agent is for the computer the VM runs on, where its memory is", []string{
+		"GET /v1/restart-hold",
+		"POST /v1/restart-hold/resume",
+	}},
+	{"Diagnostics, setup, updates, reports, jobs and what the computer and its VM report to the daemon", []string{
+		"GET /v1/home-host",
+		"GET /v1/home-host/mcp",
+		"POST /v1/shutdown",
+		"GET /v1/update",
+		"GET /v1/update/release",
+		"PUT /v1/host/load",
+		"GET /v1/diagnostics/spans",
+		"GET /v1/diagnostics/stalls",
+		"GET /v1/diagnostics/resources",
+		"GET /v1/diagnostics/package-cache",
+		"POST /v1/diagnostics/client-spans",
+		"GET /v1/stopped-machines",
+		"POST /v1/stopped-machines/remove",
+		"POST /v1/migration/check",
+		"GET /v1/preview",
+		"POST /v1/reports/draft",
+		"POST /v1/reports",
+		"GET /v1/image",
+		"POST /v1/image/build",
+		"GET /v1/setup",
+		"GET /v1/doctor",
+		"POST /v1/doctor/fix",
+		"POST /v1/doctor/home",
+		"PUT /v1/vm/share",
+		"GET /v1/jobs",
+		"GET /v1/jobs/{id}",
+		"POST /v1/jobs/{id}/cancel",
+		"GET /v1/diagnostics/files",
+	}},
+	{"Moving AgentBox to another computer", []string{
+		"GET /v1/transfer/export",
+		"POST /v1/transfer/export",
+		"POST /v1/transfer/import/inspect",
+		"POST /v1/transfer/import",
+	}},
+	{"GitHub's repositories and usage", []string{
+		"GET /v1/github/usage",
+		"GET /v1/github/repos",
+	}},
+	{"The projects' memory and the global one", []string{
+		"GET /v1/projects/{project}/memory/events",
+		"POST /v1/projects/{project}/memory/events",
+		"GET /v1/projects/{project}/memory/memories",
+		"POST /v1/projects/{project}/memory/memories",
+		"POST /v1/projects/{project}/memory/search",
+		"GET /v1/projects/{project}/memory/working",
+		"PATCH /v1/projects/{project}/memory/working",
+		"GET /v1/projects/{project}/memory/artifacts",
+		"POST /v1/projects/{project}/memory/artifacts",
+		"GET /v1/projects/{project}/memory/reports",
+		"POST /v1/projects/{project}/memory/reports",
+		"POST /v1/projects/{project}/memory/context",
+		"GET /v1/projects/{project}/memory/context/stats",
+		"GET /v1/projects/{project}/memory/consolidation",
+		"GET /v1/projects/{project}/memory/duplicates",
+		"POST /v1/projects/{project}/memory/resolve",
+		"POST /v1/projects/{project}/memory/feedback",
+		"POST /v1/projects/{project}/memory/consolidate",
+		"GET /v1/projects/{project}/memory/suggestions",
+		"POST /v1/projects/{project}/memory/promote",
+		"POST /v1/projects/{project}/memory/dismiss-promotion",
+		"POST /v1/projects/{project}/memory/tidy",
+		"POST /v1/projects/{project}/memory/share",
+		"GET /v1/global/memory/memories",
+		"POST /v1/global/memory/memories",
+		"POST /v1/global/memory/search",
+		"POST /v1/global/memory/resolve",
+		"DELETE /v1/global/memory/memories/{id}",
+	}},
+	{"Managing agents: stopping, pausing and merging them, their sessions, goals, snapshots and rollbacks, review notes and details", []string{
+		"GET /v1/agents/{project}/{agent}/review-notes",
+		"POST /v1/agents/{project}/{agent}/review-notes",
+		"PATCH /v1/agents/{project}/{agent}/review-notes/{id}",
+		"DELETE /v1/agents/{project}/{agent}/review-notes/{id}",
+		"POST /v1/agents/stop",
+		"GET /v1/agents/{project}/{agent}",
+		"PATCH /v1/agents/{project}/{agent}",
+		"PUT /v1/agents/{project}/{agent}/session",
+		"POST /v1/agents/{project}/{agent}/stop",
+		"POST /v1/agents/{project}/{agent}/pause",
+		"POST /v1/agents/{project}/{agent}/merge",
+		"POST /v1/agents/{project}/{agent}/session",
+		"POST /v1/agents/{project}/{agent}/restore",
+		"POST /v1/agents/{project}/{agent}/rollback",
+		"GET /v1/agents/{project}/{agent}/timeline",
+		"GET /v1/agents/{project}/{agent}/share",
+		"PUT /v1/agents/{project}/{agent}/viewing",
+		"PUT /v1/agents/{project}/{agent}/goal",
+		"DELETE /v1/agents/{project}/{agent}/goal",
+		"GET /v1/agents/{project}/{agent}/snapshots",
+		"POST /v1/agents/{project}/{agent}/snapshots",
+		"DELETE /v1/agents/{project}/{agent}/snapshots/{name}",
+	}},
+	{"Past agents", []string{
+		"GET /v1/archived-agents",
+		"POST /v1/archived-agents/delete",
+		"GET /v1/archived-agents/{project}/{agent}",
+		"DELETE /v1/archived-agents/{project}/{agent}",
+		"POST /v1/archived-agents/{project}/{agent}/continue",
+	}},
+	{"Managing a project chat's sessions and a chat itself: renaming, ordering, grouping, closing, clearing, publishing and its runner", []string{
+		"PATCH /v1/projects/{project}/sessions/{session}",
+		"PUT /v1/projects/{project}/sessions/order",
+		"POST /v1/projects/{project}/session-groups",
+		"PUT /v1/projects/{project}/session-groups/order",
+		"PATCH /v1/projects/{project}/session-groups/{group}",
+		"DELETE /v1/projects/{project}/session-groups/{group}",
+		"DELETE /v1/projects/{project}/sessions/{session}",
+		"POST /v1/projects/{project}/sessions/{session}/close",
+		"POST /v1/projects/{project}/sessions/{session}/reopen",
+		"POST /v1/projects/{project}/sessions/{session}/snooze",
+		"DELETE /v1/projects/{project}/chat",
+		"DELETE /v1/projects/{project}/sessions/{session}/chat",
+		"POST /v1/projects/{project}/chat/rollover",
+		"POST /v1/projects/{project}/sessions/{session}/chat/rollover",
+		"POST /v1/projects/{project}/chat/publish",
+		"POST /v1/projects/{project}/sessions/{session}/chat/publish",
+		"PUT /v1/projects/{project}/chat/runner",
+		"PUT /v1/projects/{project}/sessions/{session}/chat/runner",
+		"DELETE /v1/projects/{project}/lead",
+		"DELETE /v1/projects/{project}/sessions/{session}/lead",
+		"DELETE /v1/agents/{project}/{agent}/chat",
+		"POST /v1/agents/{project}/{agent}/chat/publish",
+		"PUT /v1/agents/{project}/{agent}/chat/runner",
+	}},
+	{"Managing projects: their settings, base, notes, schedules, to-dos, issues, pages, terminals and desktops, and groups of agents", []string{
+		"POST /v1/projects/clone",
+		"GET /v1/projects/{project}",
+		"PATCH /v1/projects/{project}",
+		"GET /v1/projects/{project}/icon/candidates",
+		"GET /v1/projects/{project}/terminals",
+		"PUT /v1/projects/{project}/icon",
+		"DELETE /v1/projects/{project}/icon",
+		"GET /v1/projects/{project}/brief",
+		"GET /v1/projects/{project}/schedules",
+		"POST /v1/projects/{project}/schedules",
+		"GET /v1/projects/{project}/schedules/runs",
+		"PATCH /v1/projects/{project}/schedules/{id}",
+		"DELETE /v1/projects/{project}/schedules/{id}",
+		"POST /v1/projects/{project}/schedules/{id}/run",
+		"GET /v1/projects/{project}/todos",
+		"POST /v1/projects/{project}/todos",
+		"PUT /v1/projects/{project}/todos/order",
+		"PATCH /v1/projects/{project}/todos/{id}",
+		"DELETE /v1/projects/{project}/todos/{id}",
+		"POST /v1/projects/{project}/todos/{id}/start",
+		"GET /v1/todos/counts",
+		"GET /v1/projects/{project}/notes",
+		"PUT /v1/projects/{project}/notes",
+		"GET /v1/projects/{project}/artifacts/{id}",
+		"GET /v1/projects/{project}/artifacts/{id}/page",
+		"GET /v1/projects/{project}/desktops",
+		"GET /v1/projects/{project}/agent-events",
+		"GET /v1/projects/{project}/work",
+		"GET /v1/projects/{project}/issues",
+		"GET /v1/projects/{project}/base",
+		"POST /v1/projects/{project}/base",
+		"DELETE /v1/projects/{project}/base",
+		"POST /v1/projects/{project}/base/revert",
+		"POST /v1/groups",
+		"GET /v1/groups/{id}",
+		"POST /v1/groups/{id}/keep",
+		"POST /v1/groups/{id}/close",
+		"POST /v1/groups/{id}/judge",
+	}},
+	{"The media library and snaps: the phone shows only the media of an agent's finished work", []string{
+		"GET /v1/projects/{project}/media",
+		"GET /v1/projects/{project}/media/counts",
+		"POST /v1/projects/{project}/media/delete",
+		"GET /v1/agents/{project}/{agent}/media/counts",
+		"POST /v1/agents/{project}/{agent}/media/screenshot",
+		"GET /v1/agents/{project}/{agent}/media/record",
+		"POST /v1/agents/{project}/{agent}/media/record/start",
+		"POST /v1/agents/{project}/{agent}/media/record/stop",
+		"POST /v1/agents/{project}/{agent}/media/add",
+		"POST /v1/agents/{project}/{agent}/media/note",
+		"POST /v1/agents/{project}/{agent}/media/logs",
+		"POST /v1/agents/{project}/{agent}/media/export",
+		"POST /v1/agents/{project}/{agent}/media/delete",
+		"GET /v1/media/{id}",
+		"DELETE /v1/media/{id}",
+		"PATCH /v1/media/{id}",
+		"GET /v1/media",
+		"GET /v1/media/counts",
+		"POST /v1/snaps",
+		"GET /v1/snaps",
+		"GET /v1/snaps/{id}/image",
+		"POST /v1/snaps/{id}/send",
+		"DELETE /v1/snaps/{id}",
+	}},
+	{"The iOS simulator's view, as the browser and Android views (lanNever)", []string{
+		"GET /v1/agents/{project}/{agent}/ios",
+		"POST /v1/agents/{project}/{agent}/ios/open",
+		"POST /v1/agents/{project}/{agent}/ios/close",
+		"POST /v1/agents/{project}/{agent}/ios/input",
+		"POST /v1/agents/{project}/{agent}/ios/install",
+		"POST /v1/agents/{project}/{agent}/ios/launch",
+		"POST /v1/agents/{project}/{agent}/ios/openurl",
+		"POST /v1/agents/{project}/{agent}/ios/forward",
+		"POST /v1/agents/{project}/{agent}/ios/ui",
+		"POST /v1/agents/{project}/{agent}/ios/apps",
+		"GET /v1/agents/{project}/{agent}/ios/view",
+	}},
+	{"Skills, besides the list a project's composer offers", []string{
+		"GET /v1/skills",
+		"POST /v1/skills/scan",
+		"POST /v1/skills/import",
+		"GET /v1/skills/{name}",
+		"PUT /v1/skills/{name}",
+		"PATCH /v1/skills/{name}",
+		"DELETE /v1/skills/{name}",
+		"PUT /v1/projects/{project}/skills/{name}",
+	}},
+	{"Search, the work list and the projects' activity", []string{
+		"GET /v1/search",
+		"GET /v1/project-activity",
+		"GET /v1/work",
+	}},
 }
 
 // lanScopeVerb is what each scope lets a phone do, for saying it may not.
@@ -890,7 +1263,12 @@ func lanRouteOf(method, path string) lanRoute {
 		}
 	}
 	if method == http.MethodGet || method == http.MethodHead {
-		return lanRoute{scope: state.PhoneScopeRead}
+		for _, re := range lanReads {
+			if re.MatchString(path) {
+				return lanRoute{scope: state.PhoneScopeRead}
+			}
+		}
+		return lanRoute{}
 	}
 	for _, wr := range lanWrites {
 		if wr.re.MatchString(line) {
@@ -900,9 +1278,58 @@ func lanRouteOf(method, path string) lanRoute {
 	return lanRoute{}
 }
 
+// lanCSPHost is a host lanCSP may name: a name or an IPv4 address, and a
+// port. A policy can't name an IPv6 address; 'self' takes in its WebSockets
+// in browsers of CSP level 3.
+var lanCSPHost = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]+)?$`)
+
+// lanCSP is the web app's Content-Security-Policy, for the page as a phone
+// reaches it at host. Scripts are the app's own files: nothing inline, no
+// eval, no WebAssembly. Styles may be inline, as the chat's Markdown,
+// highlighted code and diagrams set theirs in their elements. It talks only
+// to its own origin (the event stream, and WebSockets to the same host), and
+// no other page may frame it.
+func lanCSP(host string) string {
+	connect := "'self'"
+	if lanCSPHost.MatchString(host) {
+		connect += " ws://" + host + " wss://" + host
+	}
+	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self'; " +
+		"connect-src " + connect + "; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+}
+
 // lanWebAsset is a file of the web app, served as it is: its name has its
 // content's hash in it, so it can be kept for good.
 var lanWebAsset = regexp.MustCompile(`^/assets/[A-Za-z0-9._-]+$`)
+
+// lanWebFile is a file at the web app's root, besides its page: what installs
+// it on a phone's home screen, its manifest and icons, by their types.
+var lanWebFile = regexp.MustCompile(`^/[A-Za-z0-9][A-Za-z0-9._-]*\.(webmanifest|png|svg)$`)
+
+var lanWebTypes = map[string]string{
+	"webmanifest": "application/manifest+json",
+	"png":         "image/png",
+	"svg":         "image/svg+xml",
+}
+
+// lanWorkerVersion stands for the web app's version in its service worker
+// (desktop/src/renderer/web/sw.ts), which names its cache after it.
+const lanWorkerVersion = "__AGENTBOX_LAN_WEB_VERSION__"
+
+// serveLANWorker serves the web app's service worker with the version it
+// belongs to written in: a phone that has another version's worker finds this
+// one different, installs it, and drops what the other one kept.
+func serveLANWorker(w http.ResponseWriter, root, version string) {
+	b, err := os.ReadFile(filepath.Join(root, "sw.js"))
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(bytes.ReplaceAll(b, []byte(lanWorkerVersion), []byte(version)))
+}
 
 func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -919,6 +1346,19 @@ func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	root := filepath.Join(s.lanWebDir(), version)
 	if lanWebAsset.MatchString(r.URL.Path) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(r.URL.Path)))
+		return
+	}
+	if r.URL.Path == "/sw.js" {
+		serveLANWorker(w, root, version)
+		return
+	}
+	if m := lanWebFile.FindStringSubmatch(r.URL.Path); m != nil {
+		// Not named by their content, so asked again each time; and typed
+		// here, as nosniff has the browser go by the type alone and Go's
+		// table has no .webmanifest.
+		w.Header().Set("Content-Type", lanWebTypes[m[1]])
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(r.URL.Path)))
 		return
 	}

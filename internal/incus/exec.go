@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	incusclient "github.com/lxc/incus/v7/client"
 	"github.com/lxc/incus/v7/shared/api"
 )
@@ -104,9 +105,11 @@ func (c Client) UserExec(ctx context.Context, name, user, command string, stdin 
 // does without a terminal: TERM passed on, the output copied until the command
 // has closed it. It returns the command's exit status, and an error when Incus
 // couldn't run it — with the status too, when it has one. If ctx ends first,
-// it returns ctx's error without waiting for the command, which goes on
-// running, as it did when the incus command was killed; nothing is written to
-// stdout or stderr after it returns.
+// it returns ctx's error without waiting for the command, which is sent
+// SIGKILL: left running, as it was when the incus command was killed, a
+// command given up on (a timed-out git, a check retried every pass) went on
+// holding the machine's CPU and memory, another of it stacking up with each
+// retry. Nothing is written to stdout or stderr after it returns.
 func (c Client) exec(ctx context.Context, name string, command []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	s, err := c.server(ctx)
 	if err != nil {
@@ -121,19 +124,27 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 	}
 	out := &outputs{}
 	defer out.close()
+	control := make(chan *websocket.Conn, 1)
 	args := &incusclient.InstanceExecArgs{
 		Stdin:    stdin,
 		Stdout:   out.to(stdout),
 		Stderr:   out.to(stderr),
 		DataDone: make(chan bool),
+		Control:  func(conn *websocket.Conn) { control <- conn },
 	}
 	op, err := s.ExecInstance(name, api.InstanceExecPost{Command: command, WaitForWS: true, Environment: env}, args)
-	if err != nil {
+	if err == nil {
+		err = wait(ctx, op, nil)
+	}
+	// Past ctx, what Incus's client answers names the deadline only in its
+	// text, and can come before ctx itself reports it: the error is ctx's
+	// own, so callers can tell it from a failure.
+	if err := ended(ctx); err != nil {
+		killExec(control)
 		return -1, err
 	}
-	err = wait(ctx, op, nil)
-	if ctx.Err() != nil {
-		return -1, ctx.Err()
+	if op == nil {
+		return -1, err
 	}
 	code := -1
 	if status, ok := op.Get().Metadata["return"].(float64); ok {
@@ -145,9 +156,34 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 	select {
 	case <-args.DataDone: // the output has all been copied
 	case <-ctx.Done():
+		killExec(control)
 		return -1, ctx.Err()
 	}
 	return code, nil
+}
+
+// ended is ctx's error once it is done or past its deadline, which a
+// connection's own deadline reaches a moment before ctx's timer fires.
+func ended(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// killExec sends SIGKILL to a command given up on, over its exec's control
+// socket, when Incus gave it one.
+func killExec(control <-chan *websocket.Conn) {
+	select {
+	case conn := <-control:
+		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.WriteJSON(api.InstanceExecControl{Command: "signal", Signal: 9}) // SIGKILL, in the machine
+		_ = conn.Close()
+	default:
+	}
 }
 
 // outputs guards a command's stdout and stderr: one write at a time, since
@@ -188,10 +224,8 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // the pipe belongs to host root.
 //
 // Incus occasionally fails a fresh exec with "Failed to retrieve PID of
-// executing child process" — a race in its own exec bridge, seen
-// intermittently in production, gone on the next try. WriteFile's steps are
-// idempotent, so it retries that exact error a few times with a short
-// backoff; any other error returns at once.
+// executing child process" (see RetryPIDFailure). WriteFile's steps are
+// idempotent, so it retries that.
 func (c Client) WriteFile(ctx context.Context, name, path string, content []byte, uid, gid int, mode os.FileMode) error {
 	// The parent directories this creates belong to uid:gid too, not to root
 	// (who runs this): the file's owner must be able to add to its directory.
@@ -199,33 +233,46 @@ func (c Client) WriteFile(ctx context.Context, name, path string, content []byte
 		`mkdir -p "$(dirname "$1")"; if [ -n "$top" ]; then find "$top" -type d -exec chown "$2" {} +; fi; ` +
 		`(umask 077 && cat >"$1"); chown "$2" "$1"; chmod "$3" "$1"`
 	args := []string{"sh", "-c", script, "sh", path, fmt.Sprintf("%d:%d", uid, gid), strconv.FormatUint(uint64(mode.Perm()), 8)}
+	return RetryPIDFailure(ctx, func() error {
+		_, err := c.ExecInput(ctx, bytes.NewReader(content), name, args...)
+		return err
+	})
+}
+
+// RetryPIDFailure runs start, and again after a growing pause when it fails
+// with Incus' "Failed to retrieve PID of executing child process": a race in
+// its own exec bridge, seen intermittently in production, gone on the next
+// try. It gives up after pidRetries tries in all and returns the last error;
+// any other error returns at once. start must be safe to run again: a
+// command that failed this way never ran.
+func RetryPIDFailure(ctx context.Context, start func() error) error {
 	var err error
 	for attempt := 0; attempt < pidRetries; attempt++ {
 		if attempt > 0 {
 			select {
-			case <-time.After(pidRetryBackoff):
+			case <-time.After(pidRetryBackoff << (attempt - 1)):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 		}
-		_, err = c.ExecInput(ctx, bytes.NewReader(content), name, args...)
-		if !isPIDRetrieveFailure(err) {
+		err = start()
+		if !IsPIDRetrieveFailure(err) {
 			return err
 		}
 	}
 	return err
 }
 
-// pidRetries is how many times WriteFile tries a write in total before
-// giving up on repeated "Failed to retrieve PID" failures.
+// pidRetries is how many times RetryPIDFailure tries in total before giving
+// up on repeated "Failed to retrieve PID" failures.
 const pidRetries = 3
 
-// pidRetryBackoff is the pause before each retry.
+// pidRetryBackoff is the pause before the first retry, doubled for each after.
 const pidRetryBackoff = 300 * time.Millisecond
 
-// isPIDRetrieveFailure reports whether err is Incus' own "Failed to retrieve
+// IsPIDRetrieveFailure reports whether err is Incus' own "Failed to retrieve
 // PID of executing child process": a transient hiccup in its exec bridge,
 // not a problem with the command or the instance.
-func isPIDRetrieveFailure(err error) bool {
+func IsPIDRetrieveFailure(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Failed to retrieve PID of executing child process")
 }

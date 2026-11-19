@@ -12,6 +12,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/daemon"
+	"agentbox/internal/hostos"
 	"agentbox/internal/inagent"
 	"agentbox/internal/incus"
 )
@@ -42,6 +43,8 @@ func newDaemonCmd(a *app) *cobra.Command {
 				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
 				TraceDir:    filepath.Dir(a.paths.StateDB()),
+				FetchImage:  hostos.InVM(),
+				CrashOutput: true,
 			})
 			if err != nil {
 				return err
@@ -172,6 +175,17 @@ func newDaemonUninstallCmd() *cobra.Command {
 // insideAgent reports whether this process runs on an agent's own machine
 // (inagent.Inside).
 func insideAgent() bool { return inagent.Inside() }
+
+// onAgentMachine is insideAgent without its hostname fallback: what a guard
+// that refuses work uses, so a host that happens to be named ab-… isn't
+// taken for an agent.
+func onAgentMachine() bool {
+	if _, err := os.Stat(inagent.Marker()); err == nil {
+		return true
+	}
+	_, err := os.Stat(inAgentSocket())
+	return err == nil
+}
 
 // inAgentSocket is api.InAgentSocket, unless AGENTBOX_IN_AGENT_SOCKET says
 // otherwise: a seam so tests can point whoami at a path they control instead

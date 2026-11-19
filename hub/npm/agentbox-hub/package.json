@@ -1,0 +1,24 @@
+{
+  "name": "agentbox-hub",
+  "version": "0.0.0",
+  "description": "The AgentBox hub: puts every machine running AgentBox in one place",
+  "license": "MIT",
+  "bin": {
+    "agentbox-hub": "bin/agentbox-hub.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@agentbox-hub/linux-x64": "0.0.0",
+    "@agentbox-hub/linux-arm64": "0.0.0",
+    "@agentbox-hub/darwin-x64": "0.0.0",
+    "@agentbox-hub/darwin-arm64": "0.0.0",
+    "@agentbox-hub/win32-x64": "0.0.0",
+    "@agentbox-hub/win32-arm64": "0.0.0"
+  }
+}

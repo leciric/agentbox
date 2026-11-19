@@ -25,6 +25,13 @@
 // or the app next starts. An agentbox.exe from before then forwards `vm power`
 // to the distro, which says {"mode":"host"}, and shows nothing.
 //
+// While the distro runs, its memory comes from the daemon in it, through the
+// relay the app already holds (GET /v1/usage/host), rather than from
+// agentbox.exe, which asks wsl.exe to run a command in the distro: under
+// heavy load that takes WSL up to 30 seconds and fails now and then, and
+// spawning two processes every poll adds to the load. A reading that fails
+// keeps the distro running with the last numbers it had.
+//
 // AGENTBOX_FAKE_VM=1 stands a made-up VM in for the real one, to see the top
 // bar's VM controls working in `npm start` before VM mode exists, and
 // AGENTBOX_FAKE_VM=wsl a WSL distro; the daemon stays up whatever the fake
@@ -32,9 +39,11 @@
 import { execFile } from 'node:child_process';
 import { ipcMain } from 'electron';
 import type { VMPower, VMPowerAction, VMPowerState } from '../preload';
-import type { VMDisk, VMHomeDisk } from '../shared/api';
+import type { HostMemory, VMDisk, VMHomeDisk } from '../shared/api';
 import { t } from '../shared/i18n/index.ts';
 import { agentboxBin } from './cli';
+import { isLocal } from './connection';
+import { request } from './daemon';
 import { linuxVM } from './vmmode';
 
 const onLinux = process.platform === 'linux';
@@ -59,6 +68,11 @@ export function wslStoppedByUser(): boolean {
   return onWindows && stoppedByUser;
 }
 
+// wslRunning is the WSL distro's last reading while it runs, undefined once
+// it doesn't: its memory and CPUs, zero when they couldn't be read, which a
+// reading that fails shows instead.
+let wslRunning: VMPower | undefined;
+
 const transition: Record<VMPowerAction, VMPowerState> = {
   start: 'starting',
   pause: 'pausing',
@@ -71,6 +85,8 @@ export async function vmPower(): Promise<VMPower | null> {
   // Setup's "Run in a VM" switches a Linux machine to VM mode while the app
   // runs: vmmode.ts learns it again after a setup run.
   if (mode === 'host' && !linuxVM()) return null;
+  const fromDaemon = await wslFromDaemon();
+  if (fromDaemon) return fromDaemon;
   let parsed: VMPower | { mode: 'host' };
   try {
     parsed = JSON.parse(await run(['vm', 'power', '--json'])) as VMPower | { mode: 'host' };
@@ -86,8 +102,32 @@ export async function vmPower(): Promise<VMPower | null> {
     return null;
   }
   mode = 'vm';
-  const power = parsed as VMPower;
+  let power = parsed as VMPower;
+  if (power.driver === 'wsl') {
+    if (power.state !== 'running') wslRunning = undefined;
+    else if (power.memoryGranted > 0 || !wslRunning) wslRunning = power;
+    else power = { ...wslRunning, error: power.error };
+  }
   return pending ? { ...power, state: transition[pending] } : power;
+}
+
+// wslFromDaemon is the running WSL distro's power as its daemon tells it, or
+// undefined when that's not to be asked or it doesn't answer: the distro
+// wasn't running at the last reading (asking would start it), an action is
+// under way, the app talks to a hub, or the daemon is older than
+// GET /v1/usage/host.
+async function wslFromDaemon(): Promise<VMPower | undefined> {
+  if (!onWindows || !wslRunning || pending || stoppedByUser || !isLocal()) return undefined;
+  try {
+    const res = await request('GET', '/v1/usage/host');
+    if (res.status !== 200) return undefined;
+    const mem = JSON.parse(res.body) as HostMemory;
+    if (!(mem.total > 0)) return undefined;
+    wslRunning = { state: 'running', memoryUsed: Math.max(mem.total - mem.available, 0), memoryGranted: mem.total, memoryCap: mem.total, cpus: mem.cpus, driver: 'wsl' };
+    return wslRunning;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function actOnVM(action: VMPowerAction): Promise<VMPower> {

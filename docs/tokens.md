@@ -79,7 +79,7 @@ if that file exists, else the first alphabetically, else none.
   (`"allowed"`, `"allowed_warning"`, `"rejected"`), an `isUsingOverage` flag, and
   `UnifiedWindows` (per-window utilization and reset time) — is stored as-is in `reading`, so
   it's read exactly as Claude Code itself reports it, not recomputed by AgentBox. `GET /v1/limits`
-  serves it back, filtered to accounts that still exist; `list_accounts` (a lead MCP tool, see
+  serves it back, filtered to accounts that still exist; `list_resources` (a lead MCP tool, see
   [The lead and its MCP tools](lead.md)) surfaces the same data.
 
 GitHub accounts are the parallel mechanism for `gh`/PR access — stored the same way

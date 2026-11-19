@@ -9,24 +9,46 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/paths"
 	"agentbox/internal/state"
 )
+
+// portsTaken is the ports freePort has handed out in this test binary.
+var portsTaken = struct {
+	sync.Mutex
+	used map[int]bool
+}{used: map[int]bool{}}
 
 // freePort is a port nothing listens on, for a server the test starts later.
 // It's below the ephemeral ranges (Linux 32768–60999, macOS 49152–65535):
 // one the kernel handed out with :0 is free again once closed, and a
 // parallel test's outgoing connection could take it before the server binds.
+//
+// No two calls return the same port: a test that has picked one hasn't bound
+// it yet, and a parallel test picking it too would find it free.
 func freePort(t *testing.T) int {
 	t.Helper()
 	for range 100 {
 		port := 20000 + rand.IntN(12000)
+		portsTaken.Lock()
+		dup := portsTaken.used[port]
+		portsTaken.used[port] = true
+		portsTaken.Unlock()
+		if dup {
+			continue
+		}
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 		if err == nil {
 			_ = ln.Close()
@@ -130,6 +152,15 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 	}
 	if code, body := phone.do("GET", "/some/where", ""); code != 200 || !strings.Contains(body, `<head><meta name="agentbox-lan" content="1">`) {
 		t.Errorf("GET a page = %d %q", code, body)
+	}
+	// The page runs only its own scripts, and talks only to its own origin.
+	resp, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != lanCSP("127.0.0.1:"+strconv.Itoa(port)) {
+		t.Errorf("the page's Content-Security-Policy = %q", csp)
 	}
 	if code, body := phone.do("GET", "/assets/web-abc.js", ""); code != 200 || body != "console.log(1)" {
 		t.Errorf("GET an asset = %d %q", code, body)
@@ -292,6 +323,36 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 
 // In the Linux host's VM the supervisor opens the port on the host, and
 // passes requests on over the daemon's socket, saying who they came from.
+// A web app whose page came out empty, as when the daemon restarted while
+// the app was installing it, isn't taken, and one already installed so
+// doesn't count: the app installs it again the next time it connects.
+func TestPhoneWebAppWithAnEmptyPage(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	app := newPhone(t, "http://agentbox", d.client.HTTPClient().Transport)
+	if code, _ := app.do(http.MethodPut, "/v1/lan/web/1.0.0/files/web.html", ""); code != http.StatusNoContent {
+		t.Fatal(code)
+	}
+	if code, body := app.do(http.MethodPost, "/v1/lan/web/1.0.0", ""); code < 400 {
+		t.Errorf("installing an empty web.html = %d %q", code, body)
+	}
+
+	dir := filepath.Join(d.srv.lanWebDir(), "1.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "web.html"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.srv.lanWebDir(), "current"), []byte("1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := d.client.LAN(ctx); err != nil || st.WebVersion != "" {
+		t.Errorf("WebVersion with an empty web.html installed = %q, %v", st.WebVersion, err)
+	}
+}
+
 func TestPhoneThroughTheVMsHost(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -338,28 +399,41 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	}
 }
 
-// The Mac's vz VM runs under the same supervisor as the Linux host's: once it
-// reports, the port it opened on the Mac is what phones reach.
-func TestPhoneThroughMacVZ(t *testing.T) {
-	t.Setenv(hostos.Env, "darwin")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	ctx := context.Background()
-	port := freePort(t)
-	on := true
-	st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
-	if err != nil || st.Listening || !strings.Contains(st.Error, "can't reach AgentBox's VM on a Mac") {
-		t.Fatalf("on with no report = %+v, %v", st, err)
-	}
-	if err := d.client.ReportLANHost(ctx, api.LANHostReport{Port: port, Listening: true, Addresses: []string{"192.168.1.5"}}); err != nil {
-		t.Fatal(err)
-	}
-	st, _ = d.client.LAN(ctx)
-	want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
-	if !st.Listening || st.Error != "" || len(st.URLs) != 1 || st.URLs[0] != want {
-		t.Fatalf("after the supervisor's report = %+v", st)
-	}
-	if _, err := d.client.PairLAN(ctx); err != nil {
-		t.Errorf("pairing after the supervisor's report: %v", err)
+// In a VM on a Mac or Windows, the daemon leaves the port to the process on
+// that computer that opens it there (lan.Forward), whose report is what
+// phones reach, firewall warning included.
+func TestPhoneInAVMOnAnotherComputer(t *testing.T) {
+	for _, c := range []struct{ os, waiting string }{
+		{"darwin", "waiting for AgentBox's VM"},
+		{"windows", "waiting for the AgentBox app to open the port on Windows"},
+	} {
+		t.Run(c.os, func(t *testing.T) {
+			t.Setenv(hostos.Env, c.os)
+			d := startTestDaemon(t, t.TempDir(), fakeIncus)
+			ctx := context.Background()
+			port := freePort(t)
+			on := true
+			st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
+			if err != nil || st.Listening || !strings.HasPrefix(st.Error, c.waiting) {
+				t.Fatalf("on with no report = %+v, %v", st, err)
+			}
+			if conn, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port)); err == nil {
+				_ = conn.Close()
+				t.Error("the daemon listens on the port itself")
+			}
+			report := api.LANHostReport{Port: port, Listening: true, Warning: "allow it", Addresses: []string{"192.168.1.5"}}
+			if err := d.client.ReportLANHost(ctx, report); err != nil {
+				t.Fatal(err)
+			}
+			st, _ = d.client.LAN(ctx)
+			want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
+			if !st.Listening || st.Error != "" || st.Warning != "allow it" || len(st.URLs) != 1 || st.URLs[0] != want {
+				t.Fatalf("after the report = %+v", st)
+			}
+			if _, err := d.client.PairLAN(ctx); err != nil {
+				t.Errorf("pairing after the report: %v", err)
+			}
+		})
 	}
 }
 
@@ -387,6 +461,25 @@ func TestLANRoute(t *testing.T) {
 		{"POST", "/v1/agents/p/a/review", "answer"},
 		{"POST", "/v1/agents/p/a/request-changes", "answer"},
 		{"POST", "/v1/projects/p/pulls/12/merge", "merge"},
+		{"GET", "/v1/settings", "read"},
+		{"GET", "/v1/projects/p/sessions/s/chat/background/t1", "read"},
+		{"GET", "/v1/agents/p/a/media", "read"},
+		{"GET", "/v1/media/m1/file", "read"},
+		{"HEAD", "/v1/projects", "read"},
+		// Reads are listed too: whatever isn't is refused.
+		{"GET", "/v1/projects/p/files/read", ""},
+		{"GET", "/v1/projects/p/sessions/s/files/list", ""},
+		{"GET", "/v1/agents/p/a/files/sqlite", ""},
+		{"GET", "/v1/agents/p/a/diff", ""},
+		{"GET", "/v1/projects/p/pulls/12/diff", ""},
+		{"GET", "/v1/tokens", ""},
+		{"GET", "/v1/tokens/turns", ""},
+		{"GET", "/v1/transfer/export", ""},
+		{"GET", "/v1/diagnostics/spans", ""},
+		{"GET", "/v1/github/repos", ""},
+		{"GET", "/v1/media", ""},
+		{"GET", "/v1/agents/p/a/ios/view", ""},
+		{"GET", "/v1/a-route-added-later", ""},
 		// Neither scoped nor never: still refused.
 		{"POST", "/v1/agents/p/a/stop", ""},
 		{"DELETE", "/v1/agents/p/a/chat", ""},
@@ -401,6 +494,98 @@ func TestLANRoute(t *testing.T) {
 			t.Errorf("lanRouteOf(%s %s) = %+v, want scope %q", c.method, c.path, got, c.scope)
 		}
 	}
+}
+
+// Every route of the API is decided on for phones: it reaches them with a
+// scope (lanReads, lanWrites), or it is refused on purpose (lanNever,
+// lanRefused). A route nobody decided on fails here.
+func TestEveryRouteIsClassifiedForPhones(t *testing.T) {
+	t.Parallel()
+	_, patterns := (&Server{}).apiRoutes()
+	if len(patterns) < 100 {
+		t.Fatalf("apiRoutes() has %d routes: is it still every route of the API?", len(patterns))
+	}
+	refused := map[string]bool{}
+	for _, g := range lanRefused {
+		for _, r := range g.routes {
+			if refused[r] {
+				t.Errorf("lanRefused lists %s twice", r)
+			}
+			refused[r] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, pattern := range patterns {
+		seen[pattern] = true
+		method, path, ok := strings.Cut(pattern, " ")
+		methods := []string{method}
+		if !ok {
+			// A pattern with no method answers every one.
+			path, methods = pattern, []string{http.MethodGet, http.MethodPost}
+		}
+		for _, m := range methods {
+			route := lanRouteOf(m, lanSamplePath(path))
+			switch {
+			case route.never != "" && refused[pattern]:
+				t.Errorf("%s is refused to every phone already (lanNever: %s): drop it from lanRefused in internal/daemon/lan.go", pattern, route.never)
+			case route.scope != "" && refused[pattern]:
+				t.Errorf("%s is in lanRefused, but phones may reach it with %q: drop it from one of them in internal/daemon/lan.go", pattern, route.scope)
+			case route.never == "" && route.scope == "" && !refused[pattern]:
+				t.Errorf("%s isn't classified for phones: in internal/daemon/lan.go, add it to lanReads or lanWrites with the scope it needs if the phone's app uses it, or to lanRefused saying why not", pattern)
+			}
+		}
+	}
+	for r := range refused {
+		if !seen[r] {
+			t.Errorf("lanRefused lists %s, which routes() (server.go) doesn't register: drop it", r)
+		}
+	}
+}
+
+func TestLANCSP(t *testing.T) {
+	t.Parallel()
+	csp := lanCSP("192.168.1.20:7780")
+	for _, want := range []string{
+		"default-src 'self'", "script-src 'self';", "img-src 'self' data: blob:;",
+		"connect-src 'self' ws://192.168.1.20:7780 wss://192.168.1.20:7780;",
+		"frame-ancestors 'none'", "object-src 'none'", "base-uri 'none'",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("lanCSP() = %q, missing %q", csp, want)
+		}
+	}
+	for _, never := range []string{"unsafe-eval", "wasm-unsafe-eval", "script-src 'self' 'unsafe-inline'", "*"} {
+		if strings.Contains(csp, never) {
+			t.Errorf("lanCSP() = %q, allows %q", csp, never)
+		}
+	}
+	for _, host := range []string{"abc.trycloudflare.com", "localhost:7780", "agentbox-vps.tail1234.ts.net"} {
+		if !strings.Contains(lanCSP(host), "wss://"+host+";") {
+			t.Errorf("lanCSP(%q) = %q, no WebSocket to it", host, lanCSP(host))
+		}
+	}
+	// A Host that would add to the policy adds nothing.
+	for _, host := range []string{"x; script-src *", "evil.com 'unsafe-inline'", "[fe80::1]:7780", ""} {
+		if got := lanCSP(host); got != strings.Replace(csp, " ws://192.168.1.20:7780 wss://192.168.1.20:7780", "", 1) {
+			t.Errorf("lanCSP(%q) = %q", host, got)
+		}
+	}
+}
+
+// lanSamplePath is a path a route's pattern matches: its wildcards filled
+// in with what the phone's routes expect of each.
+func lanSamplePath(pattern string) string {
+	return regexp.MustCompile(`\{[^}]*\}`).ReplaceAllStringFunc(pattern, func(w string) string {
+		switch {
+		case w == "{$}":
+			return ""
+		case w == "{number}":
+			return "12"
+		case strings.HasSuffix(w, "...}"):
+			return "a/b"
+		}
+		return "x"
+	})
 }
 
 // An agent's permission request, which its lead's chat shows too, is
@@ -435,7 +620,7 @@ func TestLANNever(t *testing.T) {
 		"secrets and credentials": {
 			"GET /v1/projects/p/secrets", "PUT /v1/projects/p/secrets/K", "DELETE /v1/agents/p/a/secrets/K",
 			"GET /v1/projects/p/credentials", "GET /v1/agents/p/a/credential", "POST /v1/projects/p/questions/q1/credential",
-			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "DELETE /v1/auth/cursor",
+			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "POST /v1/auth/github/login", "GET /v1/auth/github/login/j", "DELETE /v1/auth/cursor",
 			"GET /v1/projects/p/browser-cookies", "PUT /v1/projects/p/browser-cookies",
 		},
 		"connectors": {
@@ -445,7 +630,7 @@ func TestLANNever(t *testing.T) {
 		"terminals": {"GET /v1/agents/p/a/terminal"},
 		"the browser and Android views": {
 			"GET /v1/agents/p/a/browser/view", "GET /v1/agents/p/a/browser", "POST /v1/agents/p/a/browser/start",
-			"GET /v1/agents/p/a/android/view", "POST /v1/agents/p/a/android/start",
+			"GET /v1/agents/p/a/android/stream", "POST /v1/agents/p/a/android/start",
 		},
 		"pairing and the phone, remote and tunnel settings": {
 			"POST /v1/lan/pairings", "GET /v1/lan", "PATCH /v1/lan", "PATCH /v1/lan/phones/phone_1", "DELETE /v1/lan/phones/phone_1",
@@ -531,5 +716,71 @@ func TestPhoneAppWithABearerToken(t *testing.T) {
 	}
 	if code, _ := app.do("GET", "/lan/session", "", auth...); code != http.StatusUnauthorized {
 		t.Errorf("GET /lan/session after unpairing = %d", code)
+	}
+}
+
+// The files that install the web app on a phone's home screen are served as
+// what they are, and its service worker with the version it belongs to.
+func TestServeLANWebInstallFiles(t *testing.T) {
+	dir := t.TempDir()
+	s := &Server{cfg: Config{Paths: paths.Paths{Data: dir}}}
+	install := func(version string, files map[string]string) {
+		for name, body := range files {
+			path := filepath.Join(dir, "lan-web", version, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "lan-web", "current"), []byte(version+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.serveLANWeb(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+	install("1.0.0-abc", map[string]string{
+		"web.html":              "<html><head></head></html>",
+		"manifest.webmanifest":  `{"name":"AgentBox"}`,
+		"icon-192.png":          "\x89PNG",
+		"icon.svg":              "<svg/>",
+		"sw.js":                 `const v="__AGENTBOX_LAN_WEB_VERSION__";caches.open("agentbox-shell-"+"__AGENTBOX_LAN_WEB_VERSION__")`,
+		"assets/web-abc.js":     "console.log(1)",
+		"assets/web-abc.js.map": "{}",
+	})
+	for _, c := range []struct{ path, typ, body string }{
+		{"/manifest.webmanifest", "application/manifest+json", `{"name":"AgentBox"}`},
+		{"/icon-192.png", "image/png", "\x89PNG"},
+		{"/icon.svg", "image/svg+xml", "<svg/>"},
+		{"/sw.js", "text/javascript; charset=utf-8", `const v="1.0.0-abc";caches.open("agentbox-shell-"+"1.0.0-abc")`},
+	} {
+		w := get(c.path)
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != c.typ || w.Body.String() != c.body {
+			t.Errorf("GET %s = %d %q %q, want %q %q", c.path, w.Code, w.Header().Get("Content-Type"), w.Body.String(), c.typ, c.body)
+		}
+		if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Errorf("GET %s: Cache-Control %q", c.path, cc)
+		}
+	}
+	// One the version doesn't have isn't the page in its place.
+	if w := get("/icon-1024.png"); w.Code != http.StatusNotFound {
+		t.Errorf("GET a missing icon = %d %q", w.Code, w.Body.String())
+	}
+	// Everything else is still the page.
+	if w := get("/web.html.png/../x"); !strings.Contains(w.Body.String(), "<html>") {
+		t.Errorf("GET a page = %d %q", w.Code, w.Body.String())
+	}
+
+	// A new version is a new worker.
+	install("1.1.0-def", map[string]string{"web.html": "<html></html>", "sw.js": `"__AGENTBOX_LAN_WEB_VERSION__"`})
+	if w := get("/sw.js"); w.Body.String() != `"1.1.0-def"` {
+		t.Errorf("GET /sw.js after an update = %q", w.Body.String())
+	}
+	if w := get("/manifest.webmanifest"); w.Code != http.StatusNotFound {
+		t.Errorf("GET another version's manifest = %d", w.Code)
 	}
 }

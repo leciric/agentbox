@@ -25,7 +25,7 @@ func newDesktopCmd(a *app) *cobra.Command {
 		Use:   "desktop",
 		Short: "The agent's virtual desktop: mouse, keyboard and screenshots of the whole display",
 	}
-	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopRecordCmd())
+	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopGuardCmd(), newDesktopRecordCmd(), newDesktopEditCmd())
 	return cmd
 }
 
@@ -47,10 +47,36 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 				return errors.New("agentbox desktop mcp runs inside an agent, on that agent's own display; " +
 					"from here, watch an agent's display in AgentBox's Desktop tab")
 			}
-			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.Tools(cmd.Context())}
+			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.MarkingUse(desktop.Tools(cmd.Context()))}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
+}
+
+// newDesktopGuardCmd runs another MCP server, the Playwright one, with a
+// deadline on each of its tool calls (mcp.Guard): the AI tool starts it from
+// the configuration AgentBox writes into the agent.
+func newDesktopGuardCmd() *cobra.Command {
+	var timeout time.Duration
+	var name string
+	var browser bool
+	cmd := &cobra.Command{
+		Use:    "guard -- <command> [args...]",
+		Short:  "Run an MCP server with a deadline on each tool call, restarting it when one is missed",
+		Hidden: true, // started by the agent's AI tool, not by people
+		Args:   cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			g := &mcp.Guard{Command: args, Timeout: timeout, Name: name, Stderr: cmd.ErrOrStderr()}
+			if browser {
+				g.Before = func() { desktop.EnsureBrowser(cmd.Context(), g.Stderr) }
+			}
+			return g.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "how long one tool call may take")
+	cmd.Flags().StringVar(&name, "name", "MCP", "the server's name, for the message a missed deadline gets")
+	cmd.Flags().BoolVar(&browser, "browser", false, "open the machine's browser before each tool call when it has closed")
+	return cmd
 }
 
 // newDesktopRecordCmd is the recorder a recording runs in the agent: one
@@ -88,5 +114,35 @@ func newDesktopRecordCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoTrim, "no-trim", false, "keep every frame, the screen standing still included")
 	cmd.Flags().BoolVar(&opts.WholeDisplay, "whole-display", false, "film the display as it is, without making the browser fullscreen first")
 	cmd.Flags().StringVar(&opts.Cuts, "cuts", "", "a file to write the stretches cut out to, as JSON, once the recording is finished")
+	cmd.Flags().StringVar(&opts.Events, "events", "", "with --input desktop, a file to write the clicks and keys to, one JSON object a line")
+	return cmd
+}
+
+// newDesktopEditCmd edits a recording: the camera zooms in on where the input
+// is, and the notes are captions on it. StopRecording runs it in the agent,
+// on what the recorder left beside the video.
+func newDesktopEditCmd() *cobra.Command {
+	var events, cuts, notes, title, subtitle string
+	var start float64
+	cmd := &cobra.Command{
+		Use:    "edit <in> <out>",
+		Short:  "Edit a recording: zoom in on the clicks and caption the chapters",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := desktop.ReadEdit(events, cuts, notes, start)
+			if err != nil {
+				return err
+			}
+			e.Title, e.Subtitle = title, subtitle
+			return e.Render(cmd.Context(), args[0], args[1], os.Stderr)
+		},
+	}
+	cmd.Flags().StringVar(&events, "events", "", "the recorder's --events file")
+	cmd.Flags().StringVar(&cuts, "cuts", "", "the recorder's --cuts file")
+	cmd.Flags().StringVar(&notes, "notes", "", `the chapters, one {"t", "text"} a line`)
+	cmd.Flags().Float64Var(&start, "start", 0, "when the recording started, in Unix seconds, for one with no --cuts")
+	cmd.Flags().StringVar(&title, "title", "", "a title card to open on")
+	cmd.Flags().StringVar(&subtitle, "subtitle", "", "a line under the title")
 	return cmd
 }

@@ -53,6 +53,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -64,8 +65,10 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/iossim"
 	"agentbox/internal/paths"
 	"agentbox/internal/report"
+	"agentbox/internal/setupfunnel"
 )
 
 const (
@@ -292,8 +295,9 @@ func New() (*VM, error) {
 	return vm, err
 }
 
-// FindLimactl looks for Lima where Homebrew puts it, as well as on PATH: an
-// app opened from the Finder doesn't get the shell's PATH.
+// FindLimactl looks for Lima where Homebrew puts it, as well as on PATH (an
+// app opened from the Finder doesn't get the shell's PATH), and then for
+// AgentBox's own (EnsureLima).
 func FindLimactl() (string, error) {
 	if p := os.Getenv("AGENTBOX_LIMACTL"); p != "" {
 		return p, nil
@@ -306,7 +310,12 @@ func FindLimactl() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima")
+	if p, err := paths.Default(); err == nil {
+		if _, err := os.Stat(ownLimactl(p)); err == nil {
+			return ownLimactl(p), nil
+		}
+	}
+	return "", errNoLima
 }
 
 // FindLinuxBinary finds the Linux agentbox to put in the VM: next to this
@@ -376,10 +385,21 @@ type Size struct {
 	Disk   string // like 100GiB
 }
 
-// DefaultSize is half the host's cores (two to eight), 8 GiB and a 100 GiB
-// disk, which Lima allocates as it's used.
+// DefaultSize is half the host's cores (two to eight), 8 GiB, or less on a
+// Mac that would keep less than its reserve with that (chv.MaxCap), and a
+// 100 GiB disk, which Lima allocates as it's used.
 func DefaultSize() Size {
-	return Size{CPUs: defaultCPUs(numCPU()), Memory: "8GiB", Disk: "100GiB"}
+	return Size{CPUs: defaultCPUs(numCPU()), Memory: defaultMemory(hostMemory()), Disk: "100GiB"}
+}
+
+// defaultMemory is the memory a Lima VM is made with on a host of total
+// bytes, as Lima takes it: 8GiB, or the most the host's reserve leaves.
+func defaultMemory(total int64) string {
+	gib := int64(8)
+	if most := chv.MaxCap(total) / chv.GiB; most > 0 {
+		gib = min(gib, max(most, MinMemory>>30))
+	}
+	return strconv.FormatInt(gib, 10) + "GiB"
 }
 
 // defaultCPUs is what a VM is given of a host's cores: half, two to eight.
@@ -431,7 +451,32 @@ func (v *VM) Start(ctx context.Context) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
-	return v.limaLog(ctx, "start", "--tty=false", v.Name)
+	argv := belowDesktop([]string{v.Limactl, "start", "--tty=false", v.Name})
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = v.Log, v.Log
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("limactl start: %w", err)
+	}
+	return nil
+}
+
+// niceBin and limaNice are how Lima's VM is started below the desktop:
+// limactl start leaves its host agent behind, which runs krunkit or QEMU,
+// and each inherits the nice level it started with, so the VM's vCPUs get
+// the CPU after the user's own programs when both want it (as a Cloud
+// Hypervisor VM's supervisor does, chv/priority_linux.go). vz's VM runs in
+// Apple's own XPC service, which no nice reaches.
+var (
+	niceBin  = "/usr/bin/nice"
+	limaNice = "10"
+)
+
+// belowDesktop is argv run through nice, when there's one.
+func belowDesktop(argv []string) []string {
+	if _, err := os.Stat(niceBin); err != nil {
+		return argv
+	}
+	return append([]string{niceBin, "-n", limaNice}, argv...)
 }
 
 // Stop stops the VM, and with it the daemon and every agent. With agents set,
@@ -483,9 +528,10 @@ func (v *VM) up(ctx context.Context) error {
 
 // lock takes the VM's lock, shared by everything that would start the VM and
 // held alone by a resize, which stops it and has to keep it stopped until Lima
-// has changed it: the app, finding no daemon mid-resize, runs agentbox daemon
-// start, and that waits here instead of starting the VM under the resize. A
-// command that has to wait says so. unlock lets it go.
+// has changed it, and by vm init (initLima), until the VM it makes is set up:
+// the app, finding no daemon mid-resize, runs agentbox daemon start, and that
+// waits here instead of starting the VM under the resize. A command that has
+// to wait says so. unlock lets it go.
 func (v *VM) lock(ctx context.Context, exclusive bool) (unlock func(), err error) {
 	file := filepath.Join(v.Paths.Config, "vm", v.Name+".lock")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -550,7 +596,9 @@ func (v *VM) Current(ctx context.Context) (bool, error) {
 
 // Install puts the Linux binary in the VM, replacing the old one in one
 // rename: a daemon running from it keeps running the old file until it's
-// restarted (the app restarts a daemon of another version itself).
+// restarted (the app restarts a daemon of another version itself). venus/
+// goes with it (setupGPU), so the GPU driver the daemon builds is this
+// version's.
 func (v *VM) Install(ctx context.Context) error {
 	f, err := os.Open(v.Binary)
 	if err != nil {
@@ -559,8 +607,11 @@ func (v *VM) Install(ctx context.Context) error {
 	defer func() { _ = f.Close() }()
 	_, _ = fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
 	script := fmt.Sprintf(`set -e; t=%[1]s.new.$$; cat >"$t"; chmod 0755 "$t"; mv -f "$t" %[1]s`, vmBinary)
-	_, err = v.exec(ctx, f, "sudo", "sh", "-c", script)
-	return err
+	if _, err := v.exec(ctx, f, "sudo", "sh", "-c", script); err != nil {
+		return err
+	}
+	v.setupGPU(ctx)
+	return nil
 }
 
 // Ready starts the VM if it's stopped, and brings its agentbox up to date:
@@ -578,12 +629,19 @@ func (v *VM) ready(ctx context.Context) error {
 	if err := v.up(ctx); err != nil {
 		return err
 	}
+	if err := startLAN(v); err != nil {
+		_, _ = fmt.Fprintf(v.Log, "warning: phones won't reach AgentBox on this computer: %v\n", err)
+	}
 	current, err := v.Current(ctx)
 	if err != nil {
 		return err
 	}
 	if !current {
-		return v.Install(ctx)
+		if err := v.Install(ctx); err != nil {
+			return err
+		}
+		// A VM made before Setup wrote it learns why it has no GPU.
+		v.writeGPUReason(ctx)
 	}
 	return nil
 }
@@ -656,7 +714,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
-	v.setupGPU(ctx)
+	v.writeGPUReason(ctx)
 	if !daemon {
 		return nil
 	}
@@ -674,7 +732,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
-	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
+	"AGENTBOX_SOCKET": true, iossim.StateFileEnv: true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
 	vmMemoryCapEnv: true,
 }
 
@@ -700,6 +758,10 @@ func (v *VM) vmEnv() []string {
 	// The install ID is kept on the host, so a VM made again is the same install.
 	if file := v.installIDFile(); file != "" {
 		env = append(env, hostos.InstallIDFileEnv+"="+file)
+	}
+	// Where the Mac's simulator helper says how to reach it (iossim).
+	if file := v.iosStateFile(); file != "" {
+		env = append(env, iossim.StateFileEnv+"="+file)
 	}
 	if v.CHV != nil {
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
@@ -912,4 +974,21 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// noteVMReady keeps the VM's making for the setup funnel, and once it is up
+// hands the daemon in it what was kept (package setupfunnel).
+func noteVMReady(ctx context.Context, p paths.Paths, v *VM, began time.Time, err error) {
+	outcome := setupfunnel.OK
+	if err != nil {
+		outcome = setupfunnel.Failed
+	}
+	setupfunnel.Note(p, setupfunnel.VMReady, outcome, began, err)
+	if err != nil || v == nil {
+		return
+	}
+	setupfunnel.Hand(ctx, p, func(ctx context.Context, report io.Reader) error {
+		_, err := v.exec(ctx, report, vmBinary, "setup-funnel")
+		return err
+	})
 }

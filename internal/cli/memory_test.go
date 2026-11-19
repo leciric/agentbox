@@ -98,7 +98,7 @@ func TestAgentMemoryTools(t *testing.T) {
 			t.Errorf("a worker agent has no %s tool", want)
 		}
 	}
-	for _, unwanted := range []string{"remember", "update_working_memory"} {
+	for _, unwanted := range []string{"remember", "project_state"} {
 		if _, ok := byName[unwanted]; ok {
 			t.Errorf("a worker agent has %s: curating memory is the project chat's", unwanted)
 		}

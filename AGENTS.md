@@ -19,7 +19,7 @@ container of its own.
   `agentbox/<slug>` (prefix configurable, `internal/agent/branch.go`), its own network and a tmux
   terminal with its AI tool running. A project's **lead** is its chat: it runs on the host with no
   machine, directs the agents over MCP and never does the work itself.
-- **Three AI tools**: Claude Code, Codex and OpenCode, driven by the app's chat through **ACP**
+- **Six AI tools**: Claude Code, Codex, OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI, driven by the app's chat through **ACP**
   adapters (`internal/acp`, `ChatAdapters` in `internal/agent/chat.go`, D40).
 - **Project memory** (`internal/memory`, D72): events, memories, tasks, artifacts and reports in the
   same database, searched with FTS5; no model calls or embeddings in the store. Capture from the
@@ -39,7 +39,10 @@ container of its own.
 AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's front end
 (`internal/hostvm`): `agentbox vm …` manages the VM, and every other command runs inside it.
 
-- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`). Host mode (Incus on the
+- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`), booting a ready-made
+  disk with its packages installed (`vmdisk.go`, the `vmdisk-<version>` release the
+  [Published VM disk](.github/workflows/published-vm-disk.yml) workflow makes), or Debian's cloud
+  image when there's none, whose first boot installs them. Host mode (Incus on the
   machine itself) is no longer offered, but still runs for installs from earlier releases until
   `agentbox vm migrate` moves them (`MovePrompt` in `desktop/src/renderer/components/RunInVM.tsx`),
   for root, inside agents, and with `AGENTBOX_FRONT_END=host` (CI); `hostvm.Front` decides.
@@ -48,12 +51,33 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   at the same path, and worktrees go there (`AGENTBOX_WORKTREES`). Android is off.
   `AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu` tests the front end on Linux.
 
+- **Windows** (D94): `agentbox.exe` (`cmd/agentbox/main_windows.go`, `internal/hostwsl`) runs
+  everything in a WSL 2 distro of AgentBox's own, and relays the apps to its daemon over a named
+  pipe. `agentbox wsl install` installs WSL itself behind Windows' administrator prompt (exit
+  status 3: Windows has to restart), `agentbox wsl init` makes the distro; both apps' Setup run them.
+- **Installing** is one line per system, both scripts in `internal/installsh` (tested against fake
+  machines, published by `scripts/r2-publish.sh` with each stable release): `install.sh` on Linux
+  and a Mac, `install.ps1` on Windows.
+- **The native app** (`native/`, Rust and GPUI, experimental) is a second client of the socket with
+  the `agentbox` tool built in (`scripts/native-cli.sh`), packaged by `scripts/native-package.sh`:
+  nightlies for Linux, Mac and Windows, releases for Windows, whose installer is
+  `native/packaging/windows/installer.nsi` (NSIS, per user). It sets the machine up itself where
+  there is none (`native/crates/app/src/app/machine_setup.rs`).
+
 ## Conventions
 
 - **The app's text is translated** (`desktop/src/shared/i18n`): every user-visible string in the
   desktop app is a key in `en-US.ts` and `pt-BR.ts`, shown with `useT()`/`t()` from
   `renderer/lib/i18n.tsx`; `i18n.test.ts` and the typecheck fail when pt-BR lacks a key. A language
   is a catalog file plus a line in `languages.ts`. The CLI, the brief and the chats stay in English.
+- **The look is one set of tokens for both apps**:
+  [`desktop/src/shared/design-tokens.json`](desktop/src/shared/design-tokens.json) holds the colours
+  (dark and light), type scale, spacing, radii and elevation. `node desktop/scripts/tokens.mjs`
+  writes `desktop/src/renderer/tokens.css` and `native/crates/app/src/theme/tokens.rs` from it;
+  a test in each app fails when they are stale. Don't write a colour, a `text-[Npx]` or a shadow
+  recipe in a component: ask for a role (`styles.css` says what each is for). Panels are flat with
+  a hairline, regions are separated by `border-line-faint`, labels are sentence case, and only
+  menus (`shadow-pop`) and dialogs (`shadow-modal`) cast a shadow.
 - **Migrations are appended, never edited**: `migrations` in
   [`internal/state/state.go`](internal/state/state.go), tracked with `PRAGMA user_version`.
 - **Decisions and features are explained in their pull request**: context, what was decided and
@@ -66,13 +90,17 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
 ## Build and test
 
 ```bash
-go test ./...
+go test ./internal/cli ./internal/brief   # the packages you changed
 go build -o bin/agentbox ./cmd/agentbox   # "agentbox version dev"; bin/ is gitignored
 npm --prefix desktop start                # build and launch the app unpacked, in seconds
 npm --prefix desktop run dist             # installers in desktop/dist/: minutes, only when packaging changed
 ```
 
-Test the packages you changed while you work, and `go test ./...` once before you finish. The slow
+Run only the tests your change touches: `go test` on the packages you changed (and on those that use
+an exported API you changed), and for the app the test files of what you changed (`cd desktop && node
+--test src/…/x.test.ts`), plus `typecheck` and `lint`. CI runs no Go tests, so the packages you
+changed are tested only by you, before the change lands. Don't run `go test ./...` or a bare
+`npm --prefix desktop test`: on an agent's VM it takes every other agent's memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
@@ -81,17 +109,12 @@ Windows 2x), so a run runs only what its files can break. A first job checks the
 conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out, with
 [`scripts/ci-changes.sh`](scripts/ci-changes.sh), what the change touches; the other jobs skip.
 Go is anything but `desktop/`, `mobile/`, `docs/`, `promo/`, `packaging/`, `scripts/`, `.github/` and
-root prose, plus `desktop/src/shared/api.ts`, `scripts/check-coverage.sh` and
-`.github/coverage-floor.txt`: a file Go embeds or a test reads belongs under a package (or in that
+root prose, plus `desktop/src/shared/api.ts` and the native app's generated
+`types.rs`: a file Go embeds or a test reads belongs under a package (or in that
 list). The desktop app is `desktop/` and `vnc.js`; the phone app is `mobile/` and the desktop's
 `shared/api.ts` and `shared/i18n/`. A change to `ci.yml` or `ci-changes.sh` runs everything, macOS
 and Windows included. A new push cancels the run it supersedes.
 
-- **Go tests and coverage**: `scripts/check-coverage.sh`, the one `go test ./...`, with a floor in
-  [`.github/coverage-floor.txt`](.github/coverage-floor.txt), bumped as coverage rises, never
-  lowered. It includes `TestTypeScriptTypesAreUpToDate`. Packages a change doesn't reach come from
-  the test cache, coverage included: CI sets each file's mtime from its git object id, since a
-  test that opens a file is cached by that file's mtime and size.
 - **Go vet, lint, tidy**: `go mod tidy` with no diff, `go vet ./...` (and with `-tags integration`:
   Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), every package vetted for
   darwin, and builds for darwin/arm64, linux/arm64 and Windows.
@@ -102,16 +125,19 @@ and Windows included. A new push cancels the run it supersedes.
 - **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`,
   and on a PR labelled `ci:full` (adding the label runs just these two, whatever changed), when the
   change reaches what they test: `go.mod`/`go.sum`, `mise.toml`, `cmd/`, a package their tests
-  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths` and `internal/api` for
+  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths`, `internal/api` and `internal/iossim` for
   darwin; `internal/hostos` and `internal/hostwsl/...` for Windows), a file only that OS builds,
   and for macOS `scripts/mac-sign.sh` and the entitlements.
+- **The native app on Windows** (`native-windows`): a release build and the installer, installed
+  and uninstalled on the runner, on pushes to `main` and on a PR labelled `ci:full`, when the change
+  reaches `native/` or `scripts/native-(package|cli).sh`. Linux type-checks it for Windows on every
+  native change. `WINDOWS_RUN=wine scripts/native-package.sh windows …` tries the packaging on Linux.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
 
-Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
-doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
+Go caches are saved by `main`'s runs of Go vet, lint, tidy only, and restored by PRs. [Base image](.github/workflows/base-image.yml) runs on PRs that change
 `internal/image/` (its tests aside), or by hand.
 
-## Previewing the rail and the sidebar
+## Previewing the sidebar and the right-hand panel
 
 Both are narrow fixed-width columns, prone to overflow: a `<pre>`, an unbroken URL, or any flex/grid
 child without `min-w-0` widens them. `desktop/src/renderer/dev/preview.tsx` renders both against
@@ -126,9 +152,9 @@ npm --prefix desktop run preview -- --shots out --only window-         # only th
 ```
 
 `?app=project` (or `home`, `pulls`, `agent-99`, `settings`) renders the whole App, where below `lg`
-the sidebar and below `xl` the rail become drawers; a page wider than its window is reported too.
+the sidebar and below 1100px the right-hand panel become drawers; a page wider than its window is reported too.
 
-A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
+A scenario is a URL (`?app=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
 present, else `npx playwright install chromium` once.
 
@@ -139,9 +165,11 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
 are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
-`image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
-asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
-newest image release; app releases, release-please and the update check never see it), and
+`image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
+(`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
+128 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
+`scripts/github-images.sh` publishes it, and keeps only the newest image release; app releases,
+release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
 [`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 
@@ -160,6 +188,11 @@ newest image release; app releases, release-please and the update check never se
   (`image.UpdateTools`, `internal/daemon/imagetools.go`), swapping the copy in only when every tool
   checks out (`image.UseBase`); on failure the base stays and Setup offers a rebuild.
   `internal/agent/chat.go` takes the ACP adapters' versions from the same file.
+- **OpenCode 2 is the exception**: it is not in `tools.txt` nor in the image. Each agent installs its
+  npm platform package at its first OpenCode 2 start (`ensureOpenCode2InAgent`,
+  `internal/agent/toolaccounts.go`), pinned by `image.OpenCode2Version` and linked as `opencode2`
+  (needs the network then); the host's lead installs it the first time it needs it. An installation
+  chooses with `state.SettingOpenCodeVersion`; OpenCode 1 is the default.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it
@@ -185,12 +218,24 @@ there, against fakes. **Nesting** gives an agent a real Incus of its own:
 - Inside, `go test -tags integration ./internal/incus/...`, `sudo agentbox host setup` (idempotent),
   and `agentbox image build` then `agentbox create` work as on a real host.
 
-## The hub is in another repository
+## The hub
 
-The hub, the server half, is the private [leciric/agentbox-hub](https://github.com/leciric/agentbox-hub)
-(D44). The two share [`hubapi/`](hubapi/), the protocol, of which the hub keeps a byte-identical
-copy: when you change `hubapi/`, copy it to the hub (its README says how). `hubapi/` must never
-import `internal/` or the rest of this module, and `internal/` must never import the hub.
+The hub, the server half (D44), is its own program in [`hub/`](hub/), in this module:
+`hub/cmd/agentbox-hub` and `hub/internal/hub`, with the npm launcher `npx agentbox-hub` in
+`hub/npm/` (`hub/scripts/npm-build.sh` builds it, `hub/npm/PUBLISHING.md` publishes it). It was
+lintingdotdev/agentbox-hub until #547 brought it back. The two halves share only
+[`hubapi/`](hubapi/), the protocol: the hub imports it, and nothing else of AgentBox
+(`TestHubImportsOnlyHubapi`). `internal/` can't import the hub, which Go's `internal/` rule
+enforces, and `hubapi/` must never import `internal/` or the rest of this module.
+
+```bash
+go test ./hub/... ./hubapi/...
+go build -o bin/agentbox-hub ./hub/cmd/agentbox-hub
+hub/scripts/npm-build.sh 0.0.0-dev     # the npm packages, in hub/npm/dist/
+```
+
+CI runs no Go tests, the hub's included; a change to `hub/`, `hubapi/` or `go.mod`
+builds its npm packages and runs `npx agentbox-hub --version` from them (the Hub job).
 
 ## Commits
 
@@ -211,6 +256,7 @@ PR that bumps `version` in `desktop/package.json` and `desktop/package-lock.json
    `.deb`, `.pacman`, the Windows setup and portable `.exe`, the CLI for linux/darwin × amd64/arm64,
    and the signed Mac `.dmg`/`.zip` when Apple's signing secrets are set (skipped otherwise). Only
    when every build succeeds does it upload, write `SHA256SUMS` and publish (D49, D92, D94, D95).
+   The native app's Windows installer rides along: its job failing doesn't hold the release.
 
 Every build goes through `scripts/release-build.sh`: nothing uncommitted, and a version matching the
 tag. A failed build leaves the release a draft; rerunning the workflow picks up where it stopped.

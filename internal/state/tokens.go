@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	// TokensConsolidation is distilling a project's events into memories
 	// (D76, D78).
 	TokensConsolidation = api.TokensConsolidation
+	// TokensKeepalive is a hidden prompt that only reads a lead's prompt
+	// cache back, so it doesn't expire while the lead waits on its agents.
+	TokensKeepalive = api.TokensKeepalive
 )
 
 // TokenRow is one line of the ledger: what one model spent in one turn.
@@ -55,12 +59,32 @@ type TokenRow struct {
 	// Context is how many tokens the session's context held when the turn
 	// ended, as the tool last reported it; 0 when it hadn't.
 	Context int64
-	// GenerationMS is how long the turn took to generate: from the first to
-	// the last streamed assistant chunk, or turn start to end when nothing
-	// streamed. 0 when there is nothing to time, or for a row written before
-	// this was added.
+	// GenerationMS is how long the turn worked, as the weekly recap reads it:
+	// from the first to the last streamed assistant chunk, or turn start to
+	// end when nothing streamed. 0 when there is nothing to time, or for a row
+	// written before this was added. Average TPS doesn't read it (TimedMS).
 	GenerationMS int64
+	// TimedOutput and TimedMS are the output tokens the turn's main loop
+	// generated and how long its model spent generating them, tools and
+	// permissions left out: what average TPS is measured on. Only the row of
+	// the main loop's model has them, and 0 when nothing timed it, or for a
+	// row written before they were added.
+	TimedOutput, TimedMS int64
 }
+
+// MinTimedMS and MaxTPS bound the rows average TPS believes: a turn timed
+// under a second is mostly the time between two network reads, and one that
+// says it generated faster than MaxTPS was timed wrong. Rows outside them
+// are left out of TokenTotal.TPSOutput and TPSGenerationMS.
+const (
+	MinTimedMS = 1_000
+	MaxTPS     = 1_000
+)
+
+// timedSums sums TimedOutput and TimedMS over only the rows average TPS
+// believes, so a row counts in both or in neither.
+var timedSums = fmt.Sprintf(`SUM(CASE WHEN %[1]s THEN timed_output ELSE 0 END), SUM(CASE WHEN %[1]s THEN timed_ms ELSE 0 END)`,
+	fmt.Sprintf("timed_output > 0 AND timed_ms >= %d AND timed_output * 1000 <= timed_ms * %d", MinTimedMS, MaxTPS))
 
 // Total is every token the row counts.
 func (r TokenRow) Total() int64 { return r.Input + r.Output + r.CacheRead + r.CacheWrite }
@@ -78,10 +102,12 @@ func (s *Store) AddTokenRows(ctx context.Context, rows []TokenRow) error {
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO token_usage
 			(project, agent, agent_id, ai, session_id, turn, kind, model, at,
-			 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms,
+			 timed_output, timed_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.Project, r.Agent, r.AgentID, r.AI, r.Session, r.Turn, r.Kind, r.Model, r.At.UnixMilli(),
-			r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CostUSD, r.Context, r.GenerationMS); err != nil {
+			r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CostUSD, r.Context, r.GenerationMS,
+			r.TimedOutput, r.TimedMS); err != nil {
 			return err
 		}
 	}
@@ -129,10 +155,11 @@ type TokenTotal struct {
 	CostUSD                              float64
 	MaxContext                           int64 // the fullest the context was seen at a turn's end
 	LastAt                               time.Time
-	// TPSOutput and TPSGenerationMS are the output tokens and generation time
-	// of only the rows that timed themselves: TPSOutput / (TPSGenerationMS /
-	// 1000) is the average tokens per second, leaving out rows with no
-	// duration rather than dividing by zero or understating the average.
+	// TPSOutput and TPSGenerationMS are the timed output and time of only the
+	// rows that timed themselves believably (TokenRow.TimedOutput, MinTimedMS,
+	// MaxTPS): TPSOutput / (TPSGenerationMS / 1000) is the average tokens per
+	// second, leaving out rows with no time, or one nobody can trust, rather
+	// than dividing by zero or skewing the average.
 	TPSOutput       int64
 	TPSGenerationMS int64
 }
@@ -143,7 +170,7 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, MAX(ai), model, COUNT(DISTINCT turn),
 		SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens),
 		SUM(cost_usd), MAX(context_tokens), MAX(at),
-		SUM(CASE WHEN generation_ms > 0 THEN output_tokens ELSE 0 END), SUM(generation_ms)
+		`+timedSums+`
 		FROM token_usage`+where+` GROUP BY project, agent, model ORDER BY project, agent, model`, args...)
 	if err != nil {
 		return nil, err
@@ -163,11 +190,13 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	return out, rows.Err()
 }
 
-// TokenRows lists the ledger itself, newest first, at most limit rows.
+// TokenRows lists the ledger itself, newest first, at most limit rows, or
+// every row for a negative limit.
 func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]TokenRow, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, agent_id, ai, session_id, turn, kind, model, at,
-		input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms
+		input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms,
+		timed_output, timed_ms
 		FROM token_usage`+where+` ORDER BY at DESC, id DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -178,7 +207,8 @@ func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]Toke
 		var r TokenRow
 		var at int64
 		if err := rows.Scan(&r.Project, &r.Agent, &r.AgentID, &r.AI, &r.Session, &r.Turn, &r.Kind, &r.Model, &at,
-			&r.Input, &r.Output, &r.CacheRead, &r.CacheWrite, &r.CostUSD, &r.Context, &r.GenerationMS); err != nil {
+			&r.Input, &r.Output, &r.CacheRead, &r.CacheWrite, &r.CostUSD, &r.Context, &r.GenerationMS,
+			&r.TimedOutput, &r.TimedMS); err != nil {
 			return nil, err
 		}
 		r.At = time.UnixMilli(at)
@@ -208,7 +238,7 @@ func (s *Store) TokenBuckets(ctx context.Context, f TokenFilter, width time.Dura
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT (at / ?) * ? AS start,
 		SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(cost_usd),
-		SUM(CASE WHEN generation_ms > 0 THEN output_tokens ELSE 0 END), SUM(generation_ms)
+		`+timedSums+`
 		FROM token_usage`+where+` GROUP BY start ORDER BY start`, append([]any{w, w}, args...)...)
 	if err != nil {
 		return nil, err

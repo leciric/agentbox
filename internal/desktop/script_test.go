@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseScriptTakesAnObjectOrAList(t *testing.T) {
@@ -110,5 +111,14 @@ func TestDevtoolsOfAddsTheScriptsToTheBrowsers(t *testing.T) {
 	want := []string{DevTools, "127.0.0.1:9223", "localhost:9333"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestScriptPacingIsReadable(t *testing.T) {
+	if StepPause < 800*time.Millisecond || StepPause > time.Second {
+		t.Errorf("StepPause = %v; want about 900ms so a reviewer sees each step", StepPause)
+	}
+	if ChapterPause < 1200*time.Millisecond || ChapterPause < StepPause {
+		t.Errorf("ChapterPause = %v; want about 1.5s, and longer than StepPause", ChapterPause)
 	}
 }

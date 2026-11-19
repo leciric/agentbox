@@ -1,0 +1,228 @@
+{
+  "agent": "demo/lead",
+  "seq": 20,
+  "session": {
+    "state": "ready",
+    "tool": "claude",
+    "account": "default",
+    "adapter": "Claude Agent 0.100.0",
+    "options": [
+      {
+        "id": "mode",
+        "name": "Mode",
+        "description": "Session permission mode",
+        "category": "mode",
+        "type": "select",
+        "value": "default",
+        "choices": [
+          {
+            "value": "default",
+            "name": "Manual",
+            "description": "Always ask before making changes",
+            "kind": "standard"
+          },
+          {
+            "value": "acceptEdits",
+            "name": "Accept edits",
+            "description": "Automatically accept all file edits"
+          },
+          {
+            "value": "plan",
+            "name": "Plan",
+            "description": "Create a plan before making changes",
+            "kind": "plan"
+          },
+          {
+            "value": "auto",
+            "name": "Auto",
+            "description": "Claude handles permission decisions",
+            "kind": "auto_review"
+          },
+          {
+            "value": "bypassPermissions",
+            "name": "Bypass permissions",
+            "description": "Accepts all permissions",
+            "kind": "full_access"
+          }
+        ]
+      },
+      {
+        "id": "model",
+        "name": "Model",
+        "description": "AI model to use",
+        "category": "model",
+        "type": "select",
+        "value": "opus",
+        "choices": [
+          {
+            "value": "default",
+            "name": "Default (recommended)",
+            "description": "Sonnet"
+          },
+          {
+            "value": "sonnet",
+            "name": "Sonnet 5.5",
+            "description": "Sonnet 5.5 · Efficient for routine tasks"
+          },
+          {
+            "value": "fable",
+            "name": "Fable 5.2",
+            "description": "Fable 5.2 · Most capable for your hardest and longest-running tasks"
+          },
+          {
+            "value": "opus",
+            "name": "Opus 5.5",
+            "description": "Opus 5.5 · Best for everyday, complex tasks"
+          },
+          {
+            "value": "haiku",
+            "name": "Haiku 5.5",
+            "description": "Haiku 5.5 · Fastest for quick answers"
+          }
+        ]
+      },
+      {
+        "id": "context_window",
+        "name": "Context window",
+        "description": "How much context the chat keeps before Claude Code compacts it",
+        "category": "context_window",
+        "type": "select",
+        "value": "1000000",
+        "choices": [
+          {
+            "value": "500000",
+            "name": "500k",
+            "description": "Compacts at 500k, the window every chat has in Settings → Models."
+          },
+          {
+            "value": "1000000",
+            "name": "1M",
+            "description": "The model's whole window. Late in a long task every step resends up to 1M tokens."
+          }
+        ]
+      },
+      {
+        "id": "effort",
+        "name": "Effort",
+        "description": "Available effort levels for this model",
+        "category": "thought_level",
+        "type": "select",
+        "value": "default",
+        "choices": [
+          {
+            "value": "default",
+            "name": "Default"
+          },
+          {
+            "value": "low",
+            "name": "Low"
+          },
+          {
+            "value": "medium",
+            "name": "Medium"
+          },
+          {
+            "value": "high",
+            "name": "High"
+          },
+          {
+            "value": "xhigh",
+            "name": "Xhigh"
+          },
+          {
+            "value": "max",
+            "name": "Max"
+          }
+        ]
+      },
+      {
+        "id": "fast",
+        "name": "Fast mode",
+        "description": "Faster responses on supported models",
+        "category": "model_config",
+        "type": "select",
+        "value": "off",
+        "choices": [
+          {
+            "value": "on",
+            "name": "On"
+          },
+          {
+            "value": "off",
+            "name": "Off"
+          }
+        ]
+      },
+      {
+        "id": "ultracode",
+        "name": "Ultracode",
+        "description": "Dynamic workflows on every task, at any effort level",
+        "category": "model_config",
+        "type": "select",
+        "value": "off",
+        "choices": [
+          {
+            "value": "on",
+            "name": "On"
+          },
+          {
+            "value": "off",
+            "name": "Off"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "name": "compact",
+        "description": "Clear conversation history but keep a summary in context"
+      }
+    ],
+    "contextUsed": 36030,
+    "contextSize": 1000000
+  },
+  "items": [
+    {
+      "id": "51483c1c6193ed08",
+      "turn": "51483c1c6193ed08",
+      "kind": "user",
+      "text": "Say hi in five words.",
+      "result": {
+        "state": "completed",
+        "stopReason": "end_turn",
+        "endedAt": "2026-11-05T03:55:23.425928457Z"
+      },
+      "createdAt": "2026-11-05T03:55:18.851701487Z",
+      "updatedAt": "2026-11-05T03:55:23.446993308Z"
+    },
+    {
+      "id": "4e09196d2b034481",
+      "turn": "51483c1c6193ed08",
+      "kind": "assistant",
+      "text": "Hi, ready when you are.",
+      "createdAt": "2026-11-05T03:55:22.680868638Z",
+      "updatedAt": "2026-11-05T03:55:23.425927485Z"
+    },
+    {
+      "id": "a801fdd9c197b120",
+      "turn": "a801fdd9c197b120",
+      "kind": "user",
+      "text": "Name three colours, one per line.",
+      "result": {
+        "state": "completed",
+        "stopReason": "end_turn",
+        "endedAt": "2026-11-05T04:25:03.756042241Z"
+      },
+      "createdAt": "2026-11-05T04:24:59.05811216Z",
+      "updatedAt": "2026-11-05T04:25:03.759101664Z"
+    },
+    {
+      "id": "b20b59777be3260f",
+      "turn": "a801fdd9c197b120",
+      "kind": "assistant",
+      "text": "Red\nGreen\nBlue",
+      "createdAt": "2026-11-05T04:25:03.170916816Z",
+      "updatedAt": "2026-11-05T04:25:03.756039927Z"
+    }
+  ]
+}

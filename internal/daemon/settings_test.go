@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -128,6 +129,55 @@ func TestCreditAIToolIsOffUntilItIsTurnedOn(t *testing.T) {
 	}
 }
 
+func TestSeeFeatureClearsItsDot(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+	if err != nil || out.SeenFeatures == nil || len(out.SeenFeatures) != 0 {
+		t.Fatalf("a fresh installation has seen features: %#v, %v", out.SeenFeatures, err)
+	}
+	if out, err := patchSettings(t, d, `{"seeFeature":"work-page"}`); err != nil || !slices.Equal(out.SeenFeatures, []string{"work-page"}) {
+		t.Fatalf("after seeing one: %#v, %v", out.SeenFeatures, err)
+	}
+	if _, err := patchSettings(t, d, `{"seeFeature":"../x"}`); err == nil {
+		t.Error("an id that isn't one was accepted")
+	}
+}
+
+func TestBuiltWithBadgeIsOffAndOfferedOnce(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	get := func() api.Settings {
+		out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := get(); out.BuiltWithBadge || out.BuiltWithBadgeOffer {
+		t.Fatalf("a fresh installation has the badge or its offer: %+v", out)
+	}
+	ctx := context.Background()
+	if err := d.srv.store.OfferBuiltWithBadge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if out := get(); out.BuiltWithBadge || !out.BuiltWithBadgeOffer {
+		t.Fatalf("after a merge: %+v", out)
+	}
+	if out, err := patchSettings(t, d, `{"dismissBuiltWithBadgeOffer":true}`); err != nil || out.BuiltWithBadgeOffer || out.BuiltWithBadge {
+		t.Fatalf("after dismissing: %+v, %v", out, err)
+	}
+	if err := d.srv.store.OfferBuiltWithBadge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if get().BuiltWithBadgeOffer {
+		t.Error("a later merge offered it again")
+	}
+	if out, err := patchSettings(t, d, `{"builtWithBadge":true}`); err != nil || !out.BuiltWithBadge {
+		t.Errorf("after turning it on: %+v, %v", out, err)
+	}
+}
+
 // TestClaudeMenuIsKnownOnceAnAdapterSentOne: the pinned models are always on
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.
@@ -216,6 +266,43 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 	}
 }
 
+// The lead's effort and permission mode are stored as chosen while no menu has
+// been remembered, checked against the remembered menu once one has, and never
+// move the agents' effort.
+func TestLeadEffortAndModeDefaults(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	out, err := patchSettings(t, d, `{"defaultLeadEffort":"high","defaultLeadMode":"plan"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadEffort != "high" || out.DefaultLeadMode != "plan" || out.DefaultClaudeEffort != "" {
+		t.Errorf("before any menu: lead effort, mode, agents' effort = %q, %q, %q", out.DefaultLeadEffort, out.DefaultLeadMode, out.DefaultClaudeEffort)
+	}
+	for key, menu := range map[string]string{
+		state.SettingClaudeEffortChoices: `[{"value":"low","name":"Low"},{"value":"high","name":"High"}]`,
+		state.SettingClaudeModeChoices:   `[{"value":"default","name":"Manual"},{"value":"acceptEdits","name":"Accept edits"}]`,
+	} {
+		if err := d.srv.store.SetSetting(ctx, key, menu); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := patchSettings(t, d, `{"defaultLeadMode":"yolo"}`); err == nil || !strings.Contains(err.Error(), "permission mode") {
+		t.Errorf("a mode off the menu: err = %v", err)
+	}
+	if _, err := patchSettings(t, d, `{"defaultLeadEffort":"max"}`); err == nil {
+		t.Error("an effort off the menu was accepted")
+	}
+	out, err = patchSettings(t, d, `{"defaultLeadEffort":"","defaultLeadMode":"acceptEdits"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadEffort != "" || out.DefaultLeadMode != "acceptEdits" || len(out.ClaudeModeChoices) != 2 {
+		t.Errorf("lead effort, mode, mode menu = %q, %q, %v", out.DefaultLeadEffort, out.DefaultLeadMode, out.ClaudeModeChoices)
+	}
+}
+
 // Settings offers both roles 200k and 1M on opus, and on Claude Code's own
 // default — before any chat has remembered the adapter's menu, and after a
 // session reported opus's whole window.
@@ -266,5 +353,53 @@ func TestLanguageIsStoredAndChecked(t *testing.T) {
 	}
 	if out, err := patchSettings(t, d, `{"language":""}`); err != nil || out.Language != api.DefaultLanguage {
 		t.Errorf("clearing it: %q, %v; want the default", out.Language, err)
+	}
+}
+
+// Which OpenCode an installation runs is one choice, "1" until it chooses. "2"
+// needs nothing from the base image, since each agent installs it on demand.
+// A switch forgets the model menu, which belongs to the version that named it.
+func TestOpenCodeVersionDefaultsToOne(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "1" {
+		t.Fatalf("an installation that has never chosen runs OpenCode %q", out.OpenCodeVersion)
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"3"}`); err == nil {
+		t.Fatal("an OpenCode version that doesn't exist was accepted")
+	}
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	out, err = patchSettings(t, d, `{"openCodeVersion":"2"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "2" {
+		t.Fatalf("after switching: %+v", out)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu != "" {
+		t.Fatalf("the model menu of the old version survived the switch: %q, %v", menu, err)
+	}
+	// Choosing the version already in effect keeps its menu.
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu == "" {
+		t.Fatalf("choosing the same version dropped its menu: %q, %v", menu, err)
+	}
+	// And back.
+	if out, err := patchSettings(t, d, `{"openCodeVersion":"1"}`); err != nil || out.OpenCodeVersion != "1" {
+		t.Fatalf("switching back: %+v, %v", out, err)
 	}
 }

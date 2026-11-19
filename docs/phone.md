@@ -30,6 +30,17 @@ once, open chat included.
 The phone connects to port 7780 (`agentbox phone on --port <port>` moves it). If a firewall runs on
 the computer, it has to let that port in from the local network.
 
+AgentBox runs in a VM, whose network a phone can't reach: AgentBox opens the port on the computer
+itself, on Linux, on a Mac and on Windows alike, and passes what the phone sends on to the VM.
+
+- **On Windows**, the app opens it, so a phone reaches AgentBox while the app is open. The first time,
+  Windows Firewall asks whether to allow `agentbox.exe`: allow it on private networks. If it was
+  turned down, or the computer is on a network Windows calls public, **Settings → Phone** says so and
+  what to allow (Windows Security → Firewall & network protection → Allow an app through firewall).
+- **On a Mac**, if the firewall is on (System Settings → Network → Firewall), macOS may ask whether
+  `agentbox` may accept incoming network connections: allow it. **Settings → Phone** says when the
+  firewall blocks it.
+
 ## From anywhere
 
 On the local network only, the phone stops working once you leave the house. **Reach from anywhere**
@@ -55,7 +66,9 @@ and the tunnel's token: the phone's traffic goes through Cloudflare straight to 
 through the hub, and phones still pair with a QR code from this computer, which the hub can't make.
 Choose it in **Settings → Phone → Stable address (via hub)**, or `agentbox phone tunnel on --hub`.
 A hub gives out addresses only once whoever runs it gives it a Cloudflare zone (see the hub's
-README); one that doesn't leaves you on a quick tunnel.
+README); one that doesn't leaves you on a quick tunnel. A hub on Tailscale gives an address in
+your tailnet instead, which only your devices reach, with Tailscale on: see
+[Tailscale instead of Cloudflare](hub.md#tailscale-instead-of-cloudflare).
 
 Otherwise it's a **quick tunnel**: no Cloudflare account, on a random `trycloudflare.com` address
 that changes every time AgentBox starts. A phone's pairing belongs to the address it paired on, so
@@ -80,6 +93,30 @@ without a QR code you made in the last ten minutes, and each code pairs one phon
 unknown phones are counted by address, and an address that keeps getting them wrong is turned away
 for a few minutes. Over the tunnel the connection is https all the way to the phone, and the phone's
 pairing cookie is only ever sent over https. A paired phone still reaches only the chats.
+
+## Keeping it on the home screen
+
+Over the https address of **Reach from anywhere**, the phone page installs as an app of its own, with
+AgentBox's icon, opening full screen without the browser's bars:
+
+- **Android** (Chrome): the page offers **Install AgentBox**, at the bottom of the pairing page and of
+  the chat list; or use Chrome's menu → **Add to Home screen**.
+- **iPhone and iPad** (Safari): **Share → Add to Home Screen**.
+
+An app installed on an iPhone doesn't share Safari's cookies, so it isn't paired even when Safari
+was: open it, make a new QR code on the computer (**Pair a phone** in Settings → Phone, or
+`agentbox phone pair`), and either tap **Scan the QR code**, which uses the phone's camera from inside
+the app, or paste the pairing link (the computer shows it under the QR code, with a button that copies
+it) into **Or paste the pairing link**. Android's installed app shares Chrome's pairing.
+
+The app keeps its own copy of the page, its scripts, styles, fonts and icons (a service worker), so
+it opens without a network and says when it can't reach AgentBox. Chats, pairing and everything else
+the daemon answers always come from the daemon, never from that copy. When the app on the computer
+updates, the daemon's page changes version and phones drop the old copy the next time they open it.
+
+On the local network's plain HTTP, browsers don't install pages as apps (a service worker needs
+https), and the phone's camera can't be used from the page either: the page says so, and pairing
+works as before, by opening the QR code's link with the phone's own camera app.
 
 ## Plain HTTP
 

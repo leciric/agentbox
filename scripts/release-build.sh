@@ -19,7 +19,7 @@
 # and pushes, since release-please owns both.
 #
 #   scripts/release-build.sh --tag v0.7.1 [--check | --linux | --windows | --mac-cli]
-#   scripts/release-build.sh --nightly 20260929.12 --tag v0.8.0-nightly.20260929.12 [--check | --stamp | --linux | ...]
+#   scripts/release-build.sh --nightly 20260929.12 --tag v0.8.0-nightly.20260929.12 [--release X.Y.Z] [--check | --stamp | --linux | ...]
 #
 # --tag is the tag the caller means to publish: the build refuses to produce
 # anything else, so a workflow run can't be given the wrong version by hand.
@@ -35,6 +35,10 @@
 # no release with its tag yet, since the nightly workflow makes the release
 # itself, after the builds, rather than release-please making a draft first.
 #
+# --release <X.Y.Z> (nightly only) names the release the nightly leads up to
+# when the checkout's desktop/package.json isn't it: a nightly of main's tip,
+# built while the release PR is behind main, takes the PR head's version.
+#
 # With no part given, it checks and builds everything but the Mac's (Linux
 # then Windows) and writes SHA256SUMS over the lot. The release workflow
 # instead runs the parts as separate jobs, in parallel: --check once, then
@@ -48,22 +52,25 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 want=
 nightly=
+release_arg=
 part=all
 while [ $# -gt 0 ]; do
   case $1 in
     --tag) want=${2:-}; [ -n "$want" ] || { echo "--tag needs a tag" >&2; exit 2; }; shift 2 ;;
     --nightly) nightly=${2:-}; [[ $nightly =~ ^[0-9]{8}\.[1-9][0-9]*$ ]] || { echo "--nightly needs <YYYYMMDD>.<run>, not \"$nightly\"" >&2; exit 2; }; shift 2 ;;
+    --release) release_arg=${2:-}; [ -z "$release_arg" ] || [[ $release_arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--release needs X.Y.Z, not \"$release_arg\"" >&2; exit 2; }; shift 2 ;;
     --check|--stamp|--linux|--windows|--mac-cli) part=${1#--}; shift ;;
-    *) echo "usage: scripts/release-build.sh [--nightly <YYYYMMDD>.<run>] [--tag v<version>] [--check | --stamp | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
+    *) echo "usage: scripts/release-build.sh [--nightly <YYYYMMDD>.<run> [--release X.Y.Z]] [--tag v<version>] [--check | --stamp | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
   esac
 done
+[ -z "$release_arg" ] || [ -n "$nightly" ] || { echo "--release is for a nightly: give --nightly too" >&2; exit 2; }
 [ -n "$nightly" ] || [ "$part" != stamp ] || { echo "--stamp is for a nightly: give --nightly too" >&2; exit 2; }
 
 version=$(node -p "require('$root/desktop/package.json').version")
 if [ -n "$nightly" ]; then
   # From the release's version, or from a nightly's, when a job stamped it
   # already: the same nightly either way.
-  release=${version%%-*}
+  release=${release_arg:-${version%%-*}}
   [[ $release =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "desktop/package.json is $version, which isn't a release a nightly can lead up to" >&2; exit 1; }
   version=$release-nightly.$nightly
 fi

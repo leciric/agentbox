@@ -115,16 +115,16 @@ type bundleFile struct {
 // three keep the tarball's layout under gpuDir.
 var chvBundle = bundle{
 	name:    "cloud-hypervisor",
-	version: "v53.0 (AgentBox build 859e712e09ea)",
-	url:     "https://github.com/leciric/agentbox/releases/download/chv-53.0-859e712e09ea/chv-53.0-859e712e09ea-x86_64.tar.gz",
-	sha256:  "86a54579d984edc381d92e7260892215257be8a5e08274d9e3bbdb248fb59688",
+	version: "v53.0 (AgentBox build bc3e70f239d7)",
+	url:     "https://github.com/leciric/agentbox/releases/download/chv-53.0-bc3e70f239d7/chv-53.0-bc3e70f239d7-x86_64.tar.gz",
+	sha256:  "928e8a3eecd23e57e6ff7d0ee0f3c0ffd4d65ef023d4402eb748e6f405f25875",
 	files: []bundleFile{
 		// We don't need ch-remote: the supervisor talks to Cloud
 		// Hypervisor's REST API over its socket itself.
-		{member: "bin/cloud-hypervisor", name: "cloud-hypervisor", sha256: "0d46bd43b81f507e8768e92b34062ce33b25ff151c8561fbc6f59e3e5b613f7b", exec: true},
-		{member: "bin/crosvm", name: gpuDir + "/bin/crosvm", sha256: "48866dd8eb5958becd7143abde951acbff9b1abe75a8e5393c006a55f5fe5c6c", exec: true},
-		{member: "libexec/virgl_render_server", name: gpuDir + "/libexec/virgl_render_server", sha256: "cea12216a97d65f4f31d69b2586aa0c90fa33ecc97a5b96cf535924217673f3c", exec: true},
-		{member: "lib/libvirglrenderer.so.1.10.0", name: gpuDir + "/lib/libvirglrenderer.so.1", sha256: "d037c6f3eee2614b779118b6c9245dac441c73111bbff7486b1598088a6e178f"},
+		{member: "bin/cloud-hypervisor", name: "cloud-hypervisor", sha256: "010a1b969da846bcda2ceaa6c835971200c0c459a5e073fbf299d0ce1be438e8", exec: true},
+		{member: "bin/crosvm", name: gpuDir + "/bin/crosvm", sha256: "e632d3721d94d4bf8b359ac89ec77f08de9cb0ae027950eb858f0ff475028315", exec: true},
+		{member: "libexec/virgl_render_server", name: gpuDir + "/libexec/virgl_render_server", sha256: "fd82fe769454b0c7d0fe0477ce78e78bf1d3cc10eacdf5e8c97db26e56b58246", exec: true},
+		{member: "lib/libvirglrenderer.so.1.10.0", name: gpuDir + "/lib/libvirglrenderer.so.1", sha256: "e7ba0059daeb04cc5468a162d7e4b57fa8c20833eb018dbf1b4bc5ae6340b7f2"},
 	},
 }
 

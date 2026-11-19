@@ -13,12 +13,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/lan"
 	"agentbox/internal/paths"
 )
 
@@ -47,6 +50,14 @@ type supervisor struct {
 	since       time.Time
 	daemonReady bool
 	sample      *memSample
+	// idle is how many running agents the daemon last said were idle
+	// (busyLoop); 0 when it couldn't say.
+	idle int
+	// hostCache is what the host caches of the VM's disk images, measured at
+	// hostCacheAt: measuring walks their page cache, so not on every status.
+	cacheMu     sync.Mutex
+	hostCache   int64
+	hostCacheAt time.Time
 	mem         memState
 	// pausedForDisk says the supervisor paused the VM because the host's
 	// disk was nearly full (diskbackstop.go).
@@ -54,6 +65,16 @@ type supervisor struct {
 	// restartVM says the VM was ended to start it again (gpuLoop, when a
 	// kernel on trial doesn't come up), not to stop.
 	restartVM bool
+	// runs is the record of the VM's runs, and boot how this one started
+	// (crashloop.go).
+	runs *runLog
+	boot api.VMBoot
+	// hostBusy is why hostload last judged the host busy ("" when calm) and
+	// hostBusyAt when (hostLoadLoop), for the memory loop.
+	hostBusy   string
+	hostBusyAt time.Time
+	// shedding says an agent is being stopped for the host (shedAgent).
+	shedding atomic.Bool
 	// runScript, when set, runs what ssh would in the VM: for tests.
 	runScript func(ctx context.Context, script string) (string, error)
 }
@@ -72,6 +93,10 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 	if err != nil {
 		return err
 	}
+	// A cap from an earlier release may leave the host less than its reserve.
+	if fit, lowered := FitHost(c, hostTotal()); lowered {
+		c = fit
+	}
 	s := &supervisor{
 		c: c, l: l, p: p, self: self,
 		log:    log.New(os.Stderr, "", log.LstdFlags),
@@ -85,6 +110,14 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 		return err
 	}
 	s.mem.Requested = c.MemoryMin
+	// Below the desktop, before it starts anything (priority_linux.go).
+	if failed := lowerPriority(); len(failed) > 0 {
+		s.logf("running the VM at the desktop's priority, as lowering it failed: %s", strings.Join(failed, "; "))
+	}
+	// What of that doesn't hold here, said once, for a desktop that stalls.
+	for _, gap := range priorityGaps(l.RootDisk()) {
+		s.logf("priority: %s", gap)
+	}
 	return s.run(ctx)
 }
 
@@ -157,10 +190,26 @@ func (s *supervisor) run(ctx context.Context) error {
 	go func() { _ = srv.Serve(vmLn) }()
 	defer func() { _ = srv.Close() }()
 
+	// Before it boots: a host that dies during the boot counts too.
+	s.runs = readRuns(s.l.RunsFile())
+	s.boot = s.runs.start(time.Now())
+	clean, how := true, "stopped"
+	defer func() { s.runs.end(time.Now(), clean, how) }()
+	if s.boot.Safe {
+		s.policy.SafeUntil = s.boot.SafeUntil
+		s.logf("starting VM %s in safe mode: %s. It boots with %s and grows slowly until %s, and its daemon resumes the agents slowly", s.c.Name, s.boot.Why, gib(s.policy.Min), s.boot.SafeUntil.Local().Format("15:04"))
+	}
+	if err := writeBoot(s.l.BootFile(), s.boot); err != nil {
+		s.logf("telling the daemon how the VM starts: %v", err)
+	}
+	if msg := limitScope(s.policy.Cap); msg != "" {
+		s.logf("memory: %s", msg)
+	}
 	s.logf("starting VM %s: %d CPUs, %s of memory (up to %s)", s.c.Name, s.c.CPUs, gib(s.policy.Min), gib(s.policy.Cap))
 	started := time.Now()
 	if err := s.m.boot(ctx); err != nil {
 		s.stopChildren()
+		how = "didn't start"
 		return err
 	}
 	s.logf("the VM is up in %s", time.Since(started).Round(time.Millisecond))
@@ -182,14 +231,20 @@ func (s *supervisor) run(ctx context.Context) error {
 	go func() {
 		defer close(lanDone)
 		dial := func(ctx context.Context) (net.Conn, error) { return dialVsock(ctx, s.l.VsockSocket(), PortDaemon) }
-		newLANForward(dial, func() bool { return s.getState() != api.VMPaused }, s.logf).run(loops)
+		f := lan.NewForward(dial, s.logf)
+		f.Open = func() bool { return s.getState() != api.VMPaused }
+		f.Run(loops)
 	}()
 	// Phones' port closes with the other forwards, before the VM stops.
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
+	go s.aliveLoop(loops)
+	go s.busyLoop(loops)
+	go s.hostLoadLoop(loops)
 	go s.diskLoop(loops)
 	if m, ok := s.m.(*chMachine); ok {
 		go s.gpuLoop(loops, m)
+		go s.shareLoop(loops, m)
 	}
 
 	var req api.VMStopRequest
@@ -213,8 +268,12 @@ func (s *supervisor) run(ctx context.Context) error {
 			s.setState(api.VMStopping)
 			s.stopChildren()
 			if err := s.m.exitErr(); err != nil {
+				// Killed from outside (the host's OOM killer), or crashed:
+				// what a crash loop is made of.
+				clean, how = false, err.Error()
 				return fmt.Errorf("%v; its log: %s", err, s.l.Log())
 			}
+			how = "powered off"
 			s.logf("the VM powered off")
 			return nil
 		case <-ctx.Done():
@@ -395,6 +454,21 @@ func (s *supervisor) stopChildren() {
 	}
 }
 
+// aliveLoop notes in the record of runs, every aliveEvery, that the VM still
+// runs: a run that dies with the host is last seen then.
+func (s *supervisor) aliveLoop(ctx context.Context) {
+	tick := time.NewTicker(aliveEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick.C:
+			s.runs.alive(now)
+		}
+	}
+}
+
 // memoryLoop sizes the VM's memory (memory.go) every memTick, while it runs.
 func (s *supervisor) memoryLoop(ctx context.Context) {
 	tick := time.NewTicker(memTick)
@@ -417,7 +491,10 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 			movable = s.ensureMovable(ctx, sample)
 		}
 		sample.Resident, _ = s.m.resident()
+		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
+		sample.Idle = s.idle
+		sample.HostBusy = s.hostBusyFor(time.Now())
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
@@ -432,6 +509,12 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 				s.logf("memory: dropped the VM's caches (%s), in %s", d.Reason, time.Since(started).Round(time.Millisecond))
 			}
 		}
+		if d.Trim > 0 && s.m.balloon() == 0 {
+			s.trim(ctx, d)
+		}
+		if d.Shed {
+			go s.shedAgent(ctx, d.ShedReason)
+		}
 		if d.Target == 0 {
 			continue
 		}
@@ -443,6 +526,103 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		s.logf("memory: %s → %s (%s), asked in %s", gib(sample.Total), gib(d.Target), d.Reason, time.Since(started).Round(time.Millisecond))
 	}
 }
+
+// busyLoop asks the daemon every memBusyEvery how many running agents are
+// idle, for the headroom memory.go keeps: an agent is busy while a turn of its
+// chat runs (or starts) or it has a heavy command, and one without a chat
+// (a CLI agent) counts as busy, as nothing says what it's doing. Asked apart
+// from memoryLoop, so a slow daemon never holds back a grow; when it can't
+// be asked, every agent counts as busy.
+func (s *supervisor) busyLoop(ctx context.Context) {
+	tick := time.NewTicker(memBusyEvery)
+	defer tick.Stop()
+	client := s.daemonClient(memBusyEvery)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		s.mu.Lock()
+		ready := s.daemonReady && s.state != api.VMPaused
+		s.mu.Unlock()
+		idle := 0
+		if ready {
+			idle = idleAgents(ctx, client)
+		}
+		s.mu.Lock()
+		s.idle = idle
+		s.mu.Unlock()
+	}
+}
+
+// memBusyEvery is how often busyLoop asks.
+const memBusyEvery = 2 * time.Second
+
+// idleAgents is how many running agents have neither a turn running nor a
+// heavy command, 0 when the daemon can't say.
+func idleAgents(ctx context.Context, client *http.Client) int {
+	var agents []api.Agent
+	var pressure api.PressureStatus
+	if daemonJSON(ctx, client, http.MethodGet, "/v1/agents", &agents) != nil ||
+		daemonJSON(ctx, client, http.MethodGet, "/v1/pressure", &pressure) != nil {
+		return 0
+	}
+	heavy := map[string]bool{}
+	for _, r := range pressure.Runs {
+		heavy[r.Agent] = true
+	}
+	n := 0
+	for _, a := range agents {
+		switch {
+		case heavy[a.Ref]:
+		case a.State == "paused": // frozen: it grows once thawed and running again
+			n++
+		case a.State != "running":
+		case a.Chat == api.ChatReady, a.Chat == api.ChatWaiting, a.Chat == api.ChatError, a.Chat == api.ChatOff:
+			n++
+		}
+	}
+	return n
+}
+
+// trim has the guest reclaim d.Trim of its coldest file pages and compact
+// what's free, which free page reporting then returns to the host (and,
+// before a shrink, what's left of the cache moves out of the blocks to be
+// unplugged); with the host short, the host drops what it caches of the VM's disks too, which a
+// disk without direct=on keeps a second copy of.
+func (s *supervisor) trim(ctx context.Context, d memDecision) {
+	started := time.Now()
+	if d.HostShort {
+		dropImageCache(s.l.RootDisk())
+		dropImageCache(s.l.PoolDisk())
+	}
+	if _, err := runSSHFor(ctx, s.c, s.l, s.self, trimScript(d.Trim), 30*time.Second); err != nil {
+		s.logf("trimming the VM's file cache: %v", err)
+		return
+	}
+	s.logf("memory: trimmed up to %s of the VM's file cache (%s), in %s", gib(d.Trim), d.Reason, time.Since(started).Round(time.Millisecond))
+}
+
+// trimScript reclaims up to n bytes from the guest's root cgroup, which
+// takes the coldest pages first (n is never more than its inactive file
+// pages, so that is mostly the page cache), then compacts its free memory.
+// Reclaiming less than asked fails the write, which isn't an error here.
+//
+// The write is bounded the way the daemon's are (agent/reclaim.go): skipped
+// while any other memory.reclaim writer runs in the guest, and tee killed by
+// timeout(1), as root, after trimWriteTimeout, so it can't outlive the ssh
+// session the way the writers found spinning on 2026-11-06 did. No
+// swappiness=0: on a guest with little cache left it made the kernel scan
+// and rescan the same few file pages, which the machines fault straight back
+// in, rather than fall short and stop.
+func trimScript(n int64) string {
+	return fmt.Sprintf("pgrep -f '^tee /sys/fs/cgroup/.*memory[.]reclaim' >/dev/null || echo %d | sudo -n timeout --foreground -s KILL %d tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n, int(trimWriteTimeout/time.Second))
+}
+
+// trimWriteTimeout is how long a trim's write to memory.reclaim may take
+// before it is killed: well inside the ssh's own 30 seconds.
+const trimWriteTimeout = 10 * time.Second
 
 // reclaimScript drops the guest's page cache and the kernel's reclaimable
 // caches (dentries, inodes), then compacts its free memory into whole blocks,

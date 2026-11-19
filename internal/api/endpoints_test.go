@@ -897,6 +897,16 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "ProjectIconCandidates", method: http.MethodGet, path: "/v1/projects/pawly/icon/candidates",
+			resp: `[{"from":"desktop/build/icon.svg","image":"data:image/svg+xml;base64,AA==","chosen":true}]`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.ProjectIconCandidates(context.Background(), "pawly")
+				if err != nil || len(got) != 1 || got[0].From != "desktop/build/icon.svg" || !got[0].Chosen {
+					t.Errorf("ProjectIconCandidates() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
 			name: "SetProjectIcon", method: http.MethodPut, path: "/v1/projects/pawly/icon",
 			body: `{"emoji":"🐶"}`,
 			resp: `{"source":"chosen","emoji":"🐶"}`,

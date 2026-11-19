@@ -1,6 +1,11 @@
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
+)
 
 // AgentBox can run all of itself — the daemon, Incus and every agent — in one
 // Linux VM, with the host's app and agentbox command as its front end: always
@@ -104,6 +109,10 @@ type VMSwap struct {
 	// off, and when that can't be read cheaply (a Lima VM).
 	Total int64 `json:"total"`
 	Used  int64 `json:"used"`
+	// DiskUsed is how much of Used is on the swapfile rather than zram: the
+	// agents' memory paged to the VM's disk, which slows everything. 0 when
+	// it can't be read.
+	DiskUsed int64 `json:"diskUsed,omitempty"`
 }
 
 // VMSwapDefault is the swapfile `agentbox vm swap on` makes when it isn't
@@ -118,6 +127,43 @@ const VMDiskBackstop = int64(2) << 30
 // VMMaxDisk is the largest pool disk `agentbox vm resize --disk` makes. The
 // disk is sparse, so its size is only what it may grow to on the host's disk.
 const VMMaxDisk = int64(16) << 40
+
+// VMBootFile is the file in the VM's directory on the host (hostos.VMDisks,
+// which the VM sees through the shared home) where a Cloud Hypervisor VM's
+// supervisor says how it started the VM this time (VMBoot), before it boots:
+// the daemon in the VM reads it as it starts (ReadVMBoot).
+const VMBootFile = "boot.json"
+
+// VMBoot is how the VM was started. After a crash loop (the VM died without a
+// clean stop twice within 15 minutes: the host's kernel killed it, the host
+// rebooted, or its supervisor was killed) it starts in safe mode: the VM
+// boots at its memoryMin and grows slowly until SafeUntil, and the daemon
+// should resume its agents slowly too, rather than every turn at once.
+type VMBoot struct {
+	Started time.Time `json:"started"`
+	Safe    bool      `json:"safe,omitempty"`
+	// SafeUntil is when safe mode ends; zero when not Safe.
+	SafeUntil time.Time `json:"safeUntil,omitzero"`
+	// Why says what made it safe, for the log.
+	Why string `json:"why,omitempty"`
+	// Crashes are when the runs that died without a clean stop within the
+	// window were last seen running, oldest first.
+	Crashes []time.Time `json:"crashes,omitempty"`
+}
+
+// ReadVMBoot reads VMBootFile in dir: the zero VMBoot, not safe, when dir is
+// "" (no VM, or a front end from before it) or the file can't be read.
+func ReadVMBoot(dir string) VMBoot {
+	var b VMBoot
+	if dir == "" {
+		return b
+	}
+	data, err := os.ReadFile(filepath.Join(dir, VMBootFile))
+	if err != nil || json.Unmarshal(data, &b) != nil {
+		return VMBoot{}
+	}
+	return b
+}
 
 // VMLimits bound a VM's CPUs, memory and pool disk (bytes). The disk's are 0
 // where it can't be resized.
@@ -147,12 +193,27 @@ type VMMemory struct {
 	Min     int64 `json:"min"`     // what it boots with, and never goes below
 	Cap     int64 `json:"cap"`     // the most it may be granted, as the user set it
 	Granted int64 `json:"granted"` // what it may use now
+	// HostReserve is what the host keeps of its memory for itself, the
+	// larger of 4 GiB and a quarter: Cap is never more than the host's
+	// memory less this, and the VM stops growing while the host has less
+	// than this available. 0 when the host's memory is unknown.
+	HostReserve int64 `json:"hostReserve,omitempty"`
+	// HostTotal is the host's own memory, which Cap may be said as a share
+	// of; 0 when unknown.
+	HostTotal int64 `json:"hostTotal,omitempty"`
 	// Used is what the VM's programs use, without its page cache: what it
 	// would need if it gave back everything it could.
 	Used int64 `json:"used"`
 	// Resident is what the VM holds of the host's memory right now: what
-	// stopping it would give back. 0 when it's off or unknown.
+	// stopping it would give back, the guest's memory it has touched and
+	// what the programs that run it use, each shared page counted once. 0
+	// when it's off or unknown.
 	Resident int64 `json:"resident"`
+	// HostCache is what the host's page cache holds of the VM's disk images,
+	// on top of Resident: blocks the guest also caches, unless its disks are
+	// opened with direct I/O. The host gives it back as it needs to. 0 when
+	// it's off or unknown.
+	HostCache int64 `json:"hostCache"`
 }
 
 // VMDisk is the VM's disk images, in bytes, as the host sees them. Each has

@@ -52,6 +52,7 @@ func (s *Server) notifyQuestion(ctx context.Context, q state.Question, title str
 		Kind: api.NotifyQuestion, Project: q.Project, Agent: q.Agent, Title: title,
 		Text: cutNotice(q.Text), Question: q.ID, At: q.CreatedAt,
 	})
+	s.pushQuestion(q, title)
 }
 
 // notifyMedia marks a screenshot or recording an agent kept as unseen in the

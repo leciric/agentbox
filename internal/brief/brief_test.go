@@ -23,6 +23,16 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.23",
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
+		"node-modules": {
+			Project:      "pawly",
+			Agent:        "agent-04",
+			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:       "agentbox/agent-04",
+			BaseRef:      "main",
+			IP:           "10.239.149.25",
+			NodeModules:  []string{".", "apps/web"},
+			CargoTargets: []string{"crates/engine"},
+		},
 		"android": {
 			Project:  "pawly",
 			Agent:    "agent-03",
@@ -32,6 +42,19 @@ func TestRender(t *testing.T) {
 			BaseRef:  "main",
 			IP:       "10.239.149.24",
 			Android:  true,
+		},
+		// A Mac, and a project with an iOS app: the simulator's commands.
+		"ios": {
+			Project:  "pawly",
+			Agent:    "agent-08",
+			Worktree: "/Users/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:   "agentbox/agent-08",
+			BaseRef:  "main",
+			IP:       "10.239.149.28",
+			VM:       true,
+			Host:     "a Mac",
+			IOS:      true,
+			IOSPorts: []int{5236, 8081},
 		},
 		"nesting": {
 			Project:  "agentbox",
@@ -55,16 +78,42 @@ func TestRender(t *testing.T) {
 			GitHub:   true,
 			AgentPRs: true,
 		},
+		// A repository with no remote (one made from a plain folder): nothing
+		// to push, whatever AgentPRs says.
+		"no-remote": {
+			Project:  "notes",
+			Agent:    "agent-02",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/notes/agent-02",
+			Branch:   "agentbox/tidy-up",
+			BaseRef:  "main",
+			IP:       "10.239.149.29",
+			GitHub:   true,
+			AgentPRs: true,
+			NoRemote: true,
+		},
+		// Made from another agent's branch: stacked on it.
+		"stacked": {
+			Project:  "pawly",
+			Agent:    "agent-08",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:   "agentbox/feat-csv-import",
+			BaseRef:  "agentbox/feat-csv-export",
+			Parent:   "agent-07",
+			IP:       "10.239.149.28",
+			GitHub:   true,
+			AgentPRs: true,
+		},
 		// The user lets commits credit the AI tool: no line asking not to.
 		"credit-ai-tool": {
-			Project:      "pawly",
-			Agent:        "agent-08",
-			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
-			Branch:       "agentbox/agent-08",
-			BaseRef:      "main",
-			IP:           "10.239.149.28",
-			AgentPRs:     true,
-			CreditAITool: true,
+			Project:        "pawly",
+			Agent:          "agent-08",
+			Worktree:       "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:         "agentbox/agent-08",
+			BaseRef:        "main",
+			IP:             "10.239.149.28",
+			AgentPRs:       true,
+			CreditAITool:   true,
+			BuiltWithBadge: true,
 		},
 		"secrets": {
 			Project:  "pawly",
@@ -186,7 +235,9 @@ func TestRenderLeadGolden(t *testing.T) {
 				ClaudeAccounts:  []string{"personal", "work"},
 				Notes:           "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
 				Recap:           "**What this project is doing**\n\n- Adding reminders to the pet profile.",
-				NoteSuggestions: suggestionsFor(tc.name == "on"), // offers in one golden file only
+				NoteSuggestions: suggestionsFor(tc.name == "on"),                // offers in one golden file only
+				Session:         sessionIf(tc.name == "on", "Prod: login 500s"), // one of several sessions in one golden file only
+				OtherSessions:   othersIf(tc.name == "on", "Chat", "Docs"),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -257,6 +308,27 @@ func TestRenderLeadAgentPRs(t *testing.T) {
 	}
 }
 
+// A lead whose project has no remote lands agents' work with agentbox merge,
+// and isn't told about pull requests it can't have.
+func TestRenderLeadNoRemote(t *testing.T) {
+	got, err := brief.RenderLead(brief.LeadData{
+		Project: "notes", Root: "/src/notes",
+		Worktree: "/home/dev/.local/share/agentbox/worktrees/notes/lead",
+		BaseRef:  "main", Autonomy: "ask", CanSpawn: true, AgentPRs: true, PRWatch: true, NoRemote: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "has no remote") || !strings.Contains(got, "agentbox merge notes/<agent>") {
+		t.Error("the lead isn't told to merge agents' branches here")
+	}
+	for _, not := range []string{"agents push their own branch", "AgentBox watches every agent's open pull request", "When you push an agent's branch"} {
+		if strings.Contains(got, not) {
+			t.Errorf("with no remote, the lead's brief still says %q", not)
+		}
+	}
+}
+
 // TestRenderAgentPRs checks both sides of the agent's Git section: told to
 // push and open a pull request when the project allows it, told not to push
 // when it doesn't, and never allowed to push to the base branch or merge.
@@ -289,6 +361,29 @@ func TestRenderAgentPRs(t *testing.T) {
 	}
 	if strings.Contains(off, "open a pull request") {
 		t.Errorf("off: the brief tells the agent to open a pull request")
+	}
+}
+
+// TestRenderFullSuite checks the testing rule: the tests the change touches
+// and the full suite only when asked by name, unless the project lets its
+// agents run it while the installation blocks it.
+func TestRenderFullSuite(t *testing.T) {
+	render := func(on bool) string {
+		t.Helper()
+		got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-02", Branch: "agentbox/x", BaseRef: "main", Worktree: "/w", FullSuite: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	allowed, blocked := render(true), render(false)
+	for _, want := range []string{"never the whole suite", "AGENTBOX_FULL_SUITE=1 <command>", "vitest related <files>", "## Testing your change\n\n- Run only"} {
+		if !strings.Contains(blocked, want) {
+			t.Errorf("the brief doesn't say %q", want)
+		}
+	}
+	if !strings.Contains(allowed, "## Testing your change\n\n- While you iterate") || !strings.Contains(allowed, "run the full suite once") || strings.Contains(allowed, "AGENTBOX_FULL_SUITE") {
+		t.Errorf("allowed: the brief doesn't let the agent run the full suite once")
 	}
 }
 
@@ -525,9 +620,9 @@ func TestRenderLeadNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"## Project notes", "- 2026-09-18: the e2e tests need a Postgres on 5432.", "append_note", "read_notes",
+		"## Project notes", "- 2026-09-18: the e2e tests need a Postgres on 5432.", "`notes` appends", "reads them as they are now",
 		// It can change one entry, and only because it was asked to (D82).
-		"`edit_note` and `remove_note`", "**when the user asks you to**",
+		"`edit` and `remove` change one entry", "**when the user asks you to**",
 		"matches nothing, or more than one, changes nothing",
 		// Which store a fact belongs in, and that the user is told which.
 		"### Notes or memory", "pasted into **every** agent's brief", "When in doubt, `remember`",
@@ -547,7 +642,7 @@ func TestRenderLeadNotes(t *testing.T) {
 		t.Errorf("RenderLead() kept notes that are gone:\n%s", text)
 	}
 	// It is still told the notes exist and are its to add to.
-	for _, want := range []string{"## Project notes", "Nothing is written down yet.", "append_note"} {
+	for _, want := range []string{"## Project notes", "Nothing is written down yet.", "`notes` appends"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("RenderLead() without notes is missing %q:\n%s", want, text)
 		}
@@ -560,7 +655,7 @@ func TestRenderLeadNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, unwanted := range []string{"append_note", "edit_note", "remove_note", "### Notes or memory"} {
+	for _, unwanted := range []string{"`notes`", "`edit` and `remove`", "### Notes or memory"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("RenderLead() offers %s to a lead with no tools:\n%s", unwanted, text)
 		}
@@ -590,7 +685,7 @@ func TestRenderLeadOpenCode(t *testing.T) {
 		"### Agents can run OpenCode too",
 		"`create_agent`'s `ai`",
 		"`anthropic/claude-sonnet-5`, `openai/gpt-5.4`",
-		"Keep `claude` unless there is a reason",
+		"Name it only when there is a reason",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the lead's brief doesn't mention %q", want)
@@ -602,6 +697,31 @@ func TestRenderLeadOpenCode(t *testing.T) {
 	for _, text := range []string{lead(nil, true), lead([]string{"anthropic/claude-sonnet-5"}, false)} {
 		if strings.Contains(text, "OpenCode") {
 			t.Errorf("the lead's brief offers OpenCode where it can't be used:\n%s", text)
+		}
+	}
+}
+
+// A lead that can create agents is told that one it gives no tool runs its
+// own, and that Claude Code's model names and defaults aren't another tool's.
+func TestRenderLeadAgentsFollowItsTool(t *testing.T) {
+	for _, canSpawn := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", CanSpawn: canSpawn,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"### Which AI tool each agent runs",
+			"without `ai` runs the tool you run on yourself",
+			"it runs Claude Code, and `create_agent`'s reply says why",
+			"starts on that tool's own default",
+		} {
+			if strings.Contains(got, want) != canSpawn {
+				t.Errorf("CanSpawn %v: the lead's brief mentions %q: %v, want %v", canSpawn, want, !canSpawn, canSpawn)
+			}
 		}
 	}
 }
@@ -636,7 +756,7 @@ func TestRenderLeadClaudeAccounts(t *testing.T) {
 	for _, want := range []string{
 		"### Spread agents across accounts",
 		"This project may use 2 Claude Code accounts: `personal`, `work`",
-		"`list_accounts`",
+		"`list_resources` (accounts)",
 		"`claude_account` to `create_agent`",
 		"most headroom",
 		"5-hour limit",
@@ -666,7 +786,7 @@ func TestRenderLeadShell(t *testing.T) {
 	for _, want := range []string{
 		"**a shell on the user's machine**", "**It asks first.**",
 		"Ask before anything you can't take back",
-		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_between_agents`", "`copy_to_agent`",
+		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_to_agent` with `from`", "`copy_to_agent`",
 		// Output costs tokens, and real work is still an agent's.
 		"stays in this conversation", "`| tail -n 20`", "when a job turns into a session, it is an agent's",
 	} {
@@ -762,6 +882,40 @@ func TestRenderLeadShellByHost(t *testing.T) {
 	}
 }
 
+// An iOS agent whose project allows no ports yet is told the user allows
+// them when it forwards.
+func TestRenderIOSWithNoPorts(t *testing.T) {
+	got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-08", Worktree: "/w", Branch: "b", BaseRef: "main", VM: true, Host: "a Mac", IOS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "any port wait for the user to allow them in the app") {
+		t.Errorf("the brief doesn't say the user allows the ports:\n%s", got)
+	}
+}
+
+// An iOS project's lead on a Mac knows its agents drive the Mac's iOS
+// Simulator, so it creates one instead of sending the user to the Mac.
+func TestRenderLeadIOS(t *testing.T) {
+	render := func(ios bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/Users/dev/pawly", Worktree: "/w", BaseRef: "main",
+			Autonomy: "ask", CanSpawn: true, VM: true, Host: "a Mac", IOS: ios,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := render(false); strings.Contains(got, "iOS Simulator") {
+		t.Errorf("a project with no iOS app gets the iOS Simulator:\n%s", got)
+	}
+	if got := render(true); !strings.Contains(got, "so a job that needs it is an agent's") {
+		t.Errorf("an iOS project's lead isn't told agents drive the simulator:\n%s", got)
+	}
+}
+
 // The recheck is only in the lead's brief when it's on, and comes with its
 // one hard rule; nothing speaks of a queue or slots, which are gone.
 func TestRenderLeadRecheck(t *testing.T) {
@@ -798,12 +952,16 @@ func TestRenderLeadRecheck(t *testing.T) {
 
 // TestRenderHome checks the Home chat's brief, with projects and without.
 func TestRenderHome(t *testing.T) {
-	for name, projects := range map[string][]brief.HomeProject{
-		"home":       {{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}},
-		"home-empty": nil,
+	pawly := []brief.HomeProject{{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}}
+	for name, d := range map[string]brief.HomeData{
+		"home":       {Projects: pawly},
+		"home-empty": {},
+		// One of several sessions: the brief names the others.
+		"home-sessions": {Projects: pawly, Session: "Weekly planning", OtherSessions: []string{"Chat", "Prod: login 500s"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := brief.RenderHome(brief.HomeData{Dir: "/home/dev/.agentbox", Projects: projects, VM: true, Host: "a Linux host"})
+			d.Dir, d.VM, d.Host = "/home/dev/.agentbox", true, "a Linux host"
+			got, err := brief.RenderHome(d)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -821,6 +979,28 @@ func TestRenderHome(t *testing.T) {
 				t.Errorf("RenderHome() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// TestRenderHomeOnHost checks the Home chat's brief when its tool runs on
+// the user's computer rather than in AgentBox's VM.
+func TestRenderHomeOnHost(t *testing.T) {
+	got, err := brief.RenderHome(brief.HomeData{Dir: "/Users/dev/.local/share/agentbox/home-chat", VM: true,
+		Host: "a Mac", OnHost: true, HostHome: "/Users/dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a shell on the user's own computer (a Mac)", "home folder is `/Users/dev`", "run in its VM", "mounted there at the same path"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief doesn't say %q:\n%s", want, got)
+		}
+	}
+	got, err = brief.RenderHome(brief.HomeData{Dir: `C:\Users\dev`, VM: true, Host: "Windows", OnHost: true, HostHome: `C:\Users\dev`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "WSL distro, so") || !strings.Contains(got, "not a Windows path") {
+		t.Errorf("the Windows brief doesn't say where projects are:\n%s", got)
 	}
 }
 
@@ -845,5 +1025,38 @@ func TestRenderProjectName(t *testing.T) {
 	same, err := brief.Render(brief.Data{Project: "pawly", ProjectName: "pawly", Agent: "agent-1", Worktree: "/w", Branch: "b", BaseRef: "main"})
 	if err != nil || !strings.Contains(same, "- Project: pawly\n") {
 		t.Errorf("same name: %v", err)
+	}
+}
+
+func sessionIf(on bool, topic string) string {
+	if !on {
+		return ""
+	}
+	return topic
+}
+
+func othersIf(on bool, topics ...string) []string {
+	if !on {
+		return nil
+	}
+	return topics
+}
+
+// TestRenderLeadAgentTool: a project that names a tool for its agents says
+// so in place of "the tool you run on yourself".
+func TestRenderLeadAgentTool(t *testing.T) {
+	for tool, want := range map[string]string{"OpenCode": "runs OpenCode**", "": "runs the tool you run on yourself**"} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", AgentTool: tool, CanSpawn: true,
+			AgentDefaultModel: "opus", AgentDefaultWindow: "200k",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("with AgentTool %q the brief doesn't say %q", tool, want)
+		}
 	}
 }

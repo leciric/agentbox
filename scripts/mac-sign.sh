@@ -4,6 +4,9 @@
 # scripts/agentbox.entitlements), which the experimental vz driver needs: it
 # runs AgentBox's VM in the agentbox process itself (internal/hostvm/chv/vz.go).
 # Lima's VM doesn't, so a binary without it only can't use --driver vz.
+# The native app's .app (scripts/native-package.sh mac) is signed with it too,
+# for the hardened runtime and timestamp; it runs no VM, and the entitlement
+# is one any Developer ID app may carry.
 #
 #   scripts/mac-sign.sh [--identity <codesign identity>] <agentbox>...
 #
@@ -19,7 +22,7 @@ identity=-
 while [ $# -gt 0 ]; do
   case $1 in
     --identity) identity=${2:-}; [ -n "$identity" ] || { echo "--identity needs an identity" >&2; exit 2; }; shift 2 ;;
-    -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 0 ;;
+    -h | --help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) break ;;
   esac

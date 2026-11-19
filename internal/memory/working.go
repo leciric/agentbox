@@ -26,6 +26,10 @@ type WorkingMemory struct {
 	Blockers []string `json:"blockers,omitempty"`
 	// Notes is anything else that matters today and won't next month.
 	Notes string `json:"notes,omitempty"`
+	// Sessions is what each of the chat's sessions is working on, by session
+	// id, but for the one migrated from the chat before sessions
+	// (state.MigratedSession), whose is CurrentTask, as it always was.
+	Sessions map[string]string `json:"sessions,omitempty"`
 	// UpdatedAt is when it was last written; zero for a project that has
 	// never had any.
 	UpdatedAt time.Time `json:"updatedAt,omitzero"`
@@ -41,6 +45,54 @@ type WorkingMemoryPatch struct {
 	ActiveAgents *[]string `json:"activeAgents,omitempty"`
 	Blockers     *[]string `json:"blockers,omitempty"`
 	Notes        *string   `json:"notes,omitempty"`
+	// Session is the chat session whose current task this patch sets: ""
+	// for the document's own CurrentTask, which is also the migrated
+	// session's.
+	Session string `json:"session,omitempty"`
+}
+
+// ForSession is the document as one chat session reads it: its own current
+// task as CurrentTask, and every other session's under Sessions.
+func (w WorkingMemory) ForSession(session string) WorkingMemory {
+	if session == "" || session == mainSession {
+		return w
+	}
+	out := w
+	out.Sessions = map[string]string{}
+	for id, task := range w.Sessions {
+		if id != session {
+			out.Sessions[id] = task
+		}
+	}
+	if w.CurrentTask != "" {
+		out.Sessions[mainSession] = w.CurrentTask
+	}
+	out.CurrentTask = w.Sessions[session]
+	return out
+}
+
+// mainSession is state.MigratedSession, which this package can't import.
+const mainSession = "main"
+
+// sessionLead is state.LeadSessionName.
+func sessionLead(session string) string {
+	switch session {
+	case "":
+		return ""
+	case mainSession:
+		return "lead"
+	}
+	return "lead." + session
+}
+
+// ForgetSession drops a closed session's current task.
+func (s *Store) ForgetSession(ctx context.Context, project, session string) error {
+	w, err := s.WorkingMemory(ctx, project)
+	if err != nil || w.Sessions[session] == "" {
+		return err
+	}
+	_, err = s.SetWorkingMemory(ctx, project, WorkingMemoryPatch{CurrentTask: new(string), Session: session})
+	return err
 }
 
 // Empty reports whether the patch asks for nothing.
@@ -98,8 +150,20 @@ func (s *Store) SetWorkingMemory(ctx context.Context, project string, patch Work
 		}
 	}
 	if patch.CurrentTask != nil {
-		if current.CurrentTask, err = text("the current task", *patch.CurrentTask, maxWorkingField); err != nil {
+		task, err := text("the current task", *patch.CurrentTask, maxWorkingField)
+		if err != nil {
 			return WorkingMemory{}, err
+		}
+		switch {
+		case patch.Session == "" || patch.Session == mainSession:
+			current.CurrentTask = task
+		case task == "":
+			delete(current.Sessions, patch.Session)
+		default:
+			if current.Sessions == nil {
+				current.Sessions = map[string]string{}
+			}
+			current.Sessions[patch.Session] = task
 		}
 	}
 	if patch.Notes != nil {

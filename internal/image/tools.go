@@ -309,6 +309,6 @@ func installTools(ctx context.Context, inc incus.Client, name, user string, plan
 	if err := tools("verify", "/root/tools.current"); err != nil {
 		return err
 	}
-	_, err := inc.Exec(ctx, name, "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && "+scrubMachineID)
+	_, err := inc.Exec(ctx, name, "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && "+dropCaches(user)+" && "+scrubMachineID)
 	return err
 }

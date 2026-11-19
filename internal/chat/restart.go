@@ -121,6 +121,39 @@ func (m *Manager) Resume(a state.Agent, rt state.RunningTurn) (bool, error) {
 	return true, nil
 }
 
+// lostPrompt and lostNotice are what ResumeLost tells the chat and says in
+// the conversation.
+const (
+	lostPrompt = "Your AI tool stopped unexpectedly in the middle of this turn (its connection to the machine was cut, or it was killed), and AgentBox started it again. Whatever was running then may not have finished: check, and continue where you left off."
+	lostNotice = "The AI tool stopped unexpectedly in the middle of this turn. AgentBox started it again and resumed the turn."
+)
+
+// ResumeLost carries on the turn of an agent whose AI tool exited in the
+// middle of it (Lost), once it can: nothing else runs on the chat, and
+// nobody has written to it since. It reports whether it did.
+func (m *Manager) ResumeLost(a state.Agent) (bool, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return false, err
+	}
+	defer c.mu.Unlock()
+	if c.gone || c.turn != nil || c.rolling || c.compaction != nil {
+		return false, nil
+	}
+	last := ""
+	for i := len(c.items) - 1; i >= 0; i-- {
+		if c.items[i].Kind == "user" {
+			last = c.items[i].Turn
+			break
+		}
+	}
+	c.add("notice", last).Text = lostNotice
+	user := c.add("user", "")
+	user.Turn, user.Text, user.Hidden = user.ID, lostPrompt, true
+	c.beginResumedTurn(user, lostPrompt, attached{}, 1)
+	return true, nil
+}
+
 // HoldResume is Resume for an agent whose machine waits for the memory to
 // start: the conversation says so, and Release carries the turn on. Stop
 // gives up on it.
@@ -209,6 +242,26 @@ func (m *Manager) NoteNotResumed(a state.Agent, rt state.RunningTurn, why string
 		return
 	}
 	c.add("notice", rt.Turn).Text = "AgentBox restarted while this turn was running, and didn't resume it: " + why + "."
+	c.flush(true)
+}
+
+// heldPrefix begins what NoteHeld says.
+const heldPrefix = "AgentBox restarted while this turn was running, and didn't resume it by itself: "
+
+// NoteHeld tells a conversation that its turn, cut short by a restart, waits
+// for the user to resume it, and why. The record stays, held (the daemon's
+// Resume all carries it on); a message sent meanwhile is newer work, and
+// replaces it.
+func (m *Manager) NoteHeld(a state.Agent, rt state.RunningTurn, why string) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return
+	}
+	defer c.mu.Unlock()
+	if c.byID[rt.Turn] == nil {
+		return
+	}
+	c.add("notice", rt.Turn).Text = heldPrefix + why + ". It waits for you: Resume all carries it on, and so does a message."
 	c.flush(true)
 }
 

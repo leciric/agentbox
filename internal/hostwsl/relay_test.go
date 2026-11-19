@@ -1,6 +1,7 @@
 package hostwsl
 
 import (
+	"archive/tar"
 	"bufio"
 	"context"
 	"crypto/rand"
@@ -517,5 +518,150 @@ func TestImportWithoutVirtualization(t *testing.T) {
 	}
 	if n := hits.Load(); n != 0 {
 		t.Errorf("the image was requested %d times", n)
+	}
+}
+
+// TestCheckVirtualization: the probe archive is accepted by a WSL that refuses
+// an empty one, and only a virtualization failure is an error.
+func TestCheckVirtualization(t *testing.T) {
+	ctx := context.Background()
+	d := fakeDistro(t)
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d.Env = append(d.Env, "FAKEWSL_STRICT_TAR=1")
+	if err := d.checkVirtualization(ctx); err != nil {
+		t.Fatalf("strict WSL: checkVirtualization = %v, want nil", err)
+	}
+	if st := d.Status(ctx); st.Exists {
+		t.Error("the probe distro was left registered")
+	}
+
+	other := fakeDistro(t)
+	_ = os.MkdirAll(other.Dir, 0o755)
+	other.Env = append(other.Env, "FAKEWSL_IMPORT_FAIL=1")
+	if err := other.checkVirtualization(ctx); err != nil {
+		t.Errorf("unrelated failure: checkVirtualization = %v, want nil", err)
+	}
+
+	none := fakeDistro(t)
+	_ = os.MkdirAll(none.Dir, 0o755)
+	none.Env = append(none.Env, "FAKEWSL_NO_VMP=1")
+	if err := none.checkVirtualization(ctx); !errors.Is(err, ErrNoVirtualization) {
+		t.Errorf("no virtualization: checkVirtualization = %v", err)
+	}
+}
+
+func TestProbeTar(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "probe.tar")
+	if err := probeTar(p); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.Open(p)
+	defer func() { _ = f.Close() }()
+	tr := tar.NewReader(f)
+	found := false
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		found = found || h.Name == "etc/os-release"
+	}
+	if !found {
+		t.Error("probe tar has no etc/os-release")
+	}
+}
+
+// fakeElevation runs what InstallWSL would run as administrator on fakewsl
+// itself, with the distro's environment, and says what it was asked to run.
+func fakeElevation(t *testing.T, d *Distro, code int) *[]string {
+	t.Helper()
+	var asked []string
+	was := elevated
+	elevated = func(ctx context.Context, exe string, args ...string) (int, error) {
+		asked = append([]string{exe}, args...)
+		if code != 0 {
+			return code, nil
+		}
+		cmd := d.command(ctx, args...)
+		if err := cmd.Run(); err != nil {
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				return exit.ExitCode(), nil
+			}
+			return -1, err
+		}
+		return 0, nil
+	}
+	t.Cleanup(func() { elevated = was })
+	return &asked
+}
+
+// TestInstallWSL: `agentbox wsl install` runs wsl --install --no-distribution
+// as administrator, after which WSL answers and a distro can be made.
+func TestInstallWSL(t *testing.T) {
+	d := fakeDistro(t)
+	d.Env = append(d.Env, "FAKEWSL_NOT_INSTALLED=1")
+	ctx := context.Background()
+	if st := d.Status(ctx); st.WSL != "" || !strings.Contains(st.Problem, "agentbox wsl install") {
+		t.Fatalf("before: %+v", st)
+	}
+	asked := fakeElevation(t, d, 0)
+	if err := d.InstallWSL(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join((*asked)[1:], " "); got != "--install --no-distribution" || (*asked)[0] != d.WSL {
+		t.Fatalf("ran %q as administrator", *asked)
+	}
+	if st := d.Status(ctx); st.WSL == "" || st.Problem != ErrNotCreated.Error() {
+		t.Fatalf("after: %+v", st)
+	}
+	if left, _ := d.State(ctx); left.Exists {
+		t.Fatalf("the probe distro was left behind: %+v", left)
+	}
+}
+
+// TestInstallWSLNeedsRestart: an install that only counts after a restart
+// says so, whether WSL doesn't answer yet or can't start a WSL 2 distro yet.
+func TestInstallWSLNeedsRestart(t *testing.T) {
+	ctx := context.Background()
+	for name, env := range map[string][]string{
+		"no WSL until the restart":      {"FAKEWSL_NOT_INSTALLED=1", "FAKEWSL_INSTALL=restart"},
+		"no platform until the restart": {"FAKEWSL_NO_VMP=1"},
+	} {
+		d := fakeDistro(t)
+		d.Env = append(d.Env, env...)
+		fakeElevation(t, d, 0)
+		if err := d.InstallWSL(ctx); !errors.Is(err, ErrRestartWindows) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// TestInstallWSLRefused: the administrator prompt answered no, a wsl.exe that
+// fails, and a Windows with no wsl.exe each say what to do.
+func TestInstallWSLRefused(t *testing.T) {
+	ctx := context.Background()
+	d := fakeDistro(t)
+	fakeElevation(t, d, cancelled)
+	if err := d.InstallWSL(ctx); !errors.Is(err, errRefused) {
+		t.Errorf("refused: %v", err)
+	}
+	d = fakeDistro(t)
+	d.Env = append(d.Env, "FAKEWSL_INSTALL=fail")
+	fakeElevation(t, d, 0)
+	if err := d.InstallWSL(ctx); err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("failed: %v", err)
+	}
+	d.WSL = ""
+	if err := d.InstallWSL(ctx); err == nil || !strings.Contains(err.Error(), "no wsl.exe") {
+		t.Errorf("no wsl.exe: %v", err)
+	}
+}
+
+func TestPSQuote(t *testing.T) {
+	if got := psQuote(`C:\Users\O'Neil\wsl.exe`); got != `'C:\Users\O''Neil\wsl.exe'` {
+		t.Error(got)
 	}
 }

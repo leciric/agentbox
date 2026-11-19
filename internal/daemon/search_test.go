@@ -112,7 +112,8 @@ func TestSearchFindsEveryKind(t *testing.T) {
 		kinds[g.Kind] = g
 		order = append(order, g.Kind)
 	}
-	want := []string{api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports, api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls}
+	// The lead's message finds its session too.
+	want := []string{api.SearchSessions, api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports, api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("groups = %v, want %v", order, want)
 	}

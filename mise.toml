@@ -1,9 +1,6 @@
 [tools]
-# The patch release, the one go.mod names: the coverage floor
-# (.github/coverage-floor.txt) is measured with it, and a patch release can
-# count statements differently (go1.27.2 read 1.2 points lower than go1.27.1 on
-# the same code). Move both together.
-go = "1.27.2"
+# The patch release, the one go.mod names: move both together.
+go = "1.27.4"
 node = "lts"
 pnpm = "latest"
 ttyd = "latest"

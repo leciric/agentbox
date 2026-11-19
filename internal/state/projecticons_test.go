@@ -105,7 +105,7 @@ func TestProjectIcons(t *testing.T) {
 		t.Fatalf("ProjectIconVersion with no row = %d, %v", v, err)
 	}
 	t0 := time.UnixMilli(1_000_000)
-	if err := s.SaveDetectedProjectIcon(ctx, "pawly", []byte("png"), "image/png", "favicon.ico", t0); err != nil {
+	if err := s.SaveDetectedProjectIcon(ctx, "pawly", []byte("png"), "image/png", "favicon.ico", []string{"favicon.ico", "logo.svg"}, t0); err != nil {
 		t.Fatal(err)
 	}
 	v1, _ := s.ProjectIconVersion(ctx, "pawly")
@@ -113,14 +113,14 @@ func TestProjectIcons(t *testing.T) {
 		t.Errorf("version after the first detection = %d, want %d", v1, t0.UnixMilli())
 	}
 	// The same icon found again doesn't change the version.
-	if err := s.SaveDetectedProjectIcon(ctx, "pawly", []byte("png"), "image/png", "favicon.ico", t0.Add(time.Hour)); err != nil {
+	if err := s.SaveDetectedProjectIcon(ctx, "pawly", []byte("png"), "image/png", "favicon.ico", []string{"favicon.ico"}, t0.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := s.ProjectIconVersion(ctx, "pawly"); v != v1 {
 		t.Errorf("version after the same detection = %d, want %d", v, v1)
 	}
 	ic, ok, _ := s.ProjectIcon(ctx, "pawly")
-	if !ok || !ic.DetectedAt.Equal(t0.Add(time.Hour)) || string(ic.Detected) != "png" {
+	if !ok || !ic.DetectedAt.Equal(t0.Add(time.Hour)) || string(ic.Detected) != "png" || strings.Join(ic.Candidates, " ") != "favicon.ico" {
 		t.Errorf("ProjectIcon = %+v, %v", ic, ok)
 	}
 	// A choice made in the same millisecond still moves the version.

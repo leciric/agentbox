@@ -26,6 +26,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/bridgecheck"
 	"agentbox/internal/credentials"
+	"agentbox/internal/github"
 	"agentbox/internal/image"
 	"agentbox/internal/inagent"
 	"agentbox/internal/incus"
@@ -90,6 +91,8 @@ type testConfig struct {
 	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
+	// updateInterval is Config.UpdateInterval; zero is update.Interval.
+	updateInterval time.Duration
 	// npmRegistry is Config.NPMRegistry; empty is a port nothing listens on.
 	npmRegistry string
 	// loginCallbackUnreachable is the daemon's: a browser that can't reach
@@ -181,6 +184,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
 		NPMRegistry:      cmp.Or(tc.npmRegistry, "http://127.0.0.1:1"),
 		UpdateStartDelay: -1,
+		UpdateInterval:   tc.updateInterval,
 		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:        gh.URL,
 		// Every fake connector server listens on loopback.
@@ -206,8 +210,14 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.readCPUPressure = func() (pressure.PSI, error) { return pressure.PSI{}, nil }
 	srv.runCgroups = &fakeRunCgroups{}
 	srv.setMemoryLimit = func(string, int64) error { return nil }
+	srv.setIOWeight = func(string, int) error { return nil }
+	srv.vmSwap = func() int64 { return 0 }
+	srv.setCaps = func(string, agent.Caps) error { return nil }
+	srv.thrash = func(string) (agent.ThrashSample, bool) { return agent.ThrashSample{}, false }
+	srv.killLargest = func(string) (agent.OOMVictim, error) { return agent.OOMVictim{}, nil }
 	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }
 	srv.oomVictim = func(string) (agent.OOMVictim, bool) { return agent.OOMVictim{}, false }
+	srv.shared.on = func() bool { return false }
 	if tc.setup != nil {
 		tc.setup(srv)
 	}
@@ -262,6 +272,11 @@ func (d testDaemon) setGitHub(t *testing.T, stubURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A stub's address is a closed one's reused: it starts on a budget of
+	// its own, not on a rate limit an earlier test's stub ran out, and
+	// leaves none behind.
+	github.ForgetUsage(stubURL)
+	t.Cleanup(func() { github.ForgetUsage(stubURL) })
 	d.gitHub.Store(u)
 }
 
@@ -324,13 +339,19 @@ func TestUpdateProjectAgentPRs(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
+	root := d.fixtureRepo(t, "hello-stack")
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.AgentPRs {
 		t.Error("a new project's agents push their own pull requests")
 	}
+	// With no remote there's nowhere to push at all, which the brief says.
+	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "**This project has no remote**") {
+		t.Errorf("no remote: the brief doesn't say so:\n%s", brief)
+	}
+	testutil.Git(t, root, "remote", "add", "origin", "https://github.com/acme/hello-stack.git")
 	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "Don't push.") {
 		t.Errorf("off: the brief doesn't tell the agent not to push:\n%s", brief)
 	}
@@ -598,7 +619,7 @@ func TestFailedCreateJobRollsBack(t *testing.T) {
 	if j.Status != api.JobFailed || !strings.Contains(j.Error, "simulated copy failure") {
 		t.Errorf("job after following it = %+v", j)
 	}
-	if !strings.Contains(log.String(), "instance failed; rolling back") {
+	if !strings.Contains(log.String(), "copying the base failed; rolling back") {
 		t.Errorf("job log:\n%s", log.String())
 	}
 	if agents, err := d.client.Agents(ctx, ""); err != nil || len(agents) != 0 {

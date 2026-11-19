@@ -24,6 +24,7 @@ export type AppUpdateProgress =
 export type AppUpdateErrorCode =
   | 'unsupported' // see AppUpdateSupport
   | 'busy' // the daemon is running jobs, which a restart would cut short
+  | 'daemonStale' // the daemon is still the version from before the app updated, and would pick the release for that one
   | 'upToDate' // the latest release is this one
   | 'noRelease' // the daemon couldn't say what the latest release is
   | 'noAssets' // the release list couldn't be reached for the release's files

@@ -10,6 +10,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/image"
+	"agentbox/internal/state"
 )
 
 // fakeNPM answers npm's latest tag with versions, by package.
@@ -74,14 +75,9 @@ func TestKeepClaudeCodeUpToDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	pin := image.Overrides(nil).Version("claude")
-	if u := s.ClaudeCodeUpdate; u.On || u.Installed != pin || u.Pinned != pin || u.CheckedAt != nil {
-		t.Fatalf("before it's turned on: %+v", u)
-	}
-	on := true
-	if s, err = d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{ClaudeCodeAutoUpdate: &on}); err != nil {
-		t.Fatal(err)
-	} else if !s.ClaudeCodeUpdate.On || !s.ClaudeCodeUpdate.Checking {
-		t.Errorf("turning it on doesn't check at once: %+v", s.ClaudeCodeUpdate)
+	// Nobody chose: it's on, and the first check ran as the daemon started.
+	if u := s.ClaudeCodeUpdate; !u.On || u.Pinned != pin {
+		t.Fatalf("by default: %+v", u)
 	}
 	u := waitToolUpdate(t, d)
 	if u.Installed != "99.1.0" || u.Latest != "99.1.0" || u.Error != "" || u.Pinned != pin {
@@ -166,5 +162,29 @@ func TestClaudeCodeCheckOffline(t *testing.T) {
 	}
 	if u := waitToolUpdate(t, d); !strings.Contains(u.Error, "asking npm for the newest @anthropic-ai/claude-code") || u.Latest != "" {
 		t.Errorf("offline: %+v", u)
+	}
+}
+
+// A user who turned it off keeps it off when the daemon starts: no check runs.
+func TestClaudeCodeAutoUpdateOffSurvivesStart(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	pinned := image.ToolsFor(image.Components{})
+	d := startTestDaemon(t, root, toolsIncus(image.Version, image.Components{}, image.ToolsVersion(pinned), toolSpecs(pinned), withNext, ""),
+		testConfig{npmRegistry: fakeNPM(t, newerClaude).URL, setup: func(srv *Server) {
+			if err := srv.store.SetFlag(ctx, state.SettingClaudeCodeAutoUpdate, false); err != nil {
+				t.Error(err)
+			}
+		}})
+	s, err := d.client.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := s.ClaudeCodeUpdate; u.On || u.Checking {
+		t.Fatalf("explicitly off: %+v", u)
+	}
+	if got := d.srv.beginToolCheck(ctx, claudeAutoUpdate); got {
+		t.Error("a check began while it's off")
 	}
 }

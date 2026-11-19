@@ -85,3 +85,12 @@ test('media events and seen notices change every list in the cache, and only the
   setMediaUnseen(client, false, new Set(), true);
   assert.ok(!isMediaUnseen(client, 'm10'));
 });
+
+test('a page without items, or without pages, reads as empty rather than crashing', () => {
+  const partial = { pages: [{ items: null, next: '' }, undefined, { next: '' }, { items: [item('m1', 1), undefined], next: '' }], pageParams: [] } as unknown as MediaPages;
+  assert.deepEqual(ids(partial), ['m1']);
+  assert.deepEqual(loadedItems({ pageParams: [] } as unknown as MediaPages), []);
+  assert.deepEqual(ids(withMediaItem(partial, {}, item('m2', 2))), ['m2', 'm1']);
+  assert.deepEqual(ids(withMediaItem(partial, {}, { ...item('m1', 1), removed: true })), []);
+  assert.deepEqual(ids(withMediaItem({ pageParams: [] } as unknown as MediaPages, {}, item('m3', 3))), []);
+});

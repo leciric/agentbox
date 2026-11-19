@@ -1,0 +1,124 @@
+package daemon
+
+import (
+	"net/http"
+	"sync"
+	"time"
+
+	"agentbox/internal/agent"
+	"agentbox/internal/api"
+	"agentbox/internal/hostload"
+	"agentbox/internal/hostos"
+	"agentbox/internal/pressure"
+)
+
+// The user's computer comes first: its front end reports how loaded it is
+// (internal/hostload, PUT /v1/host/load), and while it is busy the pressure
+// loop starts no heavy command and resumes no paused one (Sample.HostBusy),
+// and builds run fewer jobs (memoryjobs.go counts it as short). What runs
+// goes on: an agent may stall, the desktop doesn't. Where the front end has
+// no memory loop of its own (Lima, WSL), a report short of memory also has
+// the daemon drop the VM's caches, at most every hostReclaimEvery, which free
+// page reporting (or WSL's autoMemoryReclaim) then gives back to the host.
+
+// hostReclaimEvery is the least time between two cache drops for the host.
+const hostReclaimEvery = 2 * time.Minute
+
+type hostLoad struct {
+	mu          sync.Mutex
+	last        api.HostLoad
+	got         time.Time // when last came; zero before the first
+	lastReclaim time.Time
+}
+
+// current is the last report, if it came within api.HostLoadTTL of now.
+func (h *hostLoad) current(now time.Time) (api.HostLoad, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.got.IsZero() || now.Sub(h.got) > api.HostLoadTTL {
+		return api.HostLoad{}, false
+	}
+	return h.last, true
+}
+
+// busy reports whether the host is busy now, by a fresh report.
+func (h *hostLoad) busy(now time.Time) bool {
+	l, ok := h.current(now)
+	return ok && l.Busy
+}
+
+// holdBoots reports whether a fresh report says to boot no machine: the
+// host has been short of memory lately (api.HostLoad.HoldBoots).
+func (h *hostLoad) holdBoots(now time.Time) bool {
+	l, ok := h.current(now)
+	return ok && l.HoldBoots
+}
+
+// withCeiling is m with its cap lowered to what a fresh report says the VM
+// may grow to now (api.HostLoad.VMCeiling): growth the host can't spare
+// isn't room to boot or build in.
+func (h *hostLoad) withCeiling(m pressure.Mem, now time.Time) pressure.Mem {
+	if l, ok := h.current(now); ok && l.VMCeiling > 0 && m.Cap > l.VMCeiling {
+		m.Cap = l.VMCeiling
+	}
+	return m
+}
+
+// putHostLoad is PUT /v1/host/load.
+func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
+	var load api.HostLoad
+	if err := readJSON(r, &load); err != nil {
+		return err
+	}
+	now := time.Now()
+	h := &s.hostLoad
+	h.mu.Lock()
+	fresh := !h.got.IsZero() && now.Sub(h.got) <= api.HostLoadTTL
+	was, held := fresh && h.last.Busy, fresh && h.last.HoldBoots
+	h.last, h.got = load, now
+	reclaim := load.Reclaim && now.Sub(h.lastReclaim) >= hostReclaimEvery
+	if reclaim {
+		h.lastReclaim = now
+	}
+	h.mu.Unlock()
+	if load.Busy != was {
+		if load.Busy {
+			s.logf("host load: this computer, outside the VM, is busy (%s): heavy commands wait to start, and machines to boot", hostload.Words(load))
+		} else {
+			s.logf("host load: this computer is calm again")
+		}
+	}
+	if load.HoldBoots != held {
+		if load.HoldBoots {
+			s.logf("host load: this computer is short of memory (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
+		} else {
+			s.logf("host load: this computer has kept its memory to spare for a while: agents' machines may boot again")
+		}
+	}
+	if reclaim {
+		// Aside: it can take seconds, and the front end waits on nothing.
+		go func() {
+			if err := dropVMCaches(); err != nil {
+				s.logf("host load: dropping the VM's caches for the host: %v", err)
+			} else {
+				s.logf("host load: this computer is short of memory: dropped the VM's caches")
+			}
+		}()
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// dropVMCaches drops the VM's page cache and the kernel's reclaimable caches
+// and compacts what's free into whole blocks, as chv's reclaimScript does.
+// Only in the VM: on a machine of the user's own, its caches are theirs.
+// Tests replace it.
+var dropVMCaches = func() error {
+	if !hostos.InVM() {
+		return nil
+	}
+	if err := agent.Sudo("tee", "3", "/proc/sys/vm/drop_caches"); err != nil {
+		return err
+	}
+	return agent.Sudo("tee", "1", "/proc/sys/vm/compact_memory")
+}

@@ -11,7 +11,7 @@ export function isNightly(version: string | undefined): boolean {
 
 // releaseOf is the release a version is or leads up to: 0.11.0 for
 // 0.11.0-nightly.20260929.12.
-function releaseOf(version: string): number[] {
+export function releaseOf(version: string): number[] {
   return version
     .replace(/^v/, '')
     .replace(/[-+].*$/, '')

@@ -31,7 +31,7 @@ const out = process.env.OUT_DIR ?? join(tmpdir(), 'launch-model-evidence');
 const work = mkdtempSync(join(tmpdir(), 'agentbox-launch-model-'));
 const bin = join(work, 'bin', 'agentbox');
 const P = 'hello-stack';
-const FABLE = 'claude-fable-5-1';
+const FABLE = 'claude-fable-5-2';
 
 const env = {
   ...process.env,

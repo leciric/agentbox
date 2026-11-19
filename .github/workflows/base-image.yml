@@ -35,16 +35,16 @@ jobs:
         with:
           install_args: go
 
-      # CI's Go test cache, which main's runs keep: this saves none of its own.
+      # CI's Go cache (go-check's), which main's runs keep: this saves none of its own.
       - uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-test-${{ runner.os }}-
+            go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-check-${{ runner.os }}-
 
       - name: Build the command-line tool
         run: go build -o bin/agentbox ./cmd/agentbox

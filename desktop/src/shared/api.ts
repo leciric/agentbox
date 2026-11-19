@@ -7,14 +7,21 @@ export interface Project {
   branch: string;
   envFiles: string[];
   android: boolean;
+  ios: boolean;
   claudeAccount: string;
   claudeAccounts: string[];
   githubAccount: string;
   codexAccount: string;
   openCodeAccounts: Record<string, string>;
   cursorAccount: string;
+  geminiAccount: string;
+  copilotAccount: string;
   autonomy: string;
   agentModel: string;
+  agentTool: string;
+  agentEffort: string;
+  agentContextWindow: string;
+  agentMode: string;
   branchPrefix: string;
   finishNotices: string;
   rolloverThreshold: number;
@@ -24,9 +31,15 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  iosForwardPorts: number[];
   agentPRs: boolean;
+  noRemote: boolean;
   prWatch: string;
   syncBase: boolean;
+  settleHours: number;
+  fullTestSuite: boolean;
+  pickUpIssues: boolean;
+  pullRequests: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -46,8 +59,15 @@ export interface ProjectIcon {
   hasDetected?: boolean;
 }
 
+export interface ProjectIconCandidate {
+  from: string;
+  image: string;
+  chosen?: boolean;
+}
+
 export interface SetProjectIconRequest {
   emoji?: string;
+  candidate?: string;
   image?: string;
 }
 
@@ -59,9 +79,47 @@ export interface AddProjectRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
+  init?: boolean;
+}
+
+export interface SkippedPath {
+  path: string;
+  bytes: number;
+  reason: string;
+}
+
+export interface MergeAgentRequest {
+  message?: string;
+}
+
+export interface MergeAgentResult {
+  branch: string;
+  into: string;
+  commit: string;
+  fastForward: boolean;
+  upToDate: boolean;
+}
+
+export interface CloneProjectRequest {
+  url: string;
+  path: string;
+  name?: string;
+  claudeAccount?: string;
+  githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
+  copyToLinux?: boolean;
+  create?: boolean;
+  commitFiles?: boolean;
+  init?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -72,10 +130,16 @@ export interface UpdateProjectRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
   moveClaudeAgents?: boolean;
   moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
+  agentTool?: string;
+  agentEffort?: string;
+  agentContextWindow?: string;
+  agentMode?: string;
   branchPrefix?: string;
   finishNotices?: string;
   rolloverThreshold?: number;
@@ -83,9 +147,14 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  iosForwardPorts?: number[];
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  settleHours?: number;
+  fullTestSuite?: boolean;
+  pickUpIssues?: boolean;
+  pullRequests?: boolean;
 }
 
 export interface Section {
@@ -93,6 +162,8 @@ export interface Section {
   name: string;
   position: number;
   collapsed: boolean;
+  color: string;
+  description: string;
   createdAt: string;
 }
 
@@ -103,6 +174,8 @@ export interface AddSectionRequest {
 export interface UpdateSectionRequest {
   name?: string;
   collapsed?: boolean;
+  color?: string;
+  description?: string;
 }
 
 export interface ProjectLayout {
@@ -134,38 +207,71 @@ export interface Settings {
   enforceAgentDefaults: boolean;
   defaultLeadModel: string;
   defaultLeadContextWindow: string;
+  cloneFolder: string;
+  defaultLeadEffort: string;
+  defaultLeadMode: string;
   claudeModelChoices: ChatOptionChoice[];
   claudeContextWindows: Record<string, number[]>;
   claudeMenuKnown: boolean;
   defaultClaudeEffort: string;
   claudeEffortChoices: ChatOptionChoice[];
+  claudeModeChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
+  openCodeVersion: string;
   cursorModelChoices: ChatOptionChoice[];
   cursorReady: boolean;
   defaultCursorModel: string;
   defaultCursorEffort: string;
+  geminiModelChoices: ChatOptionChoice[];
+  geminiReady: boolean;
+  defaultGeminiModel: string;
+  copilotModelChoices: ChatOptionChoice[];
+  copilotReady: boolean;
+  defaultCopilotModel: string;
+  lastAgentPick: AgentPick;
+  firstRun: boolean;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
+  builtWithBadge: boolean;
+  builtWithBadgeOffer: boolean;
+  seenFeatures: string[];
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
   agentGPU: boolean;
+  blockFullSuite: boolean;
+  cockpitMode: boolean;
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
+  mergeWhenGreen: boolean;
+  agentFreeze: boolean;
   mediaRetention: string;
   language: string;
   timezone: string;
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
+  agentMemoryShare: number;
+  defaultAgentMemoryShare: number;
+  minAgentMemoryShare: number;
+  maxAgentMemoryShare: number;
+  agentMemoryLimit: number;
+  vmMemory: number;
   autoStopIdle: boolean;
+  removeStopped: boolean;
+  removeStoppedDays: number;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
+  idleReclaim: boolean;
+  idleFreezeSeconds: number;
+  idleStopSeconds: number;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
+  leadSleep: boolean;
+  leadSleepMinutes: number;
   imageCache: boolean;
   imageCacheMaxBytes: number;
   defaultImageCacheMaxBytes: number;
@@ -174,7 +280,14 @@ export interface Settings {
   packageCacheMaxBytes: number;
   defaultPackageCacheMaxBytes: number;
   packageCacheBytes: number;
+  localNodeModules: boolean;
   claudeCodeUpdate: ToolAutoUpdate;
+}
+
+export interface AgentPick {
+  ai: string;
+  model: string;
+  effort: string;
 }
 
 export interface ToolAutoUpdate {
@@ -194,35 +307,59 @@ export interface UpdateSettingsRequest {
   enforceAgentDefaults?: boolean;
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
+  cloneFolder?: string;
   defaultClaudeEffort?: string;
+  defaultLeadEffort?: string;
+  defaultLeadMode?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
+  defaultGeminiModel?: string;
+  defaultCopilotModel?: string;
+  lastAgentPick?: AgentPick;
+  firstRunDone?: boolean;
+  openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
+  builtWithBadge?: boolean;
+  dismissBuiltWithBadgeOffer?: boolean;
+  seeFeature?: string;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
   usageStats?: boolean;
   agentGPU?: boolean;
+  blockFullSuite?: boolean;
+  cockpitMode?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
+  mergeWhenGreen?: boolean;
+  agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
   timezone?: string;
   autoStopIdle?: boolean;
+  removeStopped?: boolean;
+  removeStoppedDays?: number;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
+  idleReclaim?: boolean;
+  idleFreezeSeconds?: number;
+  idleStopSeconds?: number;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
+  leadSleep?: boolean;
+  leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
+  agentMemoryShare?: number;
   imageCache?: boolean;
   imageCacheMaxBytes?: number;
   clearImageCache?: boolean;
   packageCache?: boolean;
   packageCacheMaxBytes?: number;
   clearPackageCache?: boolean;
+  localNodeModules?: boolean;
   claudeCodeAutoUpdate?: boolean;
   checkClaudeCode?: boolean;
 }
@@ -244,9 +381,12 @@ export interface Agent {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
+  leadSession?: string;
   stalledSince?: string;
   background?: string[];
   outcome?: string;
@@ -254,7 +394,11 @@ export interface Agent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  waitingForImage?: boolean;
   memory?: MemoryHold;
+  reclaimed?: string;
+  hold?: string;
+  goal?: AgentGoal;
   ip: string;
   createdAt: string;
 }
@@ -293,11 +437,28 @@ export interface FileContent {
   data?: string;
   text?: string;
   truncated?: boolean;
+  pdf?: boolean;
+  sqlite?: boolean;
   tooLarge?: boolean;
   status?: string;
   base?: string;
   baseText?: string;
   baseMissing?: boolean;
+}
+
+export interface SQLiteTable {
+  name: string;
+  view?: boolean;
+}
+
+export interface SQLiteQuery {
+  path: string;
+  tables: SQLiteTable[];
+  table?: string;
+  columns: string[];
+  rows: unknown[][];
+  offset: number;
+  total: number;
 }
 
 export interface FilesChange {
@@ -340,6 +501,7 @@ export interface ContinueArchivedRequest {
 
 export interface CreateAgentRequest {
   task?: string;
+  issue?: number;
   project: string;
   name?: string;
   title?: string;
@@ -356,11 +518,14 @@ export interface CreateAgentRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
   catchUp?: boolean;
   finishNotice?: string;
+  goal?: GoalSpec;
   queue?: boolean;
   size?: string;
   connectors?: string[];
@@ -478,12 +643,15 @@ export interface StopAgentFailure {
 export interface MemoryHold {
   paused?: number;
   waiting?: number;
+  machine?: string;
+  ahead?: number;
   since: string;
   why?: string;
   stalled?: number;
   rate?: number;
   available?: number;
   total?: number;
+  swapFull?: boolean;
 }
 
 export interface PressureStatus {
@@ -491,6 +659,7 @@ export interface PressureStatus {
   full: number;
   why?: string;
   runs: HeavyRun[];
+  host?: HostLoad;
 }
 
 export interface HeavyRun {
@@ -502,6 +671,23 @@ export interface HeavyRun {
   placed?: boolean;
 }
 
+export interface HostLoad {
+  os: string;
+  memory: number;
+  cpu: number;
+  io: number;
+  cpuShare: number;
+  level?: string;
+  memoryTotal?: number;
+  available?: number;
+  busy: boolean;
+  why?: string;
+  reclaim?: boolean;
+  vmCeiling?: number;
+  holdBoots?: boolean;
+  at: string;
+}
+
 export interface Job {
   id: string;
   kind: string;
@@ -511,6 +697,8 @@ export interface Job {
   result?: unknown;
   createdAt: string;
   finishedAt?: string;
+  ai?: string;
+  notice?: string;
 }
 
 export interface HostUsage {
@@ -551,6 +739,8 @@ export interface Usage {
 export interface DiskUsageItem {
   label: string;
   bytes: number;
+  kind?: string;
+  name?: string;
 }
 
 export interface DiskUsageCategory {
@@ -560,15 +750,48 @@ export interface DiskUsageCategory {
   items?: DiskUsageItem[];
 }
 
+export interface DiskTrim {
+  at: string;
+  bytes: number;
+  error?: string;
+}
+
 export interface DiskUsage {
   total: number;
   categories: DiskUsageCategory[];
+  trim?: DiskTrim;
 }
 
 export interface AgentDisk {
   machine?: number;
   worktree?: number;
   measuredAt: string;
+}
+
+export interface StoppedMachine {
+  ref: string;
+  project: string;
+  name: string;
+  title?: string;
+  branch: string;
+  stoppedSince: string;
+  machine?: number;
+  remove?: string;
+  keep?: string;
+}
+
+export interface StoppedMachines {
+  days: number;
+  machines: StoppedMachine[];
+}
+
+export interface RemoveStoppedRequest {
+  agents: string[];
+}
+
+export interface RemoveStoppedResult {
+  removed: string[];
+  kept: StoppedMachine[];
 }
 
 export interface ToolCredential {
@@ -599,6 +822,19 @@ export interface DiskGuardDisk {
   advice?: string;
 }
 
+export interface RestartHold {
+  unexpected?: boolean;
+  why?: string;
+  since?: string;
+  agents: string[];
+  chats: string[];
+}
+
+export interface ResumeAllResult {
+  agents: number;
+  chats: number;
+}
+
 export interface MemoryUsageAgent {
   ref: string;
   title?: string;
@@ -619,8 +855,19 @@ export interface MemoryUsage {
   swapTotal: number;
   swapUsed: number;
   agentsSwap: number;
+  used: number;
+  fileCache: number;
+  leads: number;
+  agentbox: number;
+  kernel: number;
   zram?: ZramUsage;
   agents: MemoryUsageAgent[];
+}
+
+export interface HostMemory {
+  total: number;
+  available: number;
+  cpus: number;
 }
 
 export interface CPUUsageAgent {
@@ -669,10 +916,16 @@ export interface AuthStatus {
   opencode: boolean;
   cursor: boolean;
   cursorEmail?: string;
+  gemini: boolean;
+  geminiEmail?: string;
+  copilot: boolean;
+  copilotUser?: string;
   claudeAccounts: ClaudeAccount[];
   codexAccounts: ToolAccount[];
   openCodeAccounts: ToolAccount[];
   cursorAccounts: ToolAccount[];
+  geminiAccounts: ToolAccount[];
+  copilotAccounts: ToolAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
   githubUser?: string;
@@ -697,6 +950,9 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   memory?: MemoryHold;
+  waitingForImage?: boolean;
+  reclaimed?: string;
+  hold?: string;
 }
 
 export interface Theme {
@@ -774,6 +1030,7 @@ export interface Self {
 export interface Error {
   error: string;
   code?: string;
+  skipped?: SkippedPath[];
 }
 
 export interface TerminalResize {
@@ -899,6 +1156,9 @@ export interface MediaMeta {
   tests?: TestCounts;
   recorded?: number;
   cuts?: MediaCut[];
+  pair?: string;
+  side?: string;
+  raw?: string;
 }
 
 export interface MediaCut {
@@ -942,6 +1202,8 @@ export interface ScreenshotRequest {
   target?: string;
   fullPage?: boolean;
   name?: string;
+  pair?: string;
+  side?: string;
 }
 
 export interface RecordRequest {
@@ -951,6 +1213,9 @@ export interface RecordRequest {
   limitSeconds?: number;
   noTrim?: boolean;
   wholeDisplay?: boolean;
+  pair?: string;
+  side?: string;
+  noEdit?: boolean;
 }
 
 export interface RecordingStatus {
@@ -996,6 +1261,8 @@ export interface AddMediaRequest {
   path: string;
   kind?: string;
   name?: string;
+  pair?: string;
+  side?: string;
 }
 
 export interface NoteRequest {
@@ -1054,6 +1321,24 @@ export interface ReviewPage {
   items: ReviewItem[];
   next?: string;
   total: number;
+}
+
+export interface WorkPage {
+  items: WorkItem[];
+  next?: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface WorkItem {
+  item: ReviewItem;
+  task?: string;
+  past?: boolean;
+  status: string;
+  report?: AgentReport;
+  screenshots?: number;
+  recordings?: number;
+  at: string;
 }
 
 export interface MediaCounts {
@@ -1136,6 +1421,7 @@ export interface ImageStatus {
   build: string;
   job?: string;
   step?: string;
+  progress?: string;
   error?: string;
   waiting: number;
 }
@@ -1176,6 +1462,30 @@ export interface RenamedClaudeAccount {
 export interface GitHubTokenRequest {
   token: string;
   account?: string;
+}
+
+export interface GitHubLoginRequest {
+  account?: string;
+}
+
+export interface GitHubLogin {
+  job: string;
+  account: string;
+  status: string;
+  error?: string;
+  userCode?: string;
+  verificationUri?: string;
+  expiresAt?: string;
+  outcome?: string;
+  user?: string;
+}
+
+export interface GitHubRepo {
+  fullName: string;
+  description?: string;
+  private: boolean;
+  pushedAt?: string;
+  cloneUrl: string;
 }
 
 export interface CursorKeyRequest {
@@ -1249,10 +1559,16 @@ export interface Secret {
   updatedAt: string;
   agents: string[];
   warning?: string;
+  leadManaged: boolean;
 }
 
 export interface SetSecretRequest {
   value: string;
+  leadManaged?: boolean;
+}
+
+export interface SecretSettingsRequest {
+  leadManaged: boolean;
 }
 
 export interface Skill {
@@ -1365,6 +1681,8 @@ export interface BrowserProfile {
   engine: string;
   name: string;
   keyring?: string;
+  appBound?: boolean;
+  profileDir?: string;
 }
 
 export interface BrowserProfiles {
@@ -1374,6 +1692,22 @@ export interface BrowserProfiles {
 export interface ImportFromBrowserRequest {
   profileId: string;
   keyringSecret: string;
+}
+
+export interface ImportedCookie {
+  domain: string;
+  name: string;
+  value: string;
+  path: string;
+  expires?: number;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: string;
+}
+
+export interface ImportDecryptedCookiesRequest {
+  source: string;
+  cookies: ImportedCookie[];
 }
 
 export interface SnapRequest {
@@ -1405,6 +1739,113 @@ export interface SnapSendRequest {
   agent?: string;
   note?: string;
   accessibility: boolean;
+}
+
+export interface TransferCategory {
+  kind: string;
+  items: number;
+  size: number;
+}
+
+export interface InstanceExportPreview {
+  projects: InstanceExportProjectPreview[];
+  logins: InstanceExportLoginPreview[];
+}
+
+export interface InstanceExportProjectPreview {
+  name: string;
+  displayName: string;
+  categories: TransferCategory[];
+  remote: string;
+  branch: string;
+  bundleSize: number;
+}
+
+export interface InstanceExportLoginPreview {
+  kind: string;
+  accounts: string[];
+}
+
+export interface InstanceExportRequest {
+  path: string;
+  passphrase?: string;
+  noEncrypt?: boolean;
+  projects: InstanceExportProjectChoice[];
+  logins: string[];
+}
+
+export interface InstanceExportProjectChoice {
+  name: string;
+  categories: string[];
+  bundle?: boolean;
+}
+
+export interface InstanceExportResult {
+  path: string;
+  size: number;
+  encrypted: boolean;
+  entries: number;
+}
+
+export interface InstanceImportInspectRequest {
+  path: string;
+  passphrase?: string;
+}
+
+export interface InstanceImportContents {
+  path: string;
+  encrypted: boolean;
+  schema: number;
+  app: string;
+  id: string;
+  createdAt: string;
+  projects: InstanceImportProjectContents[];
+  logins: TransferCategory[];
+}
+
+export interface InstanceImportProjectContents {
+  name: string;
+  displayName: string;
+  exists: boolean;
+  categories: TransferCategory[];
+  remote: string;
+  branch: string;
+  bundled: boolean;
+  path: string;
+  plan: string;
+  planError?: string;
+}
+
+export interface InstanceImportRequest {
+  path: string;
+  passphrase?: string;
+  projects: InstanceImportProjectChoice[];
+  logins: string[];
+}
+
+export interface InstanceImportProjectChoice {
+  name: string;
+  categories: string[];
+  path?: string;
+}
+
+export interface InstanceImportReport {
+  entries: InstanceImportEntryReport[];
+  added: number;
+  skipped: number;
+  conflicted: number;
+  projectsAdded: string[];
+  reportPath: string;
+}
+
+export interface InstanceImportEntryReport {
+  id: string;
+  kind: string;
+  project?: string;
+  added: number;
+  skipped: number;
+  conflicted: number;
+  notes?: string[];
 }
 
 export interface Connector {
@@ -1537,6 +1978,7 @@ export interface PullRequest {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;
@@ -1564,6 +2006,7 @@ export interface EditLabelsRequest {
 
 export interface GitHubError {
   kind: string;
+  resetAt?: string;
   message?: string;
   account?: string;
   login?: string;
@@ -1586,9 +2029,69 @@ export interface ProjectPullRequests {
   refreshing?: boolean;
 }
 
+export interface Issue {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  authorAvatar?: string;
+  labels?: Label[];
+  comments?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  handed?: IssueHandoff;
+}
+
+export interface IssueHandoff {
+  agent?: string;
+  job?: string;
+  agentTitle?: string;
+  status?: string;
+  retired?: boolean;
+  auto?: boolean;
+  at: string;
+  pullRequest?: IssuePullRequest;
+}
+
+export interface IssuePullRequest {
+  number: number;
+  url: string;
+  state: string;
+}
+
+export interface ProjectIssues {
+  project: string;
+  github?: string;
+  githubAccount?: string;
+  githubError?: GitHubError;
+  noOrigin?: boolean;
+  nonGitHubRemote?: string;
+  issues: Issue[];
+  pickUpIssues: boolean;
+  label: string;
+  fetchedAt?: string;
+}
+
 export interface MergePullRequestRequest {
   method: string;
   confirmed?: boolean;
+}
+
+export interface MergeWhenGreenRequest {
+  method: string;
+  agent: string;
+  fingerprint: string;
+}
+
+export interface MergeWhenGreen {
+  number: number;
+  method: string;
+  at: string;
+  error?: string;
+  failedAt?: string;
+  waiting?: string;
+  detail?: string;
+  fixRounds?: number;
 }
 
 export interface PullRequestDetail {
@@ -1604,6 +2107,7 @@ export interface PullRequestDetail {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;
@@ -1673,9 +2177,12 @@ export interface FleetAgent {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
+  leadSession?: string;
   stalledSince?: string;
   background?: string[];
   outcome?: string;
@@ -1683,9 +2190,14 @@ export interface FleetAgent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  waitingForImage?: boolean;
   memory?: MemoryHold;
+  reclaimed?: string;
+  hold?: string;
+  goal?: AgentGoal;
   ip: string;
   createdAt: string;
+  sessionTopic?: string;
   changes: AgentChanges;
   media: number;
   pr?: PullRequest;
@@ -1704,7 +2216,34 @@ export interface Fleet {
   githubAccount?: string;
   githubError?: GitHubError;
   pullsFetchedAt?: string;
+  remote?: RemoteAgent[];
   pullsRefreshing?: boolean;
+}
+
+export interface RemoteAgent {
+  machine: string;
+  machineId: string;
+  name: string;
+  title?: string;
+  branch?: string;
+  status: string;
+  summary?: string;
+  prUrl?: string;
+  updatedAt: string;
+}
+
+export interface Machine {
+  id: string;
+  name: string;
+  online: boolean;
+  hostname?: string;
+  hasProject: boolean;
+  project?: string;
+  error?: string;
+}
+
+export interface RemoteAgentsChange {
+  project: string;
 }
 
 export interface RetireRequest {
@@ -1738,6 +2277,7 @@ export interface Question {
   secretName?: string;
   connector?: string;
   url?: string;
+  ports?: number[];
   question: string;
   context?: string;
   status: string;
@@ -1773,6 +2313,7 @@ export interface AnswerCredentialRequest {
   connector?: string;
   refuse?: boolean;
   reason?: string;
+  allow?: boolean;
 }
 
 export interface AgentEvent {
@@ -1798,6 +2339,7 @@ export interface ReviewItem {
   ref: string;
   title?: string;
   branch?: string;
+  baseRef?: string;
   ai?: string;
   summary?: string;
   changes?: AgentChanges;
@@ -1807,6 +2349,7 @@ export interface ReviewItem {
   verdict?: string;
   reviewedAt?: string;
   machineKept?: boolean;
+  mergeWhenGreen?: MergeWhenGreen;
 }
 
 export interface ReviewRequest {
@@ -1857,6 +2400,8 @@ export interface AndroidStatus {
   booted: boolean;
   image?: string;
   device?: string;
+  gpu: boolean;
+  gpuProblem?: string;
 }
 
 export interface AndroidStartRequest {
@@ -1873,17 +2418,72 @@ export interface AndroidInstallResult {
   output: string;
 }
 
+export interface IOSStatus {
+  available: boolean;
+  problem?: string;
+  xcode?: string;
+  devices: IOSDevice[];
+  device?: string;
+}
+
+export interface IOSDevice {
+  udid: string;
+  name: string;
+  runtime: string;
+  state: string;
+}
+
+export interface IOSDeviceRequest {
+  device?: string;
+}
+
+export interface IOSInput {
+  device?: string;
+  type: string;
+  phase?: string;
+  x?: number;
+  y?: number;
+  x2?: number;
+  y2?: number;
+  pixels?: boolean;
+  durationMs?: number;
+  key?: string;
+  modifiers?: string[];
+  text?: string;
+  button?: string;
+}
+
+export interface IOSInstallRequest {
+  device?: string;
+  path: string;
+}
+
+export interface IOSLaunchRequest {
+  device?: string;
+  bundleId: string;
+  args?: string[];
+  terminate?: boolean;
+}
+
+export interface IOSOpenURLRequest {
+  device?: string;
+  url: string;
+}
+
+export interface IOSResult {
+  output?: string;
+}
+
 export interface HubUser {
   id: string;
   email: string;
   name: string;
 }
 
-export interface HubSignupRequest {
-  email: string;
-  name?: string;
-  password: string;
-  label?: string;
+export interface HubInfo {
+  version: string;
+  claimed: boolean;
+  passwords?: boolean;
 }
 
 export interface HubLoginRequest {
@@ -1892,10 +2492,62 @@ export interface HubLoginRequest {
   label?: string;
 }
 
+export interface HubSetupRequest {
+  secret: string;
+  label?: string;
+}
+
 export interface HubSession {
   token: string;
   user: HubUser;
   expiresAt: string;
+}
+
+export interface HubPairRequest {
+  kind: string;
+  label: string;
+  name?: string;
+  hostname?: string;
+  version?: string;
+}
+
+export interface HubPairing {
+  secret: string;
+  code: string;
+  approveURL: string;
+  expiresAt: string;
+  interval: number;
+  qr?: string[];
+}
+
+export interface HubPairTokenRequest {
+  secret: string;
+}
+
+export interface HubPairResult {
+  status: string;
+  session?: HubSession;
+  environment?: HubEnvironmentToken;
+}
+
+export interface HubPairingInfo {
+  code: string;
+  kind: string;
+  label: string;
+  name?: string;
+  hostname?: string;
+  version?: string;
+  address: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface HubDevice {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastSeenAt?: string;
+  current?: boolean;
 }
 
 export interface HubEnvironment {
@@ -1907,6 +2559,8 @@ export interface HubEnvironment {
   version?: string;
   hostname?: string;
   createdAt: string;
+  transport?: string;
+  address?: string;
 }
 
 export interface HubCreateEnvironmentRequest {
@@ -1924,11 +2578,62 @@ export interface RemoteStatus {
   connected: boolean;
   since?: string;
   error?: string;
+  pairing?: RemotePairing;
 }
 
 export interface RemoteConnectRequest {
   hub: string;
   token: string;
+}
+
+export interface RemotePairRequest {
+  hub: string;
+  name?: string;
+}
+
+export interface RemotePairing {
+  hub: string;
+  code: string;
+  approveURL: string;
+  expiresAt: string;
+  qr?: string[];
+  error?: string;
+}
+
+export interface MCPPairing {
+  id: string;
+  label: string;
+  client: string;
+  access: string;
+  projects: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+  apps?: string[];
+}
+
+export interface MCPPairings {
+  available: boolean;
+  reason?: string;
+  error?: string;
+  hub?: string;
+  url?: string;
+  pairings: MCPPairing[];
+}
+
+export interface MCPPairRequest {
+  label: string;
+  client?: string;
+  access: string;
+  projects?: string[];
+  token?: boolean;
+}
+
+export interface MCPPairingSecret {
+  pairing: MCPPairing;
+  url: string;
+  code: string;
+  codeExpiresAt: string;
+  token?: string;
 }
 
 export interface UsageStatsPending {
@@ -1938,6 +2643,8 @@ export interface UsageStatsPending {
   eventsUrl: string;
   events: string;
   eventsWaiting: number;
+  health: string;
+  setup: string;
 }
 
 export interface LANStatus {
@@ -1945,6 +2652,7 @@ export interface LANStatus {
   port: number;
   listening: boolean;
   error?: string;
+  warning?: string;
   urls: string[];
   tunnel: LANTunnel;
   webVersion?: string;
@@ -1959,6 +2667,8 @@ export interface LANTunnel {
   named: boolean;
   hostname?: string;
   namedHostname?: string;
+  transport?: string;
+  tailnet?: string;
   state: string;
   url?: string;
   error?: string;
@@ -1972,6 +2682,23 @@ export interface LANPhone {
   lastSeen?: string;
   lastAddr?: string;
   scopes: string[];
+}
+
+export interface PhonePush {
+  token?: string;
+  registered: boolean;
+  kinds: string[];
+  quietFrom: number;
+  quietTo: number;
+  timeZone?: string;
+}
+
+export interface PhonePushTest {
+  sent: boolean;
+  error?: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
 }
 
 export interface UpdateLANRequest {
@@ -1993,6 +2720,7 @@ export interface LANHostReport {
   port: number;
   listening: boolean;
   error?: string;
+  warning?: string;
   addresses: string[];
 }
 
@@ -2073,6 +2801,7 @@ export interface ChatSession {
   resumeAt?: string;
   noImages?: boolean;
   background?: string[];
+  backgroundTasks?: ChatBackgroundTask[];
   toolsChanged?: boolean;
   noResume?: boolean;
 }
@@ -2112,6 +2841,7 @@ export interface ChatItem {
   delivery?: string;
   woken?: boolean;
   hidden?: boolean;
+  to?: string;
   streaming?: boolean;
   tool?: ChatTool;
   plan?: ChatPlanEntry[];
@@ -2119,6 +2849,7 @@ export interface ChatItem {
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
+  goal?: AgentGoal;
   handoff?: string;
   projectMessage?: ChatProjectMessage;
   scheduledRun?: ChatScheduledRun;
@@ -2142,6 +2873,28 @@ export interface ChatTool {
   output?: string;
   diffs?: ChatDiff[];
   page?: ChatPage;
+}
+
+export interface ChatBackgroundTask {
+  id: string;
+  kind: string;
+  title: string;
+  command?: string;
+  status: string;
+  exitCode?: number;
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;
+  item?: string;
+  hasOutput?: boolean;
+}
+
+export interface ChatBackgroundDetail {
+  task: ChatBackgroundTask;
+  output: string;
+  outputStart: number;
+  outputSize: number;
+  outputError?: string;
 }
 
 export interface ChatPage {
@@ -2172,12 +2925,14 @@ export interface ChatPermission {
   approval?: string;
   detail?: string;
   diffs?: ChatDiff[];
+  planApprove?: string;
 }
 
 export interface ChatPermissionOption {
   id: string;
   name: string;
   kind: string;
+  modeKind?: string;
 }
 
 export interface ChatSubagent {
@@ -2190,6 +2945,37 @@ export interface ChatCompaction {
   state: string;
   waiting?: number;
   error?: string;
+}
+
+export interface AgentGoal {
+  objective: string;
+  source: string;
+  status: string;
+  checks?: GoalCheck[];
+  checked: number;
+  lastUnmet?: string;
+  budget?: number;
+  continuations?: number;
+  updatedAt: string;
+}
+
+export interface GoalSpec {
+  objective: string;
+  checks?: GoalCheck[];
+  budget?: number;
+}
+
+export interface GoalCheck {
+  kind: string;
+  command?: string;
+  met?: boolean;
+  detail?: string;
+}
+
+export interface GoalResult {
+  goal: AgentGoal;
+  told?: string;
+  woke?: string;
 }
 
 export interface ChatProjectMessage {
@@ -2207,6 +2993,8 @@ export interface ChatScheduledRun {
   run: string;
   title: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   late?: boolean;
   missed?: number;
@@ -2220,6 +3008,8 @@ export interface Schedule {
   title: string;
   task: string;
   kind: string;
+  event?: string;
+  eventLabel?: string;
   at?: string;
   everyMinutes?: number;
   cron?: string;
@@ -2245,6 +3035,8 @@ export interface ScheduleRun {
   schedule: string;
   title?: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   ranAt: string;
   late?: boolean;
@@ -2263,6 +3055,8 @@ export interface ScheduleRequest {
   in?: string;
   every?: string;
   cron?: string;
+  on?: string;
+  label?: string;
   timezone?: string;
   target?: string;
   session?: string;
@@ -2274,6 +3068,48 @@ export interface ScheduleRequest {
 }
 
 export interface ScheduleChange {
+  project: string;
+}
+
+export interface Todo {
+  id: string;
+  project: string;
+  text: string;
+  done: boolean;
+  position: number;
+  job?: string;
+  agent?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt?: string;
+}
+
+export interface TodoRequest {
+  text?: string;
+  done?: boolean;
+}
+
+export interface TodoOrder {
+  ids: string[];
+}
+
+export interface TodoStartRequest {
+  ai?: string;
+  model?: string;
+  effort?: string;
+}
+
+export interface TodoStart {
+  todo: Todo;
+  job: Job;
+}
+
+export interface TodoCounts {
+  open: Record<string, number>;
+}
+
+export interface TodoChange {
   project: string;
 }
 
@@ -2298,6 +3134,7 @@ export interface ChatMessageRequest {
   text: string;
   images?: ChatImageUpload[];
   files?: ChatFileUpload[];
+  to?: string;
 }
 
 export interface ChatImage {
@@ -2353,12 +3190,107 @@ export interface ChatAppend {
 
 export interface ProjectChat {
   project: string;
+  session?: string;
   ref: string;
   started: boolean;
   worktree?: string;
   baseRef?: string;
   chat: string;
   last?: ChatLine;
+}
+
+export interface LeadSession {
+  project: string;
+  id: string;
+  ref: string;
+  topic: string;
+  untitled?: boolean;
+  color: string;
+  chat: string;
+  agents: number;
+  last?: ChatLine;
+  createdAt: string;
+  activeAt: string;
+  closedAt?: string;
+  status?: string;
+  needsYou?: number;
+  questions?: number;
+  agentsWorking?: number;
+  seenAt?: string;
+  unread?: boolean;
+  settled?: boolean;
+  snoozedUntil?: string;
+  parent?: LeadSessionParent;
+  pinned?: boolean;
+  group?: string;
+}
+
+export interface LeadSessionParent {
+  session: string;
+  item?: string;
+  topic?: string;
+  closed?: boolean;
+}
+
+export interface LeadSessionFork {
+  session: string;
+  item: string;
+}
+
+export interface NewLeadSessionRequest {
+  topic?: string;
+  from?: string;
+  continueFrom?: string;
+  forkFrom?: LeadSessionFork;
+  group?: string;
+}
+
+export interface LeadSessionPatch {
+  topic?: string;
+  pinned?: boolean;
+  group?: string;
+}
+
+export interface AgentSessionRequest {
+  session: string;
+}
+
+export interface LeadSessionsChange {
+  project: string;
+}
+
+export interface LeadSessionStatusChange {
+  project: string;
+  sessions: LeadSession[];
+}
+
+export interface SeeLeadSessionRequest {
+  at?: string;
+}
+
+export interface LeadSessionSnooze {
+  until?: string;
+}
+
+export interface SessionsSettled {
+  project: string;
+  sessions: LeadSession[];
+}
+
+export interface SessionOutput {
+  project: string;
+  session: string;
+  agents: SessionAgent[];
+}
+
+export interface SessionAgent {
+  ref: string;
+  name: string;
+  title: string;
+  branch: string;
+  archived?: boolean;
+  working?: boolean;
+  pr?: PullRequest;
 }
 
 export interface ChatLine {
@@ -2369,6 +3301,7 @@ export interface ChatLine {
 
 export interface ChatCache {
   project: string;
+  session?: string;
   idleSince?: string;
   ttlSeconds?: number;
   ttlSource?: string;
@@ -2417,6 +3350,35 @@ export interface LeadAccount {
   limit?: ClaudeLimit;
 }
 
+export interface LeadSessionOrder {
+  ids: string[];
+}
+
+export interface LeadSessionGroup {
+  project: string;
+  id: string;
+  name: string;
+  color: string;
+  collapsed: boolean;
+  position: number;
+}
+
+export interface NewLeadSessionGroup {
+  name?: string;
+  color?: string;
+  sessions: string[];
+}
+
+export interface LeadSessionGroupPatch {
+  name?: string;
+  color?: string;
+  collapsed?: boolean;
+}
+
+export interface LeadSessionGroupOrder {
+  ids: string[];
+}
+
 export interface MemoryEvent {
   id: string;
   project: string;
@@ -2458,6 +3420,8 @@ export interface Memory {
   confirmations?: number;
   promotion?: string;
   promotionAt?: string;
+  source?: string;
+  sourcePath?: string;
 }
 
 export interface AddMemoryRequest {
@@ -2481,12 +3445,28 @@ export interface MemorySearchResults {
   reports?: AgentReport[];
 }
 
+export interface ShareMemoriesRequest {
+  ids?: string[];
+  all?: boolean;
+}
+
+export interface ShareMemoriesResult {
+  branch: string;
+  base: string;
+  commit: string;
+  files: string[];
+  removed?: string[];
+  unchanged?: boolean;
+  push: string;
+}
+
 export interface WorkingMemory {
   goal?: string;
   currentTask?: string;
   activeAgents?: string[];
   blockers?: string[];
   notes?: string;
+  sessions?: Record<string, string>;
   updatedAt?: string;
 }
 
@@ -2770,6 +3750,61 @@ export interface ClaudeLimitWindow {
   resetsAt: string;
 }
 
+export interface Recap {
+  start: string;
+  end: string;
+  agents: number;
+  prsOpened: number;
+  prsMerged: number;
+  insertions: number;
+  deletions: number;
+  files: number;
+  workSeconds: number;
+  awaySeconds: number;
+  days: RecapDay[];
+  hours: number[];
+  projects: number;
+  busiest?: RecapProject;
+  longest?: RecapAgent;
+  models: RecapModel[];
+  tokens: number;
+  costUsd: number;
+  estimatedUsd: number;
+  unpricedTokens: number;
+  streak: number;
+  bestStreak: number;
+}
+
+export interface RecapDay {
+  date: string;
+  workSeconds: number;
+  awaySeconds: number;
+  agents: number;
+}
+
+export interface RecapProject {
+  project: string;
+  workSeconds: number;
+  agents: number;
+}
+
+export interface RecapAgent {
+  project: string;
+  agent: string;
+  title?: string;
+  ai?: string;
+  workSeconds: number;
+}
+
+export interface RecapModel {
+  model: string;
+  tokens: number;
+  output: number;
+  costUsd: number;
+  estimatedUsd: number;
+  unpricedTokens: number;
+}
+
 export interface VMStatus {
   mode: string;
   driver: string;
@@ -2790,8 +3825,11 @@ export interface VMMemory {
   min: number;
   cap: number;
   granted: number;
+  hostReserve?: number;
+  hostTotal?: number;
   used: number;
   resident: number;
+  hostCache: number;
 }
 
 export interface VMDisk {
@@ -2816,6 +3854,7 @@ export interface VMSwap {
   size: number;
   total: number;
   used: number;
+  diskUsed?: number;
 }
 
 export interface VMLimits {
@@ -2889,6 +3928,8 @@ export interface SearchHit {
   at?: string;
   url?: string;
   archived?: boolean;
+  session?: string;
+  item?: string;
   memory?: Memory;
   event?: MemoryEvent;
   report?: AgentReport;
@@ -2952,11 +3993,14 @@ export interface FanOutVariant {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
+  copilotAccount?: string;
 }
 
 export interface FanOutResult {
   group: Group;
   jobs: Job[];
+  notices?: string[];
 }
 
 export interface Group {
@@ -3082,8 +4126,140 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PresenceRequest {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+}
+
+export interface PresenceView {
+  project: string;
+  agent?: string;
+  resources?: boolean;
+}
+
+export interface HostPower {
+  onBattery: boolean;
+  thermal?: string;
+}
+
+export interface PresenceResponse {
+  ttlSeconds: number;
+  idle: boolean;
+}
+
+export interface PresenceState {
+  leases: PresenceLease[];
+  idle: boolean;
+  power: HostPower;
+  sampling: string[];
+}
+
+export interface PresenceLease {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+  expires: string;
+}
+
+export interface AgentResourcePoint {
+  at: string;
+  cpu: number;
+  memory: number;
+  swap: number;
+  diskRead: number;
+  diskWrite: number;
+}
+
+export interface AgentResourceHistory {
+  ref: string;
+  intervalSeconds: number;
+  windowSeconds: number;
+  sampling: boolean;
+  points: AgentResourcePoint[];
+}
+
+export interface AgentResourcesEvent {
+  ref: string;
+  point: AgentResourcePoint;
+}
+
+export interface PackageCachePart {
+  name: string;
+  bytes: number;
+}
+
+export interface DiagnosticsPackageCache {
+  on: boolean;
+  bytes: number;
+  maxBytes: number;
+  parts: PackageCachePart[];
+}
+
 export interface ClientSpansRequest {
   spans: TraceSpan[];
+}
+
+export interface ShareReport {
+  open: number;
+  limit: number;
+  trims: number;
+  lastTrim?: string;
+  pinned: number;
+}
+
+export interface FileCount {
+  open: number;
+  limit: number;
+}
+
+export interface DiagnosticsFiles {
+  daemon: FileCount;
+  system: FileCount;
+  share?: ShareReport;
+  waiting: boolean;
+}
+
+export interface DoctorCheck {
+  id: string;
+  title: string;
+  status: string;
+  message: string;
+  fix?: string;
+  autoFix?: boolean;
+  job?: string;
+}
+
+export interface DoctorReport {
+  version: string;
+  checks: DoctorCheck[];
+}
+
+export interface DoctorFixRequest {
+  checks?: string[];
+}
+
+export interface DoctorFix {
+  id: string;
+  job?: string;
+  error?: string;
+}
+
+export interface DoctorFixResult {
+  fixes: DoctorFix[];
+  report: DoctorReport;
+}
+
+export interface DoctorHomeRequest {
+  check: string;
+}
+
+export interface DoctorHomeResult {
+  session: string;
 }
 
 export const JobRunning = "running";
@@ -3094,6 +4270,7 @@ export const EventJob = "job";
 export const EventJobLog = "job.log";
 export const EventAgent = "agent";
 export const EventUsage = "usage";
+export const EventAgentResources = "agent-resources";
 export const EventProject = "project";
 export const EventMedia = "media";
 export const EventNotification = "notification";
@@ -3101,19 +4278,29 @@ export const EventNotificationsSeen = "notification.seen";
 export const NotifyQuestion = "question";
 export const NotifyMedia = "media";
 export const EventPulls = "pulls";
+export const EventRemoteAgents = "remote-agents";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventDisk = "disk";
+export const EventRestartHold = "restart-hold";
 export const DiskOK = "ok";
 export const DiskLow = "low";
 export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventSnap = "snap";
 export const EventFiles = "files";
+export const PushFinished = "finished";
+export const PushNeedsYou = "needs_you";
+export const PushPRReady = "pr_ready";
+export const PushCIFailed = "ci_failed";
 export const FileModified = "modified";
 export const FileAdded = "added";
 export const FileDeleted = "deleted";
 export const FileUntracked = "untracked";
+export const DoctorOK = "ok";
+export const DoctorWarn = "warn";
+export const DoctorFail = "fail";
+export const DoctorAILogin = "ai-login";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";
@@ -3125,6 +4312,13 @@ export const ImageBuilding = "building";
 export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
+export const ErrorNotARepository = "not-a-repository";
+export const ErrorMergeConflict = "merge-conflict";
+export const ErrorFolderExists = "folder-exists";
+export const ErrorBadRepoURL = "bad-repo-url";
+export const ErrorPassphraseNeeded = "passphrase-needed";
+export const ErrorWrongPassphrase = "wrong-passphrase";
+export const ErrorNewerExport = "newer-export";
 export const DefaultLanguage = "en-US";
 export const PRStateOpen = "open";
 export const PRStateMerged = "merged";
@@ -3138,8 +4332,16 @@ export const ConsolidationModelChat = "";
 export const EventGroup = "group";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
+export const EventLeadSessions = "lead.sessions";
+export const EventSessionsSettled = "lead.sessions.settled";
+export const EventLeadSessionStatus = "lead.session.status";
+export const SessionNeedsYou = "needsYou";
+export const SessionFailed = "failed";
+export const SessionWorking = "working";
+export const SessionIdle = "idle";
 export const EventQuestion = "question";
 export const EventSchedule = "schedule";
+export const EventTodo = "todo";
 export const EventAgentEvent = "agent.event";
 export const ReviewReviewed = "reviewed";
 export const ReviewDismissed = "dismissed";
@@ -3150,9 +4352,12 @@ export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
+export const CredentialIOSPorts = "ios_ports";
 export const ClaudeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_PROFILE ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_WORKSPACE_ID CLAUDE_CODE_OAUTH_REFRESH_TOKEN CLAUDE_CONFIG_DIR CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST CLAUDE_CODE_USE_BEDROCK AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_API_KEY ANTHROPIC_AWS_BASE_URL CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_VERTEX_PROJECT_ID CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_FOUNDRY_API_KEY ANTHROPIC_FOUNDRY_AUTH_TOKEN ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE";
 export const CodexCredentialVariables = "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 export const OpenCodeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";
+export const GeminiCredentialVariables = "GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_ACCESS_TOKEN GOOGLE_GEMINI_BASE_URL GEMINI_CLI_HOME";
+export const CopilotCredentialVariables = "COPILOT_GITHUB_TOKEN COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_API_KEY_COMMAND COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_WIRE_API COPILOT_GH_HOST COPILOT_HOME COPILOT_OFFLINE";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";
@@ -3176,6 +4381,7 @@ export const ArtifactUnavailable = "unavailable";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";
+export const GitHubRateLimited = "rateLimited";
 export const GitHubOtherErr = "other";
 export const ChatOff = "off";
 export const ChatStarting = "starting";
@@ -3183,11 +4389,13 @@ export const ChatReady = "ready";
 export const ChatRunning = "running";
 export const ChatWaiting = "waiting";
 export const ChatError = "error";
+export const ChatOptionPlan = "plan";
 export const MemoryKindProject = "project";
 export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";
 export const MemoryKindDiscovery = "discovery";
 export const MemoryKindIssue = "issue";
+export const MemorySourceRepository = "repository";
 export const ReportKindProblem = "problem";
 export const ReportKindError = "error";
 export const ReportSectionSystem = "system";
@@ -3206,6 +4414,7 @@ export const ContextForTool = "tool";
 export const ConsolidationMechanical = "mechanical";
 export const ConsolidationDistill = "distill";
 export const SearchProjects = "projects";
+export const SearchSessions = "sessions";
 export const SearchAgents = "agents";
 export const SearchChats = "chats";
 export const SearchMemories = "memories";
@@ -3220,6 +4429,7 @@ export const TokensTurn = "turn";
 export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
 export const TokensConsolidation = "consolidation";
+export const TokensKeepalive = "keepalive";
 export const FeatureDesktopOpen = "desktop.open";
 export const FeatureTerminalOpen = "terminal.open";
 export const FeatureAndroidOpen = "android.open";

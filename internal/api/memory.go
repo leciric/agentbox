@@ -86,6 +86,43 @@ type Memory struct {
 	// no brief serves it again) or "dismissed" (never offered again).
 	Promotion   string    `json:"promotion,omitempty"`
 	PromotionAt time.Time `json:"promotionAt,omitzero,omitempty"`
+	// Source is where it came from: empty for AgentBox's own,
+	// MemorySourceRepository for one a co-worker shared through the project's
+	// repository, read from SourcePath in its checkout.
+	Source     string `json:"source,omitempty"`
+	SourcePath string `json:"sourcePath,omitempty"`
+}
+
+// MemorySourceRepository is Memory.Source for a memory read from the
+// project's repository (.agentbox/memories).
+const MemorySourceRepository = "repository"
+
+// ShareMemoriesRequest shares a project's memories with whoever works on it,
+// as files committed to its repository: the ones named, or with All every
+// live one of the project's own.
+type ShareMemoriesRequest struct {
+	IDs []string `json:"ids,omitempty"`
+	All bool     `json:"all,omitempty"`
+}
+
+// ShareMemoriesResult is the commit sharing made. The files are committed on
+// Branch, which is left for the user to push and open a pull request from:
+// nothing in their checkout or its index changes.
+type ShareMemoriesResult struct {
+	// Branch is the local branch the commit is on, and Base the branch it
+	// started from when it was new (or had been merged).
+	Branch string `json:"branch"`
+	Base   string `json:"base"`
+	Commit string `json:"commit"`
+	// Files are the memory files written, and Removed the files of memories
+	// they supersede, taken out; both relative to the checkout.
+	Files   []string `json:"files"`
+	Removed []string `json:"removed,omitempty"`
+	// Unchanged is true when every file was already on Branch as it is:
+	// no commit was made, and Commit is the branch's tip.
+	Unchanged bool `json:"unchanged,omitempty"`
+	// Push is the command that pushes Branch, to open the pull request from.
+	Push string `json:"push"`
 }
 
 // MemoryFeedbackRequest is a reader's verdict on a memory it was handed:
@@ -320,12 +357,15 @@ type MemorySearchResults struct {
 // WorkingMemory is what a project is doing right now: one small document,
 // kept current rather than appended to.
 type WorkingMemory struct {
-	Goal         string    `json:"goal,omitempty"`
-	CurrentTask  string    `json:"currentTask,omitempty"`
-	ActiveAgents []string  `json:"activeAgents,omitempty"`
-	Blockers     []string  `json:"blockers,omitempty"`
-	Notes        string    `json:"notes,omitempty"`
-	UpdatedAt    time.Time `json:"updatedAt,omitzero,omitempty"`
+	Goal         string   `json:"goal,omitempty"`
+	CurrentTask  string   `json:"currentTask,omitempty"`
+	ActiveAgents []string `json:"activeAgents,omitempty"`
+	Blockers     []string `json:"blockers,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+	// Sessions is what the chat's other sessions are working on, by session
+	// id, as one session reads it: CurrentTask is its own.
+	Sessions  map[string]string `json:"sessions,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt,omitzero,omitempty"`
 }
 
 // WorkingMemoryPatch changes what it names and leaves the rest alone. An empty

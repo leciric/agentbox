@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -220,4 +222,97 @@ func itemPointers(items []api.ChatItem) []*api.ChatItem {
 		out[i] = &items[i]
 	}
 	return out
+}
+
+// TestHandoffWithin: a lead's handoff keeps to its budget whatever the
+// conversation: the first message and the latest stay, older turns give
+// way, AgentBox's own messages aren't the user's, and a transfer the
+// conversation began with is carried, cut.
+func TestHandoffWithin(t *testing.T) {
+	t.Parallel()
+	const budget = 20_000 * 4
+	var long []*api.ChatItem
+	for i := range 200 {
+		id := strconv.Itoa(i)
+		long = append(long,
+			&api.ChatItem{ID: "u" + id, Kind: "user", Text: "message " + id + " " + strings.Repeat("words ", 300)},
+			&api.ChatItem{ID: "a" + id, Kind: "assistant", Text: "answer " + id + " " + strings.Repeat("prose ", 300)},
+		)
+	}
+	got := HandoffWithin(long, "Intro.", budget)
+	if len(got) > budget || len(got) < budget*3/4 {
+		t.Errorf("a long conversation's handoff is %d bytes; want most of %d and no more", len(got), budget)
+	}
+	for _, want := range []string{"Intro.", "User: message 0 ", "User: message 199 ", "You answered: answer 199 ", "left out for length"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the handoff lacks %q", want)
+		}
+	}
+	if strings.Contains(got, "message 100 ") {
+		t.Error("the handoff kept a turn from the middle over the latest")
+	}
+	// Under the budget, everything goes.
+	if short := HandoffWithin(long[:6], "Intro.", budget); !strings.Contains(short, "message 1 ") || strings.Contains(short, "left out") {
+		t.Errorf("a short conversation's handoff left something out:\n%.400s", short)
+	}
+	// Two turns of enormous messages are cut in the middle, not left whole.
+	var huge []*api.ChatItem
+	for _, word := range []string{"first ", "ünïcode "} {
+		huge = append(huge, &api.ChatItem{ID: "u", Kind: "user", Text: strings.Repeat(word, 2000)})
+		for range 60 {
+			huge = append(huge, &api.ChatItem{ID: "x", Kind: "aside", Text: strings.Repeat(word, 400)})
+		}
+	}
+	if got := HandoffWithin(huge, "Intro.", 8000); len(got) > 8000 || !utf8.ValidString(got) || !strings.HasPrefix(got, "[AgentBox: context transfer] Intro.") {
+		t.Errorf("an oversized handoff is %d bytes, valid %v:\n%.200s", len(got), utf8.ValidString(got), got)
+	}
+
+	items := []*api.ChatItem{
+		{ID: "n0", Kind: "notice", Text: "Continues X.", Handoff: Handoff([]*api.ChatItem{{ID: "o1", Kind: "user", Text: "the oldest ask"}}, "Earlier intro.")},
+		{ID: "u1", Kind: "user", Hidden: true, Text: "agent-03 finished."},
+		{ID: "a1", Kind: "assistant", Text: "Merged it."},
+		{ID: "n1", Kind: "notice", To: "agent-03", Text: "also update the docs"},
+	}
+	got = HandoffWithin(items, "Intro.", budget)
+	for _, want := range []string{"Before this conversation", "User: the oldest ask", "AgentBox, not the user: agent-03 finished.", "(to agent-03) also update the docs"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the handoff lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Earlier intro.") || strings.Contains(got, "User: agent-03") {
+		t.Errorf("the handoff repeats the earlier intro or calls AgentBox the user:\n%s", got)
+	}
+}
+
+// TestThrough: a fork's copy runs up to and including the item, and drops a
+// permission it couldn't answer.
+func TestThrough(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	f := newFakeTool(answerHello)
+	m, _ := newManager(t, store, f)
+	var ids []string
+	for i, text := range []string{"one", "two"} {
+		it, err := m.Send(testAgent, text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, it.ID)
+		waitThread(t, m, testAgent, "the turn", turnsEnded(i+1))
+	}
+	th, err := m.Thread(testAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer := th.Items[1].ID
+	items, err := m.Through(testAgent, answer)
+	if err != nil || len(items) != 2 || items[0].Text != "one" || items[1].ID != answer {
+		t.Fatalf("Through(the first answer) = %+v, %v", items, err)
+	}
+	if items, err := m.Through(testAgent, ids[1]); err != nil || len(items) != 3 {
+		t.Errorf("Through(the second message) = %d items, %v; want it included", len(items), err)
+	}
+	if _, err := m.Through(testAgent, "nope"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("Through(no item) = %v; want ErrNotFound", err)
+	}
 }

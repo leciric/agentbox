@@ -34,6 +34,11 @@ type subagent struct {
 	open        *api.ChatItem
 	openMessage string
 	tools       map[string]*api.ChatItem
+	// background is a subagent that was still running when its turn ended,
+	// or started with none running: listed as background work
+	// (background.go). endedAt is when it ended.
+	background bool
+	endedAt    time.Time
 }
 
 // Subagent states a card can be in. The adapter's own are completed, failed,
@@ -76,7 +81,10 @@ func (c *conversation) spawnSubagent(ad *adapter, parent *subagent, u acp.Sessio
 	if ad.subagents == nil {
 		ad.subagents = map[string]*subagent{}
 	}
-	ad.subagents[id] = &subagent{card: card, tools: map[string]*api.ChatItem{}}
+	ad.subagents[id] = &subagent{card: card, tools: map[string]*api.ChatItem{}, background: c.turn == nil}
+	if c.turn == nil {
+		c.syncBackground(ad)
+	}
 }
 
 // endSubagent records how a subagent ended.
@@ -89,6 +97,14 @@ func (c *conversation) endSubagent(ad *adapter, u acp.SessionUpdate) {
 	c.stopTools(sa.tools)
 	sa.card.Subagent.State = u.State
 	c.touch(sa.card)
+	if sa.background {
+		if u.State == subagentRunning {
+			sa.endedAt = time.Time{}
+		} else if sa.endedAt.IsZero() {
+			sa.endedAt = c.m.now()
+		}
+		c.syncBackground(ad)
+	}
 }
 
 // subagentUpdate takes an update sent under a subagent's own session.

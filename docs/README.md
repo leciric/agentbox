@@ -45,11 +45,16 @@ flowchart LR
   Protocol) adapters.
 - **Project memory is what the project knows, kept across agents:** events, memories, tasks,
   artifacts and reports, searched with SQLite FTS5.
-- **A hub is optional.** It's a separate, closed-source server; this repository only carries its
-  side of the protocol, in [`hubapi/`](../hubapi).
+- **A hub is optional.** It's a separate server program, `npx agentbox-hub`, in [`hub/`](../hub),
+  which shares only the protocol, [`hubapi/`](../hubapi), with the rest.
 
 ## Pages
 
+- [Installing AgentBox](install.md) — the install script and what it checks, KVM access, AgentBox's
+  VM on Linux and how its agents share memory, moving an installation from before the VM, and macOS
+  and Windows.
+- [What AgentBox sends](privacy.md) — the update check, anonymous usage stats and events, and
+  problem reports: every field, and how to turn each off.
 - [Architecture](architecture.md) — the daemon, the API over a unix socket, the CLI, the desktop
   thin client, and the `state.db` schema.
 - [An agent's lifecycle](agent-lifecycle.md) — `agentbox create` end to end: the Incus container,
@@ -71,9 +76,15 @@ flowchart LR
   to with OAuth on the host and relayed so no token reaches an agent; the API routes.
 - [SnapShots](snapshots.md) — a shortcut, or `agentbox snap`, that sends the window you're in to a
   chat as a bug report, with its accessibility tree.
+- [A hub](hub.md) — `npx agentbox-hub`, its setup link, connecting the app and your environments
+  to it, and approving and revoking devices.
+- [Using AgentBox from another app](other-apps.md) — Claude, ChatGPT, Poke and other remote-MCP
+  clients seeing your projects and talking to their leads, through your hub
 - [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
+- [Project folders](project-folders.md) — grouping projects in the sidebar: making, colouring and
+  describing a folder, dragging projects in and out, folding it, and deleting it.
 - [Project notes and the brief](notes-and-brief.md) — the per-project notes file, and the brief
   each AI tool is given about its machine.
 - [The base image](base-image.md) — what's provisioned into the image every agent's container

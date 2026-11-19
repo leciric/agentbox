@@ -15,9 +15,6 @@ import (
 const (
 	MinCPUs   = 2
 	MinMemory = 4 << 30
-	// macReserve is the memory left to the Mac itself, with the app and an
-	// editor on it: a VM given all of it pushes the Mac into swap.
-	macReserve = 2 << 30
 )
 
 // Limits are the sizes `agentbox vm resize` takes on this machine, which the
@@ -27,32 +24,40 @@ type Limits struct {
 	MaxCPUs   int   `json:"maxCpus"`
 	MinMemory int64 `json:"minMemory"` // bytes
 	MaxMemory int64 `json:"maxMemory"` // bytes
+	// HostMemory is the Mac's own memory, which a size may be said as a share
+	// of; 0 when unknown.
+	HostMemory int64 `json:"hostMemory,omitempty"`
 	// reserve is what the machine keeps of its memory for itself, when it
 	// keeps some (the Mac's), for an error to say.
 	reserve int64
 }
 
 // HostLimits are the Limits for this machine: every core it has, and all of
-// its memory but what the Mac keeps for itself. A machine too small for the
-// minimum gets the minimum, and Lima is left to say whether it can.
+// its memory but what the Mac keeps for itself (chv.HostReserve, as on
+// Linux). A machine too small for the minimum gets the minimum, and Lima is
+// left to say whether it can.
 func HostLimits() Limits {
 	return limitsFor(runtime.NumCPU(), hostMemory())
 }
 
 func limitsFor(cpus int, memory int64) Limits {
-	l := Limits{MinCPUs: MinCPUs, MaxCPUs: max(cpus, MinCPUs), MinMemory: MinMemory, MaxMemory: MinMemory, reserve: macReserve}
+	l := Limits{MinCPUs: MinCPUs, MaxCPUs: max(cpus, MinCPUs), MinMemory: MinMemory, MaxMemory: MinMemory}
 	if memory > 0 {
-		l.MaxMemory = max(memory-macReserve, MinMemory)
+		l.MaxMemory, l.reserve, l.HostMemory = max(chv.MaxCap(memory), MinMemory), chv.HostReserve(memory), memory
 	}
 	return l
 }
 
 // chvLimits are the Limits for a Cloud Hypervisor VM made as c, on a host
 // with cpus cores and memory bytes: 1 CPU to every core, and a memory cap
-// from what it boots with to all of the host's memory. Like the Mac's, the
-// cap may take all of it: the VM only takes what its agents use.
+// from what it boots with to all of the host's memory but what it keeps for
+// itself (chv.MaxCap), a Mac's (vz) as well.
 func chvLimits(c chv.Config, cpus int, memory int64) Limits {
-	return Limits{MinCPUs: 1, MaxCPUs: max(cpus, 1), MinMemory: c.MemoryMin, MaxMemory: max(memory, c.MemoryMin)}
+	l := Limits{MinCPUs: 1, MaxCPUs: max(cpus, 1), MinMemory: c.MemoryMin, MaxMemory: max(memory, c.MemoryMin)}
+	if most := chv.MaxCap(memory); most > 0 {
+		l.MaxMemory, l.reserve = max(most, c.MemoryMin), chv.HostReserve(memory)
+	}
+	return l
 }
 
 // Check says what's wrong with cpus and memory (bytes) for this machine; zero

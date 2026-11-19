@@ -6,8 +6,6 @@ import * as T from '../../shared/api.ts';
 import {
   allLivePages,
   arrivals,
-  byAgent,
-  countByAgent,
   countByProject,
   isExpired,
   isNew,
@@ -123,22 +121,12 @@ test('no toast while a chat whose stack shows the page is on screen', () => {
   assert.deepEqual(onScreenChats(), []);
 });
 
-test('the Pages tab and the agents\' page icons count live pages only, and nothing without Hatch', () => {
+test('only live pages count, and nothing without Hatch', () => {
   const list = hatch(page({ id: 'a' }), page({ id: 'b', agent: 'pawly/agent-02' }), page({ id: 'c', agent: 'pawly/agent-02' }), expired);
-  assert.deepEqual([...countByAgent(livePages(list, now))], [['pawly/lead', 1], ['pawly/agent-02', 2]]);
+  assert.deepEqual(livePages(list, now).map((p) => p.id), ['a', 'b', 'c']);
   // Hidden: no tab and no icon without Hatch, or with only expired pages.
   assert.equal(livePages(noHatch(page({ id: 'a' })), now).length, 0);
   assert.equal(livePages(hatch(expired, lapsed), now).length, 0);
-  assert.equal(countByAgent(livePages(hatch(expired), now)).get('pawly/agent-02'), undefined);
-});
-
-test('the Pages tab groups by agent, the newest group first', () => {
-  const list = [
-    page({ id: 'a', agent: 'pawly/lead', updatedAt: '2026-10-09T10:00:00Z' }),
-    page({ id: 'b', agent: 'pawly/agent-02', updatedAt: '2026-10-09T11:00:00Z' }),
-    page({ id: 'c', agent: 'pawly/lead', updatedAt: '2026-10-09T11:30:00Z' }),
-  ];
-  assert.deepEqual(byAgent(list).map(([ref, l]) => [ref, ids(l)]), [['pawly/lead', ['c', 'a']], ['pawly/agent-02', ['b']]]);
 });
 
 test('the Media Pages tabs: every project\'s live pages, none from a project without Hatch', () => {

@@ -4,6 +4,8 @@ import type { StatusTone } from '../features/threads/activity.ts';
 
 export const colors = {
   bg: '#0b0b10',
+  // The terminal's background (--ab-term-background), an agent's monitor's screen.
+  screen: '#0a0a0f',
   overlay: 'rgba(24,24,27,0.95)',
   surface: 'rgba(255,255,255,0.05)',
   raised: 'rgba(255,255,255,0.065)',

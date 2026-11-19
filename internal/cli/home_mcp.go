@@ -93,19 +93,22 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "create_agent",
 			Description: "Create an agent in a project and give it a task. It gets its own machine and its own " +
-				"branch, and starts on the model new agents start on there. Write the " +
+				"branch, and runs the AI tool that project's own chat runs (Claude Code when its agents can't), on the model new agents " +
+				"start on there. Write the " +
 				"task directly: what to do, what done looks like, what to leave alone. When the work needs the " +
 				"project's judgement — splitting it up, following it through — use tell_lead instead.",
-			Schema: object([]string{"project", "title", "task"}, map[string]any{
+			Schema: object([]string{"project", "title", "task"}, merge(map[string]any{
 				"project": project,
 				"title":   str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
 				"task":    str("what to do, directly: usually a few lines"),
 				"branch":  str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like \"fix-login-redirect\""),
-				"size":    sizeParam,
-			}),
+			}, goalParams())),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Project, Title, Task, Branch, Size string
+					Project, Title, Task, Branch string
+					Goal                         string
+					GoalChecks                   []string `json:"goal_checks"`
+					GoalBudget                   int      `json:"goal_budget"`
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -119,14 +122,16 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				autonomous := true
 				job, err := c.CreateAgent(ctx, api.CreateAgentRequest{
 					Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch,
-					AI: "claude", Autonomous: &autonomous, Size: in.Size,
+					Autonomous: &autonomous, Goal: goalSpec(in.Goal, in.GoalChecks, in.GoalBudget),
 				})
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Creating %q in %s; it starts on the task by itself. Job %s.", in.Title, in.Project, job.ID), nil
+				return fmt.Sprintf("Creating %q in %s%s; it starts on the task by itself. Job %s.%s",
+					in.Title, in.Project, describeChoices(job.AI, nil, nil, true, "", ""), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
+		homeSetGoalTool(ctx, c, project),
 		{
 			Name: "fan_out",
 			Description: "Run one task on several agents of a project at once (2 to 6), each on the AI tool and model you give it, " +
@@ -142,7 +147,7 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
 					"description": "one entry per agent, in order (A, B, C…)",
 					"items": object([]string{"ai"}, map[string]any{
-						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode or cursor", "claude", "codex", "opencode", "cursor"),
+						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode, cursor, gemini (Gemini CLI) or copilot (GitHub Copilot CLI)", "claude", "codex", "opencode", "cursor", "gemini", "copilot"),
 						"model": str("its model, like \"opus\" or \"sonnet\" for Claude Code; leave it out for the default, and always for Codex"),
 					})},
 			}),
@@ -176,20 +181,23 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "tell_lead",
 			Description: "Pass something to a project's own chat, its lead, which wakes and acts on it: the usual way " +
 				"to get work done in a project, since its lead knows it, briefs its agents and follows them. The " +
-				"user sees the message in that project's chat too.",
+				"user sees the message in that project's chat too. Its lead answers once, when it has the answer " +
+				"or the work is done, and the answer comes into this chat by itself and wakes it.",
 			Schema: object([]string{"project", "message"}, map[string]any{
 				"project": project,
-				"message": str("what the user wants done or known, in their terms"),
+				"message": str("what the user wants done or known, in their terms; up to 4000 characters"),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct{ Project, Message string }
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				if err := c.HomeTellLead(ctx, in.Project, in.Message); err != nil {
+				t, err := c.HomeTellLead(ctx, in.Project, in.Message)
+				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Told %s's chat; it is working on it.", in.Project), nil
+				return fmt.Sprintf("Asked %s's lead (thread %s). Its answer will arrive in this chat by itself: "+
+					"carry on meanwhile, and don't check for it.", in.Project, t.ID), nil
 			},
 		},
 		{
@@ -311,21 +319,26 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "add_project",
 			Description: "Add a project: a git repository already on this machine (path), or one cloned from a git " +
-				"URL first (url), into ~/src/<name> unless path says where. A folder must be the top of a " +
-				"repository with at least one commit.",
+				"URL first (url), into ~/src/<name> unless path says where. A folder that isn't a git repository " +
+				"is refused, saying what making it one would commit and leave out: tell the user, and only once " +
+				"they agree, call again with init, which runs git init there and commits its files.",
 			Schema: object(nil, map[string]any{
 				"path": str("the repository's folder; with url, the folder to clone into"),
 				"url":  str("a git URL to clone, like https://github.com/owner/repo"),
 				"name": str("the project's name: lowercase letters, digits and hyphens; the folder's or repository's name by default"),
+				"init": map[string]any{"type": "boolean", "description": "make path, a folder that isn't a git repository, one (git init, its files as the first commit); only once the user agreed"},
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ Path, URL, Name string }
+				var in struct {
+					Path, URL, Name string
+					Init            bool
+				}
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				p, err := c.HomeAddProject(ctx, api.HomeAddProjectRequest{Path: in.Path, URL: in.URL, Name: in.Name})
+				p, err := c.HomeAddProject(ctx, api.HomeAddProjectRequest{Path: in.Path, URL: in.URL, Name: in.Name, Init: in.Init})
 				if err != nil {
-					return "", err
+					return "", fmt.Errorf("%w%s", err, skippedLines(err))
 				}
 				return fmt.Sprintf("Added %s, at %s, on %s.", p.Name, p.Root, p.Branch), nil
 			},
@@ -335,6 +348,39 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 
 // describeProjects is list_projects' answer: one line a project, with what
 // its agents are doing.
+// homeSetGoalTool is the Home chat's set_goal: tell_agent's goal, naming
+// the project.
+func homeSetGoalTool(ctx context.Context, c *api.Client, project map[string]any) mcp.Tool {
+	return mcp.Tool{
+		Name: "set_goal",
+		Description: "Set, change or clear the goal of one of a project's agents that already exists. A working agent reads it " +
+			"mid-work; an idle or finished one goes back to work on it. A new goal replaces the one it had, with its whole budget.",
+		Schema: object([]string{"project", "agent"}, merge(map[string]any{
+			"project":    project,
+			"agent":      str("its name, like agent-03"),
+			"clear_goal": map[string]any{"type": "boolean", "description": "clear its goal instead: AgentBox stops checking it"},
+		}, goalParams())),
+		Run: func(args json.RawMessage) (string, error) {
+			var in struct {
+				Project, Agent string
+				goalArgs
+			}
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &in); err != nil {
+					return "", err
+				}
+			}
+			if strings.TrimSpace(in.Project) == "" || strings.TrimSpace(in.Agent) == "" {
+				return "", errors.New("name the project and the agent")
+			}
+			ref := in.Project + "/" + in.Agent
+			return runSetGoal(in.goalArgs, in.Agent,
+				func(spec api.GoalSpec) (api.GoalResult, error) { return c.SetGoal(ctx, ref, spec) },
+				func() (api.GoalResult, error) { return c.ClearGoal(ctx, ref) })
+		},
+	}
+}
+
 func describeProjects(ctx context.Context, c *api.Client, projects []api.Project) string {
 	if len(projects) == 0 {
 		return "There are no projects yet. Add one with add_project."

@@ -1,12 +1,16 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/coder/websocket"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/android"
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
@@ -16,18 +20,25 @@ import (
 // front end finds it with the host's settings and says where in
 // AGENTBOX_ANDROID_SDK (hostvm's vmEnv), and the usual place is in the host's
 // home, which the VM shares at the same path, not in the VM user's own.
+// In WSL it is found as on a Linux host, in the distro: Android Studio's SDK
+// on Windows has Windows' emulator, which can't run there, so the error says so.
 func findAndroidSDK() (android.SDK, error) {
 	if share := hostos.Home(); hostos.OS() == hostos.Linux && share != "" {
 		return android.FindSharedSDK(android.Candidates(os.Getenv, share), share)
 	}
 	home, _ := os.UserHomeDir()
-	return android.FindSDK(android.Candidates(os.Getenv, home))
+	sdk, err := android.FindSDK(android.Candidates(os.Getenv, home))
+	if err != nil && hostos.OS() == hostos.Windows {
+		return sdk, fmt.Errorf("%w. In WSL that is the Linux SDK, installed in the distro (the command-line tools for Linux, in ~/Android/Sdk), not Android Studio's SDK on Windows", err)
+	}
+	return sdk, err
 }
 
 func toAPIAndroid(st agent.AndroidStatus) api.AndroidStatus {
 	return api.AndroidStatus{
 		Available: st.Available, Problem: st.Problem, SDK: st.SDK, Images: st.Images,
 		Running: st.Running, Booted: st.Booted, Image: st.Image, Device: st.Device,
+		GPU: st.GPU, GPUProblem: st.GPUProblem,
 	}
 }
 
@@ -76,6 +87,36 @@ func (s *Server) android(action string, agentOf func(*http.Request) (state.Agent
 	}
 }
 
-func (s *Server) androidView(w http.ResponseWriter, r *http.Request) error {
-	return s.vncView(w, r, s.manager(nil).DialAndroidView)
+// androidStream relays an agent's emulator's stream (devicestream: H.264
+// video out, input in) between the app and the stream server in the agent,
+// message for message. Like the VNC views, it is reached only through the
+// daemon's socket, and the agent's server only through its proxy device.
+func (s *Server) androidStream(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	defer s.viewIdle(a.Ref())()
+	conn, err := s.manager(nil).DialAndroidStream(r.Context(), a)
+	if err != nil {
+		return err
+	}
+	device, err := devicestream.Dial(r.Context(), conn)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = device.CloseNow() }()
+
+	// The socket is only reachable by this user, so any origin (the desktop app's) is fine.
+	viewer, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return nil // Accept has already written the response
+	}
+	defer func() { _ = viewer.CloseNow() }()
+	viewer.SetReadLimit(1 << 20)
+	if err := devicestream.Relay(r.Context(), viewer, device); err != nil {
+		s.logf("%s's Android stream: %v", a.Ref(), err)
+	}
+	_ = viewer.Close(websocket.StatusNormalClosure, "")
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
+	"agentbox/internal/testutil"
 )
 
 // fakeClaude stands in for `claude setup-token`. It does the three things the
@@ -128,12 +129,13 @@ func installFakeClaude(t *testing.T, d testDaemon) string {
 	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(claude, []byte(strings.NewReplacer(
+	// Not os.WriteFile: the daemon is already up, and a child its background
+	// work forks meanwhile would hold the script open for writing, so running
+	// it would fail with "text file busy" and no code page would ever show.
+	testutil.WriteExecutable(t, claude, []byte(strings.NewReplacer(
 		"$AGENTBOX_TEST_OUT", out,
 		"$AGENTBOX_TEST_HOME", os.Getenv("HOME"),
-	).Replace(fakeClaude)), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	).Replace(fakeClaude)))
 	return out
 }
 

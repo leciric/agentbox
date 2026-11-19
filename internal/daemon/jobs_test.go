@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -108,5 +109,81 @@ func TestJobFinishIsDurableBeforeVisible(t *testing.T) {
 	record, err := store.Job(context.Background(), info.ID)
 	if err != nil || record.Status != api.JobFailed {
 		t.Fatalf("stored job = %+v, %v", record, err)
+	}
+}
+
+// A finished job lets its log go from memory, and its log is read from the
+// store from then on.
+func TestFinishedJobLogComesFromTheStoreOnceDropped(t *testing.T) {
+	t.Parallel()
+	store := newFakeJobStore()
+	close(store.releaseFinish)
+	js := newJobs(context.Background(), store, newBroker())
+	j, err := js.start("create", "x", func(ctx context.Context, log io.Writer) (any, error) {
+		_, _ = io.WriteString(log, "one\ntwo\n")
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the job to finish", func() bool { return j.snapshot().Done() })
+	j.dropLog()
+	if lines, kept := j.keptLog(); kept || lines != nil {
+		t.Fatalf("keptLog() after dropLog = %q, %v; want nothing", lines, kept)
+	}
+	info, lines, err := js.lookup(context.Background(), j.snapshot().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != api.JobSucceeded || len(lines) != 2 || lines[0] != "one" || lines[1] != "two" {
+		t.Fatalf("lookup() = %+v, %q; want the stored log", info, lines)
+	}
+}
+
+// A finished job leaves memory once its log does, except the newest of its
+// kind: every job a daemon ever ran used to stay in it for its life.
+func TestFinishedJobsLeaveMemory(t *testing.T) {
+	t.Parallel()
+	store, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	js := newJobs(context.Background(), store, newBroker())
+	run := func(kind string) *job {
+		j, err := js.start(kind, "x", func(context.Context, io.Writer) (any, error) { return "made", nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "the job to finish", func() bool { return j.snapshot().Done() })
+		return j
+	}
+	var old []*job
+	for range 50 {
+		old = append(old, run("create"))
+	}
+	build := run("image-build")
+	for _, j := range append(old, build) {
+		js.drop(j)
+	}
+	js.mu.Lock()
+	n := len(js.byID)
+	js.mu.Unlock()
+	if n != 2 {
+		t.Fatalf("%d jobs in memory after 51 finished and were dropped; want the newest create and the build", n)
+	}
+	if got, ok := js.get(build.snapshot().ID); !ok || got.snapshot().Status != api.JobSucceeded {
+		t.Fatal("the newest job of its kind left memory")
+	}
+	if info, _, err := js.lookup(context.Background(), old[0].snapshot().ID); err != nil || info.Status != api.JobSucceeded {
+		t.Fatalf("a dropped job isn't read from the store: %+v, %v", info, err)
+	}
+	// The next of its kind lets the one kept for being the newest go.
+	next := run("image-build")
+	if _, ok := js.get(build.snapshot().ID); ok {
+		t.Fatal("an older build stayed once a newer one started")
+	}
+	if _, ok := js.get(next.snapshot().ID); !ok {
+		t.Fatal("a running job isn't in memory")
 	}
 }

@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -240,6 +242,44 @@ func TestUpdateChannel(t *testing.T) {
 	}
 }
 
+// TestNightlyIsNotOfferedAStableItDidNotAskFor: a nightly whose stored channel
+// is stable without its user switching it there (chosen on a stable build
+// before a nightly was installed over it) was offered the latest stable, a
+// lower version, as an update. It waits for the next stable instead; switching
+// to stable on the nightly itself still offers the way back.
+func TestNightlyIsNotOfferedAStableItDidNotAskFor(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	ctx := context.Background()
+	root := t.TempDir()
+	asVersion(t, "0.17.0")
+	var fake fakeLatest
+	cfg := testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: fakeReleases(t, "0.18.0-nightly.20261028.152")}
+	d := startTestDaemon(t, root, fakeIncus, cfg)
+	if _, err := patchSettings(t, d, `{"updateChannel": "stable"}`); err != nil {
+		t.Fatal(err)
+	}
+	d.stop()
+
+	Version = "0.18.0-nightly.20261028.152"
+	d = startTestDaemon(t, root, fakeIncus, cfg)
+	waitFor(t, "the check as the daemon starts", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.CheckedAt != nil
+	})
+	if status, _ := d.client.Update(ctx); status.Channel != "stable" || status.Available != nil {
+		t.Errorf("a nightly nobody switched to stable: Update() = %+v, want no offer", status)
+	}
+
+	if _, err := patchSettings(t, d, `{"updateChannel": "stable"}`); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the way back after switching to stable", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil && status.Available.Version == "0.17.0"
+	})
+}
+
 // TestUpdateLinkLeadsToTheLatestRelease reproduces the stale link: the daily
 // check found 0.9.0, then 0.9.1 and 0.10.0 came out the same day. The link
 // leads to 0.10.0, the newest release that isn't a prerelease, not to the
@@ -373,4 +413,172 @@ func TestUsageRetryBacksOff(t *testing.T) {
 			t.Errorf("usageRetry(%d) = %v, want %v", i+1, got, w)
 		}
 	}
+}
+
+// TestNightlyKeepsItsChannelAfterAStableRelease: a nightly install that never
+// chose a channel has it stored as the daemon starts, so it stays on nightly
+// once it runs a stable release; a stored choice is never overwritten.
+func TestNightlyKeepsItsChannelAfterAStableRelease(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	asVersion(t, "0.18.0-nightly.20260929.3")
+	d := startTestDaemon(t, root, fakeIncus)
+	waitFor(t, "the nightly channel to be stored", func() bool {
+		v, _ := d.srv.store.Setting(ctx, state.SettingUpdateChannel)
+		return v == "nightly"
+	})
+	d.stop()
+
+	Version = "0.18.0"
+	d = startTestDaemon(t, root, fakeIncus)
+	if c, err := d.srv.updateChannel(ctx); err != nil || c != "nightly" {
+		t.Errorf("after installing a stable release, channel = %q, %v", c, err)
+	}
+
+	if err := d.srv.store.SetSetting(ctx, state.SettingUpdateChannel, "stable"); err != nil {
+		t.Fatal(err)
+	}
+	d.stop()
+	Version = "0.18.0-nightly.20260930.4"
+	d = startTestDaemon(t, root, fakeIncus)
+	time.Sleep(200 * time.Millisecond)
+	if v, _ := d.srv.store.Setting(ctx, state.SettingUpdateChannel); v != "stable" {
+		t.Errorf("an explicit stable choice became %q", v)
+	}
+}
+
+// liveReleases is releases.json that a test publishes to while the daemon runs.
+type liveReleases struct {
+	mu   sync.Mutex
+	tags []string // newest first
+	hits atomic.Int32
+}
+
+func (l *liveReleases) start(t *testing.T, tags ...string) string {
+	t.Helper()
+	l.tags = tags
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		l.hits.Add(1)
+		l.mu.Lock()
+		var list []string
+		for _, tag := range l.tags {
+			list = append(list, `{"tag_name":"v`+tag+`","prerelease":`+strconv.FormatBool(strings.Contains(tag, "-"))+`}`)
+		}
+		l.mu.Unlock()
+		_, _ = w.Write([]byte("[" + strings.Join(list, ",") + "]"))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func (l *liveReleases) publish(tag string) {
+	l.mu.Lock()
+	l.tags = append([]string{tag}, l.tags...)
+	l.mu.Unlock()
+}
+
+// TestUpdateCheckRunsAgainEachInterval: a release published while the daemon
+// runs is found by the next check, on either channel, and the apps are told
+// with an update event.
+func TestUpdateCheckRunsAgainEachInterval(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	for name, tc := range map[string]struct{ current, next string }{
+		"stable":  {"0.17.0", "0.17.1"},
+		"nightly": {"0.18.0-nightly.20261110.1", "0.18.0-nightly.20261111.2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			asVersion(t, tc.current)
+			var fake fakeLatest
+			var rel liveReleases
+			d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{
+				updateURL: fake.start(t, "0.17.0"), releasesURL: rel.start(t, tc.current, "0.17.0"),
+				updateInterval: 20 * time.Millisecond,
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			events := make(chan api.Event, 64)
+			go func() {
+				_ = d.client.Events(ctx, func(ev api.Event) error {
+					select {
+					case events <- ev:
+						return nil
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				})
+			}()
+			waitFor(t, "the first check", func() bool {
+				status, err := d.client.Update(ctx)
+				return err == nil && status.CheckedAt != nil
+			})
+			if status, _ := d.client.Update(ctx); status.Available != nil {
+				t.Fatalf("on the latest release, Update() = %+v", status)
+			}
+			first := rel.hits.Load()
+			waitFor(t, "more checks", func() bool { return rel.hits.Load() >= first+2 })
+
+			rel.publish(tc.next)
+			waitFor(t, "the new release", func() bool {
+				status, err := d.client.Update(ctx)
+				return err == nil && status.Available != nil && status.Available.Version == tc.next
+			})
+			timeout := time.After(5 * time.Second)
+			for {
+				select {
+				case ev := <-events:
+					var status api.UpdateStatus
+					if ev.Type != api.EventUpdate || json.Unmarshal(ev.Data, &status) != nil || status.Available == nil {
+						continue
+					}
+					if status.Available.Version != tc.next {
+						t.Fatalf("update event offers %s, want %s", status.Available.Version, tc.next)
+					}
+					return
+				case <-timeout:
+					t.Fatal("no update event for the new release")
+				}
+			}
+		})
+	}
+}
+
+// TestOverdueCheckGoesOutWhenAsked: a daemon whose ticker stood still while
+// the computer slept checks as soon as an app reads the status, once its last
+// check is older than the interval by the clock on the wall.
+func TestOverdueCheckGoesOutWhenAsked(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	asVersion(t, "0.17.0")
+	var fake fakeLatest
+	var rel liveReleases
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: rel.start(t, "0.17.0")})
+	ctx := context.Background()
+	waitFor(t, "the first check", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.CheckedAt != nil
+	})
+	rel.publish("0.17.1")
+
+	// Not overdue: reading the status sends nothing.
+	hits := rel.hits.Load()
+	if _, err := d.client.Update(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := rel.hits.Load(); got != hits {
+		t.Fatalf("a read an hour early sent %d checks", got-hits)
+	}
+
+	// Two hours ago by the wall clock, though the ticker hasn't fired.
+	d.srv.updates.mu.Lock()
+	d.srv.updates.triedAt = time.Now().Add(-2 * time.Hour).Round(0)
+	d.srv.updates.mu.Unlock()
+	if _, err := d.client.Update(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the overdue check", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil && status.Available.Version == "0.17.1"
+	})
 }
