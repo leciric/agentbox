@@ -558,6 +558,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 		if a.Status != state.AgentReady {
 			continue
 		}
+		s.raiseOOMScore(a.Ref(), a.Instance)
 		s.watchThrash(ctx, a, limit)
 		now, ok := s.memoryEvents(a.Instance)
 		if !ok {
