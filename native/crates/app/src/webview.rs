@@ -657,7 +657,8 @@ fn place(
         }
         let p = views.get_mut(id).unwrap();
         p.frame = frame;
-        if p.bounds != Some(at) {
+        let moved = p.bounds != Some(at);
+        if moved {
             let _ = p.view.set_bounds(rect(at));
             p.bounds = Some(at);
         }
@@ -665,8 +666,43 @@ fn place(
             let _ = p.view.set_visible(show);
             p.shown = show;
         }
+        if moved || show {
+            fit(&p.view, at);
+        }
     });
     flush();
+}
+
+/// fit holds a chat page's webview at its block's size. wry's set_bounds
+/// resizes the X window and allocates it once, but the GTK window around it
+/// keeps the size it was made at, and its next layout (a show, the page
+/// changing) gives the page that size again: a block grown from
+/// FRAME_DEFAULT showed the page's first 160 px and black below. Telling GTK
+/// the size, as the window's and the page's request, keeps it.
+fn fit(view: &wry::WebView, at: Bounds<Pixels>) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        use wry::WebViewExtUnix as _;
+        let (w, h) = (
+            (f32::from(at.size.width).round() as i32).max(1),
+            (f32::from(at.size.height).round() as i32).max(1),
+        );
+        let page = view.webview();
+        let (rw, rh) = page.size_request();
+        if (rw, rh) == (w, h) {
+            return;
+        }
+        page.set_size_request(w, h);
+        if let Some(top) = page
+            .toplevel()
+            .and_then(|t| t.downcast::<gtk::Window>().ok())
+        {
+            top.resize(w, h);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (view, at);
 }
 
 thread_local! {
