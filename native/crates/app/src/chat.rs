@@ -22,6 +22,7 @@ mod find;
 mod items;
 pub mod requests;
 pub mod rows;
+mod select;
 mod stream;
 
 pub use composer::{Composer, match_files, tokens};
@@ -1335,6 +1336,23 @@ impl Render for ChatView {
                 if k.modifiers.control && !k.modifiers.shift && k.key == "f" {
                     this.open_find(window, cx);
                     cx.stop_propagation();
+                }
+                // Ctrl+C copies what is selected in the timeline while the chat
+                // itself has the focus, as a press between the messages leaves
+                // it (GPUI focuses what tracks focus under a press): a press on
+                // a message's text focuses its TextView, which copies on its
+                // own, trimmed as here.
+                if k.modifiers.secondary(cx)
+                    && !k.modifiers.shift
+                    && !k.modifiers.alt
+                    && k.key == "c"
+                    && this.focus.is_focused(window)
+                {
+                    let text = gpui_base::TextSelection::selected_text(window, cx);
+                    if !text.trim().is_empty() {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text.trim().to_string()));
+                        cx.stop_propagation();
+                    }
                 }
                 // Mod+. and Mod+Shift+. move a project chat's To: on.
                 if k.modifiers.secondary(cx) && (k.key == "." || k.key == ">") {

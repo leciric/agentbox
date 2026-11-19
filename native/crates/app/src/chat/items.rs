@@ -426,6 +426,8 @@ impl ChatView {
                     .gap_2()
                     .child(
                         div()
+                            // An id, or the group_hover never shows (meta's).
+                            .id(SharedString::from(format!("turn-rule-{}", r.key)))
                             .flex_1()
                             .h(px(1.))
                             .group_hover("turn", |s| s.bg(theme::line())),
@@ -533,8 +535,14 @@ impl ChatView {
         }
         let (text, id, lead) = (it.text.clone(), it.id.clone(), self.is_lead());
         let v = view.clone();
-        el.context_menu(move |menu, _, _| {
-            let text = text.clone();
+        el.context_menu(move |menu, window, cx| {
+            // Copy takes what is selected, or the whole message (MessageMenu's
+            // copy), read as the menu opens: the press on Copy clears the
+            // window's selection before its click lands.
+            let text = super::select::copy_text(
+                gpui_base::TextSelection::selected_text(window, cx).trim(),
+                &text,
+            );
             // The menu closes on the click: a toast says it copied (MessageMenu's).
             let menu = menu.item(
                 PopupMenuItem::new(t("chat.message.copy"))
@@ -564,6 +572,9 @@ impl ChatView {
         let text = it.text.clone();
         // Timeline's Meta: text-xs faint, its time and a size-6 Copy button.
         h_flex()
+            // GPUI keeps whether a group is pointed at in the element's state,
+            // so a group_hover without an id never shows: this one didn't.
+            .id(SharedString::from(format!("meta-{}", it.id)))
             .gap_1()
             .text_xs()
             .line_height(px(16.))
@@ -582,6 +593,21 @@ impl ChatView {
                 text,
                 t("chat.timeline.copyMessage"),
             ))
+            .into_any_element()
+    }
+
+    /// corner_copy is a reply's Copy button alone, faint on the chat's ground
+    /// while the reply is pointed at (the code blocks' Copy), and kept while
+    /// it shows its tick.
+    fn corner_copy(&self, it: &ChatItem) -> AnyElement {
+        let key = SharedString::from(format!("copy-{}", it.id));
+        let ticked = crate::motion::copied(&key);
+        crate::app::controls::copy_button(key, it.text.clone(), t("chat.timeline.copyMessage"))
+            .bg(theme::chat())
+            .text_color(theme::faint())
+            .when(!ticked, |el| {
+                el.opacity(0.).group_hover("chat-msg", |s| s.opacity(1.))
+            })
             .into_any_element()
     }
 
@@ -651,7 +677,15 @@ impl ChatView {
                         .text_sm()
                         .line_height(relative(1.625))
                         .text_color(theme::primary())
-                        .child(it.text.clone()),
+                        // Selectable as the answers are, in the same selection
+                        // (chat/select.rs): a TextView of the text as written.
+                        .child(
+                            TextView::markdown(
+                                SharedString::from(format!("you-{}", it.id)),
+                                super::select::literal_markdown(&it.text),
+                            )
+                            .text_color(theme::primary()),
+                        ),
                 )
             })
             .when_some(delivery, |el, (key, color)| {
@@ -846,6 +880,18 @@ impl ChatView {
             ))
             .when(last, |el| {
                 el.child(div().mt_1p5().child(self.meta(it, false)))
+            })
+            // A reply between a turn's steps has no meta line in Electron: its
+            // Copy shows at its top right on hover, taking no room, so the
+            // turn is as tall as Electron's and every reply can be copied.
+            .when(!last && !it.streaming, |el| {
+                el.relative().child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .child(self.corner_copy(it)),
+                )
             });
         self.message_menu(el, it, view)
     }
