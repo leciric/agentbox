@@ -45,6 +45,7 @@ mod video;
 mod viewers;
 mod vnc;
 mod webview;
+mod zoom;
 
 use gpui::{App, AppContext as _, WindowOptions, px, size};
 use gpui_component::Root;
