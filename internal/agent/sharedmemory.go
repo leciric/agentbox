@@ -22,9 +22,15 @@ import (
 //     Incus's liblxc starts a container where raw.lxc's
 //     lxc.cgroup.dir.container says (AgentPlacement), creating the path and
 //     enabling the controllers down it. Its memory.high and memory.max are
-//     AgentsLimits, after T3 Code's agent slice: the agents together are
-//     throttled with about 6 GiB of the VM left and killed with 4 GiB left,
-//     and on a small VM at half and three quarters of it. Its cpu.weight and
+//     AgentsLimits: the agents together are throttled with 3 GiB of the VM
+//     left and killed with 2 GiB left, and on a small VM at half and three
+//     quarters of it. T3 Code's agent slice leaves 6 and 4, for a whole
+//     desktop beside its agents; the VM holds only the daemon, Incus, the
+//     lead chats (under their own ceiling) and its kernel, about 3 GiB, and
+//     on 19 Nov 2026 6 GiB left throttled every agent at half of an 8 GiB VM
+//     with 2 to 4 GiB of it free, their builds waiting and every boot behind
+//     them. What protects the user's computer is the VM's cap and the host's
+//     reserve (package hostvm/chv), not this. Its cpu.weight and
 //     io.weight are one agent's (AgentCPUWeight, AgentIOWeight), now against
 //     the VM's services and the leads as one, and its pids.max a quarter of
 //     what the VM's kernel allows, as T3 Code's TasksMax=25%.
@@ -75,15 +81,15 @@ type GroupLimits struct {
 
 // AgentsLimits is agentbox.agents' limits in a VM of total bytes whose kernel
 // allows tasks processes and threads (0 when unknown): memory.high leaves the
-// rest of the VM 6 GiB, or half of a VM of 12 GiB or less, and memory.max
-// leaves it 4 GiB, or a quarter of a VM of 16 GiB or less. No memory limit
+// rest of the VM 3 GiB, or half of a VM of 6 GiB or less, and memory.max
+// leaves it 2 GiB, or a quarter of a VM of 8 GiB or less. No memory limit
 // when total isn't known.
 func AgentsLimits(total int64, tasks int) GroupLimits {
 	const gib = int64(1) << 30
 	l := GroupLimits{CPUWeight: AgentCPUWeight, IOWeight: AgentIOWeight, PidsMax: tasks / 4}
 	if total > 0 {
-		l.High = max(total-6*gib, total/2)
-		l.Max = max(total-4*gib, total/4*3)
+		l.High = max(total-3*gib, total/2)
+		l.Max = max(total-2*gib, total/4*3)
 	}
 	return l
 }

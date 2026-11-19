@@ -11,19 +11,19 @@ import (
 	"time"
 )
 
-// The agents together are throttled with 6 GiB of the VM left and killed
-// with 4 GiB left (T3 Code's agent slice), and a small VM gives them half and
-// three quarters; the leads get a quarter, at least min(half, 4 GiB).
+// The agents together are throttled with 3 GiB of the VM left and killed
+// with 2 GiB left, and a small VM gives them half and three quarters; the leads get a quarter, at least min(half, 4 GiB).
 func TestSharedLimits(t *testing.T) {
 	for _, c := range []struct {
 		total, high, max, leads int64
 	}{
 		{4 * gib, 2 * gib, 3 * gib, 2 * gib},
-		{8 * gib, 4 * gib, 6 * gib, 4 * gib},
-		{12 * gib, 6 * gib, 9 * gib, 4 * gib},
-		{16 * gib, 10 * gib, 12 * gib, 4 * gib},
-		{32 * gib, 26 * gib, 28 * gib, 8 * gib},
-		{64 * gib, 58 * gib, 60 * gib, 16 * gib},
+		{8 * gib, 5 * gib, 6 * gib, 4 * gib},
+		{12 * gib, 9 * gib, 10 * gib, 4 * gib},
+		{14 * gib, 11 * gib, 12 * gib, 4 * gib},
+		{16 * gib, 13 * gib, 14 * gib, 4 * gib},
+		{32 * gib, 29 * gib, 30 * gib, 8 * gib},
+		{64 * gib, 61 * gib, 62 * gib, 16 * gib},
 	} {
 		a := AgentsLimits(c.total, 120000)
 		if a.High != c.high || a.Max != c.max {
@@ -105,8 +105,8 @@ func TestSetGroupWritesTheParentsLimits(t *testing.T) {
 	}
 	want := []string{
 		"cgroup.subtree_control=+cpu +io +memory +pids",
-		"memory.high=" + strconv.FormatInt(10*gib, 10),
-		"memory.max=" + strconv.FormatInt(12*gib, 10),
+		"memory.high=" + strconv.FormatInt(13*gib, 10),
+		"memory.max=" + strconv.FormatInt(14*gib, 10),
 		"cpu.weight=10",
 		"io.weight=default 25",
 		"pids.max=30000",
@@ -125,7 +125,7 @@ func TestSetGroupWritesTheParentsLimits(t *testing.T) {
 	if err := setGroup(dir, AgentsLimits(32*gib, 120000), nil, recordWrites(&writes)); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(writes, []string{"memory.high=" + strconv.FormatInt(26*gib, 10), "memory.max=" + strconv.FormatInt(28*gib, 10)}) {
+	if !slices.Equal(writes, []string{"memory.high=" + strconv.FormatInt(29*gib, 10), "memory.max=" + strconv.FormatInt(30*gib, 10)}) {
 		t.Errorf("after the VM grew, writes = %q", writes)
 	}
 	// One that isn't there is made.
