@@ -74,6 +74,11 @@ func (s *Server) sendReport(w http.ResponseWriter, r *http.Request) error {
 		if os.Getenv("DO_NOT_TRACK") == "1" {
 			return errors.New("automatic error reports aren't sent while DO_NOT_TRACK=1 is set")
 		}
+		// A throwaway daemon in an agent's machine isn't an install, and its
+		// errors are the agent's own work's, not AgentBox's.
+		if update.InAgent() {
+			return errors.New("automatic error reports aren't sent from an agent's machine")
+		}
 	}
 	red := s.redactor()
 	message, err := report.CleanMessage(red, req.Kind, req.Message)

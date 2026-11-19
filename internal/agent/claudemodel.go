@@ -254,7 +254,7 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		// creation, so a running agent's next chat follows the setting
 		// without waiting for its machine to restart.
 		return m.prepareAgentClaudeSettings(ctx, a, func(b []byte) ([]byte, error) {
-			return withClaudeSettings(b, merge, m.withBashEnv, withClaudeAttribution(m.creditAITool(ctx)))
+			return withClaudeSettings(b, merge, m.withBashEnv, withDoNotTrack, withClaudeAttribution(m.creditAITool(ctx)))
 		})
 	case "codex":
 		return m.prepareAgentCodexSettings(ctx, a, compactWindow)

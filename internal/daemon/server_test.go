@@ -27,6 +27,7 @@ import (
 	"agentbox/internal/bridgecheck"
 	"agentbox/internal/credentials"
 	"agentbox/internal/image"
+	"agentbox/internal/inagent"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
 	"agentbox/internal/pressure"
@@ -114,6 +115,13 @@ func TestMain(m *testing.M) {
 	// Nor do image builds: they build here, rather than download the
 	// published image.
 	_ = os.Setenv("AGENTBOX_IMAGES_URL", "off")
+	// The tests may run on an agent, where a daemon sends nothing, ever
+	// (update.InAgent): they look at no marker, socket or hostname that is
+	// there, and the tests of that rule set what they want to see.
+	noAgent := filepath.Join(os.TempDir(), fmt.Sprintf("agentbox-no-agent-%d", os.Getpid()))
+	_ = os.Setenv(inagent.MarkerEnv, noAgent+".marker")
+	_ = os.Setenv(inagent.SocketEnv, noAgent+".sock")
+	_ = os.Setenv(inagent.HostnameEnv, "front-end-host")
 	// The daemon runs git itself, so git's isolation from the developer's
 	// configuration has to be the whole process's too.
 	// Nor on what an earlier release's shared budget left on this host,

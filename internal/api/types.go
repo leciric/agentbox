@@ -2367,7 +2367,8 @@ type UpdateStatus struct {
 	Nightly bool `json:"nightly,omitempty"`
 	// Blocked says why the check is off whatever the setting says — a
 	// development build, AGENTBOX_NO_UPDATE_CHECK=1 or DO_NOT_TRACK=1 in the
-	// daemon's environment — and is empty when nothing is in its way.
+	// daemon's environment, or running inside an agent's machine — and is
+	// empty when nothing is in its way.
 	Blocked string `json:"blocked,omitempty"`
 	// Available is the newer release the last check found; absent when there
 	// is none, or none is known.
