@@ -135,19 +135,21 @@ type Server struct {
 	events       *broker
 	keepalive    time.Duration // how often a quiet event stream says it's there; 15s unless a test sets it
 	jobs         *jobs
-	chat         *chat.Manager   // the agents' conversations in the app's Chat tab
-	pulls        *pullsCache     // what GitHub said about each repository, served stale
-	pullFiles    pullFiles       // the files of the pull requests the app opened, for their diffs
-	pullDetails  pullDetails     // the pull requests the app opened, for a moment (pulldetail.go)
-	prWatch      *prWatcher      // the agents' pull requests being watched (prwatch.go)
-	presence     *viewLeases     // what the clients are looking at (presence.go)
-	agentSamples *agentSampler   // watched agents' live resources (agentresources.go)
-	processes    *processSampler // what agents have running, and killing it (processes.go)
+	chat         *chat.Manager // the agents' conversations in the app's Chat tab
+	pulls        *pullsCache   // what GitHub said about each repository, served stale
+	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
+	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
+	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	presence     *viewLeases   // what the clients are looking at (presence.go)
+	agentSamples *agentSampler // watched agents' live resources (agentresources.go)
+	issues       issuesCache   // projects' open GitHub issues (issues.go)
+	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
+
+	// processes reads what agents have running, and kills it (processes.go);
 	// processTell tells an agent the user killed one of its processes:
 	// tellUnlessRetired, or a test's recorder.
+	processes   *processSampler
 	processTell func(ctx context.Context, a state.Agent, text string) (told, error)
-	issues       issuesCache     // projects' open GitHub issues (issues.go)
-	issuePickup  *issuePicker    // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
