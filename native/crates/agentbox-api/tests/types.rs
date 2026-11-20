@@ -43,7 +43,10 @@ fn reads_what_agents_have_running() {
     let l: ProcessList = serde_json::from_str(include_str!("testdata/processes.json")).unwrap();
     assert_eq!(l.agents.len(), 2);
     let a = &l.agents[0];
-    assert_eq!((a.r#ref.as_str(), a.running, a.processes), ("demo/agent-2", true, 9));
+    assert_eq!(
+        (a.r#ref.as_str(), a.running, a.processes),
+        ("demo/agent-2", true, 9)
+    );
     let build = &a.trees[0];
     assert_eq!(build.kind, PROCESS_TREE_AGENT);
     assert!(build.heavy && !build.protected && build.members.len() == 1);

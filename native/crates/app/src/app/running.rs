@@ -233,7 +233,10 @@ fn small_button(id: impl Into<ElementId>, kind: controls::Btn) -> Stateful<Div> 
             .active(|s| s.bg(theme::surface_strong())),
         _ => el
             .text_color(theme::rose(300))
-            .hover(|s| s.bg(theme::rose(500).opacity(0.1)).text_color(theme::rose(200)))
+            .hover(|s| {
+                s.bg(theme::rose(500).opacity(0.1))
+                    .text_color(theme::rose(200))
+            })
             .active(|s| s.bg(theme::rose(500).opacity(0.2))),
     }
 }
@@ -320,11 +323,7 @@ impl AppView {
                 if this.running.agent_reading.as_deref() == Some(r.as_str()) {
                     this.running.agent_reading = None;
                 }
-                let current = this
-                    .running
-                    .agent
-                    .as_ref()
-                    .is_none_or(|(of, _)| *of == r);
+                let current = this.running.agent.as_ref().is_none_or(|(of, _)| *of == r);
                 if current {
                     this.running.agent = Some((r, res));
                     cx.notify();
@@ -532,7 +531,12 @@ impl AppView {
                     t("running.scopeProject"),
                     false,
                 ))
-                .child(tab("running-scope-all", run.all, t("running.scopeAll"), true))
+                .child(tab(
+                    "running-scope-all",
+                    run.all,
+                    t("running.scopeAll"),
+                    true,
+                ))
         });
         let card = div()
             .id("running-dialog-body")
@@ -589,13 +593,46 @@ impl AppView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_running(cx)))
                     .child(icons::ic("x").size(px(16.))),
             );
-        let close = cx.listener(|this, _: &ClickEvent, _, cx| this.close_running(cx));
-        Some(controls::window_modal(
-            "running",
-            px(672.),
-            card,
-            std::rc::Rc::new(close),
-        ))
+        // Over the window as its other dialogs are (agent::modal), not
+        // deferred as controls::window_modal is: a kill's toast is drawn
+        // over it, as the Electron app's are over its dialogs.
+        Some(
+            crate::motion::scrim_in(
+                div()
+                    .id("running-backdrop")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .occlude()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_running(cx)),
+                    )
+                    .child(crate::motion::pop_in(
+                        div()
+                            .id("running-card")
+                            .w(px(672.))
+                            .max_w(relative(0.92))
+                            .max_h(relative(0.88))
+                            .flex()
+                            .flex_col()
+                            .rounded(theme::radius::XXL)
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .shadow(theme::shadow_modal())
+                            .overflow_hidden()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(card),
+                        "running-card-in",
+                    )),
+                "running-scrim-in",
+            )
+            .into_any_element(),
+        )
     }
 
     /// agent_heading is an agent's line over its trees: its name, which
@@ -772,7 +809,10 @@ impl AppView {
         let toggle = (!small.is_empty()).then(|| {
             let key = key.clone();
             div()
-                .id(SharedString::from(format!("running-small-{place:?}-{}", a.r#ref)))
+                .id(SharedString::from(format!(
+                    "running-small-{place:?}-{}",
+                    a.r#ref
+                )))
                 .self_start()
                 .px_1()
                 .text_size(theme::text::CAPTION)
@@ -858,8 +898,12 @@ impl AppView {
                     cx.notify();
                 }))
                 .child(
-                    icons::ic(if open { "chevron-down" } else { "chevron-right" })
-                        .size(px(14.)),
+                    icons::ic(if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    })
+                    .size(px(14.)),
                 )
                 .into_any_element()
         } else {
@@ -995,8 +1039,7 @@ impl AppView {
                                 if tree.protected {
                                     el.text_color(theme::muted())
                                 } else {
-                                    el.font_family(theme::mono())
-                                        .text_color(theme::primary())
+                                    el.font_family(theme::mono()).text_color(theme::primary())
                                 }
                             })
                             .tooltip(move |w, cx| long_tip(command.clone(), w, cx))
@@ -1070,19 +1113,23 @@ impl AppView {
             .children(confirm)
             .when(open, |el| {
                 el.child(
-                    v_flex().min_w_0().gap_0p5().pl_6().children(tree.members.iter().map(|m| {
-                        h_flex()
-                            .min_w_0()
-                            .items_baseline()
-                            .gap_2()
-                            .font_family(theme::mono())
-                            .font_features(theme::tabular_features())
-                            .text_size(theme::text::CAPTION)
-                            .text_color(theme::faint())
-                            .child(div().flex_none().w_12().child(m.pid.to_string()))
-                            .child(div().flex_1().min_w_0().truncate().child(m.command.clone()))
-                            .child(div().flex_none().child(human_bytes(m.memory)))
-                    })),
+                    v_flex()
+                        .min_w_0()
+                        .gap_0p5()
+                        .pl_6()
+                        .children(tree.members.iter().map(|m| {
+                            h_flex()
+                                .min_w_0()
+                                .items_baseline()
+                                .gap_2()
+                                .font_family(theme::mono())
+                                .font_features(theme::tabular_features())
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::faint())
+                                .child(div().flex_none().w_12().child(m.pid.to_string()))
+                                .child(div().flex_1().min_w_0().truncate().child(m.command.clone()))
+                                .child(div().flex_none().child(human_bytes(m.memory)))
+                        })),
                 )
             })
             .into_any_element()
