@@ -1797,6 +1797,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
 	env += doNotTrackEnv
 	env += m.packageCacheEnv()
+	env += m.cargoBuildDirEnv()
 	env += workersScript
 	env += shimPathLine
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
@@ -2243,6 +2244,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		}
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
+		// A workspace the worktree gained since it was made gets its
+		// target/ mounted now, before Cargo writes one through the share.
+		m.ensureBuildOutputs(ctx, a)
 		m.buildOutputSources(ctx, a)
 		ClearStaleCgroups(a.Instance)
 		err := m.Incus.Start(ctx, a.Instance)
