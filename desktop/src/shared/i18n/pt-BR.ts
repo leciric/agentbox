@@ -5518,7 +5518,7 @@ export const ptBR: Messages = {
   'running.notRunning': 'A máquina dele não está rodando.',
   'running.processes': '{count, plural, one {# processo} other {# processos}}',
   'running.cpu': '{percent}% de CPU',
-  'running.up': 'há {span}',
+  'running.up': 'rodando há {span}',
   'running.system': 'Sistema',
   'running.heavy': 'Pesado',
   'running.heavyTip': 'Ocupa {memory}: 1 GiB ou mais.',
