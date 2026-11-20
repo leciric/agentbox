@@ -56,12 +56,11 @@ func (s *Server) newPackageCache() *pkgcache.Cache {
 	return c
 }
 
-// heavyRunActive says an agent has a heavy command running or waiting to
-// run (pressure.go).
+// heavyRunActive says an agent has a heavy command going (pressure.go).
 func (s *Server) heavyRunActive() bool {
 	s.heavy.mu.Lock()
 	defer s.heavy.mu.Unlock()
-	return len(s.heavy.g.Running())+len(s.heavy.g.Waiting()) > 0
+	return len(s.heavy.g.Running()) > 0
 }
 
 // diagnosticsPackageCache is what the shared package caches hold, by tool.

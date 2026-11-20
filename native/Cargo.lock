@@ -152,6 +152,7 @@ dependencies = [
  "hayro",
  "humantime",
  "image",
+ "javascriptcore-rs",
  "markdown",
  "mermaid-rs-renderer",
  "notify-rust",

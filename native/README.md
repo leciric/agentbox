@@ -60,7 +60,9 @@ asks for them (`GET /v1/presence` on the fake shows the leases it holds); the le
 upstream daemon too.
 
 `--project` (demo), `--agents` (6), `--history` (400 messages per agent) and `--rate` (60 chunks a
-second) shape the fixtures. Without `--upstream` it serves one project on its own.
+second) shape the fixtures. A message with "page" in it gets a tall ```html preview page streamed back
+(try `--rate 8` to watch it arrive). `--previews` ends every reply of the chats' history with a
+page of its own, a chat full of previews. Without `--upstream` it serves one project on its own.
 
 `--neighbours storefront:4,quill:3` adds more projects with a few agents each (no chats), for the
 Office's campus.

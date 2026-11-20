@@ -460,3 +460,76 @@ func TestSettlingAnAlignmentSavesItToBothProjects(t *testing.T) {
 		t.Errorf("threadOf(other) = %v", err)
 	}
 }
+
+// A lead session that isn't its project's main one asks another project and
+// gets the answer in that session, not the main one, hop after hop; a pinned
+// session that is deleted falls back to the main session.
+func TestProjectRepliesReturnToTheAskingSession(t *testing.T) {
+	t.Parallel()
+	d, _ := twoProjects(t)
+	ctx := context.Background()
+	webProd, err := d.client.NewLeadSession(ctx, "web", "Prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"web", "api"} {
+		if err := d.srv.serveLeadAPI(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prodLead, err := d.srv.sessionLead(ctx, "web", webProd.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	webMain, err := d.srv.sessionLead(ctx, "web", state.MigratedSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asker := api.NewClient(d.srv.sessionSocketPath("web", webProd.ID))
+	answerer := api.NewClient(d.srv.leadSocketPath("api"))
+	received := func(lead state.Agent) int {
+		return strings.Count(strings.Join(noticesOf(t, d, lead), "\n"), "<project-message")
+	}
+
+	thread, err := asker.MessageProject(ctx, api.ProjectMessageRequest{Project: "api", Message: "Which format?", ExpectsReply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "api's main session to be told", func() bool { return len(hiddenNotices(t, d, "api")) == 1 })
+	th, err := d.srv.store.ProjectThread(ctx, thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.ProjectSession != webProd.ID || th.PeerSession != state.MigratedSession {
+		t.Fatalf("pinned %q and %q, want %q and %q", th.ProjectSession, th.PeerSession, webProd.ID, state.MigratedSession)
+	}
+	if _, err := answerer.ReplyProject(ctx, thread.ID, api.ProjectReplyRequest{Message: "ISO 8601.", ExpectsReply: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the asking session to hear the answer", func() bool { return received(prodLead) == 1 })
+	if got := received(webMain); got != 0 {
+		t.Errorf("web's main session was told %d times, want 0", got)
+	}
+	if th, err := d.srv.chat.Thread(webMain); err == nil {
+		for _, it := range th.Items {
+			if it.ProjectMessage != nil {
+				t.Errorf("web's main session shows a project message: %+v", it)
+			}
+		}
+	}
+
+	// The next hop stays in the same two sessions.
+	if _, err := asker.ReplyProject(ctx, thread.ID, api.ProjectReplyRequest{Message: "Thanks. And dates?", ExpectsReply: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "api's main session to hear the follow-up", func() bool { return len(hiddenNotices(t, d, "api")) == 2 })
+
+	// Deleted, the pinned session falls back to the main one.
+	if err := d.client.DeleteLeadSession(ctx, "web", webProd.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := answerer.ReplyProject(ctx, thread.ID, api.ProjectReplyRequest{Message: "UTC."}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "web's main session to hear the answer", func() bool { return received(webMain) == 1 })
+}

@@ -16,8 +16,9 @@ import (
 // box, the pull request watch, an answer to a question the agent can no
 // longer be waiting on — goes through tellAgent, which starts the machine
 // the way `agentbox start` does, or resumes it, before the chat sees the
-// message. Its boot may wait its turn for the VM's memory (admission.go):
-// the message is held in its chat meanwhile, and nobody waits on it.
+// message. Its boot may wait its turn, a few seconds, or for the user's
+// computer to be over its hard floor (admission.go): the message is held in
+// its chat meanwhile, and nobody waits on it.
 
 // told is what became of a message sent to an agent.
 type told struct {
@@ -95,8 +96,9 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 			return told{}, err
 		}
 		if s.bootWaits() {
-			// Its boot may wait for memory (admitMachine): the message
-			// waits in its chat meanwhile, and nobody waits on it.
+			// Its boot may wait its turn, or for the user's computer
+			// (admitMachine): the message waits in its chat meanwhile, and
+			// nobody waits on it.
 			item, err := s.chat.HoldMessage(a, msg)
 			if err != nil {
 				return told{}, err

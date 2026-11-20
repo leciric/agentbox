@@ -5,44 +5,37 @@ import (
 	"time"
 )
 
-// Admission decides when agents' machines boot, by what the VM really has,
-// whatever else is on: the user starts as many agents as they like, and
-// those that don't fit wait On hold, machine stopped, and boot by themselves,
-// oldest first, as room frees. No counts and no estimates of what an agent
-// will come to use (#252 dropped those: three agents estimated at 6 GB held
-// new ones back with 8 GB free). An agent waiting on its model costs what it
-// holds, which the reading already shows, so nothing counts agents.
+// Admission staggers agents' machines as they boot. A machine boots when it
+// is asked to, never held for the VM's memory, nor for builds, nor for the
+// user's computer being busy or under its reserve (19 Nov 2026, the user's
+// decision): the kernel's limits are what protect the VM, each agent's
+// memory.max and every agent's together under agentbox.agents (package
+// agent), and the VM's cap and the host supervisor's checks are what protect
+// the user's computer (package hostvm/chv). Until then machines that didn't
+// fit waited On hold, in line, and on 19 Nov 2026 they waited for twenty
+// minutes and more behind builds the agents' own shared limit held back,
+// with the VM's memory free; the same day the host's 8.2 GiB free, under
+// its 7.6 GiB reserve within two minutes, held every boot while its own
+// memory pressure read 0.
 //
-// A machine boots when what is available, with what the VM may still grow
-// by, less the boots not yet showing in it (BootSettle), exceeds what a boot
-// takes (BootCost, measured from the last boots) plus the policy's floor;
-// never while the VM pages to its disk swap; never while a build waits or is
-// paused for memory: the work of agents already running comes before a new
-// agent's; and never while the user's computer, outside the VM, is busy
-// (WaitHost), for no longer than it is. One boots at a time, BootStep apart, so each boot shows in
-// the reading before the next is judged. When no machine runs at all, the
-// first in line boots whatever the reading, or nothing ever would; but
-// nothing boots, the first included, while the user's computer, outside the
-// VM, has been short of memory lately (HostShort): every boot then is memory
-// the host's kernel would have to find by killing something, the VM first.
-//
-// Unlike pressure.Fleet's queue, nobody boots for having waited long
-// (Queue.MaxHeld): a machine started into memory that isn't there gets an
-// agent's processes killed, which is what this is for.
+// Two things are left. Machines asking at once boot one every BootStep,
+// oldest agent first, so each boot's burst of disk and CPU isn't on top of
+// the last's. And none boots while the user's computer, outside the VM, is
+// below its hard floor now (HostShort: the host supervisor's hostFloor, the
+// larger of 2 GiB and 6% of it), where a boot is memory its kernel would
+// find by killing something, the VM first; the supervisor stops agents
+// meanwhile (Shed), and machines boot again as soon as the host is over it.
 type Admission struct {
-	Policy   Policy
-	BootCost int64
 	// BootStep is the least time between two boots.
 	BootStep time.Duration
+	// HostShort, set before each Step, says the user's computer is below its
+	// hard floor now (api.HostLoad.HoldBoots).
+	HostShort bool
 
 	waiting []*AdmitWaiter
 	booting []booting
 	last    time.Time // the last boot
-	mem     Mem
 	why     string
-	// HostShort, set before each Step, says the host has been short of
-	// memory lately (api.HostLoad.HoldBoots).
-	HostShort bool
 }
 
 // AdmitWaiter is a machine asking to boot.
@@ -55,23 +48,21 @@ type AdmitWaiter struct {
 
 // The reasons a machine waits to boot (Admission.Why).
 const (
-	WaitMemory = "memory" // the VM hasn't the memory for another boot
-	WaitBuilds = "builds" // agents' builds wait or are paused for memory
-	WaitHost   = "host"   // the user's computer, outside the VM, is busy or has been short of memory lately
-	WaitTurn   = "turn"   // another machine boots just before it
+	WaitHost = "host" // the user's computer, outside the VM, is below its hard floor
+	WaitTurn = "turn" // another machine boots just before it
 )
 
 // DefaultBootStep is the daemon's.
 const DefaultBootStep = 5 * time.Second
 
-// NewAdmission is an admission with policy.
-func NewAdmission(policy Policy) *Admission {
-	return &Admission{Policy: policy, BootCost: DefaultBootCost, BootStep: DefaultBootStep}
+// NewAdmission is an admission booting a machine every DefaultBootStep.
+func NewAdmission() *Admission {
+	return &Admission{BootStep: DefaultBootStep}
 }
 
-// Ask is a machine asking to boot at now. It reports whether it may at
-// once: nothing waits ahead of it and it fits. One that waits boots in a
-// later Step.
+// Ask is a machine asking to boot at now. It reports whether it may at once,
+// having been let boot just before (Booted); one that waits boots in a later
+// Step, which may be the very next.
 func (a *Admission) Ask(agent string, made, now time.Time) bool {
 	if a.Booted(agent) {
 		return true
@@ -84,8 +75,8 @@ func (a *Admission) Ask(agent string, made, now time.Time) bool {
 	return false
 }
 
-// Booted reports whether agent was let boot since it asked, until its boot
-// settles.
+// Booted reports whether agent was let boot since it asked, within
+// BootSettle.
 func (a *Admission) Booted(agent string) bool {
 	for _, b := range a.booting {
 		if b.agent == agent {
@@ -120,51 +111,27 @@ func (a *Admission) Waiting() []AdmitWaiter {
 	return out
 }
 
-// Place is how many machines boot before agent's, and whether it waits.
-func (a *Admission) Place(agent string) (ahead int, ok bool) {
-	i := a.find(agent)
-	return max(i, 0), i >= 0
-}
+// Waits reports whether agent's machine waits to boot.
+func (a *Admission) Waits(agent string) bool { return a.find(agent) >= 0 }
 
-// Why is why the first in line waited at the last Step: WaitMemory,
-// WaitBuilds, WaitHost, WaitTurn, or "" for nothing waiting.
+// Why is why the first in line waited at the last Step: WaitHost, WaitTurn,
+// or "" for nothing waiting.
 func (a *Admission) Why() string { return a.why }
 
-// Mem is the VM's memory as the last Step read it.
-func (a *Admission) Mem() Mem { return a.mem }
-
-// Fits reports whether a boot fits in m now: what is available, with what
-// the VM may still grow by, less the boots not showing yet, over BootCost
-// plus the floor. Unknown memory always fits.
-func (a *Admission) Fits(m Mem, now time.Time) bool {
-	if !m.Known() {
-		return true
+// Holds is why a machine asking to boot at now would wait, or "" when it may
+// boot.
+func (a *Admission) Holds(now time.Time) string {
+	switch {
+	case a.HostShort:
+		return WaitHost
+	case !a.last.IsZero() && now.Sub(a.last) < a.BootStep:
+		return WaitTurn
 	}
-	if m.DiskSwapOut() {
-		return false
-	}
-	return a.room(m, now)-float64(a.BootCost) >= a.Policy.floor(m)
+	return ""
 }
 
-func (a *Admission) room(m Mem, now time.Time) float64 {
-	room := float64(m.Available)
-	if m.Cap > m.Total {
-		room += float64(m.Cap - m.Total)
-	}
-	for _, b := range a.booting {
-		if now.Before(b.until) {
-			room -= float64(a.BootCost)
-		}
-	}
-	return room
-}
-
-// Step is the VM's memory at now, with what else holds boots back (held:
-// WaitHost while the user's computer is busy, WaitBuilds while builds wait or
-// are paused for memory, "" for neither) and how many machines run: it
-// returns the machines that may boot now, at most one.
-func (a *Admission) Step(now time.Time, m Mem, held string, running int) []string {
-	a.mem = m
+// Step returns the machines that may boot at now, at most one.
+func (a *Admission) Step(now time.Time) []string {
 	kept := a.booting[:0]
 	for _, b := range a.booting {
 		if now.Before(b.until) {
@@ -176,20 +143,8 @@ func (a *Admission) Step(now time.Time, m Mem, held string, running int) []strin
 		a.why = ""
 		return nil
 	}
-	switch {
-	case a.HostShort:
-		a.why = WaitHost
-		return nil
-	case running == 0 && len(a.booting) == 0:
-		// Nothing runs: the first boots whatever the reading.
-	case !a.last.IsZero() && now.Sub(a.last) < a.BootStep:
-		a.why = WaitTurn
-		return nil
-	case held != "":
-		a.why = held
-		return nil
-	case !a.Fits(m, now):
-		a.why = WaitMemory
+	if why := a.Holds(now); why != "" {
+		a.why = why
 		return nil
 	}
 	w := a.waiting[0]
@@ -214,7 +169,8 @@ const SettleFall = 32 << 20 // 32 MiB/s
 // or "" when nothing does: a memory stall (some pressure at Admit, or full
 // at Calm), the VM paging to its disk, the user's computer busy, and, while
 // steady is asked for, its memory still falling at SettleFall or faster.
-// Whether a machine's boot fits is Admission's to say.
+// It spaces out what a restart carries on, one after another; it holds
+// nothing else back.
 func (p Policy) Unsettled(s Sample, t Trend, steady bool) string {
 	switch {
 	case s.Some.Avg10 >= p.Admit || s.Full.Avg10 >= p.Calm:

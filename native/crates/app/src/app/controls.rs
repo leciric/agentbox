@@ -258,7 +258,7 @@ pub fn list_overflows(list: &ListState) -> bool {
     list.max_offset_for_scrollbar().y > px(0.5)
 }
 
-fn paint_scrollbar(
+pub(crate) fn paint_scrollbar(
     vp: Bounds<Pixels>,
     x: Pixels,
     max: Pixels,

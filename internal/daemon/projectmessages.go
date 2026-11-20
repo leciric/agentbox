@@ -112,6 +112,9 @@ func (s *Server) sendToProject(ctx context.Context, from string, req api.Project
 	t := state.ProjectThread{
 		ID: newID(), Project: from, Peer: to, Kind: kind, Topic: topic,
 		Status: state.ThreadOpen, CreatedAt: now, UpdatedAt: now,
+		// The asking session keeps the thread: the answer comes back to it,
+		// not to the project's main session.
+		ProjectSession: cmp.Or(leadSessionOf(ctx), state.MigratedSession),
 	}
 	m := state.ProjectMessage{
 		ID: newID(), Thread: t.ID, Project: from, Peer: to, Text: text,
@@ -166,6 +169,20 @@ func (s *Server) replyToProject(ctx context.Context, from, id string, req api.Pr
 	if err := s.answersFromItsSession(ctx, t, from); err != nil {
 		return state.ProjectThread{}, err
 	}
+	// Between two leads the session that answers takes the thread over, so
+	// the rest of it stays in the two sessions talking.
+	if t.Project != state.HomeProject && t.Peer != state.HomeProject {
+		if session := leadSessionOf(ctx); session != "" && session != t.SessionOf(from) {
+			if err := s.store.PinProjectThreadSession(ctx, t.ID, from, session); err != nil {
+				return state.ProjectThread{}, err
+			}
+			if t.Project == from {
+				t.ProjectSession = session
+			} else {
+				t.PeerSession = session
+			}
+		}
+	}
 	to, now := t.Other(from), time.Now()
 	m := state.ProjectMessage{
 		ID: newID(), Thread: t.ID, Project: from, Peer: to, Text: text, Hop: last.Hop + 1,
@@ -183,8 +200,12 @@ func (s *Server) replyToProject(ctx context.Context, from, id string, req api.Pr
 // answersFromItsSession holds the answer to a question from the Home chat to
 // the lead session that was asked, which has the conversation it was asked in,
 // while that session is open; once it is closed or deleted, any of the
-// project's sessions may answer. A thread between two leads pins nothing.
+// project's sessions may answer. A thread between two leads doesn't hold
+// answers to a session: whichever answers takes the thread over.
 func (s *Server) answersFromItsSession(ctx context.Context, t state.ProjectThread, from string) error {
+	if t.Project != state.HomeProject && t.Peer != state.HomeProject {
+		return nil
+	}
 	pinned := t.SessionOf(from)
 	session := cmp.Or(leadSessionOf(ctx), state.MigratedSession)
 	if pinned == "" || pinned == session {
@@ -339,8 +360,9 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 		// The sender's own session shows what it sent; the one it went to
 		// is its project's main session (firstLead), which the notice
 		// wakes, whichever session the user has selected or last wrote in,
-		// so a thread stays in one conversation and is answered from it. A
-		// thread with the Home chat pinned the session on each side instead.
+		// so a thread stays in one conversation and is answered from it. Each
+		// side's session is pinned (ProjectThread.SessionOf) once it is
+		// known, so later messages stay in the same two sessions.
 		topic := "From " + chatName(side.other) + ": " + t.Topic
 		pinned := t.SessionOf(side.project)
 		var lead state.Agent
@@ -355,6 +377,12 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 		}
 		if side.project == to {
 			told, toldErr = lead, err
+			// The session that received the first message keeps the thread.
+			if err == nil && pinned != lead.Session() && to != state.HomeProject {
+				if perr := s.store.PinProjectThreadSession(ctx, t.ID, to, lead.Session()); perr != nil {
+					s.logf("pinning thread %s to %s's session: %v", t.ID, to, perr)
+				}
+			}
 		}
 		if err != nil {
 			s.logf("%s's chat: showing a message with %s: %v", side.project, side.other, err)

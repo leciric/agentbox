@@ -827,6 +827,10 @@ impl AppView {
             return false;
         }
         window.minimize_window();
+        // Hidden, its pictures needn't hold the GPU's memory.
+        crate::pictures::let_go_all();
+        #[cfg(target_os = "linux")]
+        crate::snapshot::let_go_all();
         self.kept_running();
         true
     }

@@ -548,7 +548,14 @@ impl ChatView {
                                     .hover(|el| el.border_color(theme::line_heavy()))
                                     .on_click(open.clone())
                                     .when_some(p, |el, p| {
-                                        el.child(img(p).size_full().object_fit(ObjectFit::Cover))
+                                        el.child(
+                                            img(crate::pictures::file(
+                                                &p,
+                                                crate::pictures::Size::Thumb,
+                                            ))
+                                            .size_full()
+                                            .object_fit(ObjectFit::Cover),
+                                        )
                                     })
                             }))
                             .when(more > 0, |el| {

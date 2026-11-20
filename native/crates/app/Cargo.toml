@@ -88,6 +88,8 @@ x11rb = "0.13"
 # The same WebKitGTK wry uses (pinned as wry pins it): pages drawn offscreen
 # for ```html preview where child webviews can't be made (Wayland).
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+# Its JavaScript values: a page's height as measure() reads it (snapshot.rs).
+javascriptcore-rs = "=1.1.2"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 ureq = { version = "~3.1", default-features = false, features = ["native-tls"] }

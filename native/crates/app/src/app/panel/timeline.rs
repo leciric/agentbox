@@ -807,7 +807,7 @@ impl AppView {
             }) {
             img_el.into_any_element()
         } else if let Some(path) = shot.and_then(|m| self.panel.files_cache.get(&m.id).cloned()) {
-            img(path)
+            img(crate::pictures::file(&path, crate::pictures::Size::Whole))
                 .size_full()
                 .object_fit(ObjectFit::Contain)
                 .into_any_element()

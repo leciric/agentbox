@@ -6,7 +6,7 @@
 //!
 //!   fake-daemon --listen /t/fake.sock [--upstream ~/.local/share/agentbox/run/agentbox.sock]
 //!               [--project demo] [--agents 6] [--history 400] [--rate 60]
-//!               [--media ~/abx/fake-media] [--worktree <a checkout>]
+//!               [--media ~/abx/fake-media] [--worktree <a checkout>] [--previews]
 //!
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
@@ -284,6 +284,59 @@ const PREVIEW: &str = "```html preview\n<div style=\"padding:16px\"><b>Tokens th
 <div style=\"flex:1;height:55%;background:var(--chart-3)\"></div><div style=\"flex:1;height:90%;background:var(--chart-1)\"></div>\
 <div style=\"flex:1;height:30%;background:var(--chart-4)\"></div></div><p style=\"color:var(--muted-foreground)\">Rendered in a webview, offline.</p></div>\n```";
 
+/// A page taller than the chat's column shows at once, streamed in a reply
+/// to a message that asks for a page: its block should wait for the closing
+/// fence, then be as tall as the page (or scroll inside), down to its last line.
+const TALL_PAGE: &str = "```html preview
+<!doctype html>
+<html><head><style>
+body { padding: 16px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+.sub { color: var(--muted-foreground); margin: 0 0 16px; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.kpi { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.kpi b { display: block; font-size: 20px; }
+.bars { display: flex; gap: 6px; align-items: flex-end; height: 180px; margin-bottom: 16px; }
+.bars div { flex: 1; border-radius: 4px 4px 0 0; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.end { padding: 12px; border: 2px dashed var(--chart-2); border-radius: 8px; text-align: center; }
+</style></head><body>
+<h1>Agent fleet: this week</h1>
+<p class=\"sub\">A page taller than the chat shows at once.</p>
+<div class=\"kpis\">
+<div class=\"kpi\">Agents<b>12</b></div>
+<div class=\"kpi\">Pull requests<b>37</b></div>
+<div class=\"kpi\">Tokens<b>4.2M</b></div>
+</div>
+<div class=\"bars\">
+<div style=\"height:35%;background:var(--chart-1)\"></div>
+<div style=\"height:60%;background:var(--chart-2)\"></div>
+<div style=\"height:45%;background:var(--chart-3)\"></div>
+<div style=\"height:80%;background:var(--chart-1)\"></div>
+<div style=\"height:95%;background:var(--chart-5)\"></div>
+<div style=\"height:50%;background:var(--chart-4)\"></div>
+<div style=\"height:70%;background:var(--chart-6)\"></div>
+</div>
+<table>
+<tr><th>Agent</th><th>Task</th><th>State</th></tr>
+<tr><td>agent-01</td><td>Native chat selection</td><td>merged</td></tr>
+<tr><td>agent-02</td><td>Rich block zoom</td><td>merged</td></tr>
+<tr><td>agent-03</td><td>Project switch reload</td><td>in review</td></tr>
+<tr><td>agent-04</td><td>Review screenshots</td><td>merged</td></tr>
+<tr><td>agent-05</td><td>Staggered resume</td><td>merged</td></tr>
+<tr><td>agent-06</td><td>Phone page scripts</td><td>merged</td></tr>
+<tr><td>agent-07</td><td>Usage stats</td><td>merged</td></tr>
+<tr><td>agent-08</td><td>Memories from the repo</td><td>in review</td></tr>
+<tr><td>agent-09</td><td>Copilot CLI</td><td>waiting</td></tr>
+<tr><td>agent-10</td><td>Doctor checks</td><td>in review</td></tr>
+<tr><td>agent-11</td><td>GitHub sign-in</td><td>in review</td></tr>
+<tr><td>agent-12</td><td>Background setup</td><td>in review</td></tr>
+</table>
+<div class=\"end\">The last line of the page. If you can read this, nothing was cut off.</div>
+</body></html>
+```";
+
 const LOREM: &str = "The daemon owns the state, and every client is a thin one: it asks over the socket and \
 shows what comes back. This reply is **streamed** a few words at a time, the way an agent's answer arrives, \
 with `inline code`, lists and a block of code so the renderer has real work to do.";
@@ -361,6 +414,29 @@ fn working_items() -> Vec<ChatItem> {
     ]
 }
 
+/// --previews: every reply of a chat's history ends with a page of its own
+/// (own_page), a chat full of previews to watch the app's memory over.
+static PREVIEWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// own_page is a page told apart by `i`: its title and its bars.
+fn own_page(i: usize) -> String {
+    let bars: String = (0..6)
+        .map(|k| {
+            format!(
+                "<div style=\"flex:1;height:{}%;background:var(--chart-{})\"></div>",
+                20 + (i * 7 + k * 13) % 80,
+                1 + (i + k) % 6
+            )
+        })
+        .collect();
+    format!(
+        "```html preview\n<div style=\"padding:16px\"><b>Week {i}</b>\
+<div style=\"display:flex;gap:6px;align-items:flex-end;height:{}px;margin-top:12px\">{bars}</div>\
+<p style=\"color:var(--muted-foreground)\">Reply {i}'s own page.</p></div>\n```",
+        120 + (i * 37) % 240
+    )
+}
+
 fn history_item(agent: &str, i: usize) -> ChatItem {
     let kind = if i.is_multiple_of(2) {
         "user"
@@ -385,11 +461,10 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
     } else {
         text
     };
-    // Each preview a page of its own, as in a real chat: the app makes a
-    // webview per page (the memory bench counts them).
-    let text = if i % 10 == 7 {
-        let week = format!("Tokens in week {}", i / 10 + 1);
-        format!("{text}\n\n{}", PREVIEW.replace("Tokens this week", &week))
+    let text = if kind == "assistant" && PREVIEWS.load(std::sync::atomic::Ordering::Relaxed) {
+        format!("{text}\n\n{}", own_page(i))
+    } else if i % 10 == 7 {
+        format!("{text}\n\n{PREVIEW}")
     } else {
         text
     };
@@ -699,11 +774,15 @@ impl Fake {
             items.push(item.clone());
             ev.item = Some(item);
         });
-        let body = format!(
-            "You said: *{to}*.\n\n{}\n\n{DIAGRAM}\n\n{}",
-            [LOREM; 3].join("\n\n"),
-            [LOREM; 3].join("\n\n")
-        );
+        let body = if to.to_lowercase().contains("page") {
+            format!("Here is the page you asked for:\n\n{TALL_PAGE}\n\n{LOREM}")
+        } else {
+            format!(
+                "You said: *{to}*.\n\n{}\n\n{DIAGRAM}\n\n{}",
+                [LOREM; 3].join("\n\n"),
+                [LOREM; 3].join("\n\n")
+            )
+        };
         let words: Vec<&str> = body.split_inclusive(' ').collect();
         let tick = Duration::from_millis(1000 / self.opts.rate.max(1));
         for chunk in words.chunks(2) {
@@ -2378,6 +2457,7 @@ fn parse() -> Opts {
         match a.as_str() {
             "--listen" => o.listen = v().into(),
             "--cockpit" => o.cockpit = true,
+            "--previews" => PREVIEWS.store(true, std::sync::atomic::Ordering::Relaxed),
             "--upstream" => o.upstream = Some(v().into()),
             "--project" => o.project = v(),
             "--agents" => o.agents = v().parse().unwrap(),

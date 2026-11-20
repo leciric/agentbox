@@ -13,10 +13,11 @@ import (
 )
 
 // The user's computer comes first: its front end reports how loaded it is
-// (internal/hostload, PUT /v1/host/load), and while it is busy the pressure
-// loop starts no heavy command and resumes no paused one (Sample.HostBusy),
-// and builds run fewer jobs (memoryjobs.go counts it as short). What runs
-// goes on: an agent may stall, the desktop doesn't. Where the front end has
+// (internal/hostload, PUT /v1/host/load), and while it is busy builds run
+// fewer jobs (Sample.HostBusy; memoryjobs.go counts it as short), and while
+// it is below its hard floor no agent's machine boots (HoldBoots,
+// admission.go). Nothing else waits for it: an agent may stall, the
+// desktop doesn't. Where the front end has
 // no memory loop of its own (Lima, WSL), a report short of memory also has
 // the daemon drop the VM's caches, at most every hostReclaimEvery, which free
 // page reporting (or WSL's autoMemoryReclaim) then gives back to the host.
@@ -48,7 +49,7 @@ func (h *hostLoad) busy(now time.Time) bool {
 }
 
 // holdBoots reports whether a fresh report says to boot no machine: the
-// host has been short of memory lately (api.HostLoad.HoldBoots).
+// host is below its hard floor (api.HostLoad.HoldBoots).
 func (h *hostLoad) holdBoots(now time.Time) bool {
 	l, ok := h.current(now)
 	return ok && l.HoldBoots
@@ -62,6 +63,32 @@ func (h *hostLoad) withCeiling(m pressure.Mem, now time.Time) pressure.Mem {
 		m.Cap = l.VMCeiling
 	}
 	return m
+}
+
+// reachableMemory is what the shared ceilings (sharedmemory.go) are shares
+// of, for a VM whose cap is vmCap: the cap, or less while the host can't spare
+// that much (a fresh report's VMCeiling), but never less than what the VM has
+// now. Counted from the cap alone, a VM the host keeps at 11 of its 14 GiB
+// would let its agents take 11 GiB and leave the daemon, Incus and the leads
+// nothing. Never under what's plugged, so a ceiling that dips while the
+// user's desktop takes memory for a moment doesn't push memory.max under
+// what the agents use and have the kernel kill them for it; the supervisor
+// shrinks the VM itself when the host stays short, and the limits follow.
+func (s *Server) reachableMemory(vmCap int64, now time.Time) int64 {
+	l, ok := s.hostLoad.current(now)
+	if !ok {
+		return vmCap
+	}
+	return reachable(vmCap, l.VMCeiling, s.lastMem().Total)
+}
+
+// reachable is reachableMemory's rule: vmCap, lowered to ceiling (0 for none)
+// but never under plugged, what the VM has now.
+func reachable(vmCap, ceiling, plugged int64) int64 {
+	if ceiling <= 0 || vmCap <= 0 || ceiling >= vmCap {
+		return vmCap
+	}
+	return min(vmCap, max(ceiling, plugged))
 }
 
 // putHostLoad is PUT /v1/host/load.
@@ -83,16 +110,16 @@ func (s *Server) putHostLoad(w http.ResponseWriter, r *http.Request) error {
 	h.mu.Unlock()
 	if load.Busy != was {
 		if load.Busy {
-			s.logf("host load: this computer, outside the VM, is busy (%s): heavy commands wait to start, and machines to boot", hostload.Words(load))
+			s.logf("host load: this computer, outside the VM, is busy (%s): builds and tests run fewer jobs", hostload.Words(load))
 		} else {
 			s.logf("host load: this computer is calm again")
 		}
 	}
 	if load.HoldBoots != held {
 		if load.HoldBoots {
-			s.logf("host load: this computer is short of memory (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
+			s.logf("host load: this computer is below the memory it can't go under (%s available): agents' machines wait to boot, and the VM gives back what it can", agent.HumanBytes(load.Available))
 		} else {
-			s.logf("host load: this computer has kept its memory to spare for a while: agents' machines may boot again")
+			s.logf("host load: this computer is over its hard floor again: agents' machines may boot")
 		}
 	}
 	if reclaim {

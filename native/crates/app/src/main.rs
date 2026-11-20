@@ -29,6 +29,7 @@ mod motion;
 mod nightly;
 mod notices;
 mod office;
+mod pictures;
 mod prefs;
 mod quit;
 mod rich;
@@ -135,6 +136,7 @@ fn main() {
             theme::init(cx);
             motion::init(cx);
             webview::init(cx);
+            pictures::init(cx);
             quit::init(cx);
             // Where it was last time, on a display there is now (alerts.rs).
             let options = WindowOptions {

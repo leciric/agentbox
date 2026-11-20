@@ -1392,6 +1392,8 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // What isn't drawn from here on is idle (pictures.rs).
+        crate::pictures::frame();
         theme::keep_text_system(window);
         agent::modal_frame(window, cx);
         self.panel.track(&self.fleet);

@@ -34,3 +34,29 @@ func TestHostLoadHoldsBootsAndLowersTheCap(t *testing.T) {
 		t.Error("a stale report still held boots or lowered the cap")
 	}
 }
+
+// The shared ceilings are shares of what the VM can reach: the cap, or the
+// host's ceiling under it, never under what the VM has now (19 Nov 2026: a
+// 14 GiB cap, the VM kept at 11.3 GiB).
+func TestReachableMemory(t *testing.T) {
+	t.Parallel()
+	const gib = int64(1) << 30
+	for _, c := range []struct {
+		vmCap, ceiling, plugged, want int64
+	}{
+		// no ceiling reported
+		{14 * gib, 0, 11 * gib, 14 * gib},
+		// the host could spare more than the cap
+		{14 * gib, 16 * gib, 11 * gib, 14 * gib},
+		// the host keeps the VM under its cap
+		{14 * gib, 12 * gib, 11 * gib, 12 * gib},
+		// a dip under what's plugged doesn't count
+		{14 * gib, 9 * gib, 11 * gib, 11 * gib},
+		// an unknown cap stays unknown
+		{0, 9 * gib, 11 * gib, 0},
+	} {
+		if got := reachable(c.vmCap, c.ceiling, c.plugged); got != c.want {
+			t.Errorf("reachable(cap %d, ceiling %d, plugged %d) = %d GiB, want %d GiB", c.vmCap/gib, c.ceiling/gib, c.plugged/gib, got/gib, c.want/gib)
+		}
+	}
+}

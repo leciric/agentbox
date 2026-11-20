@@ -749,7 +749,14 @@ impl AppView {
             .overflow_hidden();
         match self.side.icons.get(&p.name).map(|(_, s)| s) {
             Some(Shown::Emoji(e)) => base.text_size(px(size * 0.62)).child(e.clone()),
-            Some(Shown::Image(i)) => base.child(img(i.clone()).size(px(size))),
+            Some(Shown::Image(i)) => base.child(
+                img(crate::pictures::image(
+                    None,
+                    i,
+                    crate::pictures::Size::Thumb,
+                ))
+                .size(px(size)),
+            ),
             _ => base
                 .bg(theme::surface_strong())
                 .text_size(px(size * 0.5))

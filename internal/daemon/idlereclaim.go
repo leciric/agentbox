@@ -80,10 +80,8 @@ type idleState struct {
 	// on its first step.
 	recovered bool
 	// reclaimed is when each agent's memory was last pushed out while it
-	// sat idle, the first tier, by ref; reclaimedSoon when reclaimIdleSoon
-	// last did it for every idle agent at once.
-	reclaimed     map[string]time.Time
-	reclaimedSoon time.Time
+	// sat idle, the first tier, by ref.
+	reclaimed map[string]time.Time
 }
 
 type idleFrozen struct {
@@ -422,18 +420,13 @@ func (s *Server) reclaimedOf(ref, machine string) string {
 	return ""
 }
 
-// heavyHeld says whether the governor has any of an agent's heavy commands,
-// going, paused or waiting: that agent isn't idle.
+// heavyHeld says whether any of an agent's heavy commands goes, running or
+// paused by the fleet: that agent isn't idle.
 func (s *Server) heavyHeld(ref string) bool {
 	h := s.heavy
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, r := range h.g.Running() {
-		if r.Agent == ref {
-			return true
-		}
-	}
-	for _, r := range h.g.Waiting() {
 		if r.Agent == ref {
 			return true
 		}
