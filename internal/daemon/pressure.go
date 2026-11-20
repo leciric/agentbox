@@ -433,19 +433,27 @@ func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Requ
 	}
 }
 
-// endHeavy is DELETE /v1/self/heavy/{key}.
+// endHeavy is DELETE /v1/self/heavy/{key}, with how the command ended
+// (api.HeavyEnd), which is kept as its timing (timing.go).
 func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
+		var end api.HeavyEnd
+		if err := readJSON(r, &end); err != nil {
+			return err
+		}
 		a, err := s.store.AgentByInstance(r.Context(), instance)
 		if err != nil {
 			return err
 		}
+		var ended *pressure.Run
 		s.endRuns(func(g *pressure.Runs) []*pressure.Run {
 			if run := g.End(a.Ref(), r.PathValue("key")); run != nil {
+				ended = run
 				return []*pressure.Run{run}
 			}
 			return nil
 		})
+		s.recordCommand(a, end, ended, time.Now())
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}

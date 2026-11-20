@@ -673,6 +673,13 @@ export interface HeavyRun {
   placed?: boolean;
 }
 
+export interface HeavyEnd {
+  command?: string;
+  jobs?: number;
+  exitCode: number;
+  durationMS: number;
+}
+
 export interface HostLoad {
   os: string;
   memory: number;
@@ -766,6 +773,91 @@ export interface RunPhase {
 
 export interface RunJoin {
   pid: number;
+}
+
+export interface TimingTotals {
+  turns: number;
+  answered: number;
+  turnMS: number;
+  startMS: number;
+  modelMS: number;
+  modelCalls: number;
+  firstTokenMS: number;
+  ttftMS: number;
+  toolMS: number;
+  toolCalls: number;
+  commands: number;
+  commandMS: number;
+  failedCommands: number;
+}
+
+export interface AgentTiming {
+  ref: string;
+  turns: number;
+  answered: number;
+  turnMS: number;
+  startMS: number;
+  modelMS: number;
+  modelCalls: number;
+  firstTokenMS: number;
+  ttftMS: number;
+  toolMS: number;
+  toolCalls: number;
+  commands: number;
+  commandMS: number;
+  failedCommands: number;
+  lastAt: string;
+}
+
+export interface ToolTiming {
+  name: string;
+  subagent?: string;
+  calls: number;
+  failed: number;
+  totalMS: number;
+  maxMS: number;
+}
+
+export interface TimedCall {
+  agent: string;
+  turn: string;
+  name: string;
+  title?: string;
+  subagent?: string;
+  status: string;
+  at: string;
+  ms: number;
+}
+
+export interface TimedCommand {
+  agent: string;
+  command: string;
+  jobs: number;
+  exitCode: number;
+  at: string;
+  ms: number;
+}
+
+export interface TimingReport {
+  since?: string;
+  until: string;
+  turns: number;
+  answered: number;
+  turnMS: number;
+  startMS: number;
+  modelMS: number;
+  modelCalls: number;
+  firstTokenMS: number;
+  ttftMS: number;
+  toolMS: number;
+  toolCalls: number;
+  commands: number;
+  commandMS: number;
+  failedCommands: number;
+  agents: AgentTiming[];
+  tools: ToolTiming[];
+  slowCalls: TimedCall[];
+  slowCommands: TimedCommand[];
 }
 
 export interface Job {

@@ -37,7 +37,7 @@ import (
 type heavyClient interface {
 	StartHeavy(ctx context.Context, req api.HeavyRequest) (api.HeavyStart, error)
 	JoinHeavy(ctx context.Context, key string, pid int) error
-	EndHeavy(ctx context.Context, key string) error
+	EndHeavy(ctx context.Context, key string, end api.HeavyEnd) error
 	TestPolicy(ctx context.Context) (api.TestPolicy, error)
 }
 
@@ -115,9 +115,10 @@ type heavyCommandRun struct {
 }
 
 // runHeavyCommand tells the daemon run starts, starts it at once in a
-// cgroup of its own with the worker counts the daemon answers, and says it
-// ended once it does.
-func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (int, error) {
+// cgroup of its own with the worker counts the daemon answers, and says
+// it ended once it does: how long it took, with how many workers, and its
+// exit status, which the daemon keeps as its timing.
+func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (code int, err error) {
 	env := os.Environ()
 	key := "heavy-" + randomKey()
 	// A run phase's command waits for a run slot, and joins its cgroup
@@ -135,19 +136,24 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 			}
 		}
 	}
+	var started time.Time // as the command starts, past asking the daemon
+	jobs := 0
 	if c != nil {
 		// In its cgroup before the command starts, so all it starts is: the
 		// run phase's, or (below) one of its own.
 		joined := rc != nil && rc.RunJoin(ctx, os.Getpid()) == nil
 		req := api.HeavyRequest{Key: key, Command: run.command, TTLSeconds: int(heavyTTL.Seconds())}
-		if start, err := c.StartHeavy(ctx, req); err != nil {
+		// startErr, not err: the deferred EndHeavy below reads err, the
+		// command's own.
+		if start, startErr := c.StartHeavy(ctx, req); startErr != nil {
 			if ctx.Err() != nil {
 				return 0, ctx.Err()
 			}
 			// The daemon is unreachable: the command still runs.
-			_, _ = fmt.Fprintf(stderr, "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", err)
+			_, _ = fmt.Fprintf(stderr, "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", startErr)
 		} else {
 			env = agent.WorkerEnv(env, start.Workers)
+			jobs = start.Workers
 			if !joined {
 				// In its cgroup before the command starts, so all it starts is.
 				_ = c.JoinHeavy(ctx, key, os.Getpid())
@@ -157,7 +163,12 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 				close(stop)
 				end, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 				defer cancel()
-				_ = c.EndHeavy(end, key)
+				exit := code
+				if err != nil {
+					exit = -1
+				}
+				_ = c.EndHeavy(end, key, api.HeavyEnd{Command: run.command, Jobs: jobs, ExitCode: exit,
+					DurationMS: max(time.Since(started).Milliseconds(), 1)})
 			}()
 			go func() {
 				tick := time.NewTicker(heavyRenew)
@@ -181,6 +192,7 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 	child.Args = run.argv
 	child.Env = env
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
+	started = time.Now()
 	if err := child.Start(); err != nil {
 		return 0, err
 	}
@@ -194,7 +206,7 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 			_ = child.Process.Signal(sig)
 		}
 	}()
-	err := child.Wait()
+	err = child.Wait()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return max(exit.ExitCode(), 1), nil

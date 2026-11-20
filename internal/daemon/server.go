@@ -996,6 +996,7 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	// What every chat spent, kept after its agent is gone (D83).
 	h("GET /v1/tokens", s.tokenReport)
 	h("GET /v1/tokens/turns", s.tokenTurns)
+	h("GET /v1/timing", s.timingReport)
 	// The user's week with AgentBox, for its page and share cards.
 	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).

@@ -1233,6 +1233,19 @@ pub struct HeavyRun {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct HeavyEnd {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub command: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub jobs: i64,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+    #[serde(rename = "durationMS")]
+    pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HostLoad {
     pub os: String,
     pub memory: f64,
@@ -1374,6 +1387,145 @@ pub struct RunPhase {
 #[serde(default)]
 pub struct RunJoin {
     pub pid: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimingTotals {
+    pub turns: i64,
+    pub answered: i64,
+    #[serde(rename = "turnMS")]
+    pub turn_ms: i64,
+    #[serde(rename = "startMS")]
+    pub start_ms: i64,
+    #[serde(rename = "modelMS")]
+    pub model_ms: i64,
+    #[serde(rename = "modelCalls")]
+    pub model_calls: i64,
+    #[serde(rename = "firstTokenMS")]
+    pub first_token_ms: i64,
+    #[serde(rename = "ttftMS")]
+    pub ttft_ms: i64,
+    #[serde(rename = "toolMS")]
+    pub tool_ms: i64,
+    #[serde(rename = "toolCalls")]
+    pub tool_calls: i64,
+    pub commands: i64,
+    #[serde(rename = "commandMS")]
+    pub command_ms: i64,
+    #[serde(rename = "failedCommands")]
+    pub failed_commands: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentTiming {
+    pub r#ref: String,
+    pub turns: i64,
+    pub answered: i64,
+    #[serde(rename = "turnMS")]
+    pub turn_ms: i64,
+    #[serde(rename = "startMS")]
+    pub start_ms: i64,
+    #[serde(rename = "modelMS")]
+    pub model_ms: i64,
+    #[serde(rename = "modelCalls")]
+    pub model_calls: i64,
+    #[serde(rename = "firstTokenMS")]
+    pub first_token_ms: i64,
+    #[serde(rename = "ttftMS")]
+    pub ttft_ms: i64,
+    #[serde(rename = "toolMS")]
+    pub tool_ms: i64,
+    #[serde(rename = "toolCalls")]
+    pub tool_calls: i64,
+    pub commands: i64,
+    #[serde(rename = "commandMS")]
+    pub command_ms: i64,
+    #[serde(rename = "failedCommands")]
+    pub failed_commands: i64,
+    #[serde(rename = "lastAt")]
+    pub last_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolTiming {
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub subagent: String,
+    pub calls: i64,
+    pub failed: i64,
+    #[serde(rename = "totalMS")]
+    pub total_ms: i64,
+    #[serde(rename = "maxMS")]
+    pub max_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimedCall {
+    pub agent: String,
+    pub turn: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub title: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub subagent: String,
+    pub status: String,
+    pub at: String,
+    pub ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimedCommand {
+    pub agent: String,
+    pub command: String,
+    pub jobs: i64,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+    pub at: String,
+    pub ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimingReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    pub until: String,
+    pub turns: i64,
+    pub answered: i64,
+    #[serde(rename = "turnMS")]
+    pub turn_ms: i64,
+    #[serde(rename = "startMS")]
+    pub start_ms: i64,
+    #[serde(rename = "modelMS")]
+    pub model_ms: i64,
+    #[serde(rename = "modelCalls")]
+    pub model_calls: i64,
+    #[serde(rename = "firstTokenMS")]
+    pub first_token_ms: i64,
+    #[serde(rename = "ttftMS")]
+    pub ttft_ms: i64,
+    #[serde(rename = "toolMS")]
+    pub tool_ms: i64,
+    #[serde(rename = "toolCalls")]
+    pub tool_calls: i64,
+    pub commands: i64,
+    #[serde(rename = "commandMS")]
+    pub command_ms: i64,
+    #[serde(rename = "failedCommands")]
+    pub failed_commands: i64,
+    #[serde(deserialize_with = "nullable")]
+    pub agents: Vec<AgentTiming>,
+    #[serde(deserialize_with = "nullable")]
+    pub tools: Vec<ToolTiming>,
+    #[serde(rename = "slowCalls", deserialize_with = "nullable")]
+    pub slow_calls: Vec<TimedCall>,
+    #[serde(rename = "slowCommands", deserialize_with = "nullable")]
+    pub slow_commands: Vec<TimedCommand>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

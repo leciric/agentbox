@@ -359,6 +359,7 @@ func NewRootCmd() *cobra.Command {
 		newRollbackCmd(a),
 		newTopCmd(a),
 		newTokensCmd(a),
+		newTimingCmd(a),
 		newDestroyCmd(a),
 		newDiffCmd(a),
 		newMergeCmd(a),
