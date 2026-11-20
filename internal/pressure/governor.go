@@ -17,10 +17,11 @@ import (
 // paused for twenty minutes and more, and every boot behind them.
 //
 // What is left is Runs, which runs go, for what knows whether an agent works
-// (idle reclaim, the VM's own idle shrink, the shared package cache); how
-// short the VM's memory is (Runs.Why: the headroom Judge works out, or PSI
-// stalling), for builds to run fewer jobs meanwhile (the daemon's
-// memoryjobs.go) and nothing else; and, with the experimental "pause whole
+// (idle reclaim, the VM's own idle shrink, the shared package cache) and how
+// many workers a build starts with (the cores split between the runs going);
+// how short the VM's memory is (Runs.Why: the headroom Judge works out, or
+// PSI stalling), which the app is shown and nothing acts on (builds ran fewer
+// jobs for it until 20 Nov 2026); and, with the experimental "pause whole
 // agents" on, the Fleet, which still pauses a machine's runs or the machine.
 //
 // Pressure alone comes too late. PSI is an average over the last 10 seconds,

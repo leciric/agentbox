@@ -749,6 +749,7 @@ export interface RunUpRequest {
   waitSeconds?: number;
   try?: boolean;
   command?: string;
+  browser?: boolean;
 }
 
 export interface RunPhase {

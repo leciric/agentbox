@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,9 +25,10 @@ import (
 )
 
 // Heavy commands inside an agent: a test run or a build tells the daemon as
-// it starts, which is how the daemon knows the agent works, runs with fewer
-// jobs while the VM's memory is short, and joins a cgroup of its own, which
-// only the experimental "pause whole agents" pauses
+// it starts, which is how the daemon knows the agent works, starts with as
+// many workers as the daemon answers (the VM's cores split between the heavy
+// commands running then, agent.HeavyWorkers), and joins a cgroup of its own,
+// which only the experimental "pause whole agents" pauses
 // (internal/daemon/pressure.go). Nothing waits for memory. The shims for go,
 // cargo, npm, make… do it by themselves (agent/heavyshims.go); `agentbox
 // heavy` does it around any other command.
@@ -56,8 +56,8 @@ func newHeavyCmd(a *app) *cobra.Command {
 		Short: "Run a command that needs a lot of memory in your run phase, holding a run slot",
 		Long: `Runs a command that needs a lot of memory for a while (an emulator, a load
 test) in the agent's run phase: it waits for a run slot as ` + "`agentbox run up`" + ` does,
-runs with half the jobs (GOMAXPROCS, CARGO_BUILD_JOBS, MAKEFLAGS…) while the
-VM's memory is short, and ` + "`agentbox run down`" + ` stops it.
+runs with its share of the VM's cores as its jobs (GOMAXPROCS, CARGO_BUILD_JOBS,
+MAKEFLAGS…), and ` + "`agentbox run down`" + ` stops it.
 
 Run it inside an agent. Builds and targeted tests are the code phase, which
 never waits: they need none of this.`,
@@ -114,52 +114,9 @@ type heavyCommandRun struct {
 	beat    bool
 }
 
-// workersFor is the worker counts a heavy command starts with: the
-// machine's cores, fewer for the memory available, and halved while the
-// daemon says the VM's memory is short (agent.MemoryShortFile). A variable
-// for tests.
-var workersFor = func(env []string) []string {
-	b, err := os.ReadFile(agent.MemoryShortFile)
-	short := err == nil && len(strings.TrimSpace(string(b))) > 0
-	return agent.WorkerEnv(env, machineCPUs("/sys/fs/cgroup/cpu.max"), memAvailable(), short)
-}
-
-// machineCPUs is the cores this machine may use, as nproc counts them: the
-// CPUs it may run on, capped by its cgroup's cpu.max quota, which is how
-// AgentBox gives each agent its share of the VM's cores.
-func machineCPUs(cpuMax string) int {
-	n := runtime.NumCPU()
-	b, err := os.ReadFile(cpuMax)
-	if err != nil {
-		return n
-	}
-	quota, period, ok := strings.Cut(strings.TrimSpace(string(b)), " ")
-	q, err1 := strconv.ParseInt(quota, 10, 64)
-	p, err2 := strconv.ParseInt(period, 10, 64)
-	if !ok || err1 != nil || err2 != nil || q <= 0 || p <= 0 {
-		return n // "max": no quota
-	}
-	return max(1, min(n, int((q+p-1)/p)))
-}
-
-// memAvailable is MemAvailable from /proc/meminfo, in bytes; 0 unread.
-func memAvailable() int64 {
-	b, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if rest, ok := strings.CutPrefix(line, "MemAvailable:"); ok {
-			kb, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(rest), " kB"), 10, 64)
-			return kb << 10
-		}
-	}
-	return 0
-}
-
 // runHeavyCommand tells the daemon run starts, starts it at once in a
-// cgroup of its own with the worker counts the VM's memory allows, and says
-// it ended once it does.
+// cgroup of its own with the worker counts the daemon answers, and says it
+// ended once it does.
 func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (int, error) {
 	env := os.Environ()
 	key := "heavy-" + randomKey()
@@ -183,14 +140,16 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 		// run phase's, or (below) one of its own.
 		joined := rc != nil && rc.RunJoin(ctx, os.Getpid()) == nil
 		req := api.HeavyRequest{Key: key, Command: run.command, TTLSeconds: int(heavyTTL.Seconds())}
-		if _, err := c.StartHeavy(ctx, req); err != nil {
+		if start, err := c.StartHeavy(ctx, req); err != nil {
 			if ctx.Err() != nil {
 				return 0, ctx.Err()
 			}
 			// The daemon is unreachable: the command still runs.
 			_, _ = fmt.Fprintf(stderr, "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", err)
 		} else {
+			env = agent.WorkerEnv(env, start.Workers)
 			if !joined {
+				// In its cgroup before the command starts, so all it starts is.
 				_ = c.JoinHeavy(ctx, key, os.Getpid())
 			}
 			stop := make(chan struct{})
@@ -216,7 +175,6 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 				}
 			}()
 		}
-		env = workersFor(env)
 	}
 	env = append(env, agent.HeavyEnv+"="+key)
 	child := exec.Command(run.path)

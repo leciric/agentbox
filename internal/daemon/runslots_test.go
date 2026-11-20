@@ -111,6 +111,7 @@ func newRunSlotsTest(t *testing.T, n int, vm int64) *runSlotsTest {
 	rt.testDaemon = startTestDaemon(t, t.TempDir(), oneAgentIncus, testConfig{setup: func(s *Server) {
 		s.runPhase = rt.ops
 		s.vmMemory = func() int64 { return vm }
+		s.vmMemoryNow = func() int64 { return vm }
 	}})
 	first := addTestAgent(t, rt.testDaemon)
 	rt.agents = []state.Agent{first}

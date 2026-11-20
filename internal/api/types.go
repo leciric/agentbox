@@ -1339,9 +1339,9 @@ type PressureStatus struct {
 	// waiting for memory.
 	Some float64 `json:"some"`
 	Full float64 `json:"full"`
-	// Why is how short the VM's memory is now, as in MemoryHold.Why, for
-	// builds to run fewer jobs; nothing waits for it. With pausing whole
-	// agents on, what the fleet holds machines back for.
+	// Why is how short the VM's memory is now, as in MemoryHold.Why;
+	// nothing waits for it. With pausing whole agents on, what the fleet
+	// holds machines back for.
 	Why string `json:"why,omitempty"`
 	// Runs are the heavy commands going, oldest first: running, or paused
 	// by pausing whole agents.
@@ -3252,6 +3252,11 @@ type HeavyRequest struct {
 type HeavyStart struct {
 	Started bool   `json:"started"`
 	Why     string `json:"why,omitempty"`
+	// Workers is how many workers the command starts with (GOMAXPROCS,
+	// CARGO_BUILD_JOBS, make -j…): the VM's cores split between the heavy
+	// commands running as it started, in every agent. 0 from a daemon before
+	// 20 Nov 2026, which leaves the counts as they are.
+	Workers int `json:"workers,omitempty"`
 }
 
 // TestPolicy is what the in-agent API says about the agent's test runs

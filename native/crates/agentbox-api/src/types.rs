@@ -1347,6 +1347,8 @@ pub struct RunUpRequest {
     pub r#try: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub command: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub browser: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

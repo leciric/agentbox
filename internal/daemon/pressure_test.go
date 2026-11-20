@@ -129,27 +129,71 @@ func (p *pressureTest) setAvailable(avail, swapped float64) {
 	p.sample.Mem = pressure.Mem{Total: 16 * gib, Cap: 16 * gib, Available: int64(avail * gib), SwapTotal: 4 * gib, SwapFree: int64((4 - swapped) * gib)}
 }
 
-// start asks for key to start, waiting at most wait.
 // start asks for a heavy command of the agent's as its shim does, POST
 // /v1/self/heavy, and reports whether the daemon said it started.
 func (p *pressureTest) start(t *testing.T, key string) bool {
 	t.Helper()
+	return p.ask(t, p.instance, key).Started
+}
+
+// ask is POST /v1/self/heavy for key from instance's agent, and its answer.
+func (p *pressureTest) ask(t *testing.T, instance, key string) api.HeavyStart {
+	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/v1/self/heavy", strings.NewReader(`{"key":"`+key+`","command":"go test ./`+key+`","waitSeconds":600}`))
 	w := httptest.NewRecorder()
-	if err := p.srv.startHeavy(p.instance)(w, r); err != nil {
+	if err := p.srv.startHeavy(instance)(w, r); err != nil {
 		t.Fatal(err)
 	}
 	var out api.HeavyStart
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	return out.Started
+	return out
+}
+
+// A heavy command starts with the VM's cores split between the heavy
+// commands running as it starts, in every agent: alone it has every core,
+// however many agents sit idle; asking again doesn't count it twice; one
+// paused by pausing whole agents doesn't count; one that ended gives its
+// share back to the next; and memory, however short, changes nothing.
+func TestHeavyCommandsSplitTheCores(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t, func(s *Server) { s.vmCores = func() int { return 12 } })
+	ctx := context.Background()
+	other := state.Agent{
+		Project: "hello-stack", Name: "agent-07", Instance: "ab-hello-stack-agent-07", AI: "none",
+		Branch: "agentbox/agent-07", Worktree: "/worktrees/agent-07", Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := p.srv.store.AddAgent(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	workers := func(instance, key string, want int) {
+		t.Helper()
+		if got := p.ask(t, instance, key); !got.Started || got.Workers != want {
+			t.Errorf("%s: %+v, want started with %d workers", key, got, want)
+		}
+	}
+	workers(p.instance, "first", 12)
+	workers(p.instance, "first", 12) // renewed, still one
+	workers(other.Instance, "second", 6)
+	workers(p.instance, "third", 4)
+	p.srv.heavy.mu.Lock()
+	p.srv.heavy.g.Get(other.Ref(), "second").Paused = true
+	p.srv.heavy.mu.Unlock()
+	workers(p.instance, "fourth", 4) // three running, one paused
+	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run {
+		return []*pressure.Run{g.End(p.ref, "first"), g.End(p.ref, "third"), g.End(p.ref, "fourth")}
+	})
+	p.set(62, 8)
+	p.setAvailable(0.5, 4)
+	p.srv.stepPressure(ctx)
+	workers(p.instance, "fifth", 12) // the paused one and this: one running
 }
 
 // A heavy command starts the moment it asks, whatever the VM's memory says
 // (19 Nov 2026, the user's decision): under pressure, nearly out of memory,
 // the agents throttled at their shared limit. What the reading says is how
-// short memory is, which builds run fewer jobs for, and nothing holds it.
+// short memory is, which nothing acts on, and nothing holds it.
 func TestHeavyStartsAtOnceWhateverTheMemory(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
@@ -490,8 +534,9 @@ func TestAgentMemoryShare(t *testing.T) {
 	}
 }
 
-// A busy host holds no heavy command back: builds run fewer jobs (Why
-// "host"), and the VM's caches are dropped when asked, at most once a while.
+// A busy host holds no heavy command back: it starts with half the workers
+// (Why "host"), and the VM's caches are dropped when asked, at most once a
+// while.
 func TestHostLoadHoldsNoHeavyCommand(t *testing.T) {
 	t.Parallel()
 	var drops atomic.Int32
@@ -508,8 +553,10 @@ func TestHostLoadHoldsNoHeavyCommand(t *testing.T) {
 		}
 	}
 	p.srv.stepPressure(ctx)
-	if !p.start(t, "busy") {
+	if got := p.ask(t, p.instance, "busy"); !got.Started {
 		t.Fatal("a command waited for a busy host")
+	} else if want := agent.HeavyWorkers(agent.HostCores(), 1, true); got.Workers != want {
+		t.Errorf("with the host busy: %d workers, want %d", got.Workers, want)
 	}
 	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || !ps.Host.Busy || ps.Why != string(pressure.HostBusy) {
 		t.Fatalf("GET /v1/pressure = %+v, %v", ps, err)

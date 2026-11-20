@@ -16,7 +16,8 @@ import (
 // The shared ceilings (agent/sharedmemory.go): every agent's machine in
 // agentbox.agents and every lead chat in agentbox.leads, each parent with a
 // memory.max from the VM's size, written by watchMemory on every look so they
-// follow the VM as it grows or shrinks. A kill under either names the limit
+// follow the VM as it grows or shrinks: the agents' from what the VM has now,
+// the leads' from what it can reach. A kill under either names the limit
 // it was for: an agent is told every agent together reached theirs (rather
 // than that the VM ran out), and a lead chat's turn fails with "killed: out
 // of memory" and the leads' limit, its whole process tree killed, the next
@@ -94,19 +95,20 @@ func newSharedCgroups() *sharedCgroups {
 	}
 }
 
-// watchShared writes both parents' limits for a VM of total bytes, notes
-// when either reached its memory.max, and kills a lead chat the kernel
-// killed a process of. It reports whether the agents' parent reached its
-// limit lately, and that limit, for the agents' notices.
-func (s *Server) watchShared(total int64) (agentsHit bool, agentsLimit int64) {
+// watchShared writes the agents' parent's limits for a VM with has bytes
+// now and the leads' for one that can reach reachable bytes, notes when
+// either reached its memory.max, and kills a lead chat the kernel killed a
+// process of. It reports whether the agents' parent reached its limit lately,
+// and that limit, for the agents' notices.
+func (s *Server) watchShared(has, reachable int64) (agentsHit bool, agentsLimit int64) {
 	sc := s.shared
 	if !sc.on() {
 		return false, 0
 	}
-	if err := sc.setAgents(total); err != nil {
+	if err := sc.setAgents(has); err != nil {
 		s.logOnce("agentbox.agents", fmt.Sprintf("memory: the agents' shared limit: %v", err))
 	}
-	if err := sc.setLeads(total); err != nil {
+	if err := sc.setLeads(reachable); err != nil {
 		s.logOnce("agentbox.leads", fmt.Sprintf("memory: the lead chats' shared limit: %v", err))
 	}
 	now := time.Now()

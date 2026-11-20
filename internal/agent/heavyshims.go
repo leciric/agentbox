@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"agentbox/internal/state"
@@ -18,13 +17,13 @@ import (
 // docker…), first in PATH. A shim runs `agentbox heavy-shim`, which runs
 // the real command at once unless it is a heavy one (a build, a test run,
 // a dev server), and otherwise tells the daemon it starts (so the agent
-// counts as working), joins a cgroup of its own and starts at once with as
-// many jobs as the VM's memory allows (WorkerEnv), as `agentbox heavy`
-// does. Nothing in the code phase waits for memory (19 Nov 2026); a command
-// that is the run phase's (a dev server, Playwright, `docker compose up`:
-// cli.isRunPhase) waits for a run slot first and runs in the run phase's
-// cgroup (runphase.go). Inside a heavy command (AGENTBOX_HEAVY set) a shim
-// runs the real one straight from the shell.
+// counts as working), joins a cgroup of its own and starts at once with
+// the worker counts the daemon answers (HeavyWorkers, WorkerEnv), as
+// `agentbox heavy` does. Nothing in the code phase waits for memory (19 Nov
+// 2026); a command that is the run phase's (a dev server, Playwright,
+// `docker compose up`: cli.isRunPhase) waits for a run slot first and runs in
+// the run phase's cgroup (runphase.go). Inside a heavy command
+// (AGENTBOX_HEAVY set) a shim runs the real one straight from the shell.
 //
 // Claude Code's hook around its Bash tool did this for Claude Code alone,
 // and only when its Bash tool's shell read BASH_ENV, which joins the
@@ -64,8 +63,9 @@ const shimFile = "agentbox-shim"
 // for, through a link.
 func ShimScript() string {
 	return fmt.Sprintf(`#!/bin/sh
-# Written by AgentBox: builds and tests run with fewer jobs while the VM's
-# memory is short, and the app waits for a run slot (agentbox run).
+# Written by AgentBox: builds and tests tell the daemon they start, and start
+# with their share of the VM's cores as their jobs (agentbox heavy); the app
+# waits for a run slot (agentbox run).
 d=${0%%/*}
 n=${0##*/}
 real() {
@@ -135,85 +135,4 @@ func FindReal(name, shimDir, path string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// cargoJobMemory is what one of cargo's jobs is given, as in workersScript:
-// a rustc takes a gigabyte or two.
-const cargoJobMemory = 3 << 29 // 1.5 GiB
-
-// WorkerEnv is env with the worker counts a heavy command starts with, as
-// workersScript sets them in a shell: cpus, the machine's share of the VM's
-// cores, halved while memory is short, and cargo's jobs capped by the memory
-// available too. A count somebody chose stays; one AgentBox set before
-// (equal to AGENTBOX_CPUS) is replaced.
-func WorkerEnv(env []string, cpus int, memAvailable int64, short bool) []string {
-	if cpus <= 0 {
-		return env
-	}
-	n := cpus
-	if short {
-		n = (n + 1) / 2
-	}
-	vars := map[string]string{}
-	order := []string{}
-	for _, kv := range env {
-		k, v, _ := strings.Cut(kv, "=")
-		if _, seen := vars[k]; !seen {
-			order = append(order, k)
-		}
-		vars[k] = v
-	}
-	get := func(k string) (string, bool) { v, ok := vars[k]; return v, ok }
-	set := func(k, v string) {
-		if _, ok := vars[k]; !ok {
-			order = append(order, k)
-		}
-		vars[k] = v
-	}
-	ours, _ := get("AGENTBOX_CPUS")
-	replace := func(k, want, oursWas string) {
-		if v, ok := get(k); !ok || v == "" || v == oursWas {
-			set(k, want)
-		}
-	}
-	replace("GOMAXPROCS", strconv.Itoa(n), ours)
-	replace("VITEST_MAX_WORKERS", strconv.Itoa(n), ours)
-	jobs := n
-	if memAvailable > 0 {
-		jobs = min(jobs, max(1, int(memAvailable/cargoJobMemory)))
-	}
-	if v, ok := get("CARGO_BUILD_JOBS"); !ok || v == "" || v == vars["AGENTBOX_CARGO_JOBS"] || v == ours {
-		set("CARGO_BUILD_JOBS", strconv.Itoa(jobs))
-		set("AGENTBOX_CARGO_JOBS", strconv.Itoa(jobs))
-	}
-	half := max(n/2, 1)
-	oursHalf := ""
-	if c, err := strconv.Atoi(ours); err == nil {
-		oursHalf = strconv.Itoa(max(c/2, 1))
-	}
-	for _, k := range []string{"TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency"} {
-		replace(k, strconv.Itoa(half), oursHalf)
-	}
-	if v, ok := get("MAKEFLAGS"); !ok || v == "" || v == "-j"+ours {
-		set("MAKEFLAGS", "-j"+strconv.Itoa(n))
-	}
-	var flags []string
-	hasP := false
-	for _, w := range strings.Fields(vars["GOFLAGS"]) {
-		if w == "-p="+ours {
-			continue
-		}
-		hasP = hasP || strings.HasPrefix(w, "-p=")
-		flags = append(flags, w)
-	}
-	if !hasP {
-		flags = append(flags, "-p="+strconv.Itoa(n))
-	}
-	set("GOFLAGS", strings.Join(flags, " "))
-	set("AGENTBOX_CPUS", strconv.Itoa(n))
-	out := make([]string, 0, len(order))
-	for _, k := range order {
-		out = append(out, k+"="+vars[k])
-	}
-	return out
 }

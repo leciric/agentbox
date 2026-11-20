@@ -40,11 +40,21 @@ import (
 //     whole (memory.oom.group) and the daemon ends its turn saying so,
 //     rather than the VM's OOM killer choosing among everything.
 //
-// Both are written live, every few seconds, from the VM's memory as it is now
-// (internal/daemon/pressure.go), so they follow the VM as it grows or shrinks:
-// on Linux's Cloud Hypervisor VM and on the Mac's Lima VM alike, as both run
-// this daemon on Linux. Outside AgentBox's VM (an earlier release's host
-// install, CI) the machine is its owner's and nothing is placed or written.
+// Both are written live, every few seconds (internal/daemon/pressure.go), on
+// Linux's Cloud Hypervisor VM and on the Mac's Lima VM alike, as both run this
+// daemon on Linux. The agents' limits are shares of what the VM has now
+// (MemoryNow), not of the cap it may grow to: on 20 Nov 2026 a VM at 13 of its
+// 16 GiB, held there by the host, had agentbox.agents at high 13 and max 14
+// GiB, so the agents could take all of it, and with the agents at 9 GiB and
+// 2.7 GiB left the VM read its file cache back at 100 MiB/s and the leads and
+// the daemon stalled. The VM grows from what it uses plus headroom
+// (hostvm/chv's memPolicy), not from these limits, so it still grows into its
+// cap, and the limits follow each step up or down at the next look. The
+// leads' memory.max, a kill line rather than a throttle and at most 4 GiB on a
+// 16 GiB VM, stays a share of what the VM can reach, so a chat in a VM that
+// has just booted small isn't killed before the VM can grow. Outside
+// AgentBox's VM (an earlier release's host install, CI) the machine is its
+// owner's and nothing is placed or written.
 //
 // A machine moves into agentbox.agents when it next starts: raw.lxc is read
 // then, and a cgroup can't move to another parent. Until then the daemon finds
@@ -81,11 +91,11 @@ type GroupLimits struct {
 	PidsMax   int   // pids.max
 }
 
-// AgentsLimits is agentbox.agents' limits in a VM of total bytes whose kernel
-// allows tasks processes and threads (0 when unknown): memory.high leaves the
-// rest of the VM 3 GiB, or half of a VM of 6 GiB or less, and memory.max
-// leaves it 2 GiB, or a quarter of a VM of 8 GiB or less. No memory limit
-// when total isn't known.
+// AgentsLimits is agentbox.agents' limits in a VM that has total bytes now
+// (MemoryNow) and whose kernel allows tasks processes and threads (0 when
+// unknown): memory.high leaves the rest of the VM 3 GiB, or half of a VM of 6
+// GiB or less, and memory.max leaves it 2 GiB, or a quarter of a VM of 8 GiB
+// or less. No memory limit when total isn't known.
 func AgentsLimits(total int64, tasks int) GroupLimits {
 	const gib = int64(1) << 30
 	l := GroupLimits{CPUWeight: AgentCPUWeight, IOWeight: AgentIOWeight, PidsMax: tasks / 4}
@@ -119,13 +129,13 @@ func LeadsLimits(total int64) GroupLimits {
 const LeadsLow = int64(2) << 30
 
 // SetAgentsGroup makes agentbox.agents if it isn't there and writes its
-// limits for a VM of total bytes.
+// limits for a VM that has total bytes now.
 func SetAgentsGroup(total int64) error {
 	return setGroup(AgentsDir, AgentsLimits(total, vmTasks("/proc/sys/kernel")), []string{"cpu", "io", "memory", "pids"}, writeCgroup)
 }
 
 // SetLeadsGroup makes agentbox.leads if it isn't there and writes its limits
-// for a VM of total bytes.
+// for a VM that may reach total bytes.
 func SetLeadsGroup(total int64) error {
 	return setGroup(LeadsDir, LeadsLimits(total), []string{"memory", "pids"}, writeCgroup)
 }

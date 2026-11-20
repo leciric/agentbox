@@ -2545,6 +2545,8 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 var projectOwned = []string{
 	// agent_seq has a foreign key to projects: an agent ever made leaves a row.
 	"agent_seq",
+	// What a project's runs peaked at (runpeaks.go) means nothing without it.
+	"run_peaks",
 	// Members first: they point at their group.
 	"agent_group_members",
 	"agent_groups",

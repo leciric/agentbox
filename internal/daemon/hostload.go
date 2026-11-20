@@ -13,8 +13,8 @@ import (
 )
 
 // The user's computer comes first: its front end reports how loaded it is
-// (internal/hostload, PUT /v1/host/load), and while it is busy builds run
-// fewer jobs (Sample.HostBusy; memoryjobs.go counts it as short), and while
+// (internal/hostload, PUT /v1/host/load), and while it is busy builds and
+// tests start with half the workers (agent.HeavyWorkers), and while
 // it is below its hard floor no agent's machine boots (HoldBoots,
 // admission.go). Nothing else waits for it: an agent may stall, the
 // desktop doesn't. Where the front end has
@@ -65,15 +65,14 @@ func (h *hostLoad) withCeiling(m pressure.Mem, now time.Time) pressure.Mem {
 	return m
 }
 
-// reachableMemory is what the shared ceilings (sharedmemory.go) are shares
-// of, for a VM whose cap is vmCap: the cap, or less while the host can't spare
-// that much (a fresh report's VMCeiling), but never less than what the VM has
-// now. Counted from the cap alone, a VM the host keeps at 11 of its 14 GiB
-// would let its agents take 11 GiB and leave the daemon, Incus and the leads
-// nothing. Never under what's plugged, so a ceiling that dips while the
-// user's desktop takes memory for a moment doesn't push memory.max under
-// what the agents use and have the kernel kill them for it; the supervisor
-// shrinks the VM itself when the host stays short, and the limits follow.
+// reachableMemory is what the lead chats' shared ceiling (sharedmemory.go)
+// is a share of, for a VM whose cap is vmCap: the cap, or less while the host
+// can't spare that much (a fresh report's VMCeiling), but never less than
+// what the VM has now, so a ceiling that dips while the user's desktop takes
+// memory for a moment doesn't push memory.max under what the chats use. The
+// agents' ceiling is a share of what the VM has now (agent.MemoryNow)
+// instead: this is more than the VM has whenever it sits under its cap, and
+// on 20 Nov 2026 it let the agents take all of a VM held at 13 of its 16 GiB.
 func (s *Server) reachableMemory(vmCap int64, now time.Time) int64 {
 	l, ok := s.hostLoad.current(now)
 	if !ok {

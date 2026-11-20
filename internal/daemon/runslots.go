@@ -189,7 +189,7 @@ func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, total i
 		}
 	}
 	slices.Sort(projects)
-	pool := s.runPool(total, now)
+	pool := s.runPool()
 
 	sl := s.slots
 	sl.mu.Lock()
@@ -246,17 +246,14 @@ func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, total i
 }
 
 // runPool is what every agent's machine may use together: the agents'
-// shared memory.high in a VM of total bytes, as far as the VM can grow now
-// (reachableMemory), or as much of what the VM has outside one.
-func (s *Server) runPool(total int64, now time.Time) int64 {
-	reach := total
-	if reach > 0 {
-		reach = s.reachableMemory(total, now)
+// shared memory.high in the VM as it is now (vmMemoryNow, which hotplug and
+// a balloon move), as the agents' own limit follows it.
+func (s *Server) runPool() int64 {
+	vm := s.vmMemoryNow()
+	if vm <= 0 {
+		vm = s.lastMem().Total
 	}
-	if reach <= 0 {
-		reach = s.lastMem().Total
-	}
-	return agent.AgentsLimits(reach, 0).High
+	return agent.AgentsLimits(vm, 0).High
 }
 
 // runSlotsChanged wakes what waits for a slot and tells the app, when the

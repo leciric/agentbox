@@ -318,9 +318,6 @@ type Manager struct {
 	// ShareBusy, when set, says whether the shared home is that short of
 	// files now: what only measures worktrees skips them then.
 	ShareBusy func() bool
-	// Cores is how many cores the agents share (cpushare.go); 0 for the
-	// machine the daemon runs on, which is the VM.
-	Cores int
 
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
@@ -935,7 +932,6 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	}
 	steps = append(steps, m.gpuSteps(a.Instance, gpu, copied.Devices)...)
 	steps = append(steps,
-		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
 		func(ctx context.Context, _ incus.Client) error { return m.admit(ctx, a) },
 		func(ctx context.Context, c incus.Client) error {
 			ClearStaleCgroups(a.Instance)
@@ -1798,7 +1794,6 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	env += doNotTrackEnv
 	env += m.packageCacheEnv()
 	env += m.cargoBuildDirEnv()
-	env += workersScript
 	env += shimPathLine
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
@@ -2234,9 +2229,6 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 		if err := m.settleGPU(ctx, a.Instance); err != nil {
-			return inst, err
-		}
-		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 		if err := m.admit(ctx, a); err != nil {
