@@ -3,8 +3,8 @@
 //! with the rest of the running ones waiting in line, which GET /v1/run-slots
 //! says and each agent's `runSlot` (fleet, agents events) agrees with.
 //!
-//! Unless FAKE_STILL is set, the front of the line takes a slot every ten
-//! seconds from the agent that held one longest, which goes to the back of
+//! Unless FAKE_STILL is set (or FAKE_RUN_SLOTS=live says it moves anyway),
+//! the front of the line takes a slot every ten seconds from the agent that held one longest, which goes to the back of
 //! the line, each published as an agent event and a run-slots event, as the
 //! real daemon does. Agents that stop (the churn) drop out of the line.
 use std::sync::Arc;
@@ -37,6 +37,12 @@ static STEP: AtomicU64 = AtomicU64::new(0);
 /// slots, as a daemon from before them.
 pub fn enabled() -> bool {
     std::env::var_os("FAKE_RUN_SLOTS").is_some()
+}
+
+/// moving is whether the line takes its turns: unless FAKE_STILL, which
+/// FAKE_RUN_SLOTS=live overrides.
+pub fn moving() -> bool {
+    enabled() && (!crate::still() || std::env::var("FAKE_RUN_SLOTS").is_ok_and(|v| v == "live"))
 }
 
 /// base is the moment the slots' times are counted from: when the fake

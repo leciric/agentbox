@@ -67,7 +67,8 @@ page of its own, a chat full of previews. Without `--upstream` it serves one pro
 `FAKE_RUN_SLOTS=1` gives the VM two run slots (#799): the first two running agents hold them and
 the rest wait in line, which the top bar's "Run slots 0 of 2 free" pill, its popover and those
 agents' "Waiting for a run slot (1 ahead)" status show. Unless `FAKE_STILL=1`, the line moves every
-ten seconds (run-slots and agent events), and agents the fake stops drop out of it.
+ten seconds (run-slots and agent events; `FAKE_RUN_SLOTS=live` moves it under `FAKE_STILL=1` too),
+and agents the fake stops drop out of it.
 
 `--neighbours storefront:4,quill:3` adds more projects with a few agents each (no chats), for the
 Office's campus.

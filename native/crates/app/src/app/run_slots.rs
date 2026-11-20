@@ -17,7 +17,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use super::topbar::{chip, popover};
+use super::topbar::{chip_on, popover};
 use crate::files::human_bytes;
 use crate::theme;
 
@@ -184,6 +184,25 @@ fn row(
         )
 }
 
+/// trigger is the pill itself: amber while agents wait, else quiet.
+fn trigger(waiting: bool) -> Stateful<Div> {
+    if waiting {
+        chip_on(
+            "run-slots",
+            theme::amber(200),
+            theme::amber(400).opacity(0.1),
+            theme::amber(400).opacity(0.15),
+        )
+    } else {
+        chip_on(
+            "run-slots",
+            theme::secondary(),
+            theme::surface_raised(),
+            theme::surface_strong(),
+        )
+    }
+}
+
 impl AppView {
     /// load_run_slots reads who holds a run slot and who waits. A daemon
     /// without them answers an error, and the pill stays away.
@@ -223,17 +242,7 @@ impl AppView {
             tv("shell.runSlots.short", &counts(slots))
         };
         let amber = theme::amber(200);
-        let trigger = if waiting {
-            chip("run-slots", amber)
-                .bg(theme::amber(400).opacity(0.1))
-                .hover(|s| s.bg(theme::amber(400).opacity(0.15)))
-        } else {
-            chip("run-slots", theme::secondary())
-                .bg(theme::surface_raised())
-                .hover(|s| s.bg(theme::surface_strong()))
-        }
-        .child(crate::icons::of("▶"))
-        .child(label);
+        let trigger = trigger(waiting).child(crate::icons::of("▶")).child(label);
         let slots = slots.clone();
         let agents = self.side.agents.clone();
         Some(self.with_pop(
@@ -364,7 +373,7 @@ mod tests {
     // Not `super::*`: it brings gpui's `test` macro in, which shadows #[test].
     use super::{
         Agent, ProjectRunSlots, RunSlotHolder, RunSlotWaiter, RunSlots, counts, holder_side,
-        memory_line, peak_line, shown, title_of, waiter_side,
+        memory_line, peak_line, shown, title_of, trigger, waiter_side,
     };
     use agentbox_i18n::tv;
 
@@ -402,6 +411,14 @@ mod tests {
             },
             &idle
         ));
+    }
+
+    #[test]
+    fn the_pill_builds_in_both_tones() {
+        // GPUI panics while an element is built if a style is set twice, which
+        // no other test would catch, and which would take the window down.
+        let _ = trigger(true);
+        let _ = trigger(false);
     }
 
     #[test]

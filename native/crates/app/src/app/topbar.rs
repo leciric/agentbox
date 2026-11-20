@@ -61,6 +61,12 @@ pub(super) struct TopBar {
 
 /// chip is a pill in the top bar, in a tone of its own.
 pub(super) fn chip(id: &'static str, color: Hsla) -> Stateful<Div> {
+    chip_on(id, color, color.opacity(0.1), color.opacity(0.16))
+}
+
+/// chip_on is a chip whose text is `color` on `bg`, `hover` under the
+/// pointer. (A hover style is set once: GPUI panics on a second.)
+pub(super) fn chip_on(id: &'static str, color: Hsla, bg: Hsla, hover: Hsla) -> Stateful<Div> {
     h_flex()
         .id(id)
         .flex_none()
@@ -68,12 +74,12 @@ pub(super) fn chip(id: &'static str, color: Hsla) -> Stateful<Div> {
         .px_2p5()
         .py_0p5()
         .rounded_full()
-        .bg(color.opacity(0.1))
+        .bg(bg)
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
         .text_color(color)
         .cursor_pointer()
-        .hover(move |s| s.bg(color.opacity(0.16)))
+        .hover(move |s| s.bg(hover))
         // Not the top bar's window drag (window_controls).
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }

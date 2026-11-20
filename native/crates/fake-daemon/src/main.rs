@@ -16,7 +16,7 @@
 //! (working, asking, failed, ready, stopped), on each tool that has a character.
 //! FAKE_RUN_SLOTS=1 gives the VM two run slots, held by the first two running agents, the rest
 //! waiting in line (GET /v1/run-slots, each agent's runSlot), the line moving every ten seconds
-//! (see runslots.rs).
+//! (see runslots.rs; FAKE_RUN_SLOTS=live moves it under FAKE_STILL too).
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
 //! FAKE_VERSION=<version> is what GET /v1/version says ("fake" otherwise), and
 //! POST /v1/shutdown stops it, for testing the app's restart of an older daemon.
@@ -2520,9 +2520,9 @@ async fn main() -> Result<()> {
         tokio::spawn(fake.clone().churn());
         tokio::spawn(agents::touch(fake.clone()));
         tokio::spawn(resources::sample(fake.clone()));
-        if runslots::enabled() {
-            tokio::spawn(runslots::rotate(fake.clone()));
-        }
+    }
+    if runslots::moving() {
+        tokio::spawn(runslots::rotate(fake.clone()));
     }
     tokio::spawn(panel::serve_preview());
     tokio::spawn(watch_release(fake.clone()));
