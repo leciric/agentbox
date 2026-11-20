@@ -170,7 +170,7 @@ pub fn init(cx: &mut App) {
             // Once a second, also while no frame is drawn: webviews left
             // behind (another chat open, the panel closed) are let go.
             ticks = ticks.wrapping_add(1);
-            if ticks % 60 == 0 {
+            if ticks.is_multiple_of(60) {
                 prune();
             }
             #[cfg(target_os = "linux")]
@@ -362,11 +362,14 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
     flush();
 }
 
+/// A page of an agent's machine (the panel's Browser): the webview, the URL
+/// it was last sent to, the frame it was placed in (0 hidden), and since when
+/// it is hidden.
+type Page = (wry::WebView, String, u64, Option<Instant>);
+
 thread_local! {
-    /// Pages of an agent's machine (the panel's Browser), by id: the
-    /// webview, the URL it was last sent to, the frame it was placed in (0
-    /// hidden), and since when it is hidden.
-    static PAGES: RefCell<HashMap<String, (wry::WebView, String, u64, Option<Instant>)>> = RefCell::new(HashMap::new());
+    /// The pages, by id.
+    static PAGES: RefCell<HashMap<String, Page>> = RefCell::new(HashMap::new());
 }
 
 static PAGE_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -712,7 +715,11 @@ fn stale_ids(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not super::*: gpui's own `test` attribute would come with it.
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    use super::stale_ids;
 
     #[test]
     fn previews_off_screen_go_past_three_and_after_a_while() {
