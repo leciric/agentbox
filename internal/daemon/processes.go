@@ -31,6 +31,9 @@ const (
 	processRecent = 2 * time.Minute
 	// processForget is how long a machine nobody asked about is remembered.
 	processForget = time.Hour
+	// processMinGap is how far apart two readings have to be to measure CPU
+	// between them: closer, and a few clock ticks make a percentage.
+	processMinGap = 400 * time.Millisecond
 	// processBusy is how much of a core a tree has to use to count as busy.
 	processBusy = 2.0
 	// processQuiet is how much of a core a tree first seen has to have used
@@ -44,7 +47,9 @@ type processSampler struct {
 	// wait is how long apart the two readings are when a machine has no
 	// recent one.
 	wait time.Duration
-	read func(instance string, pss bool) ([]agent.ProcessTree, error)
+	read func(instance string) ([]agent.ProcessTree, error)
+	// pss adds the proportional memory of every machine read at once.
+	pss  func(machines ...[]agent.ProcessTree)
 	kill func(ctx context.Context, instance string, pid int, grace time.Duration) (agent.Killed, error)
 
 	mu       sync.Mutex
@@ -54,8 +59,10 @@ type processSampler struct {
 type processHistory struct {
 	at    time.Time
 	ticks map[processKey]uint64
-	// busy is when each tree, by its root, was last seen busy.
+	// busy is when each tree, by its root, was last seen busy, and cpu
+	// what it used since the reading before.
 	busy map[processKey]time.Time
+	cpu  map[processKey]float64
 }
 
 // processKey is a process, its number and its start telling it from a later
@@ -70,8 +77,9 @@ func keyOf(p agent.MachineProcess) processKey { return processKey{p.PID, p.Start
 func newProcessSampler() *processSampler {
 	return &processSampler{
 		now:      time.Now,
-		wait:     500 * time.Millisecond,
+		wait:     600 * time.Millisecond,
 		read:     agent.MachineProcesses,
+		pss:      agent.SetPSS,
 		kill:     agent.KillMachineProcess,
 		machines: map[string]*processHistory{},
 	}
@@ -79,7 +87,8 @@ func newProcessSampler() *processSampler {
 
 // sample reads every machine in instances, and gives each its trees as the
 // API has them, or why it couldn't. Machines with no recent reading are read
-// twice, wait apart, all of them in the same wait.
+// twice, wait apart, all of them in the same wait. Proportional memory is read
+// once, for all of them, on the last reading.
 func (ps *processSampler) sample(instances []string) (map[string][]api.ProcessTree, map[string]error) {
 	ps.mu.Lock()
 	now := ps.now()
@@ -92,22 +101,32 @@ func (ps *processSampler) sample(instances []string) (map[string][]api.ProcessTr
 	ps.mu.Unlock()
 	if len(stale) > 0 && ps.wait > 0 {
 		for _, inst := range stale {
-			if trees, err := ps.read(inst, false); err == nil {
+			if trees, err := ps.read(inst); err == nil {
 				ps.record(inst, trees, ps.now())
 			}
 		}
 		time.Sleep(ps.wait)
 	}
-	out := map[string][]api.ProcessTree{}
+	read := map[string][]agent.ProcessTree{}
 	errs := map[string]error{}
+	var all [][]agent.ProcessTree
 	for _, inst := range instances {
-		trees, err := ps.read(inst, true)
+		trees, err := ps.read(inst)
 		if err != nil {
 			errs[inst] = err
 			ps.forget(inst)
 			continue
 		}
-		out[inst] = ps.record(inst, trees, ps.now())
+		read[inst] = trees
+		all = append(all, trees)
+	}
+	if ps.pss != nil {
+		ps.pss(all...)
+	}
+	out := map[string][]api.ProcessTree{}
+	at := ps.now()
+	for inst, trees := range read {
+		out[inst] = ps.record(inst, trees, at)
 	}
 	ps.mu.Lock()
 	for inst, h := range ps.machines {
@@ -137,8 +156,13 @@ func (ps *processSampler) record(instance string, trees []agent.ProcessTree, now
 	}
 	since := now.Sub(h.at)
 	measured := !h.at.IsZero() && since > 0 && since <= processRecent
+	// Two clients reading the same machine a moment apart (the Running
+	// view and the agent's panel) would measure CPU over a few ticks: the
+	// second keeps the first's figures and its base.
+	again := measured && since < processMinGap
 	ticks := map[processKey]uint64{}
 	busy := map[processKey]time.Time{}
+	cpus := map[processKey]float64{}
 	out := make([]api.ProcessTree, 0, len(trees))
 	for _, t := range trees {
 		var used uint64
@@ -151,12 +175,15 @@ func (ps *processSampler) record(instance string, trees []agent.ProcessTree, now
 				used += p.CPUTicks // all of it since the last reading
 			}
 		}
-		cpu := 0.0
-		if measured {
-			cpu = float64(used) / agent.ClockTicks / since.Seconds() * 100
-		}
 		root := t.Root()
 		rk := keyOf(root)
+		cpu := 0.0
+		switch {
+		case again:
+			cpu = h.cpu[rk]
+		case measured:
+			cpu = float64(used) / agent.ClockTicks / since.Seconds() * 100
+		}
 		last, seen := h.busy[rk]
 		switch {
 		case measured && cpu >= processBusy:
@@ -172,9 +199,13 @@ func (ps *processSampler) record(instance string, trees []agent.ProcessTree, now
 			}
 		}
 		busy[rk] = last
+		cpus[rk] = cpu
 		out = append(out, apiTree(t, cpu, now.Sub(last)))
 	}
-	h.at, h.ticks, h.busy = now, ticks, busy
+	if again {
+		return out
+	}
+	h.at, h.ticks, h.busy, h.cpu = now, ticks, busy, cpus
 	return out
 }
 

@@ -185,6 +185,34 @@ func TestMachineProcessTreesPreferPSS(t *testing.T) {
 	}
 }
 
+func TestSetPSSReadsEveryMachineAtOnceAndSortsAgain(t *testing.T) {
+	t.Parallel()
+	root, proc := busyMachine(t)
+	a, err := machineProcessTrees(root, proc, "m", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := machineProcessTrees(root, proc, "m", nil)
+	reads := 0
+	setPSS(proc, func(_ string, pids []int) map[int]int64 {
+		reads++
+		out := map[int]int64{}
+		for _, pid := range pids {
+			out[pid] = 1 << 20
+		}
+		out[1601] = 5 << 30 // vite turns out to hold the most
+		return out
+	}, a, b)
+	if reads != 1 {
+		t.Errorf("read PSS %d times for two machines, want once", reads)
+	}
+	for _, trees := range [][]ProcessTree{a, b} {
+		if trees[0].Label != "npm run dev" {
+			t.Errorf("biggest is %q after PSS, want npm run dev", trees[0].Label)
+		}
+	}
+}
+
 func TestMachineProcessTreesOfAStoppedMachine(t *testing.T) {
 	t.Parallel()
 	if _, err := machineProcessTrees(t.TempDir(), t.TempDir(), "gone", nil); !errors.Is(err, ErrMachineNotRunning) {

@@ -20,7 +20,7 @@ type fakeMachine struct {
 	killed []string
 }
 
-func (f *fakeMachine) read(instance string, _ bool) ([]agent.ProcessTree, error) {
+func (f *fakeMachine) read(instance string) ([]agent.ProcessTree, error) {
 	trees, ok := f.trees[instance]
 	if !ok {
 		return nil, agent.ErrMachineNotRunning
@@ -62,7 +62,7 @@ func TestProcessesAPIListsAgentsTreesAndRefusesToKillTheTools(t *testing.T) {
 	}}
 	heard := make(chan string, 1)
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus, testConfig{setup: func(s *Server) {
-		s.processes.read, s.processes.kill, s.processes.wait = f.read, f.kill, 0
+		s.processes.read, s.processes.kill, s.processes.wait, s.processes.pss = f.read, f.kill, 0, nil
 		s.processTell = func(_ context.Context, a state.Agent, text string) (told, error) {
 			heard <- a.Ref() + ": " + text
 			return told{}, nil
@@ -152,7 +152,8 @@ func TestProcessSamplerMeasuresCPUAndIdleBetweenReadings(t *testing.T) {
 	ps := newProcessSampler()
 	ps.now = func() time.Time { return now }
 	ps.wait = 0
-	ps.read = func(string, bool) ([]agent.ProcessTree, error) { return trees(), nil }
+	ps.read = func(string) ([]agent.ProcessTree, error) { return trees(), nil }
+	ps.pss = nil
 
 	got, _ := ps.sample([]string{"m"})
 	if tr := got["m"][0]; tr.CPU != 0 || tr.IdleSeconds != 0 || tr.Idle {
@@ -175,16 +176,28 @@ func TestProcessSamplerMeasuresCPUAndIdleBetweenReadings(t *testing.T) {
 
 	// A machine nobody read for longer than processRecent is read twice,
 	// and its CPU measured from the first of those.
-	var reads []bool
-	ps.read = func(_ string, pss bool) ([]agent.ProcessTree, error) {
-		reads = append(reads, pss)
+	var reads []string
+	ps.read = func(inst string) ([]agent.ProcessTree, error) {
+		reads = append(reads, "read "+inst)
 		return trees(), nil
 	}
+	ps.pss = func(machines ...[]agent.ProcessTree) { reads = append(reads, fmt.Sprintf("pss of %d", len(machines))) }
 	ps.wait = time.Millisecond
 	now = now.Add(processRecent + time.Second)
-	ps.sample([]string{"m"})
-	if len(reads) != 2 || reads[0] || !reads[1] {
-		t.Errorf("reads %v, want one without PSS to measure from, then the one with it", reads)
+	ps.sample([]string{"m", "n"})
+	if want := "read m,read n,read m,read n,pss of 2"; strings.Join(reads, ",") != want {
+		t.Errorf("reads %v, want each machine read to measure from, then again, then PSS of both at once", reads)
+	}
+
+	// A second client a moment after the first gets the same figures,
+	// not CPU measured over a few ticks.
+	now, ticks = now.Add(time.Minute), ticks+600 // a minute at 10%
+	got, _ = ps.sample([]string{"m"})
+	first := got["m"][0].CPU
+	now, ticks = now.Add(100*time.Millisecond), ticks+3
+	got, _ = ps.sample([]string{"m"})
+	if first != 10 || got["m"][0].CPU != first {
+		t.Errorf("CPU %v then %v a moment later, want 10%% both times", first, got["m"][0].CPU)
 	}
 }
 

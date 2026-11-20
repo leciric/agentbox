@@ -181,7 +181,7 @@ processes and the machine's are refused.`,
 			if res.Left > 0 {
 				msg += fmt.Sprintf(" %d still hadn't ended after it.", res.Left)
 			}
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg+" The agent is told in its chat.")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg+" Its agent is being told in its chat.")
 			return nil
 		},
 	}

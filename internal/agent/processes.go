@@ -127,14 +127,40 @@ func (t ProcessTree) CPUTicks() uint64 {
 }
 
 // MachineProcesses reads the processes in an agent's machine, grouped in
-// trees, the biggest first. pss says whether to read each one's
-// proportional memory too, which in AgentBox's VM takes one sudo for all.
-func MachineProcesses(instance string, pss bool) ([]ProcessTree, error) {
-	var read pssReader
-	if pss {
-		read = readPSS
+// trees, the biggest by resident memory first. Their proportional memory is
+// SetPSS's to add, for every machine read at once.
+func MachineProcesses(instance string) ([]ProcessTree, error) {
+	return machineProcessTrees(cgroupRoot, "/proc", instance, nil)
+}
+
+// SetPSS reads the proportional memory of every process in trees, with one
+// sudo for all of them in AgentBox's VM, and sorts each machine's trees
+// again by what they hold then.
+func SetPSS(machines ...[]ProcessTree) {
+	setPSS("/proc", readPSS, machines...)
+}
+
+func setPSS(proc string, read pssReader, machines ...[]ProcessTree) {
+	var pids []int
+	for _, trees := range machines {
+		for _, t := range trees {
+			for _, p := range t.Processes {
+				pids = append(pids, p.PID)
+			}
+		}
 	}
-	return machineProcessTrees(cgroupRoot, "/proc", instance, read)
+	if len(pids) == 0 {
+		return
+	}
+	pss := read(proc, pids)
+	for _, trees := range machines {
+		for _, t := range trees {
+			for i := range t.Processes {
+				t.Processes[i].PSS = pss[t.Processes[i].PID]
+			}
+		}
+		sortTrees(trees)
+	}
 }
 
 // pssReader reads the proportional memory of processes, by number in the VM.
@@ -505,6 +531,12 @@ func groupTrees(procs map[int]*MachineProcess) []ProcessTree {
 		})
 		trees = append(trees, *system)
 	}
+	sortTrees(trees)
+	return trees
+}
+
+// sortTrees sorts trees by what they hold, the biggest first.
+func sortTrees(trees []ProcessTree) {
 	slices.SortStableFunc(trees, func(a, b ProcessTree) int {
 		am, _, _ := a.Memory()
 		bm, _, _ := b.Memory()
@@ -516,7 +548,6 @@ func groupTrees(procs map[int]*MachineProcess) []ProcessTree {
 		}
 		return a.Root().PID - b.Root().PID
 	})
-	return trees
 }
 
 func compareBool(a, b bool) int {

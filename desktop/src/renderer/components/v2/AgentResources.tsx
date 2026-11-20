@@ -10,6 +10,7 @@ import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { usePresence } from '../../lib/presence';
+import { AgentProcessList } from '../RunningProcesses';
 import { runs } from '../../lib/resourceLine';
 import { cn, humanBytes, humanRate } from '../../lib/utils';
 
@@ -61,6 +62,7 @@ export function AgentResources({ agent }: { agent: T.Agent }) {
         data="disk"
       />
       <p className="px-1 text-caption text-subtle">{points.length === 0 && !history.isError ? t('resources.waiting') : t('resources.note', { minutes })}</p>
+      <AgentProcessList agentRef={agent.ref} />
     </div>
   );
 }

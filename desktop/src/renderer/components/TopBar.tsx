@@ -184,7 +184,7 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <BusyMarks />
-        {!making && <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />}
+        {!making && <MachineStatus agents={agents.data ?? []} project={crumbProject?.name} onSelect={onSelect} />}
         {/* No inbox: what needs you is where it's answered, the lead chat's
             cards and the sidebar's rows, and review is the sidebar's. In its
             place, the page's ⋯ and Panel, at the far right. */}
