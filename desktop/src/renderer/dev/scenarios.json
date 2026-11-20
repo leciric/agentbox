@@ -44,7 +44,7 @@
   },
   {
     "id": "editor-agent-menu-dark",
-    "description": "agent-99's ⋯ open: Open in VS Code above Open worktree folder — dark",
+    "description": "agent-99's ⋯ open: Open in VS Code, where Open worktree folder was — dark",
     "query": "app=agent-99&theme=dark",
     "width": 1280,
     "height": 900,
