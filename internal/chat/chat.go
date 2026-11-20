@@ -1632,6 +1632,18 @@ type turn struct {
 	// stream counts: a subagent is another session, on its own model.
 	generated time.Duration
 	genFrom   time.Time
+	// The rest of its timing (timing.go): promptAt is when its prompt went
+	// to the tool, zero until it has; askedAt when the model was last asked
+	// and hasn't streamed since, what the wait for its first token runs
+	// from; modelCalls the requests it answered, firstToken the first
+	// one's wait and ttft every one's together. clocks time the main
+	// loop's tool calls still running, and toolSpans are when the ones that
+	// ended ran.
+	promptAt, askedAt time.Time
+	modelCalls        int
+	firstToken, ttft  time.Duration
+	clocks            map[string]*toolClock
+	toolSpans         []span
 	// progressAt is when the adapter last sent anything while this turn ran,
 	// or the turn began, or somebody last answered it: the clock the daemon's
 	// stall watch reads (Progress).
@@ -1659,14 +1671,24 @@ func (t *turn) streamed(now time.Time) {
 		t.generated += now.Sub(t.genFrom)
 	}
 	t.genFrom = now
+	if !t.askedAt.IsZero() {
+		// The first thing it streamed since it was asked.
+		wait := max(now.Sub(t.askedAt), 0)
+		if t.modelCalls == 0 {
+			t.firstToken = wait
+		}
+		t.ttft += wait
+		t.modelCalls++
+		t.askedAt = time.Time{}
+	}
 }
 
 // asked starts a stretch: the model was given something to answer.
-func (t *turn) asked(now time.Time) { t.genFrom = now }
+func (t *turn) asked(now time.Time) { t.genFrom, t.askedAt = now, now }
 
 // waits ends one without counting it: the model handed over to a tool or a
 // permission, at whatever it last streamed.
-func (t *turn) waits() { t.genFrom = time.Time{} }
+func (t *turn) waits() { t.genFrom, t.askedAt = time.Time{}, time.Time{} }
 
 // toolUpdate times a main-loop tool_call or tool_call_update. A call the
 // model is writing streams its title and input, from the tool_call that
@@ -1676,15 +1698,15 @@ func (t *turn) waits() { t.genFrom = time.Time{} }
 // With calls in parallel the last result is the one that counts, since
 // each one starts the stretch over.
 func (t *turn) toolUpdate(u acp.SessionUpdate, now time.Time) {
-	switch {
-	case u.Status == "completed" || u.Status == "failed" || u.Returned():
+	switch toolPhase(u) {
+	case toolDone:
 		t.asked(now)
-	case u.Status == "in_progress":
+	case toolRunning:
 		if u.SessionUpdate == "tool_call" {
 			t.streamed(now) // codex-acp opens a call as it runs it
 		}
 		t.waits()
-	case u.SessionUpdate == "tool_call" || len(u.RawInput) > 0 || (u.Title != nil && *u.Title != "") || u.Kind != "":
+	case toolWriting:
 		t.streamed(now)
 	}
 }
@@ -2457,7 +2479,11 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	}
 	// Read under the lock: conversation replaces c.agent on every call.
 	a := c.agent
-	t.asked(time.Now())
+	now := time.Now()
+	t.asked(now)
+	if t.promptAt.IsZero() {
+		t.promptAt = now
+	}
 	c.mu.Unlock()
 
 	var res acp.PromptResponse
@@ -2599,12 +2625,14 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// The tool calls still running as the turn ends: Codex and OpenCode don't
 	// report background work, but a command they left going shows here.
 	var open []string
+	now := time.Now()
 	for _, it := range c.tools {
 		if it.Tool.Status == "pending" || it.Tool.Status == "in_progress" {
 			if it.Parent == "" {
 				open = append(open, cmp(firstLine(it.Tool.Title), it.Tool.Kind))
 			}
 			it.Tool.Status = "stopped"
+			c.stopClock(t, it.Tool, now)
 			c.touch(it)
 		}
 	}
@@ -2720,6 +2748,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		agent.CodexAccount = c.adapter.login
 		c.m.background.Go(func() { c.m.CodexIdle(agent) })
 	}
+	c.timeTurn(t, result.State, now)
 	if c.m.TurnFinished != nil {
 		agent, stats := c.agent, c.turnStats(t, res, result.State)
 		c.m.background.Go(func() { c.m.TurnFinished(agent, stats) })
@@ -3145,7 +3174,16 @@ func (c *conversation) updateTool(u acp.SessionUpdate) {
 		it.Tool = &api.ChatTool{CallID: u.ToolCallID, Kind: "other", Status: "pending"}
 		c.tools[u.ToolCallID] = it
 	}
+	open := toolOpen(it.Tool)
 	applyTool(it.Tool, u)
+	if t := c.turn; t != nil {
+		if t.clocks == nil {
+			t.clocks = map[string]*toolClock{}
+		}
+		if ran, ok := c.clockTool(t.clocks, it.Tool, open, u, "", t.id, time.Now()); ok {
+			t.toolSpans = append(t.toolSpans, ran)
+		}
+	}
 	c.sawTool(it.Tool)
 	c.touch(it)
 }

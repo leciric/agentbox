@@ -39,6 +39,31 @@ stalls in the window are listed below the table.
 Long-lived requests, like the app's event stream or a terminal, count for as long as they stay
 open, so they can top the table without being slow.
 
+## Where agents' time goes: `agentbox timing`
+
+```bash
+agentbox timing                                # every agent, the last 24 hours
+agentbox timing --agent acme/agent-12 --since 1h
+agentbox timing --project acme --since 7d --top 20
+```
+
+Every chat turn is timed as it ends, and so is every tool call in it and every heavy command (a
+test run or a build that goes through `agentbox heavy` or the shims for `go`, `npm`, `make`…).
+The report splits the turns' time into:
+
+- **Model**: waiting on the model, from each request (the prompt, or a tool's result) to the last
+  token it streamed, with how long the first token took per turn and per request.
+- **Tools**: the time at least one of the turn's own tool calls ran. Calls in parallel count
+  once, and a subagent's calls are inside its Agent call.
+- **Starting**: from the message to the prompt reaching the AI tool, which is mostly the tool
+  starting up.
+- **Other**: what's left: permissions, the adapter, and whatever nothing timed.
+
+Then it lists each agent, the slowest tools, the slowest single calls, and the slowest heavy
+commands with the worker count each was given and how it exited (`?` from an older `agentbox`
+inside the agent, which doesn't say). Heavy commands run inside tool calls or a terminal, so their
+time is part of the tools' time. Timings are kept for 30 days and go when their project does.
+
 ## The daemon's memory
 
 ```bash
@@ -80,4 +105,5 @@ The app's Diagnostics page reads the same data over the daemon's socket:
 | `GET /v1/diagnostics/stalls?since=24h` | the stalls, newest first |
 | `GET /v1/diagnostics/resources?window=1h` | the VM's samples and each agent's |
 | `POST /v1/diagnostics/client-spans` | the app's own spans, up to 500 at a time, stored with `source: "app"` |
+| `GET /v1/timing?since=24h&project=&agent=&top=10` | turns' model, tool and start time in total and by agent; the slowest tools, calls and heavy commands |
 | `GET /v1/github/usage` | each GitHub token's requests since the daemon started, and what is left of its budgets |

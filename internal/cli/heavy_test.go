@@ -22,6 +22,7 @@ type fakeHeavy struct {
 	asked   []api.HeavyRequest
 	joined  []string // key=pid
 	ended   []string
+	ends    []api.HeavyEnd
 	policy  api.TestPolicy
 }
 
@@ -44,10 +45,11 @@ func (f *fakeHeavy) JoinHeavy(_ context.Context, key string, pid int) error {
 	return nil
 }
 
-func (f *fakeHeavy) EndHeavy(_ context.Context, key string) error {
+func (f *fakeHeavy) EndHeavy(_ context.Context, key string, end api.HeavyEnd) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ended = append(f.ended, key)
+	f.ends = append(f.ends, end)
 	return nil
 }
 
@@ -191,7 +193,7 @@ func TestHeavyJoin(t *testing.T) {
 // ended; outside an agent it just runs it.
 func TestRunHeavy(t *testing.T) {
 	t.Parallel()
-	f := &fakeHeavy{start: true}
+	f := &fakeHeavy{start: true, workers: 3}
 	var stderr bytes.Buffer
 	code, err := runHeavy(context.Background(), f, []string{"--", "sh", "-c", "exit 3"}, &stderr)
 	if err != nil || code != 3 {
@@ -199,6 +201,18 @@ func TestRunHeavy(t *testing.T) {
 	}
 	if len(f.asked) != 1 || f.asked[0].Command != "sh -c exit 3" || len(f.joined) != 1 || !strings.HasSuffix(f.joined[0], "="+strconv.Itoa(os.Getpid())) || len(f.ended) != 1 {
 		t.Errorf("asked %+v, joined %v, ended %v", f.asked, f.joined, f.ended)
+	}
+	// It says how it ended, for its timing: the command, its exit status,
+	// how long it took and the workers it was given.
+	if len(f.ends) != 1 || f.ends[0].Command != "sh -c exit 3" || f.ends[0].ExitCode != 3 || f.ends[0].DurationMS < 1 || f.ends[0].Jobs != 3 {
+		t.Errorf("ended with %+v", f.ends)
+	}
+	// One that never started says so, with no exit status of its own.
+	if _, err := runHeavy(context.Background(), f, []string{"/nonexistent/agentbox-heavy-test"}, &stderr); err == nil {
+		t.Error("a command that doesn't exist ran")
+	}
+	if len(f.ends) != 2 || f.ends[1].ExitCode != -1 {
+		t.Errorf("a command that never started ended with %+v, want exit -1", f.ends)
 	}
 	if code, err := runHeavy(context.Background(), nil, []string{"true"}, &stderr); code != 0 || err != nil {
 		t.Errorf("outside an agent: exit %d, %v", code, err)
