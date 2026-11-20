@@ -739,7 +739,15 @@ impl ChatView {
             .cursor_pointer()
             .hover(|el| el.border_color(theme::muted()))
             .when_some(picture.clone(), |el, p: Arc<Image>| {
-                el.child(img(p).size_full().object_fit(ObjectFit::Cover))
+                el.child(
+                    img(crate::pictures::image(
+                        Some(&format!("{}/{}", self.prefix, im.id)),
+                        &p,
+                        crate::pictures::Size::Thumb,
+                    ))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+                )
             })
             .when(picture.is_none(), |el| {
                 el.flex()

@@ -16,8 +16,10 @@
 //! holds a view only while it is pictured: at most POOL views lay pages out
 //! at once, taking the waiting pages in turn, and each is destroyed (its
 //! process with it) as soon as no page waits. What a page keeps is its
-//! picture, and those are kept up to CACHE_BYTES, the least recently drawn
-//! let go first and pictured again if they are drawn again.
+//! picture, and those are kept up to CACHE_BYTES, and those not drawn in the
+//! window's last frame (scrolled away, their chat closed) up to IDLE_BYTES,
+//! the least recently drawn let go first, out of every window's atlas too,
+//! and pictured again if they are drawn again.
 //!
 //! GTK is started and pumped from GPUI's loop by webview::init; every call
 //! here is on that same (main) thread.
@@ -50,10 +52,11 @@ const RELAYOUT: Duration = Duration::from_millis(120);
 const JOB_TIMEOUT: Duration = Duration::from_secs(15);
 /// The WebKit views alive at once, each a web process.
 const POOL: usize = 4;
-/// The bytes of pictures kept. A picture drawn within IN_VIEW is on screen
-/// and kept whatever the total.
+/// The bytes of pictures kept, and of those not on screen. One drawn in the
+/// window's last frame is on screen (pictures::let_go_of) and kept whatever the
+/// total.
 const CACHE_BYTES: usize = 96 << 20;
-const IN_VIEW: Duration = Duration::from_secs(2);
+const IDLE_BYTES: usize = 32 << 20;
 /// The pages remembered (their HTML, height and scroll), past which those
 /// drawn longest ago are forgotten.
 const MAX_PAGES: usize = 256;
@@ -319,33 +322,56 @@ fn bytes(image: &RenderImage) -> usize {
     s.width.0.max(0) as usize * s.height.0.max(0) as usize * 4
 }
 
-/// let_go keeps the pictures within CACHE_BYTES, letting go of those drawn
-/// longest ago first; never one drawn within IN_VIEW, which is on screen.
-fn let_go(pages: &mut HashMap<String, Page>) {
-    let mut total: usize = pages
-        .values()
-        .filter_map(|p| p.image.as_ref())
-        .map(|(i, _)| bytes(i))
-        .sum();
-    if total <= CACHE_BYTES {
-        return;
-    }
-    let now = Instant::now();
-    let mut idle: Vec<(Instant, String)> = pages
-        .iter()
-        .filter(|(_, p)| p.image.is_some() && now.duration_since(p.drawn) > IN_VIEW)
-        .map(|(id, p)| (p.drawn, id.clone()))
-        .collect();
-    idle.sort();
-    for (_, id) in idle {
-        if total <= CACHE_BYTES {
-            break;
-        }
+/// let_go keeps the pictures within CACHE_BYTES, and those not on screen
+/// within IDLE_BYTES, letting go of those drawn longest ago first; never one
+/// drawn in the window's last frame, which is on screen.
+fn let_go(pages: &mut HashMap<String, Page>) -> usize {
+    let kept = pages.iter().filter_map(|(id, p)| {
+        let (image, _) = p.image.as_ref()?;
+        Some((id.clone(), p.drawn, bytes(image)))
+    });
+    let mut freed = 0;
+    for id in crate::pictures::let_go_of(kept, CACHE_BYTES, IDLE_BYTES) {
         if let Some((image, _)) = pages.get_mut(&id).and_then(|p| p.image.take()) {
-            total -= bytes(&image);
+            freed += bytes(&image);
             DROPPED.with_borrow_mut(|d| d.push(image));
         }
     }
+    freed
+}
+
+/// sweep lets go of pictures past the budgets between pictures coming in:
+/// those of a chat left are idle from its next frame (pictures.rs's sweep
+/// calls it). It is the bytes let go of.
+pub fn sweep() -> usize {
+    PAGES.with_borrow_mut(let_go)
+}
+
+/// let_go_all lets go of every picture (the window hidden to the tray); the
+/// pages are pictured again when drawn again.
+pub fn let_go_all() {
+    PAGES.with_borrow_mut(|pages| {
+        for p in pages.values_mut() {
+            if let Some((image, _)) = p.image.take() {
+                DROPPED.with_borrow_mut(|d| d.push(image));
+            }
+        }
+    });
+}
+
+/// stats is the pictures kept and their bytes, for the memory log.
+pub fn stats() -> (usize, usize) {
+    PAGES.with_borrow(|pages| {
+        pages
+            .values()
+            .filter_map(|p| p.image.as_ref())
+            .fold((0, 0), |(n, b), (i, _)| (n + 1, b + bytes(i)))
+    })
+}
+
+/// views is the WebKit views alive, each a web process.
+pub fn views() -> usize {
+    VIEWS.with_borrow(|v| v.iter().flatten().count())
 }
 
 /// forget drops the quarter of the pages drawn longest ago that aren't being

@@ -944,7 +944,13 @@ impl AppView {
 }
 
 fn img_of(i: std::sync::Arc<Image>) -> AnyElement {
-    img(i).size_full().into_any_element()
+    img(crate::pictures::image(
+        None,
+        &i,
+        crate::pictures::Size::Thumb,
+    ))
+    .size_full()
+    .into_any_element()
 }
 
 /// The shortcut sheet (lib/shortcuts.ts sheet), with Ctrl for Mod.
