@@ -177,9 +177,9 @@ func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
 	return c.do(ctx, http.MethodPost, "/v1/self/heavy/"+url.PathEscape(key)+"/join", HeavyJoin{PID: pid}, nil)
 }
 
-// EndHeavy says a heavy command ended.
-func (c *Client) EndHeavy(ctx context.Context, key string) error {
-	return c.do(ctx, http.MethodDelete, "/v1/self/heavy/"+url.PathEscape(key), nil, nil)
+// EndHeavy says a heavy command ended, and how (HeavyEnd).
+func (c *Client) EndHeavy(ctx context.Context, key string, end HeavyEnd) error {
+	return c.do(ctx, http.MethodDelete, "/v1/self/heavy/"+url.PathEscape(key), end, nil)
 }
 
 // Pressure is the VM's memory pressure and the heavy commands it holds.

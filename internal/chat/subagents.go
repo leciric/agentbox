@@ -34,6 +34,8 @@ type subagent struct {
 	open        *api.ChatItem
 	openMessage string
 	tools       map[string]*api.ChatItem
+	// clocks time its tool calls still running (timing.go).
+	clocks map[string]*toolClock
 	// background is a subagent that was still running when its turn ended,
 	// or started with none running: listed as background work
 	// (background.go). endedAt is when it ended.
@@ -179,7 +181,12 @@ func (sa *subagent) updateTool(c *conversation, u acp.SessionUpdate) {
 		it.Tool = &api.ChatTool{CallID: u.ToolCallID, Kind: "other", Status: "pending"}
 		sa.tools[u.ToolCallID] = it
 	}
+	open := toolOpen(it.Tool)
 	applyTool(it.Tool, u)
+	if sa.clocks == nil {
+		sa.clocks = map[string]*toolClock{}
+	}
+	c.clockTool(sa.clocks, it.Tool, open, u, sa.card.Subagent.Name, sa.card.Turn, time.Now())
 	c.sawTool(it.Tool)
 	c.touch(it)
 }

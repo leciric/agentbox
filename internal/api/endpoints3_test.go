@@ -423,3 +423,39 @@ func TestThemeAppliedAndDescribe(t *testing.T) {
 		}
 	}
 }
+
+// Timing's query and EndHeavy's body: every field the query sets, none for
+// a zero one, and how a heavy command ended.
+func TestTimingAndHeavyEndEndpoints(t *testing.T) {
+	runEndpointCases(t, []endpointCase{
+		{
+			name: "Timing with a full query", method: http.MethodGet,
+			path: "/v1/timing?agent=agent-01&project=pawly&since=2026-01-02T03%3A04%3A05Z&top=3",
+			resp: `{"turns":2,"modelMS":1500,"agents":[{"ref":"pawly/agent-01","turns":2}]}`,
+			run: func(t *testing.T, c *Client) {
+				r, err := c.Timing(context.Background(), TimingQuery{Project: "pawly", Agent: "agent-01", Since: testTime, Top: 3})
+				if err != nil || r.Turns != 2 || r.ModelMS != 1500 || len(r.Agents) != 1 || r.Agents[0].Turns != 2 {
+					t.Errorf("Timing() = %+v, %v", r, err)
+				}
+			},
+		},
+		{
+			name: "Timing with a zero query", method: http.MethodGet, path: "/v1/timing", resp: `{}`,
+			run: func(t *testing.T, c *Client) {
+				if _, err := c.Timing(context.Background(), TimingQuery{}); err != nil {
+					t.Errorf("Timing() = %v", err)
+				}
+			},
+		},
+		{
+			name: "EndHeavy says how it ended", method: http.MethodDelete, path: "/v1/self/heavy/heavy-1",
+			body: `{"command":"go test ./...","jobs":4,"exitCode":1,"durationMS":61000}`,
+			run: func(t *testing.T, c *Client) {
+				end := HeavyEnd{Command: "go test ./...", Jobs: 4, ExitCode: 1, DurationMS: 61000}
+				if err := c.EndHeavy(context.Background(), "heavy-1", end); err != nil {
+					t.Errorf("EndHeavy() = %v", err)
+				}
+			},
+		},
+	})
+}

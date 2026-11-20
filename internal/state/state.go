@@ -1722,6 +1722,43 @@ var migrations = []string{
 		last_at INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, agent)
 	)`,
+	// Where an agent's time goes (timing.go): one row per chat turn (kind
+	// turn), per tool call in one (tool) and per heavy command (command),
+	// written in batches off the path of what they time and kept for
+	// KeepTiming. started_at is unix milliseconds and ms the wall time;
+	// the rest is what that kind has, 0 or '' otherwise. A turn's model_ms
+	// is how long its model took from each request to its last token,
+	// first_token_ms the wait for the first call's first token and ttft_ms
+	// those waits over every call, start_ms from the message to the prompt
+	// reaching the tool, and tool_ms the time at least one of its main
+	// loop's tools ran. A tool's sub is the subagent that ran it, '' for
+	// the main loop. A command's exit_code is -1 when it didn't say.
+	`CREATE TABLE timing (
+		id             INTEGER PRIMARY KEY,
+		kind           TEXT NOT NULL,
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL,
+		agent_id       TEXT NOT NULL DEFAULT '',
+		ai             TEXT NOT NULL DEFAULT '',
+		turn           TEXT NOT NULL DEFAULT '',
+		name           TEXT NOT NULL DEFAULT '',
+		detail         TEXT NOT NULL DEFAULT '',
+		sub            TEXT NOT NULL DEFAULT '',
+		status         TEXT NOT NULL DEFAULT '',
+		started_at     INTEGER NOT NULL,
+		ms             INTEGER NOT NULL DEFAULT 0,
+		start_ms       INTEGER NOT NULL DEFAULT 0,
+		model_ms       INTEGER NOT NULL DEFAULT 0,
+		first_token_ms INTEGER NOT NULL DEFAULT 0,
+		ttft_ms        INTEGER NOT NULL DEFAULT 0,
+		model_calls    INTEGER NOT NULL DEFAULT 0,
+		tool_ms        INTEGER NOT NULL DEFAULT 0,
+		tool_calls     INTEGER NOT NULL DEFAULT 0,
+		jobs           INTEGER NOT NULL DEFAULT 0,
+		exit_code      INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX timing_by_time ON timing (kind, started_at)`,
+	`CREATE INDEX timing_by_agent ON timing (project, agent, kind, started_at)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1735,6 +1772,7 @@ type Store struct {
 	stop      chan struct{}
 	stopped   chan struct{}
 	closeOnce sync.Once
+	timing    timingBuffer
 }
 
 func Open(path string) (*Store, error) {
@@ -1815,6 +1853,7 @@ func (s *Store) checkpoints() {
 
 func (s *Store) Close() error {
 	s.closeOnce.Do(func() {
+		s.closeTiming()
 		close(s.stop)
 		<-s.stopped
 		var a, b, c int
@@ -2559,6 +2598,8 @@ var projectOwned = []string{
 	"notifications",
 	"running_turns",
 	"auto_resumes",
+	// Timing is for finding out where time goes now, not a record to keep.
+	"timing",
 	"chat_items",
 	"chats",
 	"archived_agents",

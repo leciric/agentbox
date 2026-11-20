@@ -1004,6 +1004,7 @@ var lanRefused = []struct {
 	{"Tokens, usage, limits and the machine's load", []string{
 		"GET /v1/tokens",
 		"GET /v1/tokens/turns",
+		"GET /v1/timing",
 		"GET /v1/recap",
 		"GET /v1/limits",
 		"GET /v1/pressure",
