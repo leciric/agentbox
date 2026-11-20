@@ -158,10 +158,6 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		if err := m.settleGPU(ctx, a.Instance); err != nil {
 			return err
 		}
-		// And the CPU share it had then.
-		if err := m.setStartShare(ctx, a.Instance); err != nil {
-			return err
-		}
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
 		m.buildOutputSources(ctx, a)

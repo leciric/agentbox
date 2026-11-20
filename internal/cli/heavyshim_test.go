@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -86,49 +85,30 @@ func TestHeavyShimRunsALightCommandAsItIs(t *testing.T) {
 }
 
 // A heavy command runs at once, in its run (AGENTBOX_HEAVY, so the shims
-// under it don't ask again), with the worker counts set: halved while
-// memory is short.
+// under it don't ask again), with the worker counts the daemon answered; a
+// daemon that answers none (one before 20 Nov 2026) leaves them as they are.
 func TestHeavyCommandRunsWithWorkerCounts(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("AGENTBOX_CPUS", "") // restored after; unset meanwhile
+	_ = os.Unsetenv("AGENTBOX_CPUS")
 	out := filepath.Join(t.TempDir(), "env")
-	was := workersFor
-	defer func() { workersFor = was }()
 	for _, tc := range []struct {
-		short bool
-		jobs  string
-	}{{false, "-p=8"}, {true, "-p=4"}} {
-		workersFor = func(env []string) []string { return agent.WorkerEnv(env, 8, 0, tc.short) }
-		f := &fakeHeavy{start: true}
-		run := heavyCommandRun{path: "/bin/sh", argv: []string{"sh", "-c", `echo "$AGENTBOX_HEAVY $GOFLAGS" > ` + out}, command: "go test ./x"}
+		workers int
+		flags   string
+	}{{6, "-mod=mod -p=6"}, {0, "-mod=mod"}} {
+		f := &fakeHeavy{start: true, workers: tc.workers}
+		run := heavyCommandRun{path: "/bin/sh", argv: []string{"sh", "-c", `echo "$AGENTBOX_HEAVY|$GOFLAGS" > ` + out}, command: "go test ./x"}
 		var stderr bytes.Buffer
 		if code, err := runHeavyCommand(context.Background(), f, run, &stderr); code != 0 || err != nil {
 			t.Fatalf("exit %d, %v", code, err)
 		}
 		b, _ := os.ReadFile(out)
-		fields := strings.Fields(string(b))
-		if len(fields) != 2 || !strings.HasPrefix(fields[0], "heavy-") || fields[1] != tc.jobs {
-			t.Errorf("short %v: the command saw %q, want its key and %s", tc.short, b, tc.jobs)
+		key, flags, _ := strings.Cut(strings.TrimSpace(string(b)), "|")
+		if !strings.HasPrefix(key, "heavy-") || flags != tc.flags {
+			t.Errorf("%d workers: the command saw %q, want its key and GOFLAGS %q", tc.workers, b, tc.flags)
 		}
 		if len(f.asked) != 1 || len(f.ended) != 1 {
 			t.Errorf("asked %v, ended %v", f.asked, f.ended)
 		}
-	}
-}
-
-// The cores a heavy command counts are the machine's share, as nproc says:
-// its cgroup's cpu.max quota, rounded up, never more than it may run on.
-func TestMachineCPUs(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	for content, want := range map[string]int{"200000 100000": 2, "150000 100000": 2, "max 100000": runtime.NumCPU(), "50000 100000": 1} {
-		p := filepath.Join(dir, "cpu.max")
-		if err := os.WriteFile(p, []byte(content+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got := machineCPUs(p); got != min(want, runtime.NumCPU()) {
-			t.Errorf("%q: %d, want %d", content, got, want)
-		}
-	}
-	if got := machineCPUs(filepath.Join(dir, "none")); got != runtime.NumCPU() {
-		t.Errorf("no cpu.max: %d", got)
 	}
 }

@@ -35,12 +35,13 @@ import (
 // cargo, npm, make… first in every agent's PATH, whatever its AI tool
 // (agent/heavyshims.go, cli.heavyShim), or `agentbox heavy -- <cmd>` around
 // anything else. Asking is how the daemon knows an agent works (idle
-// reclaim, the VM's own idle shrink, the package cache), and how a build is
-// told to run fewer jobs while the VM's memory is short (memoryjobs.go, by
-// pressure.Runs.Why). As it starts, its shell joins a cgroup of its own
-// under the agent's machine's (agent.PlaceRun), which the experimental
-// "pause whole agents" (agentfreeze.go) freezes rather than the whole
-// machine when freezing that would free nothing.
+// reclaim, the VM's own idle shrink, the package cache), and how many
+// workers it starts with: the VM's cores split between the heavy commands
+// running then (agent.HeavyWorkers), whatever the memory. As it starts, its
+// shell joins a cgroup of its own under the agent's machine's
+// (agent.PlaceRun), which the experimental "pause whole agents"
+// (agentfreeze.go) freezes rather than the whole machine when freezing that
+// would free nothing.
 //
 // The loop that reads the VM's memory is what must still work when the VM
 // has none to spare: a reading allocates nothing and opens nothing
@@ -159,7 +160,6 @@ func (s *Server) runPressure(ctx context.Context) {
 	if s.pressureEvery <= 0 {
 		return // a test steps it itself
 	}
-	go s.tellMemoryShort(ctx)
 	s.protectDaemon()
 	go func() {
 		ticker := time.NewTicker(s.pressureEvery)
@@ -218,8 +218,8 @@ func (s *Server) refreshSoon() {
 }
 
 // stepPressure reads the VM's memory: for the fleet, with pausing whole
-// agents on, which decides from it; for builds to run fewer jobs while it is
-// short (memoryShort); and for what a restart carries on to wait to settle.
+// agents on, which decides from it; for how short it is, which GET
+// /v1/pressure shows; and for what a restart carries on to wait to settle.
 // It also lets the next machine in line boot (admission.go), and forgets the
 // runs that ended.
 func (s *Server) stepPressure(ctx context.Context) {
@@ -231,7 +231,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		// to the loop, which is what memory pressure of 0 makes of it.
 		if msg := err.Error(); msg != h.psiErr {
 			h.psiErr = msg
-			s.logf("memory pressure: %v; builds run as many jobs whatever the memory", err)
+			s.logf("memory pressure: %v; taken as none", err)
 		}
 		sample = pressure.Sample{}
 	}
@@ -279,7 +279,6 @@ func (s *Server) stepPressure(ctx context.Context) {
 		s.stepAdmission(now)
 	}
 	s.notePressure(now, sample, err == nil, why)
-	s.memoryShort.note(now, why)
 }
 
 // forget drops what the daemon kept beside a run that went. Under mu.
@@ -327,7 +326,9 @@ func (s *Server) agentByRef(ctx context.Context, ref string) (state.Agent, error
 
 // startHeavy is POST /v1/self/heavy: a heavy command of the calling agent's
 // starting, or asking again while it runs. It starts at once: nothing waits
-// for memory (api.HeavyRequest.WaitSeconds is a daemon before this one's).
+// for memory (api.HeavyRequest.WaitSeconds is a daemon before this one's),
+// with as many workers as its share of the VM's cores among the heavy
+// commands running now, in every agent (agent.HeavyWorkers).
 func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var req api.HeavyRequest
@@ -347,23 +348,32 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 			return err
 		}
 		s.wakeIdle(a.Ref())
-		s.startRun(a.Ref(), instance, key, req.Command, ttl)
-		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true})
+		running := s.startRun(a.Ref(), instance, key, req.Command, ttl)
+		workers := agent.HeavyWorkers(s.vmCores(), running, s.hostLoad.busy(time.Now()))
+		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true, Workers: workers})
 	}
 }
 
 // startRun has the heavy command key of agent ref, in instance, start now,
-// or renews it for ttl.
-func (s *Server) startRun(ref, instance, key, command string, ttl time.Duration) {
+// or renews it for ttl, and reports how many heavy commands run now, in
+// every agent, this one counted: one paused by pausing whole agents
+// (agentfreeze.go) uses no CPU, and isn't.
+func (s *Server) startRun(ref, instance, key, command string, ttl time.Duration) (running int) {
 	h := s.heavy
 	h.mu.Lock()
 	run := h.g.Ask(ref, key, command, ttl, time.Now())
 	fresh := h.instance[run.ID()] == ""
 	h.instance[run.ID()] = instance
+	for _, r := range h.g.Running() {
+		if !r.Paused {
+			running++
+		}
+	}
 	h.mu.Unlock()
 	if fresh {
 		s.refreshSoon()
 	}
+	return running
 }
 
 // reasonWords says why the fleet holds machines or runs, a clause for the

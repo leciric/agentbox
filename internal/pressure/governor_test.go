@@ -75,10 +75,10 @@ func keys(runs []*Run) []string {
 	return out
 }
 
-// Why says how short the VM's memory is, for builds to run fewer jobs, and
-// holds nothing. The readings of 19 Nov 2026: every agent throttled at its
-// shared memory.high, 57–68% of the time stalled, with the VM's memory free,
-// is Stalling: builds run fewer jobs, and still start at once.
+// Why says how short the VM's memory is, and holds nothing. The readings of
+// 19 Nov 2026: every agent throttled at its shared memory.high, 57–68% of
+// the time stalled, with the VM's memory free, is Stalling, and builds still
+// start at once.
 func TestWhyIsHowShortMemoryIs(t *testing.T) {
 	busy := psi(0, 0)
 	busy.HostBusy = true
