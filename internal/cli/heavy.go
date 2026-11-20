@@ -284,7 +284,7 @@ func heavyShim(ctx context.Context, name, dir string, args []string, stderr io.W
 	command := shellJoin(argv)
 	socket := inAgentSocket()
 	runPhase := isRunPhase(command)
-	if os.Getenv(agent.HeavyEnv) != "" || !(runPhase || isHeavy(command)) || !fileExists(socket) {
+	if os.Getenv(agent.HeavyEnv) != "" || (!runPhase && !isHeavy(command)) || !fileExists(socket) {
 		if err := execReal(real, argv, os.Environ()); err != nil {
 			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
 			return 126
