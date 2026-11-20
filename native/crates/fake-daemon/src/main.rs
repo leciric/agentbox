@@ -385,8 +385,11 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
     } else {
         text
     };
+    // Each preview a page of its own, as in a real chat: the app makes a
+    // webview per page (the memory bench counts them).
     let text = if i % 10 == 7 {
-        format!("{text}\n\n{PREVIEW}")
+        let week = format!("Tokens in week {}", i / 10 + 1);
+        format!("{text}\n\n{}", PREVIEW.replace("Tokens this week", &week))
     } else {
         text
     };
