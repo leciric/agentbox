@@ -18,6 +18,20 @@ use crate::{bench, theme};
 /// The widest a frame is decoded to: the player is never wider.
 const MAX_WIDTH: u32 = 1440;
 
+/// The widest a card's recording (EvidenceCard) is decoded to: the card is
+/// under half the chat's width. At 1440 each of its frames was 4.7 MB.
+const CARD_WIDTH: u32 = 960;
+
+/// Frames decoded ahead of the one shown, each a whole BGRA picture: enough
+/// to keep the decoder a few frames in front, where 8 held 37 MB per player
+/// at 1440 wide.
+const AHEAD: usize = 3;
+
+/// A card's player not drawn for this long (scrolled away, its finish folded,
+/// its chat left open on another page) stops decoding and lets go of its
+/// frame; drawn again, it plays from the start.
+const UNSEEN: Duration = Duration::from_secs(2);
+
 struct Decoded {
     pts: f64,
     image: image::RgbaImage,
@@ -42,12 +56,35 @@ pub struct VideoPlayer {
     /// A card's recording (EvidenceCard): it plays again from the start
     /// when it ends, and is only its frame, a click on which is the card's.
     bare: bool,
+    /// How wide frames are decoded (MAX_WIDTH, or CARD_WIDTH for a card).
+    width: u32,
+    /// A card's: when it was last drawn, and whether it stopped for not
+    /// being drawn (it starts again when it is).
+    seen: Instant,
+    parked: bool,
     _task: Option<Task<()>>,
+    _live: crate::bench::Live,
 }
 
 impl VideoPlayer {
     pub fn new(path: PathBuf, cx: &mut Context<Self>) -> Self {
-        let mut this = Self {
+        let mut this = Self::unstarted(path);
+        this.play(cx);
+        this
+    }
+
+    /// card is a card's recording (EvidenceCard): looped, frame only,
+    /// decoded at the card's size, and playing only while it is drawn.
+    pub fn card(path: PathBuf) -> Self {
+        let mut this = Self::unstarted(path);
+        this.bare = true;
+        this.width = CARD_WIDTH;
+        this.parked = true;
+        this
+    }
+
+    fn unstarted(path: PathBuf) -> Self {
+        Self {
             path,
             frame: None,
             playing: false,
@@ -59,20 +96,17 @@ impl VideoPlayer {
             bar: Rc::default(),
             zoom: None,
             bare: false,
+            width: MAX_WIDTH,
+            seen: Instant::now(),
+            parked: false,
             _task: None,
-        };
-        this.play(cx);
-        this
+            _live: crate::bench::Live::new("video"),
+        }
     }
 
     /// set_zoom has the frame follow a review's zoom and pan.
     pub fn set_zoom(&mut self, zoom: Rc<Cell<f32>>, pan: ScrollHandle) {
         self.zoom = Some((zoom, pan));
-    }
-
-    /// set_bare makes it a card's recording: looped, frame only.
-    pub fn set_bare(&mut self) {
-        self.bare = true;
     }
 
     /// set_marks puts marks on the bar at these seconds.
@@ -115,8 +149,9 @@ impl VideoPlayer {
     /// start decodes from at seconds in, showing frames as their time comes,
     /// or only the first one when not playing.
     fn start(&mut self, at: f64, playing: bool, cx: &mut Context<Self>) {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Decoded>>(8);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Decoded>>(AHEAD);
         let path = self.path.clone();
+        let width = self.width;
         match probe(&path) {
             Ok(d) => self.duration = d,
             Err(e) => {
@@ -127,12 +162,14 @@ impl VideoPlayer {
         std::thread::Builder::new()
             .name("video-decode".into())
             .spawn(move || {
-                if let Err(e) = decode(&path, at, &tx) {
+                if let Err(e) = decode(&path, at, width, &tx) {
                     let _ = tx.blocking_send(Err(e));
                 }
             })
             .expect("decode thread");
         self.playing = playing;
+        self.parked = false;
+        self.seen = Instant::now();
         self.shown = 0;
         self._task = Some(cx.spawn(async move |this, cx| {
             let start = Instant::now() - Duration::from_secs_f64(at);
@@ -158,7 +195,13 @@ impl VideoPlayer {
                     }
                 }
                 let image = Arc::new(RenderImage::new(vec![image::Frame::new(frame.image)]));
-                let ok = this.update(cx, |this, cx| {
+                let more = this.update(cx, |this, cx| {
+                    if this.bare && this.seen.elapsed() > UNSEEN {
+                        // Not on screen: stop decoding (dropping the
+                        // channel ends the thread) and free the frame.
+                        this.park(cx);
+                        return false;
+                    }
                     if let Some(old) = this.frame.replace(image) {
                         // Out of every window's atlas now, drawn or not.
                         cx.drop_image(old, None);
@@ -166,8 +209,9 @@ impl VideoPlayer {
                     this.position = frame.pts;
                     this.shown += 1;
                     cx.notify();
+                    true
                 });
-                if ok.is_err() || !playing {
+                if !more.unwrap_or(false) || !playing {
                     return;
                 }
             }
@@ -176,13 +220,32 @@ impl VideoPlayer {
                 this.position = this.duration;
                 bench::report();
                 if this.bare && this.error.is_none() && this.shown > 0 {
-                    this.start(0., true, cx);
+                    if this.seen.elapsed() > UNSEEN {
+                        this.park(cx);
+                    } else {
+                        this.start(0., true, cx);
+                    }
                 }
                 cx.notify();
             })
             .ok();
         }));
         cx.notify();
+    }
+}
+
+impl VideoPlayer {
+    /// park stops a card that isn't drawn: its decoder ends with the task,
+    /// and its frame leaves the atlas.
+    fn park(&mut self, cx: &mut Context<Self>) {
+        self.parked = true;
+        self.playing = false;
+        self.position = 0.;
+        if let Some(old) = self.frame.take() {
+            cx.drop_image(old, None);
+        }
+        // The task ends on its own (this runs inside it): it is not dropped
+        // from under itself here.
     }
 }
 
@@ -195,7 +258,12 @@ fn probe(path: &PathBuf) -> Result<f64> {
 
 /// decode sends the frames from at seconds in (from the keyframe before it,
 /// decoded but not sent).
-fn decode(path: &PathBuf, at: f64, tx: &tokio::sync::mpsc::Sender<Result<Decoded>>) -> Result<()> {
+fn decode(
+    path: &PathBuf,
+    at: f64,
+    max_width: u32,
+    tx: &tokio::sync::mpsc::Sender<Result<Decoded>>,
+) -> Result<()> {
     let mut input = ff::format::input(path)?;
     if at > 0. {
         let ts = (at * f64::from(ff::ffi::AV_TIME_BASE)) as i64;
@@ -211,7 +279,7 @@ fn decode(path: &PathBuf, at: f64, tx: &tokio::sync::mpsc::Sender<Result<Decoded
         .decoder()
         .video()?;
     let (w, h) = (decoder.width(), decoder.height());
-    let width = w.min(MAX_WIDTH);
+    let width = w.min(max_width);
     let height = (h as u64 * width as u64 / w.max(1) as u64) as u32 & !1;
     let mut scaler = ff::software::scaling::Context::get(
         decoder.format(),
@@ -270,6 +338,15 @@ impl Render for VideoPlayer {
         let bar = self.bar.clone();
         let duration = self.duration;
         if self.bare {
+            self.seen = Instant::now();
+            if self.parked {
+                // Drawn again: play, from outside this frame's render.
+                self.parked = false;
+                cx.spawn(async move |this, cx| {
+                    this.update(cx, |this, cx| this.start(0., true, cx)).ok();
+                })
+                .detach();
+            }
             return div()
                 .size_full()
                 .bg(theme::pitch())

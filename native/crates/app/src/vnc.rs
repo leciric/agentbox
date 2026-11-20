@@ -293,6 +293,7 @@ pub struct VncView {
     /// watched (the panel's "Take control" switch).
     pub control: bool,
     _task: Task<()>,
+    _live: crate::bench::Live,
 }
 
 impl VncView {
@@ -346,6 +347,7 @@ impl VncView {
             focus: cx.focus_handle(),
             control: true,
             _task: task,
+            _live: crate::bench::Live::new("vnc"),
         }
     }
 
