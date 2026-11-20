@@ -16,12 +16,13 @@ import (
 // fakeHeavy is the in-agent API's heavy-command endpoints, starting them or
 // not.
 type fakeHeavy struct {
-	mu     sync.Mutex
-	start  bool
-	asked  []api.HeavyRequest
-	joined []string // key=pid
-	ended  []string
-	policy api.TestPolicy
+	mu      sync.Mutex
+	start   bool
+	workers int // what the daemon answers HeavyStart.Workers
+	asked   []api.HeavyRequest
+	joined  []string // key=pid
+	ended   []string
+	policy  api.TestPolicy
 }
 
 func (f *fakeHeavy) TestPolicy(context.Context) (api.TestPolicy, error) { return f.policy, nil }
@@ -33,7 +34,7 @@ func (f *fakeHeavy) StartHeavy(_ context.Context, req api.HeavyRequest) (api.Hea
 	if !f.start {
 		return api.HeavyStart{Why: "the VM's memory is under pressure (34% of the last 10 seconds stalled on it), and 2 commands are ahead of it"}, nil
 	}
-	return api.HeavyStart{Started: true}, nil
+	return api.HeavyStart{Started: true, Workers: f.workers}, nil
 }
 
 func (f *fakeHeavy) JoinHeavy(_ context.Context, key string, pid int) error {

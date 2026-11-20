@@ -392,11 +392,6 @@ type Server struct {
 	terminalMu       sync.Mutex
 	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
 
-	// The agents' CPU shares (cpushare.go): kicked when an agent changes,
-	// and on a timer, cpuShareInterval; 0 runs no loop.
-	cpuKick  chan struct{}
-	cpuEvery time.Duration
-
 	// The usage loop (usageloop.go): usageNow is what each agent used when
 	// last sampled, by ref, under mu.
 	usageEvery time.Duration // usageInterval; 0 runs no loop
@@ -415,9 +410,9 @@ type Server struct {
 	heavy *heavyRuns
 	// hostLoad is the user's computer's last load report (hostload.go).
 	hostLoad hostLoad
-	// memoryShort (memoryjobs.go) is whether the machines are told memory
-	// is short, so their builds and tests run fewer jobs.
-	memoryShort *memoryShort
+	// vmCores is how many cores the agents' machines see, all of the VM's,
+	// which heavy commands' worker counts split (agent.HeavyWorkers).
+	vmCores func() int
 	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
 	// with Settings → Experimental's switch, and machineCgroups what
 	// freezes them.
@@ -531,7 +526,6 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
-		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
 		admit:            newAdmitState(),
 		resumes:          newResumeState(),
@@ -558,12 +552,11 @@ func New(cfg Config) (*Server, error) {
 		loggedOnce:       map[string]string{},
 		shared:           newSharedCgroups(),
 		oomScorer:        agent.NewOOMScorer(),
-		cpuKick:          make(chan struct{}, 1),
-		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},
 		cpuTime:          agent.CPUTime,
+		vmCores:          agent.HostCores,
 		connectorsGiven:  map[string]bool{},
 	}
 	store.SetLog(s.logf)
@@ -751,7 +744,6 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { dockerfw.Watch(ctx, time.Minute, firewall, s.logf) })
 	// Nor may its DNS, IPv6 or MTU work though the machine's do (bridgecheck).
 	loops.Go(func() { s.checkBridgeOnce(ctx) })
-	loops.Go(func() { s.balanceCPU(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })

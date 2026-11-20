@@ -20,7 +20,7 @@ import (
 // Each tick is one listing of Incus's instances, which the usage is measured
 // against the last tick's and the agents' states are read from. It used to be
 // four a tick: one for the states, two a second apart for the usage, and one
-// more for balanceCPU, kicked whether anything had changed or not. With the
+// more for the agents' CPU shares, whether anything had changed or not. With the
 // app open that was two full listings a second, every instance's state
 // gathered by Incus and decoded here, for the daemon's whole life: most of
 // its CPU when nothing else happens.
@@ -51,9 +51,8 @@ func (s *Server) watchOnce(ctx context.Context, last *agent.UsageSample) *agent.
 		s.refreshAgents(ctx)
 		return nil
 	}
-	if statuses, err := m.ListFrom(ctx, now.Instances); err == nil && s.publishAgentChanges(statuses) {
-		// Whatever changed changes how many agents share the VM's cores.
-		s.kickCPU()
+	if statuses, err := m.ListFrom(ctx, now.Instances); err == nil {
+		s.publishAgentChanges(statuses)
 	}
 	s.events.publish(api.EventUsage, toAPIUsage(host, usage))
 	return now
@@ -61,8 +60,6 @@ func (s *Server) watchOnce(ctx context.Context, last *agent.UsageSample) *agent.
 
 // refreshAgents publishes an event for every agent whose state changed.
 func (s *Server) refreshAgents(ctx context.Context) {
-	// Whatever changed changes how many agents share the VM's cores.
-	s.kickCPU()
 	if s.events.subscribers() == 0 {
 		return
 	}
@@ -119,8 +116,8 @@ func (s *Server) forgetActivity(ref string) {
 	}
 }
 
-// publishAgentChanges reports whether any agent changed.
-func (s *Server) publishAgentChanges(statuses []agent.Status) (changed bool) {
+// publishAgentChanges publishes an event for every agent whose state changed.
+func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	seen := map[string]bool{}
@@ -130,17 +127,14 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) (changed bool) {
 		if !sameChange(s.lastStates[change.Ref], change) {
 			s.lastStates[change.Ref] = change
 			s.events.publish(api.EventAgent, change)
-			changed = true
 		}
 	}
 	for ref := range s.lastStates {
 		if !seen[ref] {
 			delete(s.lastStates, ref)
 			s.events.publish(api.EventAgent, api.AgentChange{Ref: ref, Removed: true})
-			changed = true
 		}
 	}
-	return changed
 }
 
 // agentStates returns the last known state of every agent, sorted by ref.

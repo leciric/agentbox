@@ -13,8 +13,8 @@ import (
 )
 
 // The user's computer comes first: its front end reports how loaded it is
-// (internal/hostload, PUT /v1/host/load), and while it is busy builds run
-// fewer jobs (Sample.HostBusy; memoryjobs.go counts it as short), and while
+// (internal/hostload, PUT /v1/host/load), and while it is busy builds and
+// tests start with half the workers (agent.HeavyWorkers), and while
 // it is below its hard floor no agent's machine boots (HoldBoots,
 // admission.go). Nothing else waits for it: an agent may stall, the
 // desktop doesn't. Where the front end has

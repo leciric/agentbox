@@ -110,21 +110,13 @@ func TestEnsureImageCacheReplacesADeviceForAnotherSocket(t *testing.T) {
 	}
 }
 
-// Docker on demand and the memory-short mark are one command each in the
-// machine, as root.
-func TestEnsureDockerOnDemandAndSetMemoryShort(t *testing.T) {
-	short := filepath.Join(t.TempDir(), "memory-short")
-	inc, calls := loggingIncus(t, `case "$*" in *"mkdir -p"*) cat > `+short+` ;; esac`)
+// Docker on demand is one command in the machine, as root.
+func TestEnsureDockerOnDemand(t *testing.T) {
+	inc, calls := loggingIncus(t, ``)
 	f := setup(t, inc)
 	a := state.Agent{Project: "p", Name: "a", Instance: "ab-agent-01"}
 	f.m.EnsureDockerOnDemand(context.Background(), a)
 	if got := strings.Join(calls(), "\n"); !strings.Contains(got, "exec ab-agent-01 -- bash -c") || !strings.Contains(got, "agentbox-docker-idle.timer") {
 		t.Errorf("Docker on demand wasn't set up:\n%s", got)
-	}
-	if err := f.m.SetMemoryShort(context.Background(), a, true); err != nil {
-		t.Fatal(err)
-	}
-	if data, _ := os.ReadFile(short); string(data) != "short\n" {
-		t.Errorf("memory-short = %q, want short", data)
 	}
 }
