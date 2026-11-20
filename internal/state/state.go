@@ -1722,6 +1722,15 @@ var migrations = []string{
 		last_at INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, agent)
 	)`,
+	// Each project's learned run peak (internal/runslots): how much memory
+	// an agent's machine reached while it held a run slot, which is how
+	// many of that project's runs the VM fits at once.
+	`CREATE TABLE run_peaks (
+		project TEXT PRIMARY KEY,
+		bytes   INTEGER NOT NULL DEFAULT 0,
+		runs    INTEGER NOT NULL DEFAULT 0,
+		at      INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

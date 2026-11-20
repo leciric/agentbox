@@ -146,8 +146,19 @@ that. Agents' disk use also gives way to the daemon's and Incus's: the VM's disk
 machine gets a quarter of their weight, so a build writing as fast as it can doesn't keep Incus from
 answering. Tests and builds that start while memory is
 short run half as many parallel jobs (Go, make, cargo, vitest, turbo, nx, pnpm workspaces), back to
-the usual count two minutes after it eases; any other command can join in as `agentbox heavy --
-<command>`. To give every agent more, raise the VM's cap (`agentbox vm resize --memory-cap`).
+the usual count two minutes after it eases. To give every agent more, raise the VM's cap
+(`agentbox vm resize --memory-cap`).
+
+Agents work in two phases. Editing, builds and targeted tests are an agent's code phase, which
+never waits. Running the app, `docker compose up`, Playwright, the desktop, the browser or the
+Android emulator, and recording, is its run phase, which takes a run slot: as many runs as the VM's
+memory fits at once, after what the agents that are coding use, counted in each project's run peak
+(learned from its earlier runs, 2 GiB until then). When none is free, an agent waits in line and
+keeps coding; the top bar shows "Run slots N of M free", and clicking it lists who holds one and who
+waits. An agent gives its slot back with `agentbox run down`, which stops what its run phase
+started, and a slot unused for ten minutes is taken back the same way. An agent that holds no slot
+is slowed past three quarters of its memory limit, so a dev server it left running gives memory
+back.
 
 An agent that's only editing code holds little: its browser closes after five minutes unused (no
 browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,

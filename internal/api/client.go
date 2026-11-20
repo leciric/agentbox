@@ -1622,3 +1622,35 @@ func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) e
 func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
 	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
 }
+
+// RunUp asks, inside an agent, for a run slot for its run phase, waiting up
+// to req.WaitSeconds for one before saying where it stands (RunUpRequest).
+func (c *Client) RunUp(ctx context.Context, req RunUpRequest) (RunPhase, error) {
+	var out RunPhase
+	return out, c.do(ctx, http.MethodPost, "/v1/self/run/up", req, &out)
+}
+
+// RunStatus says, inside an agent, where its run phase stands.
+func (c *Client) RunStatus(ctx context.Context) (RunPhase, error) {
+	var out RunPhase
+	return out, c.do(ctx, http.MethodGet, "/v1/self/run", nil, &out)
+}
+
+// RunJoin puts a process of the agent's in its run phase's cgroup, which
+// ending the run phase stops.
+func (c *Client) RunJoin(ctx context.Context, pid int) error {
+	return c.do(ctx, http.MethodPost, "/v1/self/run/join", RunJoin{PID: pid}, nil)
+}
+
+// RunDown ends, inside an agent, its run phase: what it started is stopped
+// and its slot given back.
+func (c *Client) RunDown(ctx context.Context) (RunPhase, error) {
+	var out RunPhase
+	return out, c.do(ctx, http.MethodDelete, "/v1/self/run", nil, &out)
+}
+
+// RunSlots is the VM's run slots: who holds one, who waits.
+func (c *Client) RunSlots(ctx context.Context) (RunSlots, error) {
+	var out RunSlots
+	return out, c.do(ctx, http.MethodGet, "/v1/run-slots", nil, &out)
+}

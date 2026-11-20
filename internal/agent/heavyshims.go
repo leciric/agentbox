@@ -20,8 +20,11 @@ import (
 // a dev server), and otherwise tells the daemon it starts (so the agent
 // counts as working), joins a cgroup of its own and starts at once with as
 // many jobs as the VM's memory allows (WorkerEnv), as `agentbox heavy`
-// does. Nothing waits for memory (19 Nov 2026). Inside a heavy command
-// (AGENTBOX_HEAVY set) a shim runs the real one straight from the shell.
+// does. Nothing in the code phase waits for memory (19 Nov 2026); a command
+// that is the run phase's (a dev server, Playwright, `docker compose up`:
+// cli.isRunPhase) waits for a run slot first and runs in the run phase's
+// cgroup (runphase.go). Inside a heavy command (AGENTBOX_HEAVY set) a shim
+// runs the real one straight from the shell.
 //
 // Claude Code's hook around its Bash tool did this for Claude Code alone,
 // and only when its Bash tool's shell read BASH_ENV, which joins the
@@ -61,8 +64,8 @@ const shimFile = "agentbox-shim"
 // for, through a link.
 func ShimScript() string {
 	return fmt.Sprintf(`#!/bin/sh
-# Written by AgentBox: builds and tests wait their turn for the VM's memory,
-# and run with fewer jobs while it is short (agentbox heavy).
+# Written by AgentBox: builds and tests run with fewer jobs while the VM's
+# memory is short, and the app waits for a run slot (agentbox run).
 d=${0%%/*}
 n=${0##*/}
 real() {

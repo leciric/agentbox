@@ -413,6 +413,10 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// slots (runslots.go) is the run slots, and runPhase what reads the
+	// machines for them and stops a run phase's work: agent's, or a test's.
+	slots    *runSlotState
+	runPhase runPhaseOps
 	// hostLoad is the user's computer's last load report (hostload.go).
 	hostLoad hostLoad
 	// memoryShort (memoryjobs.go) is whether the machines are told memory
@@ -440,6 +444,7 @@ type Server struct {
 	vmMemory       func() int64
 	vmCap          func() int64 // the VM's memory cap as its front end set it (configuredCap)
 	setMemoryLimit func(instance string, limit int64) error
+	setMemoryHigh  func(instance string, high int64) error // the code phase's (runslots.go)
 	setIOWeight    func(instance string, weight int) error
 	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
 	setCaps        func(instance string, caps agent.Caps) error
@@ -531,6 +536,7 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		slots:            newRunSlotState(),
 		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
 		admit:            newAdmitState(),
@@ -545,6 +551,7 @@ func New(cfg Config) (*Server, error) {
 		vmMemory:         agent.HostMemory,
 		vmCap:            configuredCap,
 		setMemoryLimit:   agent.SetMemoryLimit,
+		setMemoryHigh:    agent.SetMemoryHigh,
 		setIOWeight:      agent.SetIOWeight,
 		vmSwap:           agent.VMSwap,
 		setCaps:          agent.SetCaps,
@@ -574,6 +581,7 @@ func New(cfg Config) (*Server, error) {
 	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
 	s.credentialTell = s.tellOwner
 	s.lostResumeDelay = 10 * time.Second
+	s.runPhase = agentRunPhase{s}
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
@@ -1152,6 +1160,7 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("GET /v1/run-slots", s.getRunSlots)
 	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
@@ -1376,6 +1385,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusServiceUnavailable
 	case isDiskFull(err):
 		status = http.StatusInsufficientStorage
+	case errors.As(err, new(noRunSlot)):
+		status = http.StatusConflict
 	}
 	body := api.Error{Error: err.Error()}
 	switch {
@@ -1390,6 +1401,8 @@ func writeError(w http.ResponseWriter, err error) {
 		body.Code = api.ErrorFolderExists
 	case errors.As(err, new(badRepoURL)):
 		body.Code = api.ErrorBadRepoURL
+	case errors.As(err, new(noRunSlot)):
+		body.Code = api.ErrorNoRunSlot
 	}
 	if skipping := (skippingError{}); errors.As(err, &skipping) {
 		body.Skipped = toAPISkipped(skipping.skipped)
