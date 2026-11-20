@@ -14,14 +14,13 @@ import (
 // the whole VM down with it, and so the PC it runs on doesn't freeze:
 //
 //   - memory.swap.max: memory.max bounds an agent's RAM, not its swap. An
-//     agent at its limit with the VM's swap free isn't killed: the kernel
-//     swaps its pages out to the VM's zram, which is RAM the agent isn't
-//     charged for, and the machine crawls faulting them back. With no bound
-//     it could fill all of it, and the VM went short for everyone. Now it
-//     may swap a quarter of its memory.max (SwapLimit): past that its
-//     process is killed at once, as memory.max meant. That is still room
-//     for a frozen idle agent's or a paused run's cold memory to go out to
-//     swap (reclaim.go), which is what the VM's swap is for.
+//     agent at its limit with swap free isn't killed: the kernel swaps its
+//     pages out, and the machine crawls faulting them back while it holds
+//     up the disk for everyone. The VM has no swap (zram.go), so it is 0: an
+//     agent past its memory.max has a process killed at once, as memory.max
+//     means, and is told. Only a VM given a swapfile by hand (`agentbox vm
+//     swap on`) lets each agent swap a quarter of its memory.max to it
+//     (SwapLimit).
 //   - cpu.weight: AgentCPUWeight, against the 100 of system.slice (Incus,
 //     the daemon when it is a service), user.slice and init.scope, which are
 //     the agents' machines' siblings under the cgroup root. A build on every
@@ -51,9 +50,10 @@ const AgentCPUWeight = 10
 const AgentPidsMax = 8192
 
 // Caps is what SetCaps writes to an agent's machine's cgroup. A zero field
-// is left as it is.
+// is left as it is, but for SwapMax, which is written when SetSwap is.
 type Caps struct {
-	SwapMax   int64 // memory.swap.max in bytes; -1 for none ("max")
+	SetSwap   bool
+	SwapMax   int64 // memory.swap.max in bytes, 0 for none at all; -1 for no limit ("max")
 	CPUWeight int   // cpu.weight, 1 to 10000
 	PidsMax   int   // pids.max
 }
@@ -65,27 +65,27 @@ type Caps struct {
 func AgentCaps(memoryLimit, swapTotal int64, share int) Caps {
 	c := Caps{CPUWeight: AgentCPUWeight, PidsMax: AgentPidsMax}
 	if swapTotal >= 0 {
-		c.SwapMax = SwapLimit(memoryLimit, swapTotal, share)
+		c.SetSwap, c.SwapMax = true, SwapLimit(memoryLimit, swapTotal, share)
 	}
 	return c
 }
 
 // SwapDivisor is how much smaller an agent's memory.swap.max is than its
-// memory.max: a quarter. With the default half of the VM each, an agent may
-// put an eighth of the VM's size in its zram (which zram's half of the VM
-// holds four of), costing a few percent of its RAM once compressed.
+// memory.max, in a VM given a swapfile: a quarter.
 const SwapDivisor = 4
 
 // SwapLimit is memory.swap.max for an agent whose memory.max is
-// memoryLimit, in a VM with swapTotal bytes of swap: a SwapDivisor-th of
-// memoryLimit, and never more than the agent's share of that swap (a VM with
-// a small swapfile and no zram). A VM with no swap gives -1, none, so the
-// limit doesn't stand in the way when it gets some (`agentbox vm swap on`, or
-// zram as the daemon starts) before the next look; there is nothing to swap
-// to meanwhile. So does an agent with no memory.max.
+// memoryLimit, in a VM with swapTotal bytes of swap: 0 when it has none, as
+// AgentBox's VM doesn't, so nothing an agent runs ever swaps, even to swap
+// that turns up before the next look. With a swapfile given by hand, a
+// SwapDivisor-th of memoryLimit, and never more than the agent's share of
+// that swap. An agent with no memory.max gives -1, none.
 func SwapLimit(memoryLimit, swapTotal int64, share int) int64 {
-	if swapTotal <= 0 || memoryLimit <= 0 {
+	if memoryLimit <= 0 {
 		return -1
+	}
+	if swapTotal <= 0 {
+		return 0
 	}
 	// MemoryLimit is the same share of whatever total it is given.
 	return max(min(memoryLimit/SwapDivisor, MemoryLimit(swapTotal, share)), 4096)
@@ -111,11 +111,12 @@ func SetCaps(instance string, caps Caps) error {
 
 func setCaps(dir string, caps Caps, write func(path, value string) error) error {
 	var errs []error
-	if caps.SwapMax != 0 {
-		limit := caps.SwapMax
-		if limit < 0 {
-			limit = 0 // setCgroupLimit's "max"
-		}
+	switch {
+	case !caps.SetSwap:
+	case caps.SwapMax == 0:
+		errs = append(errs, setCgroupValue(dir, "memory.swap.max", "0", write))
+	default:
+		limit := max(caps.SwapMax, 0) // setCgroupLimit's 0 is "max"
 		errs = append(errs, setCgroupLimit(dir, "memory.swap.max", limit, write))
 	}
 	if caps.CPUWeight > 0 {

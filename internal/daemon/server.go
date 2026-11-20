@@ -454,6 +454,9 @@ type Server struct {
 	// shared is the agents' and lead chats' shared memory ceilings
 	// (sharedmemory.go).
 	shared *sharedCgroups
+	// oomScorer raises agents' processes' OOM score (vmprotect.go); nil in
+	// tests.
+	oomScorer *agent.OOMScorer
 	// wakes makes one start of each stopped machine for a message at a time
 	// (wake.go, wakeLock).
 	wakes keyedMutex
@@ -554,6 +557,7 @@ func New(cfg Config) (*Server, error) {
 		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
 		shared:           newSharedCgroups(),
+		oomScorer:        agent.NewOOMScorer(),
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},
@@ -722,7 +726,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.runUsage(ctx) })
 	loops.Go(func() { s.runTrim(ctx) })
 	loops.Go(func() {
-		s.giveZram()
+		s.protectVM()
 		s.runPressure(ctx)
 	})
 	loops.Go(func() { s.watchUpdates(ctx) })

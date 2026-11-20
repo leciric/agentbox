@@ -131,7 +131,9 @@ Agents share the VM's memory, and every agent starts at once. Each agent's machi
 the VM's memory cap (Settings → Storage and machine → **Memory for one agent**, 10% to 90%): a
 process that outgrows that is stopped at once inside that machine, and its agent is told what was
 stopped and to run fewer test workers at once, while the daemon, Incus and the other agents keep
-the rest. All the agents together may use the VM's memory up to its cap less 3 GiB, which stays for
+the rest. The VM has no swap: when the agents together need more memory than it has, the
+kernel stops one of their processes, never the daemon, Incus or a project's chat, whose memory is
+kept for them, and that agent's chat says what was stopped and why. All the agents together may use the VM's memory up to its cap less 3 GiB, which stays for
 AgentBox, Incus and the project chats; past that they slow down, and 2 GiB short of the cap a
 process of theirs is stopped the same way. Nothing waits for memory: an agent's machine starts when
 you ask (a few seconds after the one before it, when several start at once), and its tests and
@@ -140,8 +142,7 @@ nearly out of memory (under 2 GiB free, or 6% of its memory when that's more), n
 starts and AgentBox stops agents to give memory back, and they start again as soon as it is over
 that. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ scheduler, and each agent's
 machine gets a quarter of their weight, so a build writing as fast as it can doesn't keep Incus from
-answering. The VM gets compressed swap in memory (zram, a quarter of its cap) as AgentBox starts,
-used before any swapfile from `agentbox vm swap on`. Tests and builds that start while memory is
+answering. Tests and builds that start while memory is
 short run half as many parallel jobs (Go, make, cargo, vitest, turbo, nx, pnpm workspaces), back to
 the usual count two minutes after it eases; any other command can join in as `agentbox heavy --
 <command>`. To give every agent more, raise the VM's cap (`agentbox vm resize --memory-cap`).

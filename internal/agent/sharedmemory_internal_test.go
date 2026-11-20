@@ -138,6 +138,27 @@ func TestSetGroupWritesTheParentsLimits(t *testing.T) {
 	}
 }
 
+// The lead chats' parent is protected, and never swaps.
+func TestSetGroupProtectsTheLeads(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), LeadsCgroup)
+	fakeCgroupDir(t, dir, map[string]string{
+		"cgroup.controllers": "memory pids\n", "cgroup.subtree_control": "memory pids\n",
+		"memory.high": "max\n", "memory.max": "max\n", "memory.low": "0\n", "memory.swap.max": "max\n",
+	})
+	var writes []string
+	if err := setGroup(dir, LeadsLimits(16*gib), []string{"memory", "pids"}, recordWrites(&writes)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"memory.max=" + strconv.FormatInt(4*gib, 10), "memory.low=" + strconv.FormatInt(LeadsLow, 10), "memory.swap.max=0"}
+	if !slices.Equal(writes, want) {
+		t.Errorf("writes = %q\nwant %q", writes, want)
+	}
+	// A small VM's leads keep half their limit at most.
+	if l := LeadsLimits(1 * gib); l.Low != l.Max/2 || !l.NoSwap {
+		t.Errorf("LeadsLimits(1 GiB) = %+v", l)
+	}
+}
+
 // raw.lxc places a machine in the agents' parent, replacing an earlier
 // release's placement and keeping everything else; with the parent off, the
 // placement comes off.
