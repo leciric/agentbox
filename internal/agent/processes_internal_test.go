@@ -266,9 +266,19 @@ func TestKillMachineProcessKillsTheTreeAndForcesWhatStays(t *testing.T) {
 	t.Parallel()
 	root, proc := busyMachine(t)
 	signal, sent := killRecorder(proc, 1779)
-	k, err := killMachineProcess(context.Background(), root, proc, "m", 777, 50*time.Millisecond, signal)
+	half := func(_ string, pids []int) map[int]int64 {
+		out := map[int]int64{}
+		for _, pid := range pids {
+			out[pid] = 10 << 20
+		}
+		return out
+	}
+	k, err := killMachineProcess(context.Background(), root, proc, "m", 777, 50*time.Millisecond, signal, half)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if mem, _, _ := k.Tree.Memory(); mem != 30<<20 {
+		t.Errorf("the killed tree held %d, want its proportional memory, as the list showed it", mem)
 	}
 	want := []string{"1777:15", "1778:15", "1779:15", "1779:9"}
 	if !slices.Equal(*sent, want) {
@@ -287,7 +297,7 @@ func TestKillMachineProcessRefusesTheToolsAndTheMachines(t *testing.T) {
 	root, proc := busyMachine(t)
 	for _, pid := range []int{214, 189, 260, 1, 188, 523, 341, 823, 253} {
 		signal, sent := killRecorder(proc)
-		_, err := killMachineProcess(context.Background(), root, proc, "m", pid, time.Millisecond, signal)
+		_, err := killMachineProcess(context.Background(), root, proc, "m", pid, time.Millisecond, signal, nil)
 		if !errors.Is(err, ErrProtectedProcess) {
 			t.Errorf("killing %d: err = %v, want ErrProtectedProcess", pid, err)
 		}
@@ -296,11 +306,11 @@ func TestKillMachineProcessRefusesTheToolsAndTheMachines(t *testing.T) {
 		}
 	}
 	signal, _ := killRecorder(proc)
-	if _, err := killMachineProcess(context.Background(), root, proc, "m", 4242, time.Millisecond, signal); !errors.Is(err, ErrNoSuchProcess) {
+	if _, err := killMachineProcess(context.Background(), root, proc, "m", 4242, time.Millisecond, signal, nil); !errors.Is(err, ErrNoSuchProcess) {
 		t.Errorf("killing a pid that isn't there: err = %v", err)
 	}
 	// A VM's number isn't the machine's: 1777 is nobody's in the machine.
-	if _, err := killMachineProcess(context.Background(), root, proc, "m", 1777, time.Millisecond, signal); !errors.Is(err, ErrNoSuchProcess) {
+	if _, err := killMachineProcess(context.Background(), root, proc, "m", 1777, time.Millisecond, signal, nil); !errors.Is(err, ErrNoSuchProcess) {
 		t.Errorf("killing by the VM's number: err = %v", err)
 	}
 }
@@ -321,7 +331,7 @@ func TestKillMachineProcessDoesntKillALaterProcessWithTheSameNumber(t *testing.T
 		}
 		return nil
 	}
-	k, err := killMachineProcess(context.Background(), root, proc, "m", 777, 50*time.Millisecond, signal)
+	k, err := killMachineProcess(context.Background(), root, proc, "m", 777, 50*time.Millisecond, signal, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

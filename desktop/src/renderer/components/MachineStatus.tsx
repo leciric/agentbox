@@ -16,7 +16,7 @@ import { cn, humanBytes } from '../lib/utils';
 import { FreeButton, useFreeResources, HostFootprint, HostLimit, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
 import { RunningDialogHost } from './RunningProcesses';
 import { Notice } from './ui/card';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
 // MachineStatus is the top bar's machine: AgentBox's VM, or this computer in
@@ -54,18 +54,21 @@ export function MachineStatus({ agents, project, onSelect }: { agents: T.Agent[]
 function RunningButton({ project }: { project?: string }) {
   const t = useT();
   // No tooltip: the popover focuses its first control as it opens, and a
-  // tooltip on focus would cover the rows under it every time.
+  // tooltip on focus would cover the rows under it every time. The popover
+  // closes as the dialog opens, rather than staying behind it.
   return (
-    <button
-      type="button"
-      className="flex items-center gap-1.5 justify-self-start rounded-md text-caption font-medium text-brand-400 transition hover:underline"
-      onClick={() => openRunning(project)}
-      title={t('running.openTip')}
-      data-open-running
-    >
-      <ListTree className="size-3.5" />
-      {t('running.open')}
-    </button>
+    <PopoverClose asChild>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 justify-self-start rounded-md text-caption font-medium text-brand-400 transition hover:underline"
+        onClick={() => openRunning(project)}
+        title={t('running.openTip')}
+        data-open-running
+      >
+        <ListTree className="size-3.5" />
+        {t('running.open')}
+      </button>
+    </PopoverClose>
   );
 }
 

@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
 export const PopoverAnchor = PopoverPrimitive.Anchor;
+export const PopoverClose = PopoverPrimitive.Close;
 
 export function PopoverContent({ className, align = 'end', ...props }: ComponentProps<typeof PopoverPrimitive.Content>) {
   return (

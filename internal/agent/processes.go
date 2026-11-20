@@ -797,13 +797,13 @@ type Killed struct {
 // is left after grace. A process of the machine's own or its AI tool's is
 // refused with ErrProtectedProcess, as is one under them only by way of it.
 func KillMachineProcess(ctx context.Context, instance string, machinePID int, grace time.Duration) (Killed, error) {
-	return killMachineProcess(ctx, cgroupRoot, "/proc", instance, machinePID, grace, signalProcesses)
+	return killMachineProcess(ctx, cgroupRoot, "/proc", instance, machinePID, grace, signalProcesses, readPSS)
 }
 
 // signaler sends sig to processes, by number in the VM.
 type signaler func(pids []int, sig syscall.Signal) error
 
-func killMachineProcess(ctx context.Context, root, proc, instance string, machinePID int, grace time.Duration, signal signaler) (Killed, error) {
+func killMachineProcess(ctx context.Context, root, proc, instance string, machinePID int, grace time.Duration, signal signaler, pss pssReader) (Killed, error) {
 	procs, err := machineProcesses(root, proc, instance)
 	if err != nil {
 		return Killed{}, err
@@ -831,6 +831,10 @@ func killMachineProcess(ctx context.Context, root, proc, instance string, machin
 		if t.Root().PID == target.PID {
 			tree.Label = t.Label // a container's, say
 		}
+	}
+	if pss != nil {
+		// What it held, measured as the list measured it.
+		setPSS(proc, pss, []ProcessTree{tree})
 	}
 	out := Killed{Tree: tree}
 	pids := make([]int, len(tree.Processes))
