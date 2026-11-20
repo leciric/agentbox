@@ -545,7 +545,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 	limit := agent.MemoryLimit(total, share)
 	caps := agent.AgentCaps(limit, s.vmSwap(), share)
 	// The run slots first: who holds one decides each machine's memory.high.
-	s.stepRunSlots(ctx, agents, total, time.Now())
+	s.stepRunSlots(ctx, agents, time.Now())
 	for _, a := range agents {
 		if a.IsLead() || a.Instance == "" {
 			continue

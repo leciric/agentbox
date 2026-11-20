@@ -139,7 +139,7 @@ func (rt *runSlotsTest) step(t *testing.T, now time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt.srv.stepRunSlots(context.Background(), agents, rt.vm, now)
+	rt.srv.stepRunSlots(context.Background(), agents, now)
 }
 
 // call makes a request on agent i's own socket.

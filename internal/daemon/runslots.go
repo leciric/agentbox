@@ -24,8 +24,8 @@ import (
 //
 //   - Counting: every 2 seconds, with the agents' memory limits (watchMemory),
 //     the pool is what the agents together may use before the kernel
-//     throttles them (agent.AgentsLimits' memory.high: the VM less what the
-//     daemon, Incus and the lead chats keep), what agents holding no slot use
+//     throttles them (agent.AgentsLimits' memory.high of the VM's memory
+//     now: the VM less what the daemon, Incus and the lead chats keep), what agents holding no slot use
 //     now comes off it (memory.current less page cache, agent.MachineUse),
 //     and each slot held reserves its project's learned run peak, or what
 //     its machine uses if that is more. A run is granted when its project's
@@ -167,8 +167,8 @@ func (s *Server) loadRunPeaks(ctx context.Context) {
 // stepRunSlots measures what runs have and steps the slots: leases nobody
 // renewed expire and what their run phases started is stopped, places nobody
 // asks for go, and the front of the queue gets what fits. agents is every
-// agent, total the VM's memory.
-func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, total int64, now time.Time) {
+// agent.
+func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, now time.Time) {
 	ops := s.runPhase
 	use := map[string]int64{}
 	byRef := map[string]state.Agent{}
