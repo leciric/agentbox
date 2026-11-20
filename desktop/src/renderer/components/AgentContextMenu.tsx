@@ -155,7 +155,7 @@ export function AgentContextMenu({
             {t('agent.menu.openDesktop')}
           </ContextMenuItem>
           {editor && (
-            <ContextMenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent.worktree)}>
+            <ContextMenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent)}>
               {t('agent.view.openInEditor', { editor: editor.name })}
             </ContextMenuItem>
           )}

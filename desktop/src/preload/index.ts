@@ -403,11 +403,12 @@ const bridge = {
   saveShare: (path: string, name: string): Promise<string> => ipcRenderer.invoke('share:save', path, name),
   showShare: (file: string): Promise<void> => ipcRenderer.invoke('share:show', file),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
-  // The code editors on this computer (main/editors.ts), and opening a folder
-  // (an agent's worktree) in one by its ID, or the first found when it's gone.
+  // The code editors on this computer (main/editors.ts), and opening an
+  // agent's worktree (its path in the agent's machine, whose Incus instance
+  // is instance) in one over SSH, by its ID, or the first found when it's gone.
   editors: {
     list: (): Promise<Editor[]> => ipcRenderer.invoke('editors:list'),
-    open: (id: string, path: string): Promise<EditorOpened> => ipcRenderer.invoke('editors:open', id, path),
+    open: (id: string, instance: string, worktree: string): Promise<EditorOpened> => ipcRenderer.invoke('editors:open', id, instance, worktree),
   },
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   // An OS notification, shown only while the window isn't in front (main/notify.ts);

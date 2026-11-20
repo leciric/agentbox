@@ -1,22 +1,35 @@
-//! The code editors on this computer that can open an agent's worktree: the
-//! agent's "Open in …" (its header, its ⋯ and its row's menu) and Settings →
-//! Code editor, as the Electron app finds them (desktop/src/main/editors.ts).
-//! The worktree is on this computer at the path the daemon gives (a Mac's
-//! and Linux's are shared with the VM at the same path; Windows reads WSL's
-//! through \\wsl.localhost), so the editor runs here, on the agent's files.
+//! The code editors on this computer that can open an agent's worktree inside
+//! its machine, over SSH: the agent's "Open in …" (its header, its ⋯ and its
+//! row's menu) and Settings → Code editor, as the Electron app finds them
+//! (desktop/src/main/editors.ts). The worktree isn't on this computer: it's
+//! on the VM's disk, in the agent's machine. `agentbox ssh-config` lets ssh
+//! reach that machine as <instance>.agentbox (internal/sshconfig), so an
+//! editor that works over SSH opens it there: VS Code and the editors made
+//! from it through their Remote-SSH URL, and Zed with ssh://. Editors with
+//! no cheap way in over SSH (Sublime Text; JetBrains' IDEs, which need
+//! Gateway) aren't offered, and Windows has none yet: its ssh config and
+//! ProxyCommand would be Windows' (internal/hostwsl).
 //!
 //! An editor is found by its command on PATH, in the folders installers put
 //! one that a desktop session's PATH may lack, as a Flatpak (exported by its
 //! app ID), or on a Mac as an app in Applications, which an app started from
-//! the Dock needs: its PATH is /usr/bin:/bin:/usr/sbin:/sbin. Each is given
-//! the folder as its one argument.
-use std::path::{Path, PathBuf};
+//! the Dock needs: its PATH is /usr/bin:/bin:/usr/sbin:/sbin.
+use std::path::Path;
+
+/// Remote is how an editor opens a folder over SSH: its URL scheme's
+/// vscode-remote URL, or Zed's ssh:// argument to its command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Remote {
+    Scheme(&'static str),
+    Zed,
+}
 
 /// Kind is an editor the app knows how to find.
 struct Kind {
     id: &'static str,
     name: &'static str,
-    /// On PATH (on Windows, with PATHEXT's extensions).
+    remote: Remote,
+    /// On PATH.
     commands: &'static [&'static str],
     /// Linux: Flatpak app IDs.
     flatpaks: &'static [&'static str],
@@ -29,6 +42,7 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "vscode",
         name: "VS Code",
+        remote: Remote::Scheme("vscode"),
         commands: &["code"],
         flatpaks: &["com.visualstudio.code"],
         apps: &["Visual Studio Code"],
@@ -36,6 +50,7 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "cursor",
         name: "Cursor",
+        remote: Remote::Scheme("cursor"),
         commands: &["cursor"],
         flatpaks: &[],
         apps: &["Cursor"],
@@ -43,6 +58,7 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "windsurf",
         name: "Windsurf",
+        remote: Remote::Scheme("windsurf"),
         commands: &["windsurf"],
         flatpaks: &[],
         apps: &["Windsurf"],
@@ -50,6 +66,7 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "zed",
         name: "Zed",
+        remote: Remote::Zed,
         commands: &["zed", "zeditor", "zedit"],
         flatpaks: &["dev.zed.Zed"],
         apps: &["Zed"],
@@ -57,6 +74,7 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "vscodium",
         name: "VSCodium",
+        remote: Remote::Scheme("vscodium"),
         commands: &["codium"],
         flatpaks: &["com.vscodium.codium"],
         apps: &["VSCodium"],
@@ -64,66 +82,10 @@ const KINDS: &[Kind] = &[
     Kind {
         id: "vscode-insiders",
         name: "VS Code Insiders",
+        remote: Remote::Scheme("vscode-insiders"),
         commands: &["code-insiders"],
         flatpaks: &[],
         apps: &["Visual Studio Code - Insiders"],
-    },
-    Kind {
-        id: "sublime",
-        name: "Sublime Text",
-        commands: &["subl"],
-        flatpaks: &["com.sublimetext.three"],
-        apps: &["Sublime Text"],
-    },
-    Kind {
-        id: "idea",
-        name: "IntelliJ IDEA",
-        commands: &["idea", "intellij-idea-ultimate", "intellij-idea-community"],
-        flatpaks: &[
-            "com.jetbrains.IntelliJ-IDEA-Ultimate",
-            "com.jetbrains.IntelliJ-IDEA-Community",
-        ],
-        apps: &[
-            "IntelliJ IDEA",
-            "IntelliJ IDEA Ultimate",
-            "IntelliJ IDEA CE",
-        ],
-    },
-    Kind {
-        id: "goland",
-        name: "GoLand",
-        commands: &["goland"],
-        flatpaks: &["com.jetbrains.GoLand"],
-        apps: &["GoLand"],
-    },
-    Kind {
-        id: "webstorm",
-        name: "WebStorm",
-        commands: &["webstorm"],
-        flatpaks: &["com.jetbrains.WebStorm"],
-        apps: &["WebStorm"],
-    },
-    Kind {
-        id: "pycharm",
-        name: "PyCharm",
-        commands: &["pycharm", "pycharm-professional", "pycharm-community"],
-        flatpaks: &[
-            "com.jetbrains.PyCharm-Professional",
-            "com.jetbrains.PyCharm-Community",
-        ],
-        apps: &[
-            "PyCharm",
-            "PyCharm Professional Edition",
-            "PyCharm CE",
-            "PyCharm Community Edition",
-        ],
-    },
-    Kind {
-        id: "rustrover",
-        name: "RustRover",
-        commands: &["rustrover"],
-        flatpaks: &[],
-        apps: &["RustRover"],
     },
 ];
 
@@ -140,53 +102,37 @@ pub struct Host<'a> {
     pub home: String,
     /// $PATH.
     pub path: String,
-    /// Windows' $PATHEXT.
-    pub pathext: String,
     /// Whether an executable file, or a Mac app's folder, is there.
     pub exists: &'a dyn Fn(&str) -> bool,
 }
 
-/// Editor is one found, and the command that opens a folder in it: the
-/// folder goes after args.
+/// Editor is one found: how it opens a folder over SSH, and its command
+/// (Zed's, which is given the ssh:// argument; on a Mac the one in its app).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Editor {
     pub id: &'static str,
     pub name: &'static str,
+    pub remote: Remote,
     pub command: String,
-    pub args: Vec<String>,
-}
-
-fn join(os: Os, dir: &str, name: &str) -> String {
-    let sep = if os == Os::Windows { '\\' } else { '/' };
-    format!("{}{sep}{name}", dir.trim_end_matches(sep))
 }
 
 /// search_dirs are the folders a command is looked for in: PATH's, then
 /// those installers use that a session's PATH may lack.
 fn search_dirs(host: &Host) -> Vec<String> {
-    let sep = if host.os == Os::Windows { ';' } else { ':' };
     let mut dirs: Vec<String> = host
         .path
-        .split(sep)
+        .split(':')
         .filter(|d| !d.is_empty())
         .map(String::from)
         .collect();
-    if host.os != Os::Windows {
-        let home = &host.home;
-        dirs.extend([
-            format!("{home}/.local/bin"),
-            "/usr/local/bin".into(),
-            "/usr/bin".into(),
-            "/snap/bin".into(),
-        ]);
-        if host.os == Os::Mac {
-            dirs.extend([
-                "/opt/homebrew/bin".into(),
-                format!("{home}/Library/Application Support/JetBrains/Toolbox/scripts"),
-            ]);
-        } else {
-            dirs.push(format!("{home}/.local/share/JetBrains/Toolbox/scripts"));
-        }
+    dirs.extend([
+        format!("{}/.local/bin", host.home),
+        "/usr/local/bin".into(),
+        "/usr/bin".into(),
+        "/snap/bin".into(),
+    ]);
+    if host.os == Os::Mac {
+        dirs.push("/opt/homebrew/bin".into());
     }
     let mut seen = std::collections::HashSet::new();
     dirs.retain(|d| seen.insert(d.clone()));
@@ -195,52 +141,39 @@ fn search_dirs(host: &Host) -> Vec<String> {
 
 /// find lists the editors on host, each once, in KINDS' order.
 pub fn find(host: &Host) -> Vec<Editor> {
+    if host.os == Os::Windows {
+        return Vec::new();
+    }
     let dirs = search_dirs(host);
-    let exts: Vec<String> = if host.os == Os::Windows {
-        let pathext = if host.pathext.is_empty() {
-            ".COM;.EXE;.BAT;.CMD"
-        } else {
-            &host.pathext
-        };
-        pathext
-            .split(';')
-            .filter(|e| !e.is_empty())
-            .map(str::to_lowercase)
-            .collect()
-    } else {
-        vec![String::new()]
-    };
     let on_path = |name: &str| {
-        dirs.iter().find_map(|dir| {
-            exts.iter()
-                .map(|ext| join(host.os, dir, &format!("{name}{ext}")))
-                .find(|p| (host.exists)(p))
-        })
+        dirs.iter()
+            .map(|dir| format!("{}/{name}", dir.trim_end_matches('/')))
+            .find(|p| (host.exists)(p))
     };
     let mut found = Vec::new();
     for kind in KINDS {
-        let mut open: Option<(String, Vec<String>)> = None;
+        let mut command: Option<String> = None;
         if host.os == Os::Mac {
-            // The app first: it's there whether or not its command was installed.
-            open = kind.apps.iter().find_map(|app| {
+            // The app first: it's there whether or not its command was
+            // installed. Its URL is the app's; Zed's command is in it.
+            command = kind.apps.iter().find_map(|app| {
                 [
                     format!("/Applications/{app}.app"),
                     format!("{}/Applications/{app}.app", host.home),
                 ]
                 .into_iter()
                 .find(|p| (host.exists)(p))
-                .map(|at| ("open".to_string(), vec!["-a".to_string(), at]))
+                .map(|at| match kind.remote {
+                    Remote::Zed => format!("{at}/Contents/MacOS/cli"),
+                    Remote::Scheme(_) => at,
+                })
             });
         }
-        if open.is_none() {
-            open = kind
-                .commands
-                .iter()
-                .find_map(|c| on_path(c))
-                .map(|p| (p, Vec::new()));
+        if command.is_none() {
+            command = kind.commands.iter().find_map(|c| on_path(c));
         }
-        if open.is_none() && host.os == Os::Linux {
-            open = kind.flatpaks.iter().find_map(|id| {
+        if command.is_none() && host.os == Os::Linux {
+            command = kind.flatpaks.iter().find_map(|id| {
                 [
                     "/var/lib/flatpak/exports/bin".to_string(),
                     format!("{}/.local/share/flatpak/exports/bin", host.home),
@@ -248,15 +181,14 @@ pub fn find(host: &Host) -> Vec<Editor> {
                 .into_iter()
                 .map(|dir| format!("{dir}/{id}"))
                 .find(|p| (host.exists)(p))
-                .map(|p| (p, Vec::new()))
             });
         }
-        if let Some((command, args)) = open {
+        if let Some(command) = command {
             found.push(Editor {
                 id: kind.id,
                 name: kind.name,
+                remote: kind.remote,
                 command,
-                args,
             });
         }
     }
@@ -297,16 +229,10 @@ pub fn on_this_computer() -> Vec<Editor> {
         Os::Linux
     };
     let var = |k: &str| std::env::var(k).unwrap_or_default();
-    let home = if os == Os::Windows {
-        var("USERPROFILE")
-    } else {
-        var("HOME")
-    };
     find(&Host {
         os,
-        home,
+        home: var("HOME"),
         path: var("PATH"),
-        pathext: var("PATHEXT"),
         exists: &exists,
     })
 }
@@ -337,27 +263,50 @@ pub fn chosen() -> Option<Editor> {
     pick(&found, &crate::prefs::editor()).cloned()
 }
 
-/// host_path is where this computer sees a path the daemon gives: the same
-/// path, except on Windows, where the daemon's are the WSL distro's
-/// (desktop/src/main/wslpaths.ts).
-pub fn host_path(path: &str) -> PathBuf {
-    if !cfg!(windows) {
-        return PathBuf::from(path);
-    }
-    let distro = std::env::var("AGENTBOX_WSL_DISTRO").unwrap_or_else(|_| "AgentBox".into());
-    PathBuf::from(windows_path(path, &distro))
+/// SshSetup is what `agentbox ssh-config --json` answers: the user ssh logs
+/// in as, and what makes an instance's name its host name.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SshSetup {
+    pub user: String,
+    pub host_suffix: String,
 }
 
-fn windows_path(path: &str, distro: &str) -> String {
-    if let Some(rest) = path.strip_prefix("/mnt/") {
-        let mut parts = rest.splitn(2, '/');
-        let drive = parts.next().unwrap_or("");
-        if drive.len() == 1 && drive.chars().all(|c| c.is_ascii_lowercase()) {
-            let rest = parts.next().unwrap_or("");
-            return format!("{}:\\{}", drive.to_uppercase(), rest.replace('/', "\\"));
+/// Target is how an editor opens an agent's worktree: a URL for the system
+/// to open, or Zed's command with its ssh:// argument.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Target {
+    Url(String),
+    Command(String, Vec<String>),
+}
+
+/// url_path is a path in a URL: each part percent-encoded, as JavaScript's
+/// encodeURIComponent does (the Electron app's), its slashes kept.
+fn url_path(path: &str) -> String {
+    let mut out = String::new();
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-_.!~*'()".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
         }
     }
-    format!("\\\\wsl.localhost\\{distro}{}", path.replace('/', "\\"))
+    out
+}
+
+/// remote_target is where editor opens the worktree of the agent whose
+/// machine is instance: the path in the machine, on the host ssh knows it by.
+pub fn remote_target(editor: &Editor, setup: &SshSetup, instance: &str, worktree: &str) -> Target {
+    let host = format!("{instance}{}", setup.host_suffix);
+    let path = url_path(worktree);
+    match editor.remote {
+        Remote::Zed => Target::Command(
+            editor.command.clone(),
+            vec![format!("ssh://{}@{host}{path}", url_path(&setup.user))],
+        ),
+        Remote::Scheme(scheme) => {
+            Target::Url(format!("{scheme}://vscode-remote/ssh-remote+{host}{path}"))
+        }
+    }
 }
 
 /// Failed is why a worktree didn't open.
@@ -365,31 +314,67 @@ fn windows_path(path: &str, distro: &str) -> String {
 pub enum Failed {
     /// No editor is found here.
     None,
-    /// The worktree isn't a folder on this computer.
-    Folder,
+    /// `agentbox ssh-config` didn't run, or said why it couldn't.
+    Ssh(String),
     /// The editor's command didn't start.
     Start(&'static str, std::io::Error),
 }
 
-/// open opens a worktree (the daemon's path) in the editor chosen, and
-/// answers its name.
-pub fn open(worktree: &str) -> Result<&'static str, Failed> {
-    let editor = chosen().ok_or(Failed::None)?;
-    let folder = host_path(worktree);
-    if !folder.is_dir() {
-        return Err(Failed::Folder);
+/// ssh_setup runs `agentbox ssh-config --json` (cli is the agentbox
+/// command), which makes sure ssh can reach agents' machines (the key,
+/// AgentBox's config and its Include line) and says how.
+pub fn ssh_setup(cli: Option<&Path>) -> Result<SshSetup, String> {
+    let cli = cli.ok_or("the agentbox command isn't installed")?;
+    let out = std::process::Command::new(cli)
+        .args(["ssh-config", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("{}: {e}", cli.display()))?;
+    if !out.status.success() {
+        let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if why.is_empty() {
+            format!("agentbox ssh-config: {}", out.status)
+        } else {
+            why
+        });
     }
-    launch(&editor, &folder).map_err(|e| Failed::Start(editor.name, e))?;
-    Ok(editor.name)
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("agentbox ssh-config's answer: {e}"))?;
+    let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let setup = SshSetup {
+        user: field("user"),
+        host_suffix: field("hostSuffix"),
+    };
+    if setup.user.is_empty() || setup.host_suffix.is_empty() {
+        return Err(format!(
+            "agentbox ssh-config said {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        ));
+    }
+    Ok(setup)
 }
 
-/// launch starts the editor on its own, apart from this app, and reaps it
-/// when it exits (an editor's command usually hands the folder to the
-/// editor already running and exits at once).
-fn launch(editor: &Editor, folder: &Path) -> std::io::Result<()> {
-    let mut cmd = std::process::Command::new(&editor.command);
-    cmd.args(&editor.args)
-        .arg(folder)
+/// target is how the editor chosen opens an agent's worktree (its path in
+/// the machine whose instance this is), with ssh set up for it, and the
+/// editor's name.
+pub fn target(
+    cli: Option<&Path>,
+    instance: &str,
+    worktree: &str,
+) -> Result<(&'static str, Target), Failed> {
+    let editor = chosen().ok_or(Failed::None)?;
+    let setup = ssh_setup(cli).map_err(Failed::Ssh)?;
+    Ok((
+        editor.name,
+        remote_target(&editor, &setup, instance, worktree),
+    ))
+}
+
+/// launch starts a command on its own, apart from this app, and reaps it
+/// when it exits.
+pub fn launch(name: &'static str, command: &str, args: &[String]) -> Result<(), Failed> {
+    let mut cmd = std::process::Command::new(command);
+    cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -398,14 +383,7 @@ fn launch(editor: &Editor, folder: &Path) -> std::io::Result<()> {
         use std::os::unix::process::CommandExt as _;
         cmd.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
-    let mut child = cmd.spawn()?;
+    let mut child = cmd.spawn().map_err(|e| Failed::Start(name, e))?;
     std::thread::spawn(move || child.wait());
     Ok(())
 }
@@ -418,32 +396,17 @@ mod tests {
         Host {
             os,
             home: match os {
-                Os::Linux => "/home/ana",
                 Os::Mac => "/Users/ana",
-                Os::Windows => "C:\\Users\\ana",
+                _ => "/home/ana",
             }
             .into(),
             path: path.into(),
-            pathext: if os == Os::Windows {
-                ".COM;.EXE;.BAT;.CMD".into()
-            } else {
-                String::new()
-            },
             exists: files,
         }
     }
 
-    fn ids(found: &[Editor]) -> Vec<(&str, &str, Vec<&str>)> {
-        found
-            .iter()
-            .map(|e| {
-                (
-                    e.id,
-                    e.command.as_str(),
-                    e.args.iter().map(String::as_str).collect(),
-                )
-            })
-            .collect()
+    fn ids(found: &[Editor]) -> Vec<(&str, &str)> {
+        found.iter().map(|e| (e.id, e.command.as_str())).collect()
     }
 
     #[test]
@@ -453,10 +416,7 @@ mod tests {
         let found = find(&host(Os::Linux, "/usr/bin:/bin", &files));
         assert_eq!(
             ids(&found),
-            vec![
-                ("vscode", "/usr/bin/code", vec![]),
-                ("cursor", "/usr/bin/cursor", vec![])
-            ]
+            vec![("vscode", "/usr/bin/code"), ("cursor", "/usr/bin/cursor")]
         );
     }
 
@@ -466,7 +426,6 @@ mod tests {
             [
                 "/home/ana/.local/bin/zed",
                 "/var/lib/flatpak/exports/bin/com.visualstudio.code",
-                "/home/ana/.local/share/JetBrains/Toolbox/scripts/goland",
             ]
             .contains(&p)
         };
@@ -476,26 +435,25 @@ mod tests {
             vec![
                 (
                     "vscode",
-                    "/var/lib/flatpak/exports/bin/com.visualstudio.code",
-                    vec![]
+                    "/var/lib/flatpak/exports/bin/com.visualstudio.code"
                 ),
-                ("zed", "/home/ana/.local/bin/zed", vec![]),
-                (
-                    "goland",
-                    "/home/ana/.local/share/JetBrains/Toolbox/scripts/goland",
-                    vec![]
-                ),
+                ("zed", "/home/ana/.local/bin/zed"),
             ]
         );
     }
 
     #[test]
-    fn mac_opens_an_app_with_open_a_whatever_path_has() {
+    fn editors_with_no_cheap_way_in_over_ssh_are_not_offered() {
+        let files = |p: &str| ["/usr/bin/subl", "/usr/bin/idea", "/usr/bin/goland"].contains(&p);
+        assert!(find(&host(Os::Linux, "/usr/bin", &files)).is_empty());
+    }
+
+    #[test]
+    fn mac_finds_apps_whatever_path_has_and_zeds_command_inside_it() {
         let files = |p: &str| {
             [
                 "/Applications/Visual Studio Code.app",
                 "/Users/ana/Applications/Zed.app",
-                "/opt/homebrew/bin/subl",
             ]
             .contains(&p)
         };
@@ -503,30 +461,20 @@ mod tests {
         assert_eq!(
             ids(&found),
             vec![
-                (
-                    "vscode",
-                    "open",
-                    vec!["-a", "/Applications/Visual Studio Code.app"]
-                ),
-                ("zed", "open", vec!["-a", "/Users/ana/Applications/Zed.app"]),
-                ("sublime", "/opt/homebrew/bin/subl", vec![]),
+                ("vscode", "/Applications/Visual Studio Code.app"),
+                ("zed", "/Users/ana/Applications/Zed.app/Contents/MacOS/cli"),
             ]
         );
     }
 
     #[test]
-    fn windows_finds_a_command_with_pathext() {
-        let dir = "C:\\Users\\ana\\AppData\\Local\\Programs\\Microsoft VS Code\\bin";
-        let code = format!("{dir}\\code.cmd");
-        let files = |p: &str| p == code;
-        let found = find(&host(Os::Windows, &format!("C:\\Windows;{dir}"), &files));
-        assert_eq!(ids(&found), vec![("vscode", code.as_str(), vec![])]);
+    fn windows_has_none_yet() {
+        let any = |_: &str| true;
+        assert!(find(&host(Os::Windows, "C:\\bin", &any)).is_empty());
     }
 
     #[test]
     fn the_one_picked_while_installed_else_the_first() {
-        let none = |_: &str| false;
-        assert!(find(&host(Os::Linux, "/usr/bin", &none)).is_empty());
         assert_eq!(pick(&[], "vscode"), None);
         let files = |p: &str| ["/usr/bin/code", "/usr/bin/zed"].contains(&p);
         let found = find(&host(Os::Linux, "/usr/bin", &files));
@@ -536,17 +484,61 @@ mod tests {
     }
 
     #[test]
-    fn windows_paths_are_the_distros() {
+    fn the_worktree_opens_inside_the_agents_machine() {
+        let files = |p: &str| {
+            [
+                "/usr/bin/code",
+                "/usr/bin/cursor",
+                "/usr/bin/zed",
+                "/usr/bin/codium",
+            ]
+            .contains(&p)
+        };
+        let found = find(&host(Os::Linux, "/usr/bin", &files));
+        let setup = SshSetup {
+            user: "ana".into(),
+            host_suffix: ".agentbox".into(),
+        };
+        let wt = "/home/ana/.local/share/agentbox/worktrees/pawly/agent-01";
+        let at = |id: &str| {
+            remote_target(
+                found.iter().find(|e| e.id == id).unwrap(),
+                &setup,
+                "ab-pawly-agent-01",
+                wt,
+            )
+        };
         assert_eq!(
-            windows_path(
-                "/home/ana/.local/share/agentbox/worktrees/p/agent-01",
-                "AgentBox"
-            ),
-            "\\\\wsl.localhost\\AgentBox\\home\\ana\\.local\\share\\agentbox\\worktrees\\p\\agent-01"
+            at("vscode"),
+            Target::Url(format!(
+                "vscode://vscode-remote/ssh-remote+ab-pawly-agent-01.agentbox{wt}"
+            ))
         );
         assert_eq!(
-            windows_path("/mnt/c/Users/ana/p", "AgentBox"),
-            "C:\\Users\\ana\\p"
+            at("cursor"),
+            Target::Url(format!(
+                "cursor://vscode-remote/ssh-remote+ab-pawly-agent-01.agentbox{wt}"
+            ))
+        );
+        assert_eq!(
+            at("vscodium"),
+            Target::Url(format!(
+                "vscodium://vscode-remote/ssh-remote+ab-pawly-agent-01.agentbox{wt}"
+            ))
+        );
+        assert_eq!(
+            at("zed"),
+            Target::Command(
+                "/usr/bin/zed".into(),
+                vec![format!("ssh://ana@ab-pawly-agent-01.agentbox{wt}")]
+            )
+        );
+        // A path with a space stays one path, as the Electron app encodes it.
+        assert_eq!(
+            remote_target(&found[0], &setup, "ab-p-a", "/home/ana/my work/a"),
+            Target::Url(
+                "vscode://vscode-remote/ssh-remote+ab-p-a.agentbox/home/ana/my%20work/a".into()
+            )
         );
     }
 }

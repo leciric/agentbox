@@ -26,6 +26,13 @@ func Main(args []string, version string) int {
 	if len(args) > 0 && args[0] == "home-host" {
 		return homehost.Main(args[1:], version)
 	}
+	// Editors' SSH connections to agents' machines (agentbox ssh-config) are a
+	// Mac's and Linux's so far: here the ssh config would have to be Windows',
+	// its ProxyCommand agentbox.exe, and the user the distro's.
+	if len(args) > 0 && args[0] == "ssh-config" {
+		fmt.Fprintln(os.Stderr, "error: opening agents in an editor over SSH isn't on Windows yet")
+		return 1
+	}
 	if len(args) == 0 || (args[0] != "wsl" && args[0] != "relay" && !vmCommand(args)) {
 		d, err := New()
 		if err != nil {

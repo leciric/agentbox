@@ -95,7 +95,7 @@ func CheckHost(u User) error {
 // (ToolsVersion) moves them on in place, without a rebuild. Bumping it means
 // saying what changed in Changes, which is what a project base saved before it
 // is shown.
-const Version = "2026.10.20.1"
+const Version = "2026.11.20.1"
 
 // OpenCode2Version is the OpenCode 2 each agent installs on demand, beside
 // OpenCode 1 as `opencode2`, the first time it starts on OpenCode 2. The base

@@ -420,10 +420,13 @@ ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChat
 ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
 ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
-// An agent's worktree in a code editor on this computer (main/editors.ts):
-// only the editors found there, by ID, each given the folder alone.
+// An agent's worktree in a code editor on this computer, inside the agent's
+// machine over SSH (main/editors.ts): only the editors found here, by ID, at
+// a URL or with a command made there from the agent's instance and path.
 ipcMain.handle('editors:list', () => listEditors());
-ipcMain.handle('editors:open', (_event, id: string, path: string) => openInEditor(String(id), hostPath(String(path))));
+ipcMain.handle('editors:open', (_event, id: string, instance: string, worktree: string) =>
+  openInEditor(String(id), String(instance), String(worktree), agentboxBin(), (url) => shell.openExternal(url)),
+);
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);

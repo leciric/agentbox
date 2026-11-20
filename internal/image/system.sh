@@ -63,6 +63,17 @@ apt-get install -y -q --no-install-recommends \
   procps iproute2 iputils-ping less nano python3 python3-venv openssh-client \
   libarchive-tools
 
+# OpenSSH's server, for editors' remote connections (VS Code's Remote-SSH, Zed):
+# agentbox ssh-proxy starts it in inetd mode for each connection, through incus
+# exec (internal/sshconfig). Nothing listens, so its service stays off, and the
+# host keys its package made go: each machine makes its own on its first
+# connection, rather than every machine from this image sharing them.
+step "SSH server, started per connection"
+apt-get install -y -q --no-install-recommends openssh-server
+systemctl stop ssh.service ssh.socket >/dev/null 2>&1 || true
+systemctl mask ssh.service ssh.socket
+rm -f /etc/ssh/ssh_host_*
+
 step "Docker"
 install -m 0755 -d /etc/apt/keyrings
 "${CURL[@]}" https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc

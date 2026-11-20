@@ -1,8 +1,9 @@
-// The code editor an agent's "Open in …" opens its worktree in: the main
-// process finds the editors on this computer (main/editors.ts), and Settings
-// → Editor picks one, kept in localStorage beside the other display settings
-// since it's this computer's. With none picked, or the one picked gone, it's
-// the first found. In the browser there are none: the files aren't there.
+// The code editor an agent's "Open in …" opens its worktree in, inside the
+// agent's machine over SSH: the main process finds the editors on this
+// computer (main/editors.ts), and Settings → Code editor picks one, kept in
+// localStorage beside the other display settings since it's this computer's.
+// With none picked, or the one picked gone, it's the first found. In the
+// browser, and on Windows for now, there are none.
 import { useQuery } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
@@ -59,17 +60,15 @@ export function useEditor(): Editor | undefined {
   return chosenEditor(editors.data, usePickedEditor());
 }
 
-// openInEditor opens an agent's worktree in the editor, saying so if it can't.
-export async function openInEditor(editor: Editor, worktree: string): Promise<void> {
+// openInEditor opens an agent's worktree, inside its machine over SSH, in the
+// editor, saying so if it can't. The agent may be stopped: connecting to its
+// machine starts it (agentbox ssh-proxy).
+export async function openInEditor(editor: Editor, agent: { instance: string; worktree: string }): Promise<void> {
   try {
-    const opened = await window.agentbox.editors.open(editor.id, worktree);
+    const opened = await window.agentbox.editors.open(editor.id, agent.instance, agent.worktree);
     if ('error' in opened) {
       const message =
-        opened.error === 'none'
-          ? t('editor.open.none')
-          : opened.error === 'folder'
-            ? t('editor.open.noFolder', { path: worktree })
-            : t('editor.open.failed', { editor: editor.name });
+        opened.error === 'none' ? t('editor.open.none') : opened.error === 'ssh' ? t('editor.open.ssh') : t('editor.open.failed', { editor: editor.name });
       toast.error(message, opened.detail ? { description: opened.detail } : undefined);
     }
   } catch (err) {

@@ -455,7 +455,6 @@ impl AppView {
 
     fn settings_code(&self, a: &FleetAgent) -> AnyElement {
         let wt = a.worktree.clone();
-        let wt2 = a.worktree.clone();
         v_flex()
             .gap_4()
             .child(
@@ -464,27 +463,16 @@ impl AppView {
                     (t("agent.overview.basedOn"), a.base_ref.clone(), true),
                     (t("agent.overview.worktree"), a.worktree.clone(), true),
                 ])
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(controls::button(
-                            "settings-copy-worktree",
-                            t("agent.overview.copyPath"),
-                            Btn::Secondary,
-                            false,
-                            move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(wt.clone()));
-                                toasts::info(cx, t("agent.view.copiedWorktree"));
-                            },
-                        ))
-                        .child(controls::button(
-                            "settings-open-worktree",
-                            t("agent.overview.openFolder"),
-                            Btn::Secondary,
-                            false,
-                            move |_, _, cx| cx.open_with_system(std::path::Path::new(&wt2)),
-                        )),
-                ),
+                .child(h_flex().gap_2().child(controls::button(
+                    "settings-copy-worktree",
+                    t("agent.overview.copyPath"),
+                    Btn::Secondary,
+                    false,
+                    move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(wt.clone()));
+                        toasts::info(cx, t("agent.view.copiedWorktree"));
+                    },
+                ))),
             )
             .child(
                 v_flex()

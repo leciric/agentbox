@@ -7,7 +7,6 @@ import {
   CodeXml,
   Copy,
   Ellipsis,
-  FolderOpen,
   ChevronDown,
   GitBranch,
   GitPullRequest,
@@ -207,13 +206,10 @@ export function AgentView({
         </MenuItem>
       )}
       {editor && (
-        <MenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent.worktree)} data-agent-menu-editor>
+        <MenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent)} data-agent-menu-editor>
           {t('agent.view.openInEditor', { editor: editor.name })}
         </MenuItem>
       )}
-      <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
-        {t('agent.view.openWorktree')}
-      </MenuItem>
       <MenuItem icon={Settings} onSelect={() => onTab('machine')}>
         {t('agent.tab.settings')}
       </MenuItem>
@@ -300,7 +296,7 @@ export function AgentView({
                 size="icon-sm"
                 variant="ghost"
                 aria-label={t('agent.view.openInEditor', { editor: editor.name })}
-                onClick={() => void openInEditor(editor, agent.worktree)}
+                onClick={() => void openInEditor(editor, agent)}
                 data-agent-open-editor
               >
                 <CodeXml />

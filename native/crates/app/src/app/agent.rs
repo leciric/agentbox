@@ -157,18 +157,30 @@ impl AgentPage {
 }
 
 /// split is a ref's project and name.
-/// open_in_editor opens an agent's worktree in the code editor here
-/// (crate::editors), saying so when it can't.
-fn open_in_editor(worktree: &str, cx: &mut App) {
-    use crate::editors::Failed;
-    let (title, detail) = match crate::editors::open(worktree) {
-        Ok(_) => return,
-        Err(Failed::None) => (t("editor.open.none"), String::new()),
-        Err(Failed::Folder) => (
-            tv("editor.open.noFolder", &[("path", worktree.into())]),
-            String::new(),
-        ),
-        Err(Failed::Start(name, e)) => (
+/// open_in_editor opens an agent's worktree, inside its machine over SSH,
+/// in the code editor here (crate::editors), saying so when it can't. The
+/// agent may be stopped: connecting to its machine starts it (agentbox
+/// ssh-proxy).
+fn open_in_editor(instance: &str, worktree: &str, cx: &mut App) {
+    use crate::editors::{Failed, Target};
+    let cli = super::connection::agentbox_cli();
+    let failed = match crate::editors::target(cli.as_deref(), instance, worktree) {
+        Ok((_, Target::Url(url))) => {
+            cx.open_url(&url);
+            return;
+        }
+        Ok((name, Target::Command(command, args))) => {
+            match crate::editors::launch(name, &command, &args) {
+                Ok(()) => return,
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    };
+    let (title, detail) = match failed {
+        Failed::None => (t("editor.open.none"), String::new()),
+        Failed::Ssh(why) => (t("editor.open.ssh"), why),
+        Failed::Start(name, e) => (
             tv("editor.open.failed", &[("editor", name.into())]),
             e.to_string(),
         ),
@@ -429,14 +441,14 @@ impl AppView {
             }
             // Its worktree in the code editor here (crate::editors), when one is found.
             if let Some(editor) = crate::editors::chosen() {
-                let wt = a.worktree.clone();
+                let (inst, wt) = (a.instance.clone(), a.worktree.clone());
                 menu = menu.item(
                     PopupMenuItem::new(tv(
                         "agent.view.openInEditor",
                         &[("editor", editor.name.into())],
                     ))
                     .icon(crate::icons::ic("code-xml"))
-                    .on_click(move |_, _, cx| open_in_editor(&wt, cx)),
+                    .on_click(move |_, _, cx| open_in_editor(&inst, &wt, cx)),
                 );
             }
             menu = menu.separator();
@@ -473,12 +485,6 @@ impl AppView {
                         Rc::new(move |this, w, cx| this.start_agent_rename(r.clone(), w, cx)),
                     )
                     .icon(crate::icons::ic("pencil")),
-                );
-                let wt = a.worktree.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(t("agent.view.openWorktree"))
-                        .icon(crate::icons::ic("folder-open"))
-                        .on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&wt))),
                 );
                 menu = menu.item(
                     item(
@@ -1190,7 +1196,7 @@ impl AppView {
         let editor_button = crate::editors::chosen().map(|editor| {
             let tip: SharedString =
                 tv("agent.view.openInEditor", &[("editor", editor.name.into())]).into();
-            let wt = a.worktree.clone();
+            let (inst, wt) = (a.instance.clone(), a.worktree.clone());
             Button::new("agent-open-editor")
                 .ghost()
                 .small()
@@ -1199,7 +1205,7 @@ impl AppView {
                 .text_color(theme::muted())
                 .child(crate::icons::ic("code-xml").size(px(15.)))
                 .tooltip(tip)
-                .on_click(move |_, _, cx| open_in_editor(&wt, cx))
+                .on_click(move |_, _, cx| open_in_editor(&inst, &wt, cx))
         });
         let new_chat = div()
             .id("agent-new-chat")
