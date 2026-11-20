@@ -35,6 +35,29 @@
     "height": 900
   },
   {
+    "id": "editor-agent-header-dark",
+    "description": "agent-99 open: Open in VS Code beside its ⋯, its tooltip showing (the dev bridge finds VS Code and Zed) — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "hover": "[data-agent-open-editor]"
+  },
+  {
+    "id": "editor-agent-menu-dark",
+    "description": "agent-99's ⋯ open: Open in VS Code above Open worktree folder — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-agent-menu]"
+  },
+  {
+    "id": "editor-settings-light",
+    "description": "Settings → General: Code editor, a choice of the editors found on this computer — light",
+    "query": "settings=general&theme=light",
+    "width": 1280,
+    "height": 1400
+  },
+  {
     "id": "goal-agent-dark",
     "description": "agent-99 open in the whole app, with a goal AgentBox drives: its chip on the row and header, and its goal rows in the chat (set, then not met yet after two continuations) — dark",
     "query": "app=agent-99&theme=dark",

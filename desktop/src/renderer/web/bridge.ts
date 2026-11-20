@@ -300,6 +300,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   },
   showShare: () => Promise.resolve(),
   showItem: unavailable('web.bridge.showItem'),
+  // The editor runs where the files are: on the machine itself.
+  editors: { list: async () => [], open: unavailable('web.bridge.openPath') },
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
     return Promise.resolve();

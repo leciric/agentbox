@@ -6,6 +6,7 @@ import type * as T from '../shared/api';
 import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
 import type { ExtractResult } from '../main/browsercookies';
 import type { TraySettings } from '../main/tray';
+import type { Editor, openInEditor } from '../main/editors';
 import type { TrayTarget } from '../main/traymodel';
 
 export interface ApiResponse {
@@ -134,6 +135,8 @@ export interface VMPower {
 // a pull request aside, which the main process opens in the browser itself.
 export type TrayOpenTarget = Exclude<TrayTarget, { kind: 'url' }>;
 export type { TraySettings };
+export type { Editor };
+export type EditorOpened = Awaited<ReturnType<typeof openInEditor>>;
 
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
 export type VMPowerAction = 'start' | 'pause' | 'resume' | 'stop';
@@ -400,6 +403,12 @@ const bridge = {
   saveShare: (path: string, name: string): Promise<string> => ipcRenderer.invoke('share:save', path, name),
   showShare: (file: string): Promise<void> => ipcRenderer.invoke('share:show', file),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
+  // The code editors on this computer (main/editors.ts), and opening a folder
+  // (an agent's worktree) in one by its ID, or the first found when it's gone.
+  editors: {
+    list: (): Promise<Editor[]> => ipcRenderer.invoke('editors:list'),
+    open: (id: string, path: string): Promise<EditorOpened> => ipcRenderer.invoke('editors:open', id, path),
+  },
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   // An OS notification, shown only while the window isn't in front (main/notify.ts);
   // onNotificationClick gets its ID when it's clicked.

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { CircleX, GitBranch, GitPullRequest, Info, Monitor, MessagesSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import { CircleX, CodeXml, GitBranch, GitPullRequest, Info, Monitor, MessagesSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -14,6 +14,7 @@ import { DesktopPeek, useDesk } from './v2/DesktopPeek';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { errorMessage } from '../lib/utils';
+import { openInEditor, useEditor } from '../lib/editor';
 import { openPanelOn } from '../lib/rightPanel';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
@@ -83,6 +84,8 @@ export function AgentContextMenu({
     run();
   };
 
+  // The code editor its worktree opens in (lib/editor.ts), when one is found.
+  const editor = useEditor();
   const actions = lifecycleActions(agent.state);
   // Pause, Resume and Start are in the menu, and Stop under More: Retire,
   // beside it, stops the agent and frees its machine too.
@@ -151,6 +154,11 @@ export function AgentContextMenu({
           >
             {t('agent.menu.openDesktop')}
           </ContextMenuItem>
+          {editor && (
+            <ContextMenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent.worktree)}>
+              {t('agent.view.openInEditor', { editor: editor.name })}
+            </ContextMenuItem>
+          )}
           {openPr}
           <ContextMenuSeparator />
           {shown.map((name) => (

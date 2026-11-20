@@ -157,6 +157,25 @@ impl AgentPage {
 }
 
 /// split is a ref's project and name.
+/// open_in_editor opens an agent's worktree in the code editor here
+/// (crate::editors), saying so when it can't.
+fn open_in_editor(worktree: &str, cx: &mut App) {
+    use crate::editors::Failed;
+    let (title, detail) = match crate::editors::open(worktree) {
+        Ok(_) => return,
+        Err(Failed::None) => (t("editor.open.none"), String::new()),
+        Err(Failed::Folder) => (
+            tv("editor.open.noFolder", &[("path", worktree.into())]),
+            String::new(),
+        ),
+        Err(Failed::Start(name, e)) => (
+            tv("editor.open.failed", &[("editor", name.into())]),
+            e.to_string(),
+        ),
+    };
+    Toast::new(Kind::Error, title).description(detail).show(cx);
+}
+
 pub fn split(r#ref: &str) -> (String, String) {
     let (p, a) = r#ref.split_once('/').unwrap_or((r#ref, ""));
     (p.to_string(), a.to_string())
@@ -406,6 +425,18 @@ impl AppView {
                     PopupMenuItem::new(tv("agent.menu.openPr", &[("number", pr.number.into())]))
                         .icon(crate::icons::ic("external-link"))
                         .on_click(move |_, _, cx| cx.open_url(&url)),
+                );
+            }
+            // Its worktree in the code editor here (crate::editors), when one is found.
+            if let Some(editor) = crate::editors::chosen() {
+                let wt = a.worktree.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(tv(
+                        "agent.view.openInEditor",
+                        &[("editor", editor.name.into())],
+                    ))
+                    .icon(crate::icons::ic("code-xml"))
+                    .on_click(move |_, _, cx| open_in_editor(&wt, cx)),
                 );
             }
             menu = menu.separator();
@@ -1154,6 +1185,22 @@ impl AppView {
                 .tooltip(move |w, cx| Tooltip::new(branch_tip.clone()).build(w, cx))
                 .into_any_element(),
         };
+        // Open in its code editor (crate::editors), when one is found: a
+        // ghost icon button like the ⋯.
+        let editor_button = crate::editors::chosen().map(|editor| {
+            let tip: SharedString =
+                tv("agent.view.openInEditor", &[("editor", editor.name.into())]).into();
+            let wt = a.worktree.clone();
+            Button::new("agent-open-editor")
+                .ghost()
+                .small()
+                .size_8()
+                .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+                .text_color(theme::muted())
+                .child(crate::icons::ic("code-xml").size(px(15.)))
+                .tooltip(tip)
+                .on_click(move |_, _, cx| open_in_editor(&wt, cx))
+        });
         let new_chat = div()
             .id("agent-new-chat")
             .flex_none()
@@ -1236,6 +1283,7 @@ impl AppView {
                             )
                         })
                         .child(new_chat)
+                        .when_some(editor_button, |el, b| el.child(b))
                         .child(menu)
                         .child(self.render_panel_button(cx)),
                 )
