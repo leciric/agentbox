@@ -130,6 +130,10 @@ impl AppView {
                     if tick.is_multiple_of(5) {
                         this.watch_meters(tick, cx);
                     }
+                    // What the holders of a run slot use moves without an event.
+                    if tick.is_multiple_of(10) {
+                        this.load_run_slots(cx);
+                    }
                     cx.notify();
                 });
                 if more.is_err() {
