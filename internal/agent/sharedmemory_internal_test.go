@@ -20,6 +20,8 @@ func TestSharedLimits(t *testing.T) {
 		{4 * gib, 2 * gib, 3 * gib, 2 * gib},
 		{8 * gib, 5 * gib, 6 * gib, 4 * gib},
 		{12 * gib, 9 * gib, 10 * gib, 4 * gib},
+		// 20 Nov 2026: a VM at 13 of its 16 GiB, whose agents had 13 and 14
+		{13 * gib, 10 * gib, 11 * gib, 4 * gib},
 		{14 * gib, 11 * gib, 12 * gib, 4 * gib},
 		{16 * gib, 13 * gib, 14 * gib, 4 * gib},
 		{32 * gib, 29 * gib, 30 * gib, 8 * gib},
@@ -127,6 +129,15 @@ func TestSetGroupWritesTheParentsLimits(t *testing.T) {
 	}
 	if !slices.Equal(writes, []string{"memory.high=" + strconv.FormatInt(29*gib, 10), "memory.max=" + strconv.FormatInt(30*gib, 10)}) {
 		t.Errorf("after the VM grew, writes = %q", writes)
+	}
+	// The host took some back: they follow it down, and only the memory
+	// limits are written.
+	writes = nil
+	if err := setGroup(dir, AgentsLimits(13*gib, 120000), []string{"cpu", "io", "memory", "pids"}, recordWrites(&writes)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(writes, []string{"memory.high=" + strconv.FormatInt(10*gib, 10), "memory.max=" + strconv.FormatInt(11*gib, 10)}) {
+		t.Errorf("after the VM shrank, writes = %q", writes)
 	}
 	// One that isn't there is made.
 	fresh := filepath.Join(t.TempDir(), LeadsCgroup)

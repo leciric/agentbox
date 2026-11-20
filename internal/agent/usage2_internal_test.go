@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 // TestHostCPUAndHostMemoryReadTheRealProc reads the host's own /proc, which
 // exists on every Linux CI runner: they only have to come back sane, not any
@@ -29,6 +32,11 @@ func TestHostCPUAndHostMemoryReadTheRealProc(t *testing.T) {
 	}
 	if got := HostMemory(); got != total {
 		t.Errorf("HostMemory() = %d, want the same total = %d", got, total)
+	}
+	// What the machine has now is /proc/meminfo's total, cap or not.
+	t.Setenv(VMMemoryCapEnv, strconv.FormatInt(total*2, 10))
+	if got := MemoryNow(); got != total {
+		t.Errorf("MemoryNow() under a cap of twice it = %d, want the total %d", got, total)
 	}
 }
 

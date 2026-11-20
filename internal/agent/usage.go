@@ -204,6 +204,19 @@ func HostMemory() int64 {
 	return total
 }
 
+// MemoryNow is the memory this machine has right now, in bytes:
+// /proc/meminfo's MemTotal, less what a balloon holds of it. In a Cloud
+// Hypervisor VM it moves as the host plugs memory in and takes it back
+// (virtio-mem), where HostMemory is the cap it may grow to. 0 when
+// /proc/meminfo can't be read.
+func MemoryNow() int64 {
+	total, _, err := hostMemory()
+	if err != nil {
+		return 0
+	}
+	return total
+}
+
 // MemAvailable is the guest's real spare memory right now: /proc/meminfo's
 // MemAvailable, what could be given out without swapping, the same figure
 // the host's Cloud Hypervisor supervisor grows the VM ahead of (package

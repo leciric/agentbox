@@ -79,7 +79,7 @@ func TestLeadChatLab(t *testing.T) {
 			case <-stop:
 				return
 			case <-time.After(time.Second):
-				s.watchShared(s.vmMemory())
+				s.watchShared(agent.MemoryNow(), s.vmMemory())
 			}
 		}
 	}()
