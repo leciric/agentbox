@@ -11,10 +11,6 @@
 //! otherwise), and a thread trims the heap, handing back the pages freed,
 //! when asked to (after something big was let go, `trim_soon`) and every
 //! half a minute while much is held free.
-#[cfg(all(target_os = "linux", feature = "mimalloc"))]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 mod glibc {
     use std::sync::OnceLock;
