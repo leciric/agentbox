@@ -2163,7 +2163,10 @@ impl AppView {
                                             .ok()
                                             .and_then(|m| m.get(uri.as_ref()).cloned())
                                         {
-                                            Some(p) => ImageSource::from(p),
+                                            Some(p) => crate::pictures::file(
+                                                &p,
+                                                crate::pictures::Size::Whole,
+                                            ),
                                             None => ImageSource::from(uri.clone()),
                                         }
                                     })

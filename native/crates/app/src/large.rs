@@ -562,6 +562,7 @@ impl Large {
                 .child(crate::snapshot::html_snapshot(
                     id.to_string(),
                     html.to_string(),
+                    None,
                 ))
                 .into_any_element();
         }

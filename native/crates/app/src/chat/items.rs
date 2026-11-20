@@ -739,7 +739,15 @@ impl ChatView {
             .cursor_pointer()
             .hover(|el| el.border_color(theme::muted()))
             .when_some(picture.clone(), |el, p: Arc<Image>| {
-                el.child(img(p).size_full().object_fit(ObjectFit::Cover))
+                el.child(
+                    img(crate::pictures::image(
+                        Some(&format!("{}/{}", self.prefix, im.id)),
+                        &p,
+                        crate::pictures::Size::Thumb,
+                    ))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+                )
             })
             .when(picture.is_none(), |el| {
                 el.flex()
@@ -869,13 +877,7 @@ impl ChatView {
                 if let Some(shown) = self.shown.get(&it.id).filter(|_| it.streaming) {
                     super::stream::reveal(&it.id, &it.text, shown.clone())
                 } else {
-                    crate::mermaid::with_mermaid(TextView::markdown(
-                        SharedString::from(format!("md-{}", it.id)),
-                        it.text.clone(),
-                    ))
-                    .selectable(true)
-                    .text_color(theme::tertiary())
-                    .into_any_element()
+                    super::stream::message(&it.id, &it.text, it.streaming)
                 },
             ))
             .when(last, |el| {

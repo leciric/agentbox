@@ -2400,7 +2400,13 @@ impl ChatView {
                                     .border_1()
                                     .border_color(theme::line())
                                     .child(
-                                        img(im.clone()).size_full().object_fit(ObjectFit::Cover),
+                                        img(crate::pictures::image(
+                                            None,
+                                            im,
+                                            crate::pictures::Size::Thumb,
+                                        ))
+                                        .size_full()
+                                        .object_fit(ObjectFit::Cover),
                                     ),
                             )
                             .child(x)

@@ -12,6 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::text::TextView;
 use gpui_component::v_flex;
@@ -45,9 +46,24 @@ pub fn reveal(id: &str, text: &str, shown: Rc<Cell<usize>>) -> AnyElement {
         .into_any_element()
 }
 
-/// blocks draws `text` a markdown block at a time, the newest fading in.
+/// blocks draws `text` a markdown block at a time, the newest fading in. A
+/// diagram, picture or page still arriving is a card saying so until its
+/// closing fence has come (rich::open_fence), then drawn once, whole.
 fn blocks(id: &str, text: &str) -> AnyElement {
-    let parts = split(text);
+    let open = crate::rich::open_fence(text);
+    let parts = split(open.as_ref().map_or(text, |o| &text[..o.at]));
+    let card = open.map(|o| {
+        let k = parts.len();
+        motion::stream_in(
+            div()
+                .w_full()
+                .min_w_0()
+                .pr(crate::mermaid::HANG)
+                .child(crate::rich::generating(&o, format!("generating-{id}-{k}"))),
+            SharedString::from(format!("block-in-{id}-{k}")),
+        )
+        .into_any_element()
+    });
     let last = parts.len().saturating_sub(1);
     v_flex()
         .w_full()
@@ -68,6 +84,45 @@ fn blocks(id: &str, text: &str) -> AnyElement {
                 block.into_any_element()
             }
         }))
+        .children(card)
+        .into_any_element()
+}
+
+/// message is a reply's body drawn whole: one streaming since before the
+/// chat loaded, or done. A diagram, picture or page it ends inside of is a
+/// card while it streams, and its code if it ended without the closing fence
+/// (Markdown.tsx), never a half-drawn page.
+pub fn message(id: &str, text: &str, streaming: bool) -> AnyElement {
+    let markdown = |text: &str| {
+        crate::mermaid::with_mermaid(TextView::markdown(
+            SharedString::from(format!("md-{id}")),
+            text.to_string(),
+        ))
+        .selectable(true)
+        .text_color(theme::tertiary())
+        .into_any_element()
+    };
+    let Some(open) = crate::rich::open_fence(text) else {
+        return markdown(text);
+    };
+    let before = &text[..open.at];
+    let tail = if streaming {
+        crate::rich::generating(&open, format!("generating-{id}"))
+    } else {
+        crate::mermaid::code_block(open.lang, open.code)
+    };
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap(rems(0.75))
+        .when(!before.trim().is_empty(), |el| el.child(markdown(before)))
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .pr(crate::mermaid::HANG)
+                .child(tail),
+        )
         .into_any_element()
 }
 

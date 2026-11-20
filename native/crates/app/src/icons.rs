@@ -334,6 +334,8 @@ gpui_kit_assets::icon_assets!(
         // The Office's row (#668's Armchair).
         Armchair,
         Archive,
+        // A page still arriving in a reply (rich::generating).
+        AppWindow,
         Ban,
         Bell,
         Bot,
@@ -482,6 +484,7 @@ gpui_kit_assets::icon_assets!(
         MessageCircle,
         Split,
         Undo2,
+        Workflow,
     ]
 );
 
@@ -702,6 +705,9 @@ mod tests {
             "briefcase",
             "arrow-left-right",
             "camera",
+            // rich::generating's.
+            "app-window",
+            "workflow",
         ] {
             names.push(("names".into(), n.to_string()));
         }

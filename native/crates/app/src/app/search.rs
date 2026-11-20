@@ -2025,7 +2025,7 @@ impl AppView {
                         },
                         |el, path| {
                             el.child(
-                                img(path)
+                                img(crate::pictures::file(&path, crate::pictures::Size::Whole))
                                     .max_h(px(288.))
                                     .w_full()
                                     .object_fit(ObjectFit::Contain)

@@ -2800,7 +2800,11 @@ impl AppView {
             .bg(theme::ink())
             .hover(|s| s.border_color(theme::accent()))
             .map(|el| match (path, self.panel.posters.get(&m.id)) {
-                (Some(p), _) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
+                (Some(p), _) => el.child(
+                    img(crate::pictures::file(&p, crate::pictures::Size::Thumb))
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                ),
                 (None, Some(poster)) => {
                     el.child(img(poster.clone()).size_full().object_fit(ObjectFit::Cover))
                 }
@@ -2927,7 +2931,7 @@ impl AppView {
                 self.player_for(&m)
             } else {
                 match self.panel.files_cache.get(&m.id) {
-                    Some(p) => img(p.clone())
+                    Some(p) => img(crate::pictures::file(p, crate::pictures::Size::Whole))
                         .w_full()
                         .h(px(335.))
                         .object_fit(ObjectFit::Contain)
@@ -3161,7 +3165,7 @@ impl AppView {
     fn render_viewer(&self, m: &MediaItem, cx: &mut Context<Self>) -> AnyElement {
         let body: AnyElement = if m.kind == "screenshot" {
             match self.panel.files_cache.get(&m.id) {
-                Some(p) => img(p.clone())
+                Some(p) => img(crate::pictures::file(p, crate::pictures::Size::Whole))
                     .w_full()
                     .object_fit(ObjectFit::Contain)
                     .into_any_element(),
