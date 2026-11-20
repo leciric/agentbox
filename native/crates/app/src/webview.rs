@@ -28,6 +28,53 @@ struct Placed {
     bounds: Option<Bounds<Pixels>>,
 }
 
+impl Drop for Placed {
+    fn drop(&mut self) {
+        cut_ipc(&self.view);
+    }
+}
+
+/// cut_ipc disconnects the message handler wry gave a page with an ipc
+/// handler, before the view is dropped. That handler, on the view's user
+/// content manager, holds the WebKitWebView it belongs to: the cycle outlived
+/// wry's destroy(), so a dropped preview kept its page, its web process and
+/// its network process (an ephemeral context each) until the app quit.
+#[cfg(target_os = "linux")]
+fn cut_ipc(view: &wry::WebView) {
+    use gtk::glib::gobject_ffi;
+    use gtk::glib::object::ObjectType as _;
+    use gtk::glib::prelude::ObjectExt as _;
+    use gtk::glib::translate::IntoGlib as _;
+    use webkit2gtk::WebViewExt as _;
+    use wry::WebViewExtUnix as _;
+    let Some(manager) = view.webview().user_content_manager() else {
+        return;
+    };
+    // SAFETY: the manager is alive (held here); the name is a C string; with
+    // G_SIGNAL_MATCH_ID only the signal's id is matched, the other arguments
+    // are ignored.
+    unsafe {
+        let signal = gobject_ffi::g_signal_lookup(
+            c"script-message-received".as_ptr(),
+            manager.type_().into_glib(),
+        );
+        if signal != 0 {
+            gobject_ffi::g_signal_handlers_disconnect_matched(
+                manager.as_ptr().cast(),
+                gobject_ffi::G_SIGNAL_MATCH_ID,
+                signal,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cut_ipc(_: &wry::WebView) {}
+
 thread_local! {
     /// Where webviews may show this frame: the scrolling area they're in.
     static CLIP: std::cell::Cell<Option<Bounds<Pixels>>> = const { std::cell::Cell::new(None) };
@@ -503,6 +550,12 @@ struct LargePage {
     /// The frame it was last placed in (PAGE_FRAME's), and whether it shows.
     frame: u64,
     shown: bool,
+}
+
+impl Drop for LargePage {
+    fn drop(&mut self) {
+        cut_ipc(&self.view);
+    }
 }
 
 /// What the page open large asked of the app: its keys and Ctrl+wheel,
