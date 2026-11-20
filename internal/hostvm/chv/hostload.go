@@ -46,15 +46,16 @@ func (s *supervisor) noteHostLoad(load api.HostLoad) {
 	s.hostBusyAt = load.At
 }
 
-// hostBusyFor is memSample.HostBusy at now: why the host is busy, when that is
-// memory or its disk and the reading is fresh. A busy CPU doesn't count: the
-// VM's own vCPUs make most of it while agents build. With s.mu held.
+// hostBusyFor is memSample.HostBusy at now: "memory" when the host is busy
+// for its memory and the reading is fresh. A busy CPU or disk doesn't count:
+// the VM's own vCPUs and reads make most of it while agents build. With s.mu
+// held.
 func (s *supervisor) hostBusyFor(now time.Time) string {
 	if now.Sub(s.hostBusyAt) > 2*hostload.Interval+time.Second {
 		return ""
 	}
-	switch s.hostBusy {
-	case "memory", "io":
+	// Not "io": see memory.go, on what holds growing.
+	if s.hostBusy == "memory" {
 		return s.hostBusy
 	}
 	return ""

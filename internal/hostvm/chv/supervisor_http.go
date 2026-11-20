@@ -221,6 +221,12 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 		}
 	}
 	requested := s.mem.Requested
+	if running && s.sample != nil {
+		st.Memory.HostAvailable = s.sample.HostAvailable
+		if s.mem.Wanted > requested {
+			st.Memory.Wanted = s.mem.Wanted
+		}
+	}
 	s.mu.Unlock()
 	// What the machine says the guest has, which lags what was asked for
 	// while it's given or gives back memory.
@@ -265,7 +271,7 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
 	}
 	if host := hostTotal(); host > 0 {
-		st.Memory.HostReserve, st.Memory.HostTotal = HostReserve(host), host
+		st.Memory.HostReserve, st.Memory.HostTotal = HostKeep(host), host
 		st.Limits.MaxMemory = max(MaxCap(host), c.MemoryMin)
 	}
 	st.Disk = diskStatus(l)

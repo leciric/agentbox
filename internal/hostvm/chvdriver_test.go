@@ -714,6 +714,15 @@ func TestPowerFrom(t *testing.T) {
 	if p := powerFrom(api.VMStatus{State: api.VMMissing, Problem: "no disks: run agentbox vm init"}); p.Error != "no disks: run agentbox vm init" {
 		t.Errorf("the problem is lost: %+v", p)
 	}
+	// The host holding it back is passed on, with what it had and keeps.
+	st.Memory.Wanted, st.Memory.HostAvailable, st.Memory.HostReserve = 14<<30, 4<<30, 3<<30
+	if p := powerFrom(st); p.MemoryWanted != 14<<30 || p.HostAvailable != 4<<30 || p.HostKeeps != 3<<30 {
+		t.Errorf("host limit: %+v", p)
+	}
+	st.Memory.Wanted = 0
+	if p := powerFrom(st); p.MemoryWanted != 0 || p.HostAvailable != 0 {
+		t.Errorf("no host limit, yet: %+v", p)
+	}
 }
 
 // The top bar's disk meter reads what the VM costs on the host's disk

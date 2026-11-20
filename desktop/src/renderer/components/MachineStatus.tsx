@@ -12,7 +12,7 @@ import { formatNumber, useT } from '../lib/i18n';
 import { machineStatus, memoryFull, type MachineStatus as Status } from '../lib/machineStatus';
 import { setTopBarDetailed, useTopBarDetailed } from '../lib/topBarLayout';
 import { cn, humanBytes } from '../lib/utils';
-import { FreeButton, useFreeResources, HostFootprint, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
+import { FreeButton, useFreeResources, HostFootprint, HostLimit, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
 import { Notice } from './ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
@@ -188,6 +188,7 @@ function Bubble({
             <span className="text-caption leading-relaxed text-rose-300">{connection.error}</span>
           )}
           {free.vm?.error && <Notice className="text-caption">{free.vm.error}</Notice>}
+          {free.vm && <HostLimit vm={free.vm} />}
           {status.kind === 'memory' && <span className="text-caption leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
           <VMActions free={free} style="freeMemory" />
           <button
@@ -408,6 +409,7 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
       </div>
       {vm && <VMMemory vm={vm} />}
       {vm && <HostFootprint vm={vm} />}
+      {vm && <HostLimit vm={vm} />}
       {vm && memory.cap > memory.total && (
         <span className="text-caption leading-relaxed text-muted">{t('shell.machine.memoryGranted', { granted: humanBytes(memory.total), cap: humanBytes(memory.cap) })}</span>
       )}

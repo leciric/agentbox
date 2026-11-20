@@ -23,6 +23,13 @@ const (
 	nov18Free = 19*GiB + 820<<20
 )
 
+// nov18Busier is how much busier than on 18 Nov the host is made for the
+// replays: it kept a quarter (HostReserve, 7.6 GiB) available then and keeps
+// an eighth (HostKeep, 3.8) now, so a host with that much less free is in
+// the same place, the same 12.2 GiB to spare, short and critical at the same
+// sizes of the VM.
+var nov18Busier = HostReserve(nov18Host) - HostKeep(nov18Host)
+
 // simVM is a guest for the policy to size, and the host it runs on: what its
 // programs want, its page cache filling what's free of what it has at
 // cacheRate, and the host's memory, what it has available being what it has
@@ -58,7 +65,7 @@ type simStep struct {
 
 func newSimVM(p memPolicy, total, used, cache int64) *simVM {
 	v := &simVM{p: p, now: time.Unix(1_763_466_000, 0), total: total, want: used, used: used, cache: cache,
-		agents: 6, cacheRate: 200 << 20, free: nov18Free, minHostFree: 1 << 62}
+		agents: 6, cacheRate: 200 << 20, free: nov18Free - nov18Busier, minHostFree: 1 << 62}
 	v.st.Requested = total
 	return v
 }
@@ -137,7 +144,7 @@ func (v *simVM) String() string {
 // can spare: 19.8 GiB available without the VM, less the 7.6 it keeps, is
 // 12.2. Its cache fills whatever it's given, and the host keeps its reserve.
 func TestRecordedBootBurstStopsAtTheHostsCeiling(t *testing.T) {
-	reserve := HostReserve(nov18Host)
+	reserve := HostKeep(nov18Host)
 	v := newSimVM(memPolicy{Min: 4 * GiB, Cap: 14 * GiB}, 4*GiB, 3*GiB+800<<20, 0)
 	v.run(t, 0, 10*time.Minute, func(at time.Duration, v *simVM) {
 		if at < 6*time.Second {
@@ -166,7 +173,8 @@ func TestRecordedBootBurstStopsAtTheHostsCeiling(t *testing.T) {
 }
 
 // At 14:42: 14 GiB plugged, 13.8 held of the host, 4.8 in use, the rest
-// cache, and the host at 6 GiB available of the 7.6 it keeps. It never gave
+// cache, and the host at 6 GiB available of the 7.6 it kept (here, 0.4 GiB
+// under the 3.8 it keeps now, above hostCriticalAt). It never gave
 // any of it back: refaults had raised its cache floor to half the cap, which
 // kept the target at the cap, and held trims off. Now the host comes first:
 // with trims held off, it shrinks within seconds to its use, the cache
@@ -176,25 +184,32 @@ func TestRecordedBootBurstStopsAtTheHostsCeiling(t *testing.T) {
 // can spare, and the host keeps its reserve from then on. Boots aren't held:
 // 6 GiB is far over the host's hard floor.
 func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
-	reserve := HostReserve(nov18Host)
+	reserve := HostKeep(nov18Host)
 	used := 4*GiB + 800<<20
+	// What the host has without the VM, and so what it can spare.
+	free := 14*GiB - 200<<20 + reserve - 400<<20
+	spare := (free - reserve) / memGranule * memGranule
 	for _, tc := range []struct {
 		name       string
 		refaulting bool
 		shrinkTo   int64
 	}{
 		{"refaults holding trims off", true, 8 * GiB}, // 4.8 used, 1.2 of cache, 2 of headroom
-		{"trims", false, 12 * GiB},
+		{"trims", false, 0},                           // to what the host can spare
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := newSimVM(memPolicy{Min: 4 * GiB, Cap: 14 * GiB}, 14*GiB, used, 9*GiB)
+			v.free = free
 			v.cacheRate = 50 << 20
+			if tc.shrinkTo == 0 {
+				tc.shrinkTo = spare
+			}
 			if tc.refaulting {
 				v.st.floor = 7 * GiB
 				v.st.noTrimUntil = v.now.Add(time.Hour)
 			}
-			if got := v.hostAvailable(); got < 5*GiB || got > 7*GiB {
-				t.Fatalf("the replay starts with the host at %s available, want about 6", gib(got))
+			if got := v.hostAvailable(); got >= reserve || got < hostCriticalAt(nov18Host) {
+				t.Fatalf("the replay starts with the host at %s available, want short of %s but above %s", gib(got), gib(reserve), gib(hostCriticalAt(nov18Host)))
 			}
 			var recovered time.Duration = -1
 			var heldAt []time.Duration
@@ -208,11 +223,11 @@ func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
 				if v.st.HoldBoots {
 					heldAt = append(heldAt, at)
 				}
-				if v.st.Ceiling > 12*GiB {
+				if v.st.Ceiling > spare {
 					t.Fatalf("at %s the daemon is told the VM may grow to %s", at, gib(v.st.Ceiling))
 				}
-				if at > memShrinkAfterHost && v.total > 12*GiB {
-					t.Fatalf("at %s: %v, past the 12.2 GiB the host can spare", at, v)
+				if at > memShrinkAfterHost && v.total > spare {
+					t.Fatalf("at %s: %v, past the %s the host can spare", at, v, gib(spare))
 				}
 			})
 			if len(v.shrinks) == 0 || v.shrinks[0].at > memShrinkAfterHost || v.shrinks[0].to != tc.shrinkTo {
@@ -229,8 +244,8 @@ func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
 			if len(v.grows) > 0 && v.grows[0].at < recovered+memHostCalm {
 				t.Errorf("grows %v: want none before %s of calm", v.grows, memHostCalm)
 			}
-			if v.total != 12*GiB {
-				t.Errorf("ended %v, want 12 GiB plugged", v)
+			if v.total != spare {
+				t.Errorf("ended %v, want %s plugged", v, gib(spare))
 			}
 		})
 	}
@@ -240,7 +255,7 @@ func TestRecordedVMGivesBackWhatTheHostIsShortOf(t *testing.T) {
 // VM sits at all the host could spare: the VM gives it back within seconds,
 // and never grows past the lower ceiling after.
 func TestDesktopGrowingShrinksTheVM(t *testing.T) {
-	reserve := HostReserve(nov18Host)
+	reserve := HostKeep(nov18Host)
 	v := newSimVM(memPolicy{Min: 4 * GiB, Cap: 14 * GiB}, 12*GiB, 4*GiB+800<<20, 7*GiB)
 	v.run(t, 0, time.Minute, nil)
 	if v.total != 12*GiB || v.hostAvailable() < reserve {
@@ -268,23 +283,23 @@ func TestDesktopGrowingShrinksTheVM(t *testing.T) {
 	}
 }
 
-// Down to half its reserve the VM doesn't wait: on the same sample it drops
+// Down to hostCriticalAt the VM doesn't wait: on the same sample it drops
 // its caches and shrinks to its use and memHeadroomLeast.
 func TestHostNearlyOutShrinksAtOnce(t *testing.T) {
 	v := newSimVM(memPolicy{Min: 4 * GiB, Cap: 14 * GiB}, 12*GiB, 4*GiB+800<<20, 7*GiB)
-	v.free = 12*GiB + 3*GiB // 3 GiB available of the 7.6 it keeps
+	v.free = 12*GiB + 2*GiB + GiB/2 // 2.5 GiB available of the 3.8 it keeps, under hostCriticalAt's 2.9
 	v.run(t, 0, memTick, nil)
 	if d := v.lastD; !d.Shrink || !d.Reclaim || d.Target != 6*GiB {
 		t.Fatalf("decide = %+v, want a shrink to 6 GiB (4.8 in use and 1 GiB) with the caches dropped", d)
 	}
 }
 
-// While hostload says the host is busy for memory or its disk, the VM
-// doesn't grow, nor for memHostCalm after; then a GiB at a time.
+// While hostload says the host is busy for memory, the VM doesn't grow, nor
+// for memHostCalm after; then a GiB at a time.
 func TestHostBusyHoldsGrowth(t *testing.T) {
 	v := newSimVM(memPolicy{Min: 4 * GiB, Cap: 14 * GiB}, 4*GiB, 3*GiB, 0)
 	v.want = 6 * GiB
-	v.hostBusy = "io"
+	v.hostBusy = "memory"
 	v.run(t, 0, time.Minute, nil)
 	if len(v.grows) > 0 {
 		t.Fatalf("grew while the host was busy: %v", v.grows)
@@ -393,6 +408,77 @@ func TestHostUnderItsFloorShedsAgents(t *testing.T) {
 	run(&st, 45*time.Second, time.Minute, 3*GiB)
 	if len(sheds) > 0 {
 		t.Errorf("stopped agents at %v with the host over its floor", sheds)
+	}
+}
+
+// On 19 Nov 2026 the VM held 10 GiB of a 30.5 GiB host that had 6.4 GiB
+// available, and its agents needed far more: keeping a quarter (7.6 GiB),
+// the host let it grow by nothing and took memory back. Keeping an eighth,
+// it grows by what the host has beyond that, a GiB at a time, and the app is
+// told the host is what holds it there.
+func TestNov19VMGrowsIntoWhatTheHostCanSpare(t *testing.T) {
+	const host = 30*GiB + GiB/2
+	keep := HostKeep(host)
+	if keep >= 6*GiB+400<<20 {
+		t.Fatalf("HostKeep(%s) = %s: the VM still couldn't grow", gib(host), gib(keep))
+	}
+	p := memPolicy{Min: 4 * GiB, Cap: 22 * GiB}
+	x := sample(9*GiB+GiB/2, 10*GiB, 6, 0)
+	x.Resident = 10 * GiB
+	x.HostTotal, x.HostAvailable = host, 6*GiB+400<<20
+	st := memState{Requested: 10 * GiB}
+	got, targets := settle(p, &st, x, time.Now(), time.Minute)
+	spare := (10*GiB + 6*GiB + 400<<20 - keep) / memGranule * memGranule
+	if got != spare {
+		t.Errorf("grew to %s (%v), want the %s the host can spare", gib(got), targets, gib(spare))
+	}
+	if x.HostAvailable < keep {
+		t.Errorf("the host was left %s, under the %s it keeps", gib(x.HostAvailable), gib(keep))
+	}
+	if st.Wanted <= got {
+		t.Errorf("Wanted = %s at %s: the app isn't told the host holds it back", gib(st.Wanted), gib(got))
+	}
+}
+
+// Once the host isn't what holds the VM back, nothing says it is.
+func TestWantedOnlyWhileTheHostHolds(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 12 * GiB}
+	x := sample(3*GiB, 8*GiB, 8, 0)
+	x.Resident = 8 * GiB
+	x.HostTotal, x.HostAvailable = 32*GiB, 20*GiB
+	st := memState{Requested: 8 * GiB}
+	if _, _ = settle(p, &st, x, time.Now(), 30*time.Second); st.Wanted != 0 {
+		t.Errorf("plenty on the host: Wanted = %s", gib(st.Wanted))
+	}
+	// At its cap, with agents wanting more: the cap holds it, not the host.
+	x = sample(10*GiB, 12*GiB, 8, 0)
+	x.Resident = 12 * GiB
+	x.HostTotal, x.HostAvailable = 32*GiB, 15*GiB
+	st = memState{Requested: 12 * GiB}
+	if _, _ = settle(p, &st, x, time.Now(), 30*time.Second); st.Wanted != 0 {
+		t.Errorf("at its cap: Wanted = %s", gib(st.Wanted))
+	}
+}
+
+// The live reserve: an eighth of the host, 3 GiB at least, and always above
+// hostCriticalAt, which is always above the floor where agents are stopped.
+func TestHostKeep(t *testing.T) {
+	for _, tc := range []struct{ total, keep int64 }{
+		{8 * GiB, 3 * GiB},
+		{16 * GiB, 3 * GiB},
+		{32 * GiB, 4 * GiB},
+		{64 * GiB, 8 * GiB},
+	} {
+		if got := HostKeep(tc.total); got != tc.keep {
+			t.Errorf("HostKeep(%s) = %s, want %s", gib(tc.total), gib(got), gib(tc.keep))
+		}
+	}
+	for total := int64(4 * GiB); total <= 256*GiB; total += GiB {
+		keep, crit, floor := HostKeep(total), hostCriticalAt(total), hostFloor(total)
+		if keep <= crit || crit <= floor || keep > HostReserve(total) {
+			t.Errorf("%s: keeps %s, critical at %s, floor %s, reserve %s: want keep > critical > floor, keep ≤ reserve",
+				gib(total), gib(keep), gib(crit), gib(floor), gib(HostReserve(total)))
+		}
 	}
 }
 

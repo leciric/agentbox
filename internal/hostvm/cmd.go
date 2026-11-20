@@ -886,10 +886,17 @@ type Power struct {
 	// MemoryResident is what the VM holds of the host's memory
 	// (api.VMMemory.Resident), and MemoryHostCache what the host caches of
 	// its disks besides; 0 when unknown.
-	MemoryResident  int64  `json:"memoryResident,omitempty"`
-	MemoryHostCache int64  `json:"memoryHostCache,omitempty"`
-	CPUs            int    `json:"cpus"`
-	Error           string `json:"error,omitempty"` // why it can't be used, and what to run
+	MemoryResident  int64 `json:"memoryResident,omitempty"`
+	MemoryHostCache int64 `json:"memoryHostCache,omitempty"`
+	// MemoryWanted is what the VM would grow to if this computer could
+	// spare it, when this computer's memory is what holds it back
+	// (api.VMMemory.Wanted), with HostAvailable what this computer had
+	// available and HostKeeps what it keeps; 0 otherwise.
+	MemoryWanted  int64  `json:"memoryWanted,omitempty"`
+	HostAvailable int64  `json:"hostAvailable,omitempty"`
+	HostKeeps     int64  `json:"hostKeeps,omitempty"`
+	CPUs          int    `json:"cpus"`
+	Error         string `json:"error,omitempty"` // why it can't be used, and what to run
 	// PausedForDisk says the supervisor paused it because the host's disk
 	// that holds its disk images is nearly full (api.VMStatus.PausedForDisk),
 	// and HostFree is what that disk has free.
@@ -907,6 +914,9 @@ func powerFrom(st api.VMStatus) Power {
 	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs,
 		MemoryResident: st.Memory.Resident, MemoryHostCache: st.Memory.HostCache, Error: st.Problem,
 		PausedForDisk: st.PausedForDisk, HostFree: st.Disk.HostFree}
+	if st.Memory.Wanted > 0 {
+		p.MemoryWanted, p.HostAvailable, p.HostKeeps = st.Memory.Wanted, st.Memory.HostAvailable, st.Memory.HostReserve
+	}
 	if st.Disk.Size > 0 {
 		p.Disk = &st.Disk
 	}

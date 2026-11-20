@@ -81,3 +81,37 @@ func TestCargoTargetKeptInTheWorktreeWhenThereOrOff(t *testing.T) {
 		t.Errorf("the device wasn't removed:\n%s", got)
 	}
 }
+
+// An agent made before its worktree had a Cargo workspace (made from an older
+// commit, which it then moved on from) gets its target/ on the VM's disk the
+// next time its machine starts, before Cargo writes one through the share.
+func TestStartMountsATargetTheWorktreeGainedSinceItWasMade(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("BOOTED", filepath.Join(dir, "booted"))
+	inc, calls := loggingIncus(t, `case "$1" in
+  list)
+    if [ -f "$BOOTED" ]; then
+      echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]'
+    else
+      echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]'
+    fi ;;
+  start) touch "$BOOTED" ;;
+  query) echo '{"config": {}, "devices": {}}' ;;
+esac
+exit 0`)
+	f := setup(t, inc)
+	store := &nodemods.Store{Dir: t.TempDir()}
+	f.m.NodeModules = store
+	f.m.NodeModulesOn = func(context.Context) bool { return true }
+	a := destroyFixture(t, f)
+	a.Worktree = cargoWorktree(t, false)
+	if _, err := f.m.Start(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(calls(), "\n")
+	want := "config device add ab-hello-stack-agent-01 build-output-0 disk source=" + store.AgentFile(a.Instance, "target-.") + " path=" + filepath.Join(a.Worktree, "target")
+	add, start := strings.Index(got, want), strings.Index(got, "\nstart ")
+	if add < 0 || start < 0 || add > start {
+		t.Errorf("want %q before the machine starts in:\n%s", want, got)
+	}
+}

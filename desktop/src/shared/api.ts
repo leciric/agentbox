@@ -3834,6 +3834,8 @@ export interface VMMemory {
   cap: number;
   granted: number;
   hostReserve?: number;
+  hostAvailable?: number;
+  wanted?: number;
   hostTotal?: number;
   used: number;
   resident: number;

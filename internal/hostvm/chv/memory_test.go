@@ -240,8 +240,8 @@ func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
 		for i := range 600 { // 300 s
 			x := s(1, 3*GiB, 1, i)
 			if short {
-				// Below its 8 GiB reserve, not down to half of it.
-				x.HostTotal, x.HostAvailable = 32*GiB, 6*GiB
+				// Below the 4 GiB it keeps, not down to hostCriticalAt's 3.
+				x.HostTotal, x.HostAvailable = 32*GiB, 3*GiB+GiB/2
 			}
 			if d := p.decide(&st, x, start.Add(time.Duration(i)*memTick)); d.Reclaim {
 				reclaims = append(reclaims, i)
@@ -306,7 +306,7 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	}
 	// The host has less than its reserve: what's beyond the allowance, 3 GiB
 	// less 2, though more is inactive.
-	trims = run(busy(3*GiB, 2*GiB+GiB/2, 6*GiB, 0), 2)
+	trims = run(busy(3*GiB, 2*GiB+GiB/2, 3*GiB+GiB/2, 0), 2)
 	if len(trims) != 1 || trims[0].Trim != GiB || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "keeping 2.0 GiB") {
 		t.Errorf("host short: %+v", trims)
 	}
@@ -397,7 +397,7 @@ func TestMemPolicyRefaultsRaiseTheFloor(t *testing.T) {
 		t.Errorf("keeps %s of %s cached", gib(keep), gib(x.FileCache))
 	}
 	below := *x
-	below.HostAvailable = 5 * GiB
+	below.HostAvailable = 3*GiB + GiB/2
 	if keep := st.keep(below, p, start); keep != below.cacheAllowance() {
 		t.Errorf("host below its reserve: keeps %s of %s cached, want the %s allowance", gib(keep), gib(x.FileCache), gib(below.cacheAllowance()))
 	}
@@ -601,7 +601,7 @@ func TestFitHost(t *testing.T) {
 func TestMemPolicyHostGate(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
 	now := time.Now()
-	// 32 GiB keeps 8. The VM holds 8, and 8 agents want 3+8 = 11.
+	// 32 GiB keeps 4. The VM holds 8, and 8 agents want 3+8 = 11.
 	host := func(avail int64) *memSample {
 		x := sample(3*GiB, 8*GiB, 8, 0)
 		x.Resident = 8 * GiB
@@ -614,9 +614,9 @@ func TestMemPolicyHostGate(t *testing.T) {
 		want  int64 // where it settles
 	}{
 		{"plenty", 20 * GiB, 11 * GiB},
-		{"room for 1.5 GiB more", 9*GiB + 512<<20, 9*GiB + 512<<20},
-		{"at the reserve", 8*GiB + 400<<20, 8 * GiB},
-		{"below it", 6 * GiB, 5 * GiB}, // gives back down to 3 in use and 2 of headroom
+		{"room for 1.5 GiB more", 5*GiB + 512<<20, 9*GiB + 512<<20},
+		{"at the reserve", 4*GiB + 400<<20, 8 * GiB},
+		{"below it", 3*GiB + 512<<20, 5 * GiB}, // gives back down to 3 in use and 2 of headroom
 	} {
 		st := memState{Requested: 8 * GiB}
 		x := host(tc.avail)
@@ -627,18 +627,18 @@ func TestMemPolicyHostGate(t *testing.T) {
 	}
 	// One step at a time, and the reason says why it stopped.
 	st := memState{Requested: 8 * GiB}
-	d := p.decide(&st, host(9*GiB+512<<20), now)
-	if d.Target != 9*GiB || !strings.Contains(d.Reason, "keeps 8.0 GiB for itself") {
-		t.Errorf("room for 1.5 GiB more: %+v, want a GiB, as the host keeps 8 GiB", d)
+	d := p.decide(&st, host(5*GiB+512<<20), now)
+	if d.Target != 9*GiB || !strings.Contains(d.Reason, "keeps 4.0 GiB for itself") {
+		t.Errorf("room for 1.5 GiB more: %+v, want a GiB, as the host keeps 4 GiB", d)
 	}
 	// What's plugged stands in for what's held when that's unknown.
-	x := host(9*GiB + 512<<20)
+	x := host(5*GiB + 512<<20)
 	x.Resident = 0
 	if d := p.decide(&memState{Requested: 8*GiB + 512<<20}, x, now); d.Target != 9*GiB+512<<20 {
 		t.Errorf("held unknown: %+v, want 9.5 GiB", d)
 	}
 	// A stall doesn't get past it.
-	x = host(6 * GiB)
+	x = host(3*GiB + 512<<20)
 	x.Available, x.Pressure = GiB, 50
 	x.Total = 8 * GiB
 	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 0 {
@@ -691,7 +691,7 @@ func TestMemPolicyGivesBackToTheHost(t *testing.T) {
 	// Six busy agents, 7 GiB in use, 13 plugged: 7+6 is just what they keep.
 	x := sample(7*GiB, 13*GiB, 6, 0)
 	x.Resident = 13 * GiB
-	x.HostTotal, x.HostAvailable = 32*GiB, 5*GiB // keeps 8
+	x.HostTotal, x.HostAvailable = 32*GiB, 3*GiB+GiB/2 // keeps 4
 	st := memState{Requested: 13 * GiB}
 	var got memDecision
 	var at time.Duration
@@ -704,7 +704,7 @@ func TestMemPolicyGivesBackToTheHost(t *testing.T) {
 	if !got.Shrink || got.Target != 9*GiB || at != memShrinkAfterHost {
 		t.Fatalf("host short: %+v after %s, want a shrink to 9 GiB after %s", got, at, memShrinkAfterHost)
 	}
-	if !strings.Contains(got.Reason, "5.0 GiB available of the 8.0 GiB it keeps") {
+	if !strings.Contains(got.Reason, "3.5 GiB available of the 4.0 GiB it keeps") {
 		t.Errorf("reason %q", got.Reason)
 	}
 	// With the host fine, the same VM keeps its headroom.
