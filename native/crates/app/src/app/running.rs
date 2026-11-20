@@ -57,6 +57,8 @@ pub(super) struct Running {
     /// One agent's, for its Resources view, and whether it's being read.
     agent: Option<(String, Result<AgentProcesses, String>)>,
     agent_reading: Option<String>,
+    /// The agent the Resources view last asked for.
+    agent_of: String,
     /// The rows asking whether to kill, by place, agent and pid.
     asking: HashSet<(Place, String, i64)>,
     /// The trees being killed, by agent and pid, wherever they're shown.
@@ -306,6 +308,7 @@ impl AppView {
         if self.running.agent.as_ref().is_some_and(|(of, _)| *of != r) {
             self.running.agent = None;
         }
+        self.running.agent_of = r.clone();
         if self.running.agent_reading.as_deref() == Some(r.as_str()) {
             return;
         }
@@ -323,8 +326,8 @@ impl AppView {
                 if this.running.agent_reading.as_deref() == Some(r.as_str()) {
                     this.running.agent_reading = None;
                 }
-                let current = this.running.agent.as_ref().is_none_or(|(of, _)| *of == r);
-                if current {
+                // A late answer for an agent no longer shown is dropped.
+                if this.running.agent_of == r {
                     this.running.agent = Some((r, res));
                     cx.notify();
                 }
@@ -1149,7 +1152,9 @@ fn totals(a: &AgentProcesses) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not super::*: gpui's own `test` attribute would come with it.
+    use super::{agent_without_tree, cpu_percent, rows, span, split_trees, up_for, without_tree};
+    use agentbox_api::{AgentProcesses, ProcessList, ProcessTree};
 
     fn tree(pid: i64, kind: &str, mb: i64) -> ProcessTree {
         ProcessTree {
@@ -1205,10 +1210,11 @@ mod tests {
 
     #[test]
     fn cpu_has_a_decimal_only_under_ten() {
-        agentbox_i18n::set_language("en-US");
-        assert_eq!(cpu_percent(0.44), "0.4");
-        assert_eq!(cpu_percent(3.0), "3");
-        assert_eq!(cpu_percent(186.4), "186");
+        // In whichever language the tests run: pt-BR writes 0,4.
+        let cpu = |v| cpu_percent(v).replace(',', ".");
+        assert_eq!(cpu(0.44), "0.4");
+        assert_eq!(cpu(3.0), "3");
+        assert_eq!(cpu(186.4), "186");
     }
 
     #[test]
