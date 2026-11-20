@@ -272,3 +272,15 @@ test('frozen: a machine paused for memory says its place in line, idle reclaim s
   assert.equal(frozenTip({ ...agent('running', 'ready'), memory: { machine: 'waiting', ahead: 1 } } as T.Agent), undefined);
   assert.equal(frozenTip(agent('running', 'ready')), undefined);
 });
+
+test('an agent waiting for a run slot says how many are ahead, and holding one is just working', () => {
+  const since = '2026-11-20T12:00:00Z';
+  const waiting = (ahead: number) => ({ ...agent('running', 'running'), runSlot: { state: 'waiting', ahead, since } }) as T.Agent;
+  assert.deepEqual(chatLabel(waiting(2)), { text: 'Waiting for a run slot (2 ahead)', tone: 'live' });
+  assert.deepEqual(chatLabel(waiting(0)), { text: 'Waiting for a run slot (next in line)', tone: 'live' });
+  assert.match(statusTip(waiting(1)) ?? '', /keeps coding/);
+  const holding = { ...agent('running', 'running'), runSlot: { state: 'holding', since } } as T.Agent;
+  assert.deepEqual(chatLabel(holding), { text: 'Working', tone: 'live' });
+  // Something that needs the user still comes first.
+  assert.deepEqual(chatLabel({ ...waiting(1), chat: 'waiting' } as T.Agent), { text: 'Needs you', tone: 'urgent' });
+});

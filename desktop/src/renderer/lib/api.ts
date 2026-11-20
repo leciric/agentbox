@@ -763,6 +763,7 @@ export const api = {
   endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
   agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
   pressure: () => call<T.PressureStatus>('GET', '/v1/pressure'),
+  runSlots: () => call<T.RunSlots>('GET', '/v1/run-slots'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
