@@ -868,6 +868,62 @@ export interface AgentDisk {
   measuredAt: string;
 }
 
+export interface ProcessTree {
+  pid: number;
+  label: string;
+  command: string;
+  kind: string;
+  protected: boolean;
+  processes: number;
+  memory: number;
+  rss: number;
+  pss: number;
+  cpu: number;
+  cpuSeconds: number;
+  started: string;
+  idleSeconds: number;
+  heavy: boolean;
+  idle: boolean;
+  members: ProcessMember[];
+}
+
+export interface ProcessMember {
+  pid: number;
+  ppid: number;
+  name: string;
+  command: string;
+  memory: number;
+}
+
+export interface AgentProcesses {
+  ref: string;
+  project: string;
+  name: string;
+  title: string;
+  running: boolean;
+  trees: ProcessTree[];
+  memory: number;
+  killable: number;
+  cpu: number;
+  processes: number;
+  error?: string;
+}
+
+export interface ProcessList {
+  agents: AgentProcesses[];
+  at: string;
+}
+
+export interface KillProcessResult {
+  ref: string;
+  pid: number;
+  label: string;
+  processes: number;
+  memory: number;
+  forced: number;
+  left: number;
+}
+
 export interface StoppedMachine {
   ref: string;
   project: string;
@@ -4418,6 +4474,10 @@ export const ErrorNotARepository = "not-a-repository";
 export const ErrorMergeConflict = "merge-conflict";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
+export const ErrorProtectedProcess = "protected-process";
+export const ProcessTreeAgent = "agent";
+export const ProcessTreeTool = "tool";
+export const ProcessTreeSystem = "system";
 export const ErrorPassphraseNeeded = "passphrase-needed";
 export const ErrorWrongPassphrase = "wrong-passphrase";
 export const ErrorNewerExport = "newer-export";

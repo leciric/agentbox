@@ -1551,6 +1551,78 @@ pub struct AgentDisk {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ProcessTree {
+    pub pid: i64,
+    pub label: String,
+    pub command: String,
+    pub kind: String,
+    pub protected: bool,
+    pub processes: i64,
+    pub memory: i64,
+    pub rss: i64,
+    pub pss: i64,
+    pub cpu: f64,
+    #[serde(rename = "cpuSeconds")]
+    pub cpu_seconds: f64,
+    pub started: String,
+    #[serde(rename = "idleSeconds")]
+    pub idle_seconds: i64,
+    pub heavy: bool,
+    pub idle: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub members: Vec<ProcessMember>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcessMember {
+    pub pid: i64,
+    pub ppid: i64,
+    pub name: String,
+    pub command: String,
+    pub memory: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentProcesses {
+    pub r#ref: String,
+    pub project: String,
+    pub name: String,
+    pub title: String,
+    pub running: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub trees: Vec<ProcessTree>,
+    pub memory: i64,
+    pub killable: i64,
+    pub cpu: f64,
+    pub processes: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcessList {
+    #[serde(deserialize_with = "nullable")]
+    pub agents: Vec<AgentProcesses>,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KillProcessResult {
+    pub r#ref: String,
+    pub pid: i64,
+    pub label: String,
+    pub processes: i64,
+    pub memory: i64,
+    pub forced: i64,
+    pub left: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StoppedMachine {
     pub r#ref: String,
     pub project: String,
@@ -7278,6 +7350,10 @@ pub const ERROR_NOT_A_REPOSITORY: &str = "not-a-repository";
 pub const ERROR_MERGE_CONFLICT: &str = "merge-conflict";
 pub const ERROR_FOLDER_EXISTS: &str = "folder-exists";
 pub const ERROR_BAD_REPO_URL: &str = "bad-repo-url";
+pub const ERROR_PROTECTED_PROCESS: &str = "protected-process";
+pub const PROCESS_TREE_AGENT: &str = "agent";
+pub const PROCESS_TREE_TOOL: &str = "tool";
+pub const PROCESS_TREE_SYSTEM: &str = "system";
 pub const ERROR_PASSPHRASE_NEEDED: &str = "passphrase-needed";
 pub const ERROR_WRONG_PASSPHRASE: &str = "wrong-passphrase";
 pub const ERROR_NEWER_EXPORT: &str = "newer-export";
