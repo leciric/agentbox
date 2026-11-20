@@ -540,7 +540,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 	s.syncFleet(ctx, agents)
 	share := s.agentMemoryShare(ctx)
 	total := s.vmMemory()
-	agentsHit, agentsLimit := s.watchShared(s.reachableMemory(total, time.Now()))
+	agentsHit, agentsLimit := s.watchShared(s.vmMemoryNow(), s.reachableMemory(total, time.Now()))
 	limit := agent.MemoryLimit(total, share)
 	caps := agent.AgentCaps(limit, s.vmSwap(), share)
 	for _, a := range agents {

@@ -433,6 +433,7 @@ type Server struct {
 	idle           *idleState
 	idleCgroups    idleCgroups
 	vmMemory       func() int64
+	vmMemoryNow    func() int64 // what the VM has now (agent.MemoryNow), which hotplug and a balloon move
 	vmCap          func() int64 // the VM's memory cap as its front end set it (configuredCap)
 	setMemoryLimit func(instance string, limit int64) error
 	setIOWeight    func(instance string, weight int) error
@@ -537,6 +538,7 @@ func New(cfg Config) (*Server, error) {
 		idle:             newIdleState(),
 		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
+		vmMemoryNow:      agent.MemoryNow,
 		vmCap:            configuredCap,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		setIOWeight:      agent.SetIOWeight,
