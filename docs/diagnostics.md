@@ -64,6 +64,36 @@ commands with the worker count each was given and how it exited (`?` from an old
 inside the agent, which doesn't say). Heavy commands run inside tool calls or a terminal, so their
 time is part of the tools' time. Timings are kept for 30 days and go when their project does.
 
+## What agents still have running: `agentbox ps` and `agentbox kill`
+
+An agent can leave a dev server, a watcher or a database running after it's done with it, and those
+hold memory until something stops them. The app's **Running** view lists what each agent's machine
+still runs. Open it from the top bar: click the machine's status, or the memory meter in the
+detailed top bar, then **What's running**. Each agent's **Resources** panel shows its own list.
+
+- Processes are grouped in trees. A dev server and everything it started count as one tree, shown
+  by the command that started it (for a Claude Code Bash tool, the command, not its shell).
+- Each tree shows its memory (proportional set size, so shared memory is counted once), CPU, how
+  long it has run, and how long it has used next to no CPU. Trees of 1 GiB or more are flagged
+  **Heavy**, and trees idle for 30 minutes or more are flagged **Idle**.
+- The AI tool's own processes (its ACP adapter, the tool, its MCP servers) and the machine's own
+  (init and its services, tmux and its shell, Docker's daemon, the desktop's display) are listed as
+  **Protected**, so the totals add up, and can't be killed here.
+- **Kill** asks for confirmation in the row. Then every process in the tree gets SIGTERM, and
+  whatever is left after 5 seconds gets SIGKILL. The agent is told in its chat what you killed, so
+  it doesn't start it again without a reason.
+
+The same from the command line:
+
+```bash
+agentbox ps                          # every agent with a running machine, the biggest trees first
+agentbox ps myproject                # one project's agents
+agentbox ps myproject/agent-07 -a    # one agent, with each tree's processes
+agentbox kill myproject/agent-07 412 # kill pid 412 and everything it started
+```
+
+The pids are the ones the agent's own `ps` shows in its machine.
+
 ## The daemon's memory
 
 ```bash
