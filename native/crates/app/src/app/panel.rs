@@ -2287,7 +2287,7 @@ impl AppView {
             PView::Files => self.render_files(),
             PView::Evidence => self.render_evidence(Some(&a), cx),
             PView::Timeline => self.render_timeline(r, cx),
-            PView::Resources => self.render_resources(r),
+            PView::Resources => self.render_resources(r, cx),
             PView::Browser => self.render_browser(&a, self.overlaid(), cx),
             PView::Android => self.render_android(&a, cx),
             PView::Schedules => self.render_schedules(cx),
