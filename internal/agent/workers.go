@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -44,24 +43,43 @@ func HeavyWorkers(cores, running int, hostBusy bool) int {
 	return min(max(n, minWorkers), cores)
 }
 
-// workersMark is set beside the worker counts WorkerEnv sets, to n: a count
-// equal to it is AgentBox's, which the next heavy command started inside
-// (`agentbox heavy` in a build) replaces. A shell of an earlier release, which
-// set the counts in every shell, set it too.
-const workersMark = "AGENTBOX_CPUS"
+// workersMark is set beside the worker counts WorkerEnv sets, to what it
+// set: "GOMAXPROCS=8 MAKEFLAGS=-j8 GOFLAGS=-p=8…" (for GOFLAGS, the one flag
+// it added). A variable that still holds what the mark says is AgentBox's,
+// which the next heavy command started inside (`agentbox heavy` in a build)
+// replaces; one the user, the agent or a project set, even to the same
+// number, isn't in it and stays.
+const workersMark = "AGENTBOX_WORKERS"
 
-// oldCargoMark is what an earlier release's shells set beside a
-// CARGO_BUILD_JOBS they capped by the memory available.
-const oldCargoMark = "AGENTBOX_CARGO_JOBS"
+// An earlier release's shells set every count from their share, beside
+// oldMark, its number, and oldCargoMark, a CARGO_BUILD_JOBS they capped by
+// the memory available. Where an AI tool started then still runs, a count
+// equal to them is taken for AgentBox's (oldOwned), and both go once
+// workersMark replaces them.
+const (
+	oldMark      = "AGENTBOX_CPUS"
+	oldCargoMark = "AGENTBOX_CARGO_JOBS"
+)
 
-// WorkerEnv is env with the worker counts for n workers (HeavyWorkers):
-// GOMAXPROCS, VITEST_MAX_WORKERS (the only one vitest 4 reads),
-// CARGO_BUILD_JOBS, make's -j and go's -p (GOFLAGS), and half of n for the
-// task runners that start one package per slot, each with a worker pool of
-// its own (turbo, nx, pnpm; lerna and yarn have no variable for it). A count
-// the user, the agent or a project's scripts set stays; one AgentBox set
-// (equal to workersMark) is replaced. n of 0 or less, a daemon that didn't
-// say, changes nothing.
+// workerVars are the variables WorkerEnv sets, with the value each gets for
+// n workers: GOMAXPROCS, VITEST_MAX_WORKERS (the only one vitest 4 reads),
+// CARGO_BUILD_JOBS, make's -j, and half of n for the task runners that start
+// one package per slot, each with a worker pool of its own (turbo, nx, pnpm;
+// lerna and yarn have no variable for it). Go's -p is GOFLAGS', a flag among
+// others (goFlags).
+func workerVars(n int) [][2]string {
+	count, half := strconv.Itoa(n), strconv.Itoa(max(n/2, 1))
+	return [][2]string{
+		{"GOMAXPROCS", count}, {"VITEST_MAX_WORKERS", count}, {"CARGO_BUILD_JOBS", count},
+		{"TURBO_CONCURRENCY", half}, {"NX_PARALLEL", half}, {"npm_config_workspace_concurrency", half},
+		{"MAKEFLAGS", "-j" + count},
+	}
+}
+
+// WorkerEnv is env with the worker counts for n workers (HeavyWorkers,
+// workerVars) and go's -p=n in GOFLAGS. A count somebody else set stays;
+// one AgentBox set (workersMark) is replaced. n of 0 or less, a daemon that
+// didn't say, changes nothing.
 func WorkerEnv(env []string, n int) []string {
 	if n <= 0 {
 		return env
@@ -75,50 +93,38 @@ func WorkerEnv(env []string, n int) []string {
 		}
 		vars[k] = v
 	}
+	owned := oldOwned(vars)
+	if mark, ok := vars[workersMark]; ok {
+		owned = map[string]string{}
+		for _, kv := range strings.Fields(mark) {
+			k, v, _ := strings.Cut(kv, "=")
+			owned[k] = v
+		}
+	}
 	set := func(k, v string) {
 		if _, ok := vars[k]; !ok {
 			order = append(order, k)
 		}
 		vars[k] = v
 	}
-	ours, hadOurs := vars[workersMark]
-	ourHalf := ""
-	if c, err := strconv.Atoi(ours); err == nil {
-		ourHalf = strconv.Itoa(max(c/2, 1))
-	}
-	replace := func(k, want string, oursWere ...string) {
+	var mark []string
+	for _, kv := range workerVars(n) {
+		k, want := kv[0], kv[1]
 		v, ok := vars[k]
-		if !ok || v == "" || hadOurs && slices.Contains(oursWere, v) {
-			set(k, want)
+		ours, marked := owned[k]
+		if ok && v != "" && (!marked || v != ours) {
+			continue // somebody else's
 		}
+		set(k, want)
+		mark = append(mark, k+"="+want)
 	}
-	count := strconv.Itoa(n)
-	replace("GOMAXPROCS", count, ours)
-	replace("VITEST_MAX_WORKERS", count, ours)
-	if cargo, ok := vars[oldCargoMark]; ok {
-		replace("CARGO_BUILD_JOBS", count, ours, cargo)
-		delete(vars, oldCargoMark)
-	} else {
-		replace("CARGO_BUILD_JOBS", count, ours)
+	if flags, p, ok := goFlags(vars["GOFLAGS"], owned["GOFLAGS"], n); ok {
+		set("GOFLAGS", flags)
+		mark = append(mark, "GOFLAGS="+p)
 	}
-	for _, k := range []string{"TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency"} {
-		replace(k, strconv.Itoa(max(n/2, 1)), ourHalf)
-	}
-	replace("MAKEFLAGS", "-j"+count, "-j"+ours)
-	var flags []string
-	hasP := false
-	for _, w := range strings.Fields(vars["GOFLAGS"]) {
-		if hadOurs && w == "-p="+ours {
-			continue
-		}
-		hasP = hasP || strings.HasPrefix(w, "-p=")
-		flags = append(flags, w)
-	}
-	if !hasP {
-		flags = append(flags, "-p="+count)
-	}
-	set("GOFLAGS", strings.Join(flags, " "))
-	set(workersMark, count)
+	set(workersMark, strings.Join(mark, " "))
+	delete(vars, oldMark)
+	delete(vars, oldCargoMark)
 	out := make([]string, 0, len(order))
 	for _, k := range order {
 		if v, ok := vars[k]; ok {
@@ -126,4 +132,70 @@ func WorkerEnv(env []string, n int) []string {
 		}
 	}
 	return out
+}
+
+// oldOwned is what an earlier release's shell set, from its marks: every
+// count from oldMark's number, and CARGO_BUILD_JOBS from oldCargoMark when it
+// capped it. Nothing when there is no oldMark.
+func oldOwned(vars map[string]string) map[string]string {
+	c, err := strconv.Atoi(vars[oldMark])
+	if err != nil || c <= 0 {
+		return nil
+	}
+	owned := map[string]string{"GOFLAGS": "-p=" + strconv.Itoa(c)}
+	for _, kv := range workerVars(c) {
+		owned[kv[0]] = kv[1]
+	}
+	if cargo := vars[oldCargoMark]; cargo != "" && vars["CARGO_BUILD_JOBS"] == cargo {
+		owned["CARGO_BUILD_JOBS"] = cargo
+	}
+	return owned
+}
+
+// goFlags is GOFLAGS with -p=n, and the flag it added, unless it holds a -p
+// of somebody else's: then ok is false and it stays as it is. ours is the -p
+// flag AgentBox added before, taken out first. The rest is left exactly as
+// it was, spaces and quotes included: Go reads quoted values in it.
+func goFlags(flags, ours string, n int) (out, p string, ok bool) {
+	if ours != "" {
+		flags = withoutWord(flags, ours)
+	}
+	for _, w := range strings.Fields(flags) {
+		// -p=1, --p=1, and either quoted.
+		w = strings.TrimLeft(w, `'"`)
+		if strings.HasPrefix(w, "-p=") || strings.HasPrefix(w, "--p=") {
+			return "", "", false
+		}
+	}
+	p = "-p=" + strconv.Itoa(n)
+	if strings.TrimSpace(flags) == "" {
+		return p, p, true
+	}
+	return strings.TrimRight(flags, " ") + " " + p, p, true
+}
+
+// withoutWord is s without the first occurrence of w as a whole
+// space-separated word, and the space before it (or after it, when it comes
+// first); the rest stays exactly as it was.
+func withoutWord(s, w string) string {
+	for i := 0; i+len(w) <= len(s); {
+		j := strings.Index(s[i:], w)
+		if j < 0 {
+			break
+		}
+		at := i + j
+		end := at + len(w)
+		if (at == 0 || s[at-1] == ' ') && (end == len(s) || s[end] == ' ') {
+			switch {
+			case at > 0:
+				return s[:at-1] + s[end:]
+			case end < len(s):
+				return s[end+1:]
+			default:
+				return ""
+			}
+		}
+		i = at + 1
+	}
+	return s
 }

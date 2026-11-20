@@ -56,7 +56,8 @@ func TestWorkerEnv(t *testing.T) {
 	for k, want := range map[string]string{
 		"GOMAXPROCS": "8", "VITEST_MAX_WORKERS": "8", "CARGO_BUILD_JOBS": "8", "MAKEFLAGS": "-j8",
 		"GOFLAGS": "-mod=mod -p=8", "TURBO_CONCURRENCY": "4", "NX_PARALLEL": "4",
-		"npm_config_workspace_concurrency": "4", "AGENTBOX_CPUS": "8", "HOME": "/h",
+		"npm_config_workspace_concurrency": "4", "HOME": "/h",
+		"AGENTBOX_WORKERS": "GOMAXPROCS=8 VITEST_MAX_WORKERS=8 CARGO_BUILD_JOBS=8 TURBO_CONCURRENCY=4 NX_PARALLEL=4 npm_config_workspace_concurrency=4 MAKEFLAGS=-j8 GOFLAGS=-p=8",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
@@ -75,8 +76,34 @@ func TestWorkerEnv(t *testing.T) {
 		}
 	}
 
+	// A heavy command started inside one replaces what the outer one set,
+	// but not a count somebody set to the very number it was given.
+	outer := WorkerEnv([]string{"GOMAXPROCS=4", "GOFLAGS=-mod=mod"}, 4)
+	got = envMap(WorkerEnv(outer, 2))
+	for k, want := range map[string]string{"GOMAXPROCS": "4", "VITEST_MAX_WORKERS": "2", "MAKEFLAGS": "-j2", "GOFLAGS": "-mod=mod -p=2"} {
+		if got[k] != want {
+			t.Errorf("nested: %s = %q, want %q", k, got[k], want)
+		}
+	}
+
+	// GOFLAGS is left exactly as it was but for the -p it adds, quoted
+	// values' spaces included; a -p in any form Go reads is somebody's.
+	quoted := `'-modfile=/tmp/team  build/go.mod'  -mod=mod`
+	got = envMap(WorkerEnv([]string{"GOFLAGS=" + quoted}, 6))
+	if want := quoted + " -p=6"; got["GOFLAGS"] != want {
+		t.Errorf("quoted: GOFLAGS = %q, want %q", got["GOFLAGS"], want)
+	}
+	if got = envMap(WorkerEnv([]string{"GOFLAGS=" + got["GOFLAGS"]}, 6)); got["GOFLAGS"] != quoted+" -p=6" {
+		t.Errorf("quoted, without the mark: GOFLAGS = %q", got["GOFLAGS"])
+	}
+	for _, p := range []string{"--p=1", "'-p=1'", `"--p=1"`, "-mod=mod -p=1"} {
+		if got := envMap(WorkerEnv([]string{"GOFLAGS=" + p}, 8)); got["GOFLAGS"] != p {
+			t.Errorf("GOFLAGS=%s became %q", p, got["GOFLAGS"])
+		}
+	}
+
 	// An earlier release's shell set the counts from its share, cargo's
-	// capped by memory: replaced, and its cargo mark goes.
+	// capped by memory: replaced, and its marks go.
 	old := []string{
 		"AGENTBOX_CPUS=2", "GOMAXPROCS=2", "VITEST_MAX_WORKERS=2", "CARGO_BUILD_JOBS=1", "AGENTBOX_CARGO_JOBS=1",
 		"MAKEFLAGS=-j2", "GOFLAGS=-mod=mod -p=2", "TURBO_CONCURRENCY=1",
@@ -85,14 +112,21 @@ func TestWorkerEnv(t *testing.T) {
 	got = envMap(again)
 	for k, want := range map[string]string{
 		"GOMAXPROCS": "10", "VITEST_MAX_WORKERS": "10", "CARGO_BUILD_JOBS": "10", "MAKEFLAGS": "-j10",
-		"GOFLAGS": "-mod=mod -p=10", "TURBO_CONCURRENCY": "5", "AGENTBOX_CPUS": "10",
+		"GOFLAGS": "-mod=mod -p=10", "TURBO_CONCURRENCY": "5",
 	} {
 		if got[k] != want {
 			t.Errorf("an earlier release's: %s = %q, want %q", k, got[k], want)
 		}
 	}
-	if _, ok := got["AGENTBOX_CARGO_JOBS"]; ok {
-		t.Error("AGENTBOX_CARGO_JOBS stayed")
+	for _, k := range []string{"AGENTBOX_CPUS", "AGENTBOX_CARGO_JOBS"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s stayed", k)
+		}
+	}
+	// What it set then that somebody else would have set too stays theirs.
+	got = envMap(WorkerEnv([]string{"AGENTBOX_CPUS=2", "GOMAXPROCS=3", "CARGO_BUILD_JOBS=1"}, 10))
+	if got["GOMAXPROCS"] != "3" || got["CARGO_BUILD_JOBS"] != "1" {
+		t.Errorf("an earlier release's, unmarked: GOMAXPROCS = %q, CARGO_BUILD_JOBS = %q; want 3 and 1", got["GOMAXPROCS"], got["CARGO_BUILD_JOBS"])
 	}
 	if n := len(slices.DeleteFunc(slices.Clone(again), func(kv string) bool { return !strings.HasPrefix(kv, "GOFLAGS=") })); n != 1 {
 		t.Errorf("GOFLAGS set %d times", n)

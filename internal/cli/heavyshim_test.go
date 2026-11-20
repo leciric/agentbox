@@ -89,8 +89,10 @@ func TestHeavyShimRunsALightCommandAsItIs(t *testing.T) {
 // daemon that answers none (one before 20 Nov 2026) leaves them as they are.
 func TestHeavyCommandRunsWithWorkerCounts(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
-	t.Setenv("AGENTBOX_CPUS", "") // restored after; unset meanwhile
-	_ = os.Unsetenv("AGENTBOX_CPUS")
+	for _, k := range []string{"AGENTBOX_WORKERS", "AGENTBOX_CPUS"} {
+		t.Setenv(k, "") // restored after; unset meanwhile
+		_ = os.Unsetenv(k)
+	}
 	out := filepath.Join(t.TempDir(), "env")
 	for _, tc := range []struct {
 		workers int

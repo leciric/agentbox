@@ -83,7 +83,7 @@ func TestShellsSetNoWorkerCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	counts := []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "MAKEFLAGS", "GOFLAGS", "TURBO_CONCURRENCY", "AGENTBOX_CPUS", "nproc"}
+	counts := []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "MAKEFLAGS", "GOFLAGS", "TURBO_CONCURRENCY", "AGENTBOX_CPUS", "AGENTBOX_WORKERS", "nproc"}
 	setsCounts := func(text string) string {
 		for _, c := range counts {
 			if strings.Contains(text, c) {
