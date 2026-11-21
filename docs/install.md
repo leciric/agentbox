@@ -124,7 +124,11 @@ computer has less than that free or stalls for memory. When your computer is wha
 from growing, the top bar's machine status says so, with how much the agents need. The top bar's **Free resources** stops
 every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap (in GiB,
 or as a share of your computer's memory), as does `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
-shared with the VM at the same path, so projects and agents' worktrees stay where they are.
+shared with the VM at the same path, so projects stay where they are. Each agent's worktree is
+on the VM's own disk, where builds and installs don't go through the share: its commits and
+branch are in your project's repository as soon as it makes them, and **Open in** opens the
+worktree in your editor, inside the agent's machine. Agents made by an earlier release keep theirs in your
+home.
 `agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
 the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
 30–50 seconds rather than 20–25; GPUs aren't available in the VM.
@@ -289,7 +293,8 @@ the VM is made with Apple's Virtualization framework: no GPU, and it keeps whate
 used until it stops. A VM keeps the kind it was made with: to switch an existing one, Settings →
 **GPU for agents** offers to install krunkit and remake the VM, or `agentbox vm krunkit --remake
 --yes`. Either removes every agent's machine, the base image and AgentBox's projects and agents
-(your worktrees stay on your disk: push what you want to keep first).
+(agents' commits stay on their branches in your projects, but their worktrees on the VM's disk
+go with it: commit or push what you want to keep first).
 
 A krunkit VM also has a **GPU for agents**: Vulkan, run on your Mac's GPU through Metal, and
 OpenGL on top of it. Turning on "GPU for agents" in Settings readies it, building a Vulkan driver

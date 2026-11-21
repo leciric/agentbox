@@ -2,6 +2,7 @@ package paths
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -104,6 +105,46 @@ func TestWorktrees(t *testing.T) {
 	t.Setenv("AGENTBOX_WORKTREES", "relative/path")
 	if got := p.Worktrees(); got != "/home/alice/.local/share/agentbox/worktrees" {
 		t.Errorf("a relative AGENTBOX_WORKTREES was used: %s", got)
+	}
+}
+
+// In a VM new worktrees are on the VM's disk, where the daemon found the
+// directory really is, and earlier agents' stay on the share, each trash
+// beside its own worktrees.
+func TestSharedWorktrees(t *testing.T) {
+	p := Paths{Data: "/home/alice.linux/.local/share/agentbox"}
+	t.Setenv("AGENTBOX_WORKTREES", "")
+	t.Setenv(SharedWorktreesEnv, "")
+	if got := p.SharedWorktrees(); got != "" {
+		t.Errorf("outside a VM: SharedWorktrees = %q, want none", got)
+	}
+	if trash, dirs := p.WorktreeTrashes(); len(trash) != 1 || trash[0] != "/home/alice.linux/.local/share/agentbox/worktrees-trash" || dirs[0] != p.Worktrees() {
+		t.Errorf("outside a VM: WorktreeTrashes = %q, %q", trash, dirs)
+	}
+
+	t.Setenv(SharedWorktreesEnv, "/home/alice/.local/share/agentbox/worktrees/")
+	p.WorktreesDir = "/var/lib/agentbox/worktrees"
+	if got, want := p.Worktree("app", "agent-01"), "/var/lib/agentbox/worktrees/app/agent-01"; got != want {
+		t.Errorf("Worktree = %s, want %s", got, want)
+	}
+	if got, want := p.SharedWorktree("app", "agent-01"), "/home/alice/.local/share/agentbox/worktrees/app/agent-01"; got != want {
+		t.Errorf("SharedWorktree = %s, want %s", got, want)
+	}
+	trash, dirs := p.WorktreeTrashes()
+	wantTrash := []string{"/var/lib/agentbox/worktrees-trash", "/home/alice/.local/share/agentbox/worktrees-trash"}
+	wantDirs := []string{"/var/lib/agentbox/worktrees", "/home/alice/.local/share/agentbox/worktrees"}
+	if !slices.Equal(trash, wantTrash) || !slices.Equal(dirs, wantDirs) {
+		t.Errorf("WorktreeTrashes = %q, %q; want %q, %q", trash, dirs, wantTrash, wantDirs)
+	}
+
+	// The same directory isn't two.
+	t.Setenv(SharedWorktreesEnv, "/var/lib/agentbox/worktrees")
+	if got := p.SharedWorktrees(); got != "" {
+		t.Errorf("SharedWorktrees = %q when it's Worktrees", got)
+	}
+	t.Setenv(SharedWorktreesEnv, "relative")
+	if got := p.SharedWorktree("app", "agent-01"); got != "" {
+		t.Errorf("a relative %s was used: %q", SharedWorktreesEnv, got)
 	}
 }
 

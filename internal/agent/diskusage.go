@@ -80,7 +80,8 @@ func (m *Manager) DiskUsage(ctx context.Context, extra ...DiskUsageCategory) (Di
 
 	worktrees := DiskUsageCategory{Kind: api.DiskWorktrees, Label: "Worktrees"}
 	for _, a := range agents {
-		if a.Worktree == "" || m.shareBusy() {
+		// One on the share waits for a moment it has room to walk it.
+		if a.Worktree == "" || m.shareBusy() && m.onShare(a.Worktree) {
 			continue
 		}
 		if size, err := dirSize(a.Worktree); err == nil {
@@ -142,7 +143,7 @@ func (m *Manager) MachineDisk(ctx context.Context, a state.Agent) (int64, error)
 }
 
 // AgentDisk measures one agent: its machine's root disk, the bytes its
-// container's volume uses on the pool, and its worktree on the host. It is the
+// container's volume uses on the pool, and its worktree. It is the
 // per-agent slice of DiskUsage and as cheap as that is for one agent, one
 // Incus query and one walk of one worktree, which the daemon caches rather
 // than repeating on every hover.
@@ -151,7 +152,7 @@ func (m *Manager) AgentDisk(ctx context.Context, a state.Agent) AgentDisk {
 	d.Machine, d.MachineErr = m.Incus.VolumeUsage(ctx, pool, a.Instance)
 	if a.Worktree == "" {
 		d.WorktreeErr = errors.New(a.Ref() + " has no worktree")
-	} else if m.shareBusy() {
+	} else if m.shareBusy() && m.onShare(a.Worktree) {
 		d.WorktreeErr = errShareBusy
 	} else {
 		d.Worktree, d.WorktreeErr = dirSize(a.Worktree)

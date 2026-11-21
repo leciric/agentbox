@@ -48,8 +48,11 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   for root, inside agents, and with `AGENTBOX_FRONT_END=host` (CI); `hostvm.Front` decides.
 - **Mac** (D92): Lima, with krunkit when installed (gives memory back) and vz otherwise
   (`internal/hostvm/krunkit.go`). The socket is forwarded to its usual path, the Mac's home is shared
-  at the same path, and worktrees go there (`AGENTBOX_WORKTREES`). Android is off.
+  at the same path, and media goes there (`AGENTBOX_MEDIA`). Android is off.
   `AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu` tests the front end on Linux.
+- **Worktrees in a VM** (Cloud Hypervisor, Lima, vz) are on the VM's own disk, still linked to the project's
+  repository on the host (`internal/agent/worktrees.go`); agents made before that, and an iOS
+  project's on a Mac, keep theirs on the share (`paths.SharedWorktrees`).
 
 - **Windows** (D94): `agentbox.exe` (`cmd/agentbox/main_windows.go`, `internal/hostwsl`) runs
   everything in a WSL 2 distro of AgentBox's own, and relays the apps to its daemon over a named

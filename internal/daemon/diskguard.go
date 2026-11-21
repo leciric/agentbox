@@ -360,8 +360,13 @@ func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 			data.advice = adviceSystemDiskMove
 		}
 	}
+	// New agents' worktrees: in a VM, on the agents' disk with the data moved
+	// there. Earlier agents' stay on the share, the computer's own disk.
+	dirs = append(dirs, dir{"worktrees", s.cfg.Paths.Worktrees(), adviceAgents})
+	if shared := s.cfg.Paths.SharedWorktrees(); shared != "" {
+		dirs = append(dirs, dir{"worktrees", shared, adviceAgents})
+	}
 	dirs = append(dirs,
-		dir{"worktrees", s.cfg.Paths.Worktrees(), adviceAgents},
 		dir{"media", s.cfg.Paths.Media(), adviceMedia},
 		data,
 		// Wherever they are: with the data, or on the agents' disk.

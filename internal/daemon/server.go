@@ -210,10 +210,10 @@ type Server struct {
 	// (emptyWorktreeTrash).
 	worktreeTrash chan struct{}
 	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
-	// and sharedWorktrees whether worktrees are in a shared folder, found once.
-	nodeModules         *nodemods.Store
-	sharedWorktreesOnce sync.Once
-	sharedWorktrees     bool
+	// and sharedWorktrees whether each worktrees directory is in a shared
+	// folder, found once a directory.
+	nodeModules     *nodemods.Store
+	sharedWorktrees sync.Map // directory: bool
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -673,6 +673,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) serve(ctx context.Context, socket string) error {
 	moved := s.moveDataToPool(ctx)
 	s.placeNodeModules()
+	s.placeWorktrees()
 	defer s.startTracing()()
 	if limit := setMemoryLimit(); limit < math.MaxInt64 {
 		s.logf("soft memory limit %d MiB (GOMEMLIMIT sets another)", limit>>20)

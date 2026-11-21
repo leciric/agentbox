@@ -40,7 +40,7 @@ func TestCargoTargetGoesOnTheVMsDisk(t *testing.T) {
 	f, calls := packageCacheFixture(t, `{}`)
 	store := &nodemods.Store{Dir: t.TempDir()}
 	f.m.NodeModules = store
-	f.m.NodeModulesOn = func(context.Context) bool { return true }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return true }
 	a := state.Agent{Project: "p", Name: "agent-1", Instance: "ab-p-agent-1", Worktree: cargoWorktree(t, false)}
 	f.m.EnsureBuildOutputs(context.Background(), a)
 	got := strings.Join(calls(), "\n")
@@ -67,7 +67,7 @@ func TestCargoTargetGoesOnTheVMsDisk(t *testing.T) {
 func TestCargoTargetKeptInTheWorktreeWhenThereOrOff(t *testing.T) {
 	f, calls := packageCacheFixture(t, `{}`)
 	f.m.NodeModules = &nodemods.Store{Dir: t.TempDir()}
-	f.m.NodeModulesOn = func(context.Context) bool { return true }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return true }
 	f.m.EnsureBuildOutputs(context.Background(), state.Agent{Instance: "ab-p-agent-1", Worktree: cargoWorktree(t, true)})
 	if got := strings.Join(calls(), "\n"); strings.Contains(got, "config device add") {
 		t.Errorf("mounted over a target/ the worktree has:\n%s", got)
@@ -75,7 +75,7 @@ func TestCargoTargetKeptInTheWorktreeWhenThereOrOff(t *testing.T) {
 
 	f, calls = packageCacheFixture(t, `{"build-output-0": {"type": "disk", "source": "/vm/x", "path": "/w/target"}}`)
 	f.m.NodeModules = &nodemods.Store{Dir: t.TempDir()}
-	f.m.NodeModulesOn = func(context.Context) bool { return false }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return false }
 	f.m.EnsureBuildOutputs(context.Background(), state.Agent{Instance: "ab-p-agent-1", Worktree: cargoWorktree(t, false)})
 	if got := strings.Join(calls(), "\n"); !strings.Contains(got, "config device remove ab-p-agent-1 build-output-0") {
 		t.Errorf("the device wasn't removed:\n%s", got)
@@ -102,7 +102,7 @@ exit 0`)
 	f := setup(t, inc)
 	store := &nodemods.Store{Dir: t.TempDir()}
 	f.m.NodeModules = store
-	f.m.NodeModulesOn = func(context.Context) bool { return true }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return true }
 	a := destroyFixture(t, f)
 	a.Worktree = cargoWorktree(t, false)
 	if _, err := f.m.Start(context.Background(), a); err != nil {
