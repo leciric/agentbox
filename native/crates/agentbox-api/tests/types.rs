@@ -35,3 +35,27 @@ fn omitempty_fields_are_left_out() {
     .unwrap();
     assert_eq!(body, serde_json::json!({"text": "hi"}));
 }
+
+#[test]
+fn reads_what_agents_have_running() {
+    // Written by Go's encoding/json from api.ProcessList: a tree without its
+    // members and an agent that couldn't be read are null.
+    let l: ProcessList = serde_json::from_str(include_str!("testdata/processes.json")).unwrap();
+    assert_eq!(l.agents.len(), 2);
+    let a = &l.agents[0];
+    assert_eq!(
+        (a.r#ref.as_str(), a.running, a.processes),
+        ("demo/agent-2", true, 9)
+    );
+    let build = &a.trees[0];
+    assert_eq!(build.kind, PROCESS_TREE_AGENT);
+    assert!(build.heavy && !build.protected && build.members.len() == 1);
+    let tool = &a.trees[1];
+    assert!(tool.protected && tool.members.is_empty());
+    assert!(l.agents[1].trees.is_empty() && !l.agents[1].error.is_empty());
+    let k: KillProcessResult = serde_json::from_str(
+        r#"{"ref":"demo/agent-2","pid":9021,"label":"cargo build","processes":3,"memory":2317352960,"forced":1,"left":0}"#,
+    )
+    .unwrap();
+    assert_eq!((k.pid, k.forced, k.left), (9021, 1, 0));
+}

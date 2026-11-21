@@ -411,6 +411,9 @@ gpui_kit_assets::icon_assets!(
         LoaderCircle,
         LocateFixed,
         Lock,
+        // The Running view's (running.rs).
+        ListTree,
+        Skull,
         LogOut,
         Maximize,
         Maximize2,
