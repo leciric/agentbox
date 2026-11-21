@@ -106,6 +106,9 @@ pub fn fleet_extras(a: &mut FleetAgent, root: &Path, i: usize) {
         };
     }
     a.ip = format!("10.8.8.{}", 11 + i);
+    // Its Incus instance, as the daemon names it (agent.InstanceName): what
+    // ssh reaches its machine by (agentbox ssh-proxy).
+    a.instance = format!("ab-{}-{}", a.project, a.name);
     a.worktree = root.to_string_lossy().into_owned();
     a.github_account = "leciric".into();
     a.claude_account = "default".into();

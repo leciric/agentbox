@@ -73,6 +73,17 @@ pub fn group_idle() -> bool {
     get_bool(GROUP_IDLE, false)
 }
 
+/// EDITOR is the code editor an agent's "Open in …" opens its worktree in
+/// (crate::editors): an editor's ID, or none for the first found, as the
+/// Electron app keeps it (lib/editor.ts).
+pub const EDITOR: &str = "editor";
+
+pub fn editor() -> String {
+    get(EDITOR)
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default()
+}
+
 /// The notices, by kind, and how each is given (lib/notifyPrefs.ts): a
 /// system notification and a sound, every one on by default.
 pub const NOTIFY_KINDS: [&str; 4] = ["review", "question", "error", "session"];

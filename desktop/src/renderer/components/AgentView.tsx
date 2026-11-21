@@ -4,9 +4,9 @@ import {
   Box,
   Camera,
   CircleX,
+  CodeXml,
   Copy,
   Ellipsis,
-  FolderOpen,
   ChevronDown,
   GitBranch,
   GitPullRequest,
@@ -31,6 +31,7 @@ import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentAc
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, isLeadName, type AgentAction } from '../lib/api';
 import { composeIn } from '../lib/drafts';
+import { openInEditor, useEditor } from '../lib/editor';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
@@ -109,6 +110,8 @@ export function AgentView({
   const snapshots = useQuery({ queryKey: ['snapshots', agentRef], queryFn: () => api.snapshots(agentRef), enabled: !!agent });
   // Its pull request, the one its review card and its row in the panel name too.
   const pr = useAgentPr({ ref: agentRef, project: refProject });
+  // The code editor its worktree opens in (lib/editor.ts), when one is found.
+  const editor = useEditor();
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -202,9 +205,11 @@ export function AgentView({
           {t(agent.goal && agent.goal.status === 'active' ? 'goal.menu.edit' : 'goal.menu.set')}
         </MenuItem>
       )}
-      <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
-        {t('agent.view.openWorktree')}
-      </MenuItem>
+      {editor && (
+        <MenuItem icon={CodeXml} onSelect={() => void openInEditor(editor, agent)} data-agent-menu-editor>
+          {t('agent.view.openInEditor', { editor: editor.name })}
+        </MenuItem>
+      )}
       <MenuItem icon={Settings} onSelect={() => onTab('machine')}>
         {t('agent.tab.settings')}
       </MenuItem>
@@ -285,6 +290,19 @@ export function AgentView({
             </Button>
           )}
           {active === 'chat' && chatMenu?.buttons}
+          {editor && (
+            <Tip label={t('agent.view.openInEditor', { editor: editor.name })}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t('agent.view.openInEditor', { editor: editor.name })}
+                onClick={() => void openInEditor(editor, agent)}
+                data-agent-open-editor
+              >
+                <CodeXml />
+              </Button>
+            </Tip>
+          )}
           <Menu>
             <MenuTrigger asChild>
               <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>

@@ -18,6 +18,7 @@ mod dates;
 #[cfg(feature = "video")]
 mod device;
 mod diff;
+mod editors;
 mod files;
 mod highlight;
 mod hostpower;

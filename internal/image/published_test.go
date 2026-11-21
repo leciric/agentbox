@@ -533,16 +533,13 @@ func TestBuildForPublishing(t *testing.T) {
 	if err := json.Unmarshal([]byte(read(manifestName)), &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.Version != image.Version || p.Commit != "abc123" || p.Zstd == nil {
+	// Compressed with zstd alone: the gzipped image beside it, for AgentBox
+	// releases from before zstd, stopped after gzipUntil's version.
+	if p.Version != image.Version || p.Commit != "abc123" || p.Zstd != nil {
 		t.Fatalf("image.json = %+v", p)
 	}
-	// The gzipped archive where AgentBox releases before zstd read it, and
-	// the zstd one beside it.
-	if p.File != gzName || p.Size != int64(gz.Len()) || len(p.Parts) != (gz.Len()+3)/4 {
-		t.Errorf("image.json's gzipped archive = %+v", p.Archive)
-	}
-	if p.Zstd.File != zstdName {
-		t.Errorf("image.json's zstd archive = %+v", p.Zstd)
+	if p.File != zstdName {
+		t.Errorf("image.json's archive = %+v", p.Archive)
 	}
 	for _, spec := range p.Tools {
 		for _, name := range []string{"claude@", "npm:@agentclientprotocol/claude-agent-acp@", "npm:@cursor/sdk@"} {
@@ -557,8 +554,7 @@ func TestBuildForPublishing(t *testing.T) {
 	if !strings.Contains(read("SOURCES-"+runtime.GOARCH+".md"), "https://snapshot.debian.org/package/glibc/2.41-12/") {
 		t.Errorf("SOURCES.md:\n%s", read("SOURCES-"+runtime.GOARCH+".md"))
 	}
-	// Each archive in parts of four bytes, which join into it: the gzipped
-	// one as Incus exported it, the zstd one the same image.
+	// The archive in parts of four bytes, which join into the image.
 	joined := func(a image.Archive) []byte {
 		var out []byte
 		for i, part := range a.Parts {
@@ -573,21 +569,18 @@ func TestBuildForPublishing(t *testing.T) {
 		}
 		return out
 	}
-	if got := joined(p.Archive); !bytes.Equal(got, gz.Bytes()) {
-		t.Errorf("the gzipped archive's parts join into %q", got)
-	}
 	dec, err := zstd.NewReader(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dec.Close()
-	if got, err := dec.DecodeAll(joined(*p.Zstd), nil); err != nil || string(got) != "the image" {
+	if got, err := dec.DecodeAll(joined(p.Archive), nil); err != nil || string(got) != "the image" {
 		t.Errorf("the zstd archive unpacks into %q, %v", got, err)
 	}
 	// SHA256SUMS covers the parts and what goes with them, in sha256sum's format.
 	sums := read("SHA256SUMS")
 	names := []string{manifestName, "packages-" + runtime.GOARCH + ".txt", "SOURCES-" + runtime.GOARCH + ".md"}
-	for _, part := range append(slices.Clone(p.Parts), p.Zstd.Parts...) {
+	for _, part := range p.Parts {
 		names = append(names, part.File)
 	}
 	for _, name := range names {

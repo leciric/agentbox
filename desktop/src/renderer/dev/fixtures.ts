@@ -2880,6 +2880,13 @@ export function installDevBridge(): void {
     saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
     showShare: async () => {},
     showItem: async () => {},
+    editors: {
+      list: async () => [
+        { id: 'vscode', name: 'VS Code' },
+        { id: 'zed', name: 'Zed' },
+      ],
+      open: async () => ({ name: 'VS Code' }),
+    },
     openExternal: async () => {},
     notify: async () => false,
     hostPower: async () => ({ onBattery: false }),

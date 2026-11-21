@@ -50,6 +50,7 @@ import { ErrorReportSender, outcome, ReportQueue } from './reportqueue';
 import type * as T from '../shared/api';
 import { denyMedia } from './permissions';
 import { keepWindowState, windowOptions } from './windowstate';
+import { listEditors, openInEditor } from './editors';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import type { HubInfo, HubPairing, HubPairRequest, HubPairResult, HubSession } from '../shared/api';
@@ -419,6 +420,13 @@ ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChat
 ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
 ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
+// An agent's worktree in a code editor on this computer, inside the agent's
+// machine over SSH (main/editors.ts): only the editors found here, by ID, at
+// a URL or with a command made there from the agent's instance and path.
+ipcMain.handle('editors:list', () => listEditors());
+ipcMain.handle('editors:open', (_event, id: string, instance: string, worktree: string) =>
+  openInEditor(String(id), String(instance), String(worktree), agentboxBin(), (url) => shell.openExternal(url)),
+);
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);

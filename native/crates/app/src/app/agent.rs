@@ -157,6 +157,37 @@ impl AgentPage {
 }
 
 /// split is a ref's project and name.
+/// open_in_editor opens an agent's worktree, inside its machine over SSH,
+/// in the code editor here (crate::editors), saying so when it can't. The
+/// agent may be stopped: connecting to its machine starts it (agentbox
+/// ssh-proxy).
+fn open_in_editor(instance: &str, worktree: &str, cx: &mut App) {
+    use crate::editors::{Failed, Target};
+    let cli = super::connection::agentbox_cli();
+    let failed = match crate::editors::target(cli.as_deref(), instance, worktree) {
+        Ok((_, Target::Url(url))) => {
+            cx.open_url(&url);
+            return;
+        }
+        Ok((name, Target::Command(command, args))) => {
+            match crate::editors::launch(name, &command, &args) {
+                Ok(()) => return,
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    };
+    let (title, detail) = match failed {
+        Failed::None => (t("editor.open.none"), String::new()),
+        Failed::Ssh(why) => (t("editor.open.ssh"), why),
+        Failed::Start(name, e) => (
+            tv("editor.open.failed", &[("editor", name.into())]),
+            e.to_string(),
+        ),
+    };
+    Toast::new(Kind::Error, title).description(detail).show(cx);
+}
+
 pub fn split(r#ref: &str) -> (String, String) {
     let (p, a) = r#ref.split_once('/').unwrap_or((r#ref, ""));
     (p.to_string(), a.to_string())
@@ -408,6 +439,18 @@ impl AppView {
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 );
             }
+            // Its worktree in the code editor here (crate::editors), when one is found.
+            if let Some(editor) = crate::editors::chosen() {
+                let (inst, wt) = (a.instance.clone(), a.worktree.clone());
+                menu = menu.item(
+                    PopupMenuItem::new(tv(
+                        "agent.view.openInEditor",
+                        &[("editor", editor.name.into())],
+                    ))
+                    .icon(crate::icons::ic("code-xml"))
+                    .on_click(move |_, _, cx| open_in_editor(&inst, &wt, cx)),
+                );
+            }
             menu = menu.separator();
             for action in actions.iter().copied().filter(|x| *x != Action::Stop) {
                 if header && action.primary() {
@@ -442,12 +485,6 @@ impl AppView {
                         Rc::new(move |this, w, cx| this.start_agent_rename(r.clone(), w, cx)),
                     )
                     .icon(crate::icons::ic("pencil")),
-                );
-                let wt = a.worktree.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(t("agent.view.openWorktree"))
-                        .icon(crate::icons::ic("folder-open"))
-                        .on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&wt))),
                 );
                 menu = menu.item(
                     item(
@@ -1154,6 +1191,22 @@ impl AppView {
                 .tooltip(move |w, cx| Tooltip::new(branch_tip.clone()).build(w, cx))
                 .into_any_element(),
         };
+        // Open in its code editor (crate::editors), when one is found: a
+        // ghost icon button like the ⋯.
+        let editor_button = crate::editors::chosen().map(|editor| {
+            let tip: SharedString =
+                tv("agent.view.openInEditor", &[("editor", editor.name.into())]).into();
+            let (inst, wt) = (a.instance.clone(), a.worktree.clone());
+            Button::new("agent-open-editor")
+                .ghost()
+                .small()
+                .size_8()
+                .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+                .text_color(theme::muted())
+                .child(crate::icons::ic("code-xml").size(px(15.)))
+                .tooltip(tip)
+                .on_click(move |_, _, cx| open_in_editor(&inst, &wt, cx))
+        });
         let new_chat = div()
             .id("agent-new-chat")
             .flex_none()
@@ -1236,6 +1289,7 @@ impl AppView {
                             )
                         })
                         .child(new_chat)
+                        .when_some(editor_button, |el, b| el.child(b))
                         .child(menu)
                         .child(self.render_panel_button(cx)),
                 )

@@ -31,8 +31,10 @@ func main() {
 	// `agentbox snap` and `agentbox browser-cookies` are the user's machine's
 	// too, VM or not: the window they capture and the export they read are
 	// here. They reach the daemon in the VM through its socket, forwarded to
-	// its usual path, and never start one here.
-	if len(os.Args) > 1 && (os.Args[1] == "snap" || os.Args[1] == "browser-cookies") && hostvm.Front() {
+	// its usual path, and never start one here. So is `agentbox ssh-config`:
+	// the ssh config and key it writes are this machine's, for its ssh and
+	// editors, whose ProxyCommand (ssh-proxy) is then forwarded to the VM.
+	if len(os.Args) > 1 && (os.Args[1] == "snap" || os.Args[1] == "browser-cookies" || os.Args[1] == "ssh-config") && hostvm.Front() {
 		_ = os.Setenv("AGENTBOX_NO_AUTOSTART", "1")
 		os.Exit(cli.Execute())
 	}
