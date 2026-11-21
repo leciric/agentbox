@@ -1,0 +1,75 @@
+{
+  "agents": [
+    {
+      "ref": "demo/agent-2",
+      "project": "demo",
+      "name": "agent-2",
+      "title": "Native app: running processes",
+      "running": true,
+      "trees": [
+        {
+          "pid": 9021,
+          "label": "cargo build --release -p agentbox-native",
+          "command": "cargo build --release -p agentbox-native",
+          "kind": "agent",
+          "protected": false,
+          "processes": 3,
+          "memory": 2317352960,
+          "rss": 2516582400,
+          "pss": 2317352960,
+          "cpu": 186,
+          "cpuSeconds": 640,
+          "started": "2026-11-20T20:59:00Z",
+          "idleSeconds": 0,
+          "heavy": true,
+          "idle": false,
+          "members": [
+            {
+              "pid": 9021,
+              "ppid": 1,
+              "name": "cargo",
+              "command": "cargo build --release -p agentbox-native",
+              "memory": 100663296
+            }
+          ]
+        },
+        {
+          "pid": 312,
+          "label": "Claude Code",
+          "command": "node claude-agent-acp",
+          "kind": "tool",
+          "protected": true,
+          "processes": 6,
+          "memory": 503316480,
+          "rss": 545259520,
+          "pss": 0,
+          "cpu": 1.5,
+          "cpuSeconds": 0,
+          "started": "2026-11-20T18:05:00Z",
+          "idleSeconds": 0,
+          "heavy": false,
+          "idle": false,
+          "members": null
+        }
+      ],
+      "memory": 2820669440,
+      "killable": 2317352960,
+      "cpu": 187.5,
+      "processes": 9
+    },
+    {
+      "ref": "demo/agent-5",
+      "project": "demo",
+      "name": "agent-5",
+      "title": "",
+      "running": false,
+      "trees": null,
+      "memory": 0,
+      "killable": 0,
+      "cpu": 0,
+      "processes": 0,
+      "error": "agent-5: reading its processes: machine not answering"
+    }
+  ],
+  "at": "2026-11-20T21:05:00Z"
+}

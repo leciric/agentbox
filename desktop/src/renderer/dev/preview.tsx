@@ -179,6 +179,12 @@
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Settings → AI tool
+//   ?running=1              the Running view (components/RunningProcesses) open on
+//                           the project: what three agents still have running, from
+//                           dev/running.ts, agent-99 with a forgotten `nest start
+//                           --watch`; =all on every project. Kill answers as the
+//                           daemon would. With &app=agent-99&panel=resources:agent-99,
+//                           (=agent) the agent's own list in its Resources panel
 //   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
@@ -375,7 +381,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedRestartHold, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests, devRequests, seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedRestartHold, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -394,6 +400,8 @@ import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
 import { setUiOffice } from '../lib/uiOffice';
+import { openRunning } from '../lib/running';
+import { runningRequest, seedRunning } from './running';
 import { seedOffice, stubProjectChats } from './office';
 import { seedCockpit } from './cockpit';
 import { setGroupIdle } from '../lib/groupIdle';
@@ -439,6 +447,7 @@ const notify = params.get('notify'); // 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'all' every project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
+const running = params.get('running'); // '1' | 'all' | 'agent' | null (dev/running.ts)
 const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
@@ -970,6 +979,11 @@ if (macVZ) seedMacVZ(queryClient, macVZ);
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
+}
+if (running) {
+  seedRunning();
+  devRequests.push(runningRequest);
+  if (running !== 'agent') openRunning(running === 'all' ? undefined : PROJECT);
 }
 if (meters) {
   const GiB = 1024 ** 3;

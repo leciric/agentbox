@@ -69,6 +69,7 @@ impl AppView {
     /// load_resources reads the agent's history, keeping what was shown of
     /// it until the answer comes.
     pub(super) fn load_resources(&mut self, r#ref: String, cx: &mut Context<Self>) {
+        self.read_agent_processes(r#ref.clone(), cx);
         if self.resources.of != r#ref {
             self.resources.of = r#ref.clone();
             self.resources.history = None;
@@ -116,7 +117,7 @@ impl AppView {
         }
     }
 
-    pub(super) fn render_resources(&self, r: &str) -> AnyElement {
+    pub(super) fn render_resources(&self, r: &str, cx: &mut Context<Self>) -> AnyElement {
         let empty = AgentResourceHistory::default();
         let (h, failed) = match &self.resources.history {
             Some(Ok(h)) if self.resources.of == r => (h, false),
@@ -208,7 +209,9 @@ impl AppView {
                             .text_xs()
                             .text_color(theme::subtle())
                             .child(caption),
-                    ),
+                    )
+                    // What its machine still has running (running.rs).
+                    .child(self.render_agent_processes(r, cx)),
             )
             .into_any_element()
     }

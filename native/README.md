@@ -59,6 +59,11 @@ Its agents' Resources views sample made-up numbers every two seconds while the a
 asks for them (`GET /v1/presence` on the fake shows the leases it holds); the leases go on to the
 upstream daemon too.
 
+Its running agents, and its neighbours', have made-up process trees for the Running view
+(`GET /v1/processes`): the AI tool's and the machine's (protected), and a few of their own, a heavy
+build and an idle dev server among them. A kill takes a second, as SIGTERM's grace does, and the
+tree stays gone until the fake restarts.
+
 `--project` (demo), `--agents` (6), `--history` (400 messages per agent) and `--rate` (60 chunks a
 second) shape the fixtures. A message with "page" in it gets a tall ```html preview page streamed back
 (try `--rate 8` to watch it arrive). `--previews` ends every reply of the chats' history with a

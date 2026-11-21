@@ -762,6 +762,11 @@ export const api = {
   renewPresence: (req: T.PresenceRequest) => call<T.PresenceResponse>('PUT', '/v1/presence', req),
   endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
   agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
+  // What agents still have running (Running view): every agent with a running
+  // machine, in one project or all, or one agent; and killing a tree.
+  processes: (project?: string) => call<T.ProcessList>('GET', project ? `/v1/processes?project=${encodeURIComponent(project)}` : '/v1/processes'),
+  agentProcesses: (ref: string) => call<T.AgentProcesses>('GET', `${agent(ref)}/processes`),
+  killProcess: (ref: string, pid: number) => call<T.KillProcessResult>('POST', `${agent(ref)}/processes/${pid}/kill`),
   pressure: () => call<T.PressureStatus>('GET', '/v1/pressure'),
   runSlots: () => call<T.RunSlots>('GET', '/v1/run-slots'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now

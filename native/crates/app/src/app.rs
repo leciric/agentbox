@@ -41,6 +41,7 @@ mod resources;
 mod restart_hold;
 mod review;
 mod run_slots;
+mod running;
 mod schedules;
 mod search;
 mod sessions;
@@ -131,6 +132,9 @@ pub struct AppView {
     past: past::Past,
     /// The panel's Resources view of an agent (resources.rs).
     resources: resources::Resources,
+    /// What agents have running, its dialog and the Resources view's list
+    /// (running.rs).
+    running: running::Running,
     /// Home's Status tab (HomeView).
     home_status: home_status::HomeStatus,
     /// The window's presence lease (presence.rs).
@@ -201,6 +205,7 @@ impl AppView {
             || self.cockpit.open
             || self.first_run_open()
             || self.onboarding_open()
+            || self.running.open
     }
 
     /// first_run_open is whether the first run is the page.
@@ -255,6 +260,7 @@ impl AppView {
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
             resources: Default::default(),
+            running: Default::default(),
             home_status: Default::default(),
             presence: Default::default(),
             widths: width::Widths::load(),
@@ -1779,6 +1785,7 @@ impl Render for AppView {
             .children(self.render_session_changes(cx))
             .children(self.render_move_agents(cx))
             .children(self.render_search(cx))
+            .children(self.render_running(cx))
             .child(self.large.clone())
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
@@ -1790,7 +1797,9 @@ impl AppView {
     /// dismiss_top closes the one thing open over the page that Escape
     /// should close, the nearest first, and says whether there was one.
     fn dismiss_top(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.side.dialog.is_some() {
+        if self.running.open {
+            self.close_running(cx);
+        } else if self.side.dialog.is_some() {
             self.side.dialog = None;
         } else if self.topbar.pop.is_some() {
             self.topbar.pop = None;

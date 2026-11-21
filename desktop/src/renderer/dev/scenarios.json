@@ -3193,5 +3193,56 @@
     "query": "app=project&restarthold=1&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "running-dark",
+    "description": "The Running view open on the project from the top bar's machine popover: agent-99's forgotten `nest start --watch` first, 2.3 GiB, flagged heavy and idle for two hours, with Kill; the AI tool's and the machine's trees locked; small ones folded — dark",
+    "query": "running=1&app=project&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "running-light",
+    "description": "Same as running-dark, light",
+    "query": "running=1&app=project&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "running-confirm-dark",
+    "description": "Kill pressed on the dev server: the row asks in place to kill all 3 processes, with Kill and Cancel — dark",
+    "query": "running=1&app=project&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-kill='412']"
+  },
+  {
+    "id": "running-pt-BR-dark",
+    "description": "The Running view in Portuguese, whose words are longer — dark",
+    "query": "running=1&app=project&lang=pt-BR&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "running-narrow-dark",
+    "description": "The Running view in a 480-wide window: labels truncate, totals wrap under the agent's name — dark",
+    "query": "running=1&app=project&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "running-agent-panel-dark",
+    "description": "agent-99's Resources panel with its own Running list under the sparklines — dark",
+    "query": "running=agent&app=agent-99&panel=resources:agent-99&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "running-entry-dark",
+    "description": "The top bar's machine popover, the way in to the Running view: What's running, under the VM's checks — dark",
+    "query": "running=agent&app=project&theme=dark",
+    "width": 1280,
+    "height": 700,
+    "click": "[data-machine]"
   }
 ]

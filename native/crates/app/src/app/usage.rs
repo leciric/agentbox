@@ -804,6 +804,8 @@ impl AppView {
             });
         let connected = self.connected;
         let error = self.conn.error.clone();
+        // The Running view opens on the project open, or every one on Home.
+        let project = self.project.clone().filter(|_| !self.is_home());
         self.with_pop(
             "machine",
             trigger,
@@ -917,10 +919,36 @@ impl AppView {
                                 .child(t("shell.machine.memoryHint")),
                         )
                     })
+                    .when(connected, |el| el.child(running_link(project, cx)))
             },
             cx,
         )
     }
+}
+
+/// running_link is the popover's way to the Running view (MachineStatus.tsx
+/// RunningButton): what the agents still have running, to kill what they
+/// left behind. The popover closes as the dialog opens.
+fn running_link(project: Option<String>, cx: &mut Context<AppView>) -> AnyElement {
+    let tip: SharedString = t("running.openTip").into();
+    h_flex()
+        .id("open-running")
+        .self_start()
+        .gap_1p5()
+        .rounded_md()
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::brand(400))
+        .cursor_pointer()
+        .hover(|s| s.underline())
+        .tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.topbar.pop = None;
+            this.open_running(project.clone(), cx);
+        }))
+        .child(crate::icons::ic("list-tree").size(px(14.)))
+        .child(t("running.open"))
+        .into_any_element()
 }
 
 /// limit_row is LimitRow: a window's share as a bar, and when it resets.

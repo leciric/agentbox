@@ -144,6 +144,12 @@ type Server struct {
 	agentSamples *agentSampler // watched agents' live resources (agentresources.go)
 	issues       issuesCache   // projects' open GitHub issues (issues.go)
 	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
+
+	// processes reads what agents have running, and kills it (processes.go);
+	// processTell tells an agent the user killed one of its processes:
+	// tellUnlessRetired, or a test's recorder.
+	processes   *processSampler
+	processTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
@@ -524,6 +530,7 @@ func New(cfg Config) (*Server, error) {
 		prWatch:          newPRWatcher(),
 		presence:         newViewLeases(),
 		agentSamples:     newAgentSampler(),
+		processes:        newProcessSampler(),
 		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
@@ -580,6 +587,7 @@ func New(cfg Config) (*Server, error) {
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
+	s.processTell = s.tellUnlessRetired
 	s.approve = s.approveInChat
 	s.homeHost.OnChange = s.homeHostChanged
 	s.events.observe = s.observeSessionStatus
@@ -1199,6 +1207,9 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("POST /v1/agents/{project}/{agent}/merge", s.mergeAgent)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
 	h("GET /v1/agents/{project}/{agent}/resources", s.agentResources)
+	h("GET /v1/agents/{project}/{agent}/processes", s.getAgentProcesses)
+	h("POST /v1/agents/{project}/{agent}/processes/{pid}/kill", s.killProcess)
+	h("GET /v1/processes", s.listProcesses)
 	h("GET /v1/stopped-machines", s.getStoppedMachines)
 	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)

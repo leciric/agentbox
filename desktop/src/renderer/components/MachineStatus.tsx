@@ -1,6 +1,6 @@
 import { diskCategoryLabel, diskItemLabel } from '../lib/diskUsage';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle, Square, TriangleAlert, Unplug } from 'lucide-react';
+import { ListTree, LoaderCircle, Square, TriangleAlert, Unplug } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -10,11 +10,13 @@ import { api } from '../lib/api';
 import { useConnection } from '../lib/events';
 import { formatNumber, useT } from '../lib/i18n';
 import { machineStatus, memoryFull, type MachineStatus as Status } from '../lib/machineStatus';
+import { openRunning } from '../lib/running';
 import { setTopBarDetailed, useTopBarDetailed } from '../lib/topBarLayout';
 import { cn, humanBytes } from '../lib/utils';
 import { FreeButton, useFreeResources, HostFootprint, HostLimit, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
+import { RunningDialogHost } from './RunningProcesses';
 import { Notice } from './ui/card';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
 // MachineStatus is the top bar's machine: AgentBox's VM, or this computer in
@@ -24,7 +26,7 @@ import { Tip } from './ui/tooltip';
 // back shows in the bar only when memory is tight, and Start once it's all
 // off. Settings' "Detailed top bar" makes it a strip instead, its memory,
 // CPU and disk always in view, each opening its own breakdown.
-export function MachineStatus({ agents, onSelect }: { agents: T.Agent[]; onSelect: (view: View) => void }) {
+export function MachineStatus({ agents, project, onSelect }: { agents: T.Agent[]; project?: string; onSelect: (view: View) => void }) {
   const detailed = useTopBarDetailed();
   const free = useFreeResources(agents);
   const connection = useConnection();
@@ -34,15 +36,39 @@ export function MachineStatus({ agents, onSelect }: { agents: T.Agent[]; onSelec
   return (
     <>
       {detailed ? (
-        <Strip free={free} status={status} host={host} vmDisk={vmDisk} onSelect={onSelect} />
+        <Strip free={free} status={status} host={host} vmDisk={vmDisk} project={project} onSelect={onSelect} />
       ) : (
         <>
-          <Bubble free={free} status={status} host={host} vmDisk={vmDisk} agents={agents} />
+          <Bubble free={free} status={status} host={host} vmDisk={vmDisk} agents={agents} project={project} />
           {(freeing(free) || free.mode === 'start' || (free.mode === 'free' && status.kind === 'memory')) && <FreeButton free={free} style="freeMemory" />}
         </>
       )}
       {free.dialog}
+      <RunningDialogHost onSelect={onSelect} />
     </>
+  );
+}
+
+// RunningButton opens the Running view (components/RunningProcesses.tsx):
+// what the agents still have running, to kill what they left behind.
+function RunningButton({ project }: { project?: string }) {
+  const t = useT();
+  // No tooltip: the popover focuses its first control as it opens, and a
+  // tooltip on focus would cover the rows under it every time. The popover
+  // closes as the dialog opens, rather than staying behind it.
+  return (
+    <PopoverClose asChild>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 justify-self-start rounded-md text-caption font-medium text-brand-400 transition hover:underline"
+        onClick={() => openRunning(project)}
+        title={t('running.openTip')}
+        data-open-running
+      >
+        <ListTree className="size-3.5" />
+        {t('running.open')}
+      </button>
+    </PopoverClose>
   );
 }
 
@@ -108,12 +134,14 @@ function Bubble({
   host,
   vmDisk,
   agents,
+  project,
 }: {
   free: FreeResources;
   status: Status;
   host?: T.HostUsage;
   vmDisk?: T.VMDisk;
   agents: T.Agent[];
+  project?: string;
 }) {
   const t = useT();
   const connection = useConnection();
@@ -190,6 +218,7 @@ function Bubble({
           {free.vm?.error && <Notice className="text-caption">{free.vm.error}</Notice>}
           {free.vm && <HostLimit vm={free.vm} />}
           {status.kind === 'memory' && <span className="text-caption leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
+          {connection.state === 'connected' && <RunningButton project={project} />}
           <VMActions free={free} style="freeMemory" />
           <button
             type="button"
@@ -246,12 +275,14 @@ function Strip({
   status,
   host,
   vmDisk,
+  project,
   onSelect,
 }: {
   free: FreeResources;
   status: Status;
   host?: T.HostUsage;
   vmDisk?: T.VMDisk;
+  project?: string;
   onSelect: (view: View) => void;
 }) {
   const t = useT();
@@ -299,7 +330,7 @@ function Strip({
               </>
             }
           >
-            <MemoryPanel vm={free.vm} status={status} onSelect={onSelect} />
+            <MemoryPanel vm={free.vm} status={status} project={project} onSelect={onSelect} />
           </Segment>
         )}
         {up && host && (
@@ -395,7 +426,7 @@ function ConnectionLine({ status }: { status: Status }) {
 
 // MemoryPanel is the memory segment's popover: the VM's memory bar, then
 // which agents hold the most, each with Stop.
-function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Status; onSelect: (view: View) => void }) {
+function MemoryPanel({ vm, status, project, onSelect }: { vm: VMPower | null; status: Status; project?: string; onSelect: (view: View) => void }) {
   const t = useT();
   const query = useQuery({ queryKey: ['memoryUsage'], queryFn: api.memoryUsage, refetchOnMount: 'always' });
   const memory = status.memory!;
@@ -432,6 +463,7 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
           </div>
         </div>
       )}
+      <RunningButton project={project} />
     </div>
   );
 }
