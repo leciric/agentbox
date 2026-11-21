@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"agentbox/internal/api"
+	"agentbox/internal/runslots"
 	"agentbox/internal/state"
 )
 
@@ -114,20 +115,29 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	handle("POST /v1/self/heavy", s.startHeavy(instance))
 	handle("POST /v1/self/heavy/{key}/join", s.joinHeavy(instance))
 	handle("DELETE /v1/self/heavy/{key}", s.endHeavy(instance))
+	// Its run phase (runslots.go): a run slot, waited for, and given back.
+	handle("GET /v1/self/run", s.runStatus(instance))
+	handle("POST /v1/self/run/up", s.runUp(instance))
+	handle("POST /v1/self/run/join", s.runJoin(instance))
+	handle("DELETE /v1/self/run", s.runDown(instance))
 	// Asking the user for a credential it lacks, which the user answers in the
 	// app: the agent is told what happened, and never the value (D95).
 	handle("POST /v1/self/credential", s.requestCredential(instance))
 	handle("POST /v1/self/connector", s.requestConnector(instance))
 	handle("GET /v1/self/browser", s.browser("status", self))
 	handle("GET /v1/self/browser/gpu", s.browserGPU(self))
-	for _, action := range []string{"start", "stop", "open"} {
-		handle("POST /v1/self/browser/"+action, s.browser(action, self))
+	// Starting its browser, emulator or a recording is its run phase: it
+	// takes a run slot, or is refused without one (needRunSlot).
+	browserUsed := func(l *runslots.Lease) { l.Browser = true }
+	for _, action := range []string{"start", "open"} {
+		handle("POST /v1/self/browser/"+action, s.needRunSlot(instance, "the browser", browserUsed, s.browser(action, self)))
 	}
+	handle("POST /v1/self/browser/stop", s.browser("stop", self))
 	// Its own Android emulator.
 	handle("GET /v1/self/android", s.android("status", self, "agent"))
-	for _, action := range []string{"start", "stop", "install"} {
-		handle("POST /v1/self/android/"+action, s.android(action, self, "agent"))
-	}
+	handle("POST /v1/self/android/start", s.needRunSlot(instance, "the Android emulator", func(l *runslots.Lease) { l.Android = true }, s.android("start", self, "agent")))
+	handle("POST /v1/self/android/install", s.needRunSlot(instance, "installing on the Android emulator", nil, s.android("install", self, "agent")))
+	handle("POST /v1/self/android/stop", s.android("stop", self, "agent"))
 	// The Mac's iOS Simulator, which it drives as the app's view does.
 	handle("GET /v1/self/ios", s.ios("status", self))
 	for _, action := range iosActions {
@@ -135,7 +145,11 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	}
 	// Its own media: it can add and delete items, but not export them.
 	for _, route := range mediaRoutes {
-		if route.action != "export" {
+		switch route.action {
+		case "export":
+		case "record-start":
+			handle(route.method+" /v1/self/media"+route.path, s.needRunSlot(instance, "a recording", func(l *runslots.Lease) { l.Recording = true }, s.media(route.action, self, "agent")))
+		default:
 			handle(route.method+" /v1/self/media"+route.path, s.media(route.action, self, "agent"))
 		}
 	}

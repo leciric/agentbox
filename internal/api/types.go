@@ -1105,6 +1105,10 @@ type Agent struct {
 	// boot, or, with pausing whole agents on, its machine or heavy commands
 	// paused for memory. Absent when it holds nothing.
 	Memory *MemoryHold `json:"memory,omitempty"`
+	// RunSlot is where the agent stands for a run slot (runslots.go):
+	// holding one for its run phase, or waiting with others ahead. Absent
+	// in its code phase.
+	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
 	// "frozen" when what it left running is frozen and pushed out to swap,
 	// "stopped" when its machine was stopped after it finished. Absent
@@ -3193,6 +3197,8 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
+	// RunSlot is Agent.RunSlot.
+	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// WaitingForImage is Agent.WaitingForImage.
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.

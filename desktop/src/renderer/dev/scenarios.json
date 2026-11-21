@@ -1303,6 +1303,21 @@
     "height": 1080
   },
   {
+    "id": "window-wide-run-slots-dark",
+    "description": "At 1920×1080 with every run slot held and two agents waiting: the top bar's \"Run slots 0 of 2 free\" pill open on who holds one, who waits and the project's learned run peak, and agent-96's status saying it waits one ahead — dark",
+    "query": "app=project&theme=dark&runslots=full",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-run-slots]"
+  },
+  {
+    "id": "window-min-run-slots-light",
+    "description": "At 800×600 with one run slot of three free: the top bar's run slots pill shrinks to its count — light",
+    "query": "app=project&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
     "id": "window-wide-v2-filters-dark",
     "description": "At 1920×1080, the filter popover open: state with counts, and the projects — dark",
     "query": "app=project&theme=dark",
