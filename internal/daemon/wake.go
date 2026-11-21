@@ -44,6 +44,14 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		// the message waits in the chat, marked starting, and createJob
 		// releases it once the agent is ready.
 		item, err := s.chat.HoldStarting(a, msg)
+		if err == nil && s.unfinished(ctx, a) {
+			// Nothing is making it: AgentBox stopped while it was being
+			// made. The message finishes making it, as it would start a
+			// stopped machine, and goes after its task.
+			if _, err := s.finishCreate(a); err != nil {
+				s.logf("%s: finishing making it for a message: %v", a.Ref(), err)
+			}
+		}
 		return told{item: item}, err
 	}
 	if a.IsLead() || a.Status != state.AgentReady {

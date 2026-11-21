@@ -91,6 +91,14 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 			return err
 		}
 	}
+	if task == "" {
+		// Made, or half made, and retired before its task ever reached its
+		// chat: what it was asked to do is still worth keeping.
+		task, err = agentTaskText(ctx, tx, a.Project, a.Name)
+		if err != nil {
+			return err
+		}
+	}
 	if r := []rune(task); len(r) > maxTask {
 		task = string(r[:maxTask]) + "…"
 	}
@@ -117,6 +125,7 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 		`DELETE FROM checkpoints WHERE project = ? AND agent = ?`,
 		`DELETE FROM running_turns WHERE project = ? AND agent = ?`,
 		`DELETE FROM agent_goals WHERE project = ? AND agent = ?`,
+		`DELETE FROM agent_tasks WHERE project = ? AND agent = ?`,
 		// The session lived in its machine, which is gone: nothing resumes it.
 		`UPDATE chats SET session_id = '', handoff = '' WHERE project = ? AND agent = ?`,
 	} {

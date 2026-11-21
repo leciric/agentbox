@@ -470,6 +470,9 @@ type Server struct {
 	// waking, under mu, are the agents whose machines start aside for a
 	// message, waiting for memory to boot (wakeAside).
 	waking map[string]bool
+	// making, under mu, are the agents a job of this daemon's is making:
+	// one marked creating that isn't was left incomplete (agenttasks.go).
+	making map[string]bool
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
