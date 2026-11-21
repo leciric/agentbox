@@ -64,15 +64,11 @@ func MemoryLimit(total int64, share int) int64 {
 }
 
 // SetMemoryLimit sets an agent's machine's memory.max to limit (0 for none,
-// "max"), and takes off any memory.high an earlier release throttled it with.
+// "max"). Its memory.high is the run phase's (SetMemoryHigh, runphase.go).
 // It writes only what changes, and does nothing for a machine whose cgroup
 // isn't there: stopped, or not on cgroup2.
 func SetMemoryLimit(instance string, limit int64) error {
-	dir := agentCgroup(cgroupRoot, instance)
-	if err := setCgroupLimit(dir, "memory.max", limit, writeCgroup); err != nil {
-		return err
-	}
-	return setCgroupLimit(dir, "memory.high", 0, writeCgroup)
+	return setCgroupLimit(agentCgroup(cgroupRoot, instance), "memory.max", limit, writeCgroup)
 }
 
 func setCgroupLimit(dir, file string, limit int64, write func(path, value string) error) error {

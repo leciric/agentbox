@@ -17,6 +17,7 @@ import { cn, onMac, shortcut, timeAgo, timeUntil } from '../lib/utils';
 import { ToolMark } from './state';
 import { Tip } from './ui/tooltip';
 import { DiskGuardPill } from './DiskGuardPill';
+import { RunSlotsPill } from './RunSlotsPill';
 import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineChip } from './SetupProgress';
@@ -182,6 +183,7 @@ export function TopBar({
         {machine && <MachineChip machine={machine} />}
         <ImageBuildChip onSelect={onSelect} />
         <DiskGuardPill onSelect={onSelect} />
+        <RunSlotsPill agents={agents.data ?? []} onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <BusyMarks />
         {!making && <MachineStatus agents={agents.data ?? []} project={crumbProject?.name} onSelect={onSelect} />}

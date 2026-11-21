@@ -1759,6 +1759,15 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX timing_by_time ON timing (kind, started_at)`,
 	`CREATE INDEX timing_by_agent ON timing (project, agent, kind, started_at)`,
+	// Each project's learned run peak (internal/runslots): how much memory
+	// an agent's machine reached while it held a run slot, which is how
+	// many of that project's runs the VM fits at once.
+	`CREATE TABLE run_peaks (
+		project TEXT PRIMARY KEY,
+		bytes   INTEGER NOT NULL DEFAULT 0,
+		runs    INTEGER NOT NULL DEFAULT 0,
+		at      INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2575,6 +2584,8 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 var projectOwned = []string{
 	// agent_seq has a foreign key to projects: an agent ever made leaves a row.
 	"agent_seq",
+	// What a project's runs peaked at (runpeaks.go) means nothing without it.
+	"run_peaks",
 	// Members first: they point at their group.
 	"agent_group_members",
 	"agent_groups",

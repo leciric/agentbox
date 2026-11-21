@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, ExternalLink, FileDiff, FolderOpen } from 'lucide-react';
+import { Copy, ExternalLink, FileDiff } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -113,11 +113,6 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
                     }}
                   >
                     <Copy />
-                  </Button>
-                </Tip>
-                <Tip label={t('agent.overview.openFolder')}>
-                  <Button variant="ghost" size="icon-sm" aria-label={t('agent.view.openWorktree')} onClick={() => void window.agentbox.openPath(agent.worktree)}>
-                    <FolderOpen />
                   </Button>
                 </Tip>
               </Row>

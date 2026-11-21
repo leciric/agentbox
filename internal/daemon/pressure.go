@@ -147,6 +147,7 @@ func readSample() func() (pressure.Sample, error) {
 // and watching their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
 	s.loadFleet(ctx)
+	s.loadRunPeaks(ctx)
 	go func() {
 		for {
 			select {
@@ -551,6 +552,8 @@ func (s *Server) watchMemory(ctx context.Context) {
 	agentsHit, agentsLimit := s.watchShared(s.vmMemoryNow(), s.reachableMemory(total, time.Now()))
 	limit := agent.MemoryLimit(total, share)
 	caps := agent.AgentCaps(limit, s.vmSwap(), share)
+	// The run slots first: who holds one decides each machine's memory.high.
+	s.stepRunSlots(ctx, agents, time.Now())
 	for _, a := range agents {
 		if a.IsLead() || a.Instance == "" {
 			continue
@@ -564,6 +567,10 @@ func (s *Server) watchMemory(ctx context.Context) {
 		}
 		if err := s.setMemoryLimit(a.Instance, limit); err != nil {
 			s.logOnce("memory.max "+a.Instance, fmt.Sprintf("memory.max: %s: %v", a.Ref(), err))
+		}
+		// Squeezed in its code phase, not in its run phase (runslots.go).
+		if err := s.setMemoryHigh(a.Instance, s.codePhaseHigh(a.Ref(), limit)); err != nil {
+			s.logOnce("memory.high "+a.Instance, fmt.Sprintf("memory.high: %s: %v", a.Ref(), err))
 		}
 		if err := s.setIOWeight(a.Instance, agent.AgentIOWeight); err != nil {
 			s.logOnce("io.weight "+a.Instance, fmt.Sprintf("io.weight: %s: %v", a.Ref(), err))

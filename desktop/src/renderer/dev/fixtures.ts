@@ -324,6 +324,7 @@ export interface FixtureData {
 export function buildFixtures(): FixtureData {
   // ?busy=host: this computer busy, holding agents' builds and boots back.
   const hostBusy = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('busy') ?? '').includes('host');
+  const runSlotsFull = typeof location !== 'undefined' && new URLSearchParams(location.search).get('runslots') === 'full';
   const agents: T.Agent[] = [
     agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
@@ -331,7 +332,11 @@ export function buildFixtures(): FixtureData {
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
+    // ?runslots=full: it waits for a run slot, one ahead of it.
+    agent({
+      ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main',
+      runSlot: runSlotsFull ? { state: 'waiting', ahead: 1, since: new Date().toISOString() } : undefined,
+    }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', interface: 'chat', goal: agent99Goal() }),
@@ -2615,6 +2620,30 @@ const usageStatsPending: T.UsageStatsPending = {
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
 // throw outside Electron's preload.
+// fixtureRunSlots is GET /v1/run-slots: two holders and one slot free, or
+// with full, none free and two agents waiting.
+function fixtureRunSlots(full: boolean): T.RunSlots {
+  const gib = 1 << 30;
+  const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const holders: T.RunSlotHolder[] = [
+    { agent: `${PROJECT}/agent-12`, project: PROJECT, since: ago(4), expires: ago(-8), reserved: 2 * gib, use: 2.6 * gib, peak: 2.9 * gib },
+    { agent: `${PROJECT}/agent-94`, project: PROJECT, since: ago(1), expires: ago(-9), reserved: 2 * gib, use: 1.1 * gib, peak: 1.4 * gib },
+  ];
+  const queue: T.RunSlotWaiter[] = full
+    ? [
+        { agent: `${PROJECT}/agent-95`, project: PROJECT, ahead: 0, since: ago(3) },
+        { agent: `${PROJECT}/agent-96`, project: PROJECT, ahead: 1, since: ago(1) },
+      ]
+    : [];
+  const free = full ? 0 : 1;
+  return {
+    total: holders.length + free, free, inUse: holders.length, queued: queue.length, slotSize: 2.4 * gib,
+    pool: 13 * gib, codeUse: (full ? 5.8 : 3.1) * gib, freeMemory: (full ? 1.1 : 3.4) * gib,
+    holders, queue,
+    projects: [{ project: PROJECT, peak: 2.4 * gib, learned: true, runs: 7, free, inUse: holders.length, queued: queue.length }],
+  };
+}
+
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
@@ -2629,6 +2658,9 @@ export function installDevBridge(): void {
           : undefined;
         return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [], host }), contentType: 'application/json' };
       }
+      // ?runslots=full: every run slot held and two agents waiting
+      // (components/RunSlotsPill.tsx); otherwise one of three free.
+      if (method === 'GET' && path === '/v1/run-slots') return { status: 200, body: JSON.stringify(fixtureRunSlots(new URLSearchParams(location.search).get('runslots') === 'full')), contentType: 'application/json' };
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
@@ -2880,6 +2912,13 @@ export function installDevBridge(): void {
     saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
     showShare: async () => {},
     showItem: async () => {},
+    editors: {
+      list: async () => [
+        { id: 'vscode', name: 'VS Code' },
+        { id: 'zed', name: 'Zed' },
+      ],
+      open: async () => ({ name: 'VS Code' }),
+    },
     openExternal: async () => {},
     notify: async () => false,
     hostPower: async () => ({ onBattery: false }),

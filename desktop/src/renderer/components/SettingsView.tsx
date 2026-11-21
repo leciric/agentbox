@@ -109,6 +109,7 @@ import { Switch } from "./ui/switch";
 import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeChoice } from "./NotificationSettings";
 import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs";
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
+import { chosenEditor, setPickedEditor, useEditors, usePickedEditor } from "../lib/editor";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { setUiOffice, useUiOffice } from "../lib/uiOffice";
@@ -885,6 +886,7 @@ function InstalledSettings({
   const uiOffice = useUiOffice();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
+  const pickedEditor = usePickedEditor();
   const pageStack = usePageStackMode();
   const hatchConnected = useHatchConnected();
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -1039,6 +1041,14 @@ function InstalledSettings({
           id: "working",
           title: t("settings.group.working.title"),
           entries: [
+            {
+              id: "editor",
+              description: t("settings.editor.description"),
+              label: t("settings.entry.editor.label"),
+              keywords: t("settings.entry.editor.keywords"),
+              modified: pickedEditor !== "",
+              render: () => <EditorSetting />,
+            },
             {
               id: "reviewing",
               description: t("settings.reviewing.description"),
@@ -2651,6 +2661,47 @@ function PagesStackSetting() {
           </button>
         ))}
       </div>
+    </SettingRow>
+  );
+}
+
+// EditorSetting is the code editor an agent's Open in … opens its worktree in
+// (lib/editor.ts): one of those found on this computer, the first unless
+// another is picked. It's this computer's, so it applies at once.
+function EditorSetting() {
+  const t = useT();
+  const editors = useEditors();
+  const current = chosenEditor(editors.data, usePickedEditor());
+  return (
+    <SettingRow label={t("settings.entry.editor.label")} description={t("settings.editor.description")}>
+      {editors.data && editors.data.length === 0 ? (
+        <p className="text-ui text-muted" data-editor-none>
+          {t("settings.editor.none")}
+        </p>
+      ) : (
+        <div
+          className="inline-flex w-fit flex-wrap rounded-lg bg-surface p-0.5"
+          role="radiogroup"
+          aria-label={t("settings.entry.editor.label")}
+          data-editor-choice
+        >
+          {(editors.data ?? []).map((e) => (
+            <button
+              key={e.id}
+              role="radio"
+              aria-checked={current?.id === e.id}
+              data-editor={e.id}
+              onClick={() => setPickedEditor(e.id)}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+                current?.id === e.id ? "bg-surface-strong text-title" : "text-muted hover:text-primary",
+              )}
+            >
+              {e.name}
+            </button>
+          ))}
+        </div>
+      )}
     </SettingRow>
   );
 }

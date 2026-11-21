@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"agentbox/internal/api"
 	"agentbox/internal/desktop"
 	"agentbox/internal/mcp"
 )
@@ -47,7 +48,9 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 				return errors.New("agentbox desktop mcp runs inside an agent, on that agent's own display; " +
 					"from here, watch an agent's display in AgentBox's Desktop tab")
 			}
-			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.MarkingUse(desktop.Tools(cmd.Context()))}
+			// The desktop is the run phase: each tool needs a run slot.
+			gate := &runSlotGate{c: api.NewClient(socket), now: time.Now}
+			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: needingRunSlot(desktop.MarkingUse(desktop.Tools(cmd.Context())), gate)}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}

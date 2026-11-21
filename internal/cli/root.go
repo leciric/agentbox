@@ -25,6 +25,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
+	"agentbox/internal/sshconfig"
 )
 
 var version = "dev"
@@ -322,6 +323,7 @@ func NewRootCmd() *cobra.Command {
 		newMemoryCmd(a),
 		newAskCmd(a),
 		newHeavyCmd(a),
+		newRunCmd(a),
 		newTraceCmd(a),
 		newDebugCmd(a),
 		newDoctorCmd(a),
@@ -346,6 +348,8 @@ func NewRootCmd() *cobra.Command {
 		newInterfaceCmd(a),
 		newShellCmd(a),
 		newExecCmd(a),
+		newSSHProxyCmd(a),
+		sshconfig.Command(),
 		newActionCmd(a, "start", "Start a stopped agent and its tmux session", "Started"),
 		newActionCmd(a, "stop", "Stop an agent (its worktree and branch stay)", "Stopped"),
 		newActionCmd(a, "pause", "Freeze an agent: its processes keep their memory but use no CPU", "Paused"),

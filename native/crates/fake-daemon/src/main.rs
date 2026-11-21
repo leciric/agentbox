@@ -14,6 +14,9 @@
 //! check finds does (FAKE_CHANNEL=nightly for the nightly channel);
 //! FAKE_MOODS=1 holds the agents in one of every state their cards' monitors act out
 //! (working, asking, failed, ready, stopped), on each tool that has a character.
+//! FAKE_RUN_SLOTS=1 gives the VM two run slots, held by the first two running agents, the rest
+//! waiting in line (GET /v1/run-slots, each agent's runSlot), the line moving every ten seconds
+//! (see runslots.rs; FAKE_RUN_SLOTS=live moves it under FAKE_STILL too).
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
 //! FAKE_VERSION=<version> is what GET /v1/version says ("fake" otherwise), and
 //! POST /v1/shutdown stops it, for testing the app's restart of an older daemon.
@@ -47,6 +50,7 @@ mod pulls;
 mod remote;
 mod resources;
 mod review;
+mod runslots;
 mod setup;
 
 type Body = BoxBody<Bytes, Infallible>;
@@ -482,7 +486,7 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
 
 impl Fake {
     fn new(opts: Opts) -> Arc<Self> {
-        let fleet = (0..opts.agents)
+        let mut fleet: Vec<FleetAgent> = (0..opts.agents)
             .map(|i| {
                 let mut a = {
                     let name = format!("agent-{:02}", i + 1);
@@ -531,6 +535,11 @@ impl Fake {
                 a
             })
             .collect();
+        // FAKE_RUN_SLOTS: the first running agents hold the VM's run slots,
+        // the rest wait in line (runslots.rs).
+        if runslots::enabled() {
+            runslots::assign(&mut fleet, 0);
+        }
         let (events, _) = broadcast::channel(4096);
         let review = Mutex::new(review::Review::new(opts.media.clone()));
         let machines = Mutex::new(agents::Machines::new(opts.worktree.clone()));
@@ -866,6 +875,7 @@ impl Fake {
                 AgentChange {
                     r#ref: a.r#ref.clone(),
                     state: a.state.clone(),
+                    run_slot: a.run_slot.clone(),
                     ..Default::default()
                 }
             };
@@ -1132,6 +1142,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Err(req) => *req,
     };
     let req = match resources::route(&fake, req).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
+    let req = match runslots::route(&fake, req).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
@@ -2511,6 +2525,9 @@ async fn main() -> Result<()> {
         tokio::spawn(fake.clone().churn());
         tokio::spawn(agents::touch(fake.clone()));
         tokio::spawn(resources::sample(fake.clone()));
+    }
+    if runslots::moving() {
+        tokio::spawn(runslots::rotate(fake.clone()));
     }
     tokio::spawn(panel::serve_preview());
     tokio::spawn(watch_release(fake.clone()));

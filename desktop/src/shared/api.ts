@@ -396,6 +396,7 @@ export interface Agent {
   state: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
+  runSlot?: RunSlot;
   reclaimed?: string;
   hold?: string;
   goal?: AgentGoal;
@@ -701,6 +702,77 @@ export interface AgentsMemory {
   high?: number;
   max?: number;
   stalled?: number;
+}
+
+export interface RunSlots {
+  total: number;
+  free: number;
+  inUse: number;
+  queued: number;
+  slotSize: number;
+  pool: number;
+  codeUse: number;
+  freeMemory: number;
+  holders: RunSlotHolder[];
+  queue: RunSlotWaiter[];
+  projects: ProjectRunSlots[];
+}
+
+export interface RunSlotHolder {
+  agent: string;
+  project: string;
+  since: string;
+  expires: string;
+  reserved: number;
+  use: number;
+  peak: number;
+}
+
+export interface RunSlotWaiter {
+  agent: string;
+  project: string;
+  ahead: number;
+  since: string;
+}
+
+export interface ProjectRunSlots {
+  project: string;
+  peak: number;
+  learned: boolean;
+  runs: number;
+  free: number;
+  inUse: number;
+  queued: number;
+}
+
+export interface RunSlot {
+  state: string;
+  ahead?: number;
+  since: string;
+  expires?: string;
+}
+
+export interface RunUpRequest {
+  waitSeconds?: number;
+  try?: boolean;
+  command?: string;
+  browser?: boolean;
+}
+
+export interface RunPhase {
+  state: string;
+  ahead: number;
+  granted?: boolean;
+  key?: string;
+  expires?: string;
+  free: number;
+  total: number;
+  stopped?: string[];
+  peak?: number;
+}
+
+export interface RunJoin {
+  pid: number;
 }
 
 export interface TimingTotals {
@@ -1106,6 +1178,7 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   memory?: MemoryHold;
+  runSlot?: RunSlot;
   waitingForImage?: boolean;
   reclaimed?: string;
   hold?: string;
@@ -2348,6 +2421,7 @@ export interface FleetAgent {
   state: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
+  runSlot?: RunSlot;
   reclaimed?: string;
   hold?: string;
   goal?: AgentGoal;
@@ -4440,6 +4514,10 @@ export const EventRemoteAgents = "remote-agents";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventDisk = "disk";
+export const EventRunSlots = "run-slots";
+export const RunSlotHolding = "holding";
+export const RunSlotWaiting = "waiting";
+export const ErrorNoRunSlot = "no-run-slot";
 export const EventRestartHold = "restart-hold";
 export const DiskOK = "ok";
 export const DiskLow = "low";

@@ -752,6 +752,19 @@ impl AppView {
                     ],
                 ),
                 group(
+                    "working",
+                    "settings.group.working.title",
+                    vec![
+                        entry(
+                            "editor",
+                            "settings.entry.editor.label",
+                            "settings.editor.description",
+                            "settings.entry.editor.keywords",
+                        )
+                        .modified(!prefs::editor().is_empty()),
+                    ],
+                ),
+                group(
                     "commits",
                     "settings.group.commits.title",
                     vec![
@@ -1948,6 +1961,34 @@ impl AppView {
                         }
                     })),
                 ));
+                row
+            }
+            "editor" => {
+                // The code editor an agent's Open in … opens its worktree in
+                // (crate::editors): one of those found here, the first
+                // unless another is picked. This computer's, so it applies
+                // at once.
+                let mut row = self.more_row(e, None, cx);
+                let found = crate::editors::found();
+                if found.is_empty() {
+                    row.body.push(note(t("settings.editor.none")));
+                } else {
+                    let current = crate::editors::pick(&found, &prefs::editor()).map(|e| e.id);
+                    let options = found
+                        .iter()
+                        .map(|e| (SharedString::from(e.id), e.name.to_string(), None))
+                        .collect();
+                    row.body.push(choices(
+                        "editor",
+                        options,
+                        current,
+                        false,
+                        Rc::new(cx.listener(|_, v: &str, _, cx| {
+                            prefs::set(prefs::EDITOR, v.into());
+                            cx.notify();
+                        })),
+                    ));
+                }
                 row
             }
             "group-idle" => {

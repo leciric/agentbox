@@ -326,17 +326,18 @@ impl AppView {
         }
     }
 
-    /// usage_chips are the meters, in the bar's order: the disk, the
-    /// account's limits, the machine.
+    /// usage_chips are the meters, in the bar's order: the disk, the run
+    /// slots (run_slots.rs), the account's limits, the machine.
     pub(super) fn usage_chips(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut out = Vec::new();
         out.extend(self.disk_pill(cx));
+        out.extend(self.run_slots_pill(cx));
         out.extend(self.claude_usage(cx));
         out.push(self.machine_bubble(cx));
         out
     }
 
-    fn with_pop(
+    pub(super) fn with_pop(
         &self,
         which: &'static str,
         trigger: Stateful<Div>,
