@@ -20,7 +20,8 @@ import (
 // its system disk (root.raw, 20 GiB, which nothing grows) and the agents' disk
 // (pool.raw, Incus's btrfs pool, which `agentbox vm resize --disk` and
 // Settings grow). What AgentBox keeps that grows, its caches, the leads' AI
-// tools and the projects' lead homes, goes on the agents' disk: a btrfs
+// tools, the projects' lead homes and agents' worktrees (placeWorktrees),
+// goes on the agents' disk: a btrfs
 // subvolume of the pool, agentbox-data, mounted at poolDataMount by the VM's
 // fstab, with each directory in the data directory a symlink to its place in
 // it. state.db, the log and run/ stay where they are, on the system disk.
@@ -57,6 +58,9 @@ var poolItems = []poolItem{
 	{"tools", true},
 	{"projects", true},
 	{"machines", true},
+	// Copied, not started afresh: what is in it is agents' work. In a VM
+	// whose front end kept worktrees on the share it's empty, or not there.
+	{"worktrees", true},
 }
 
 // poolData moves poolItems from data to mount.

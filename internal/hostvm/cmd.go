@@ -611,8 +611,9 @@ for agents and gives the memory it stops using back to the Mac; one made with Ap
 Virtualization framework (vz) has neither. agentbox vm init makes a new VM with krunkit
 once it's installed. An existing VM keeps the type it was made with: --remake --yes deletes
 it, with every agent's machine, the base image and AgentBox's state in it, and makes it
-again with krunkit at the same size. Your projects and the agents' worktrees are on your
-own disk and stay, but push what you want to keep first.`,
+again with krunkit at the same size. Your projects are on your own disk and stay, with
+every commit agents made on their branches; their worktrees on the VM's disk go with it,
+so commit or push what you want to keep first.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if remake {
@@ -1164,9 +1165,11 @@ func newDeleteCmd() *cobra.Command {
 		Use:   "delete",
 		Short: "Remove the VM, and every agent and base image in it",
 		Long: `Removes the VM, and with it everything AgentBox keeps in it: agents, their machines,
-the base image and AgentBox's state. Your projects and the agents' worktrees are on
-your own disk, in your home directory, and stay. On Linux this machine then runs
-AgentBox itself again, as it did before agentbox vm init.`,
+the base image and AgentBox's state, and agents' worktrees on the VM's disk, with what
+they hadn't committed. Your projects are on your own disk, in your home directory, and
+stay, with every commit agents made on their branches; so do worktrees of agents made
+before worktrees moved to the VM's disk. On Linux this machine then runs AgentBox
+itself again, as it did before agentbox vm init.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !yes {

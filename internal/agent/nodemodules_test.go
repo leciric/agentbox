@@ -51,7 +51,7 @@ func TestNodeModulesAreKeptForTheNextAgent(t *testing.T) {
 	f, calls := packageCacheFixture(t, `{}`)
 	store := &nodemods.Store{Dir: t.TempDir()}
 	f.m.NodeModules = store
-	f.m.NodeModulesOn = func(context.Context) bool { return true }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return true }
 	ctx := context.Background()
 
 	first := state.Agent{Project: "p", Name: "agent-1", Instance: "ab-p-agent-1", Worktree: nodeModulesWorktree(t)}
@@ -93,7 +93,7 @@ func TestNodeModulesAreKeptForTheNextAgent(t *testing.T) {
 func TestNodeModulesOffRemovesTheDevices(t *testing.T) {
 	f, calls := packageCacheFixture(t, `{"node-modules-0": {"type": "disk", "source": "/vm/x", "path": "/w/app/node_modules"}}`)
 	f.m.NodeModules = &nodemods.Store{Dir: t.TempDir()}
-	f.m.NodeModulesOn = func(context.Context) bool { return false }
+	f.m.NodeModulesOn = func(context.Context, string) bool { return false }
 	f.m.EnsureNodeModules(context.Background(), state.Agent{Instance: "ab-p-agent-1", Worktree: nodeModulesWorktree(t)})
 	if got := strings.Join(calls(), "\n"); !strings.Contains(got, "config device remove ab-p-agent-1 node-modules-0") {
 		t.Errorf("the device wasn't removed:\n%s", got)

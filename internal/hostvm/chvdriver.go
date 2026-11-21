@@ -269,7 +269,7 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 	if limactl, err := FindLimactl(); err == nil {
 		lima := &VM{Limactl: limactl, Name: want.Name}
 		if st, err := lima.State(ctx); err == nil && st.Exists {
-			return fmt.Errorf("this Mac has AgentBox's Lima VM already (%s), which the vz driver doesn't take over: agentbox vm delete --yes removes it and every agent in it (your projects and worktrees stay), then agentbox vm init --driver vz makes the new one", want.Name)
+			return fmt.Errorf("this Mac has AgentBox's Lima VM already (%s), which the vz driver doesn't take over: agentbox vm delete --yes removes it and every agent in it (your projects and agents' branches stay), then agentbox vm init --driver vz makes the new one", want.Name)
 		}
 	}
 	return nil

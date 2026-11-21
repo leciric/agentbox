@@ -11,6 +11,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/paths"
 	"agentbox/internal/state"
 	"agentbox/internal/testutil"
 )
@@ -458,5 +459,40 @@ esac`))
 	agent.EmptyWorktreeTrash(context.Background(), f.m.Paths, func(context.Context, string) {}, t.Logf)
 	if entries, _ := os.ReadDir(f.m.Paths.WorktreeTrash()); len(entries) != 0 {
 		t.Errorf("trash still holds %d entries after emptying", len(entries))
+	}
+}
+
+// In a VM, an agent made before worktrees moved to the VM's disk has its
+// worktree on the share: it's trashed beside it there, a rename on the same
+// disk, and emptied with the VM disk's trash.
+func TestDestroyTrashesASharedWorktreeOnTheShare(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[]' ;;
+esac`))
+	shared := filepath.Join(t.TempDir(), "home", ".local", "share", "agentbox", "worktrees")
+	t.Setenv(paths.SharedWorktreesEnv, shared)
+	worktree := filepath.Join(shared, "hello-stack", "agent-01")
+	if err := f.repo.AddWorktree(worktree, "agentbox/agent-01", "HEAD", "test"); err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", Branch: "agentbox/agent-01", Worktree: worktree, CreatedAt: time.Now(), Status: state.AgentReady}
+	if err := f.st.AddAgent(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	trashed := 0
+	f.m.WorktreeTrashed = func() { trashed++ }
+
+	err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true})
+	assertGone(t, f, err)
+	sharedTrash := filepath.Join(filepath.Dir(shared), "worktrees-trash")
+	if entries, _ := os.ReadDir(sharedTrash); len(entries) != 1 || trashed != 1 {
+		t.Fatalf("the share's trash holds %d entries, trashed %d times; want the worktree, once", len(entries), trashed)
+	}
+	if entries, _ := os.ReadDir(f.m.Paths.WorktreeTrash()); len(entries) != 0 {
+		t.Errorf("the VM disk's trash holds %d entries, want none", len(entries))
+	}
+	agent.EmptyWorktreeTrash(context.Background(), f.m.Paths, func(context.Context, string) {}, t.Logf)
+	if entries, _ := os.ReadDir(sharedTrash); len(entries) != 0 {
+		t.Errorf("the share's trash still holds %d entries after emptying", len(entries))
 	}
 }
