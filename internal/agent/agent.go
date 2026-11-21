@@ -411,18 +411,24 @@ type CreateOptions struct {
 	// given, by name: nil for every one, empty for none. Each must be one
 	// of the project's.
 	Connectors []string
-	// Task is what the agent is about to be asked to do. It is not stored and
-	// not sent — the daemon sends it as the agent's first message — it only
-	// seeds the "What the project knows" section of the brief, so an agent
-	// about to work on OAuth starts with what the project learned about OAuth
-	// (D75). Every brief written afterwards recovers it from the agent_created
-	// event instead.
+	// Task is what the agent is about to be asked to do. It is not sent here
+	// — the daemon sends it as the agent's first message, and keeps it until
+	// then through Added — it only seeds the "What the project knows" section
+	// of the brief, so an agent about to work on OAuth starts with what the
+	// project learned about OAuth (D75). Every brief written afterwards
+	// recovers it from the agent_created event instead.
 	Task string
 	// Queued makes the agent Name, which an earlier release left waiting in
 	// its project's queue, rather than a new one: it keeps the name, title
 	// and branch it was queued with. The daemon starts every one of them as
 	// it starts (leftoverqueue.go).
 	Queued bool
+	// Added, when set, is called once the agent's row is added, before its
+	// worktree or machine is made, with the agent as it was added; an error
+	// fails the create. The daemon keeps the agent's task there
+	// (state.AgentTask), so a create that AgentBox's stop cuts short — the
+	// daemon killed, the VM going down — still has it to send.
+	Added func(ctx context.Context, a state.Agent) error
 	// AwaitImage, when set, lets an agent made from the base image be
 	// created while the image isn't ready yet: the agent is added, with its
 	// branch and worktree, and AwaitImage is called with it before its
@@ -561,6 +567,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
+		added:         opts.Added,
 		awaitImage:    awaitImage,
 	})
 }
@@ -639,6 +646,7 @@ type plan struct {
 	leadSession   string                                   // see CreateOptions.LeadSession
 	connectors    []string                                 // see CreateOptions.Connectors
 	task          string                                   // what it is about to be asked to do; see CreateOptions.Task
+	added         func(context.Context, state.Agent) error // see CreateOptions.Added
 	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
 	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
 }
@@ -740,6 +748,11 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 			leftBehind = err
 		}
 	})
+	if pl.added != nil {
+		if err := pl.added(ctx, a); err != nil {
+			return fail("state", err)
+		}
+	}
 
 	if a.AI == "claude" {
 		options, err := m.claudeChatDefaults(ctx, pl.project, pl.model, pl.effort, pl.contextWindow)

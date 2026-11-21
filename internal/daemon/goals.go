@@ -118,10 +118,7 @@ func (s *Server) startGoal(ctx context.Context, a state.Agent, spec *api.GoalSpe
 	if spec == nil {
 		return task
 	}
-	g := api.AgentGoal{
-		Objective: spec.Objective, Source: api.GoalSourceAgentBox, Status: api.GoalActive,
-		Checks: spec.Checks, Budget: spec.Budget, UpdatedAt: time.Now(),
-	}
+	g := newGoal(*spec, time.Now())
 	if err := s.store.SetAgentGoal(ctx, state.AgentGoal{Project: a.Project, Agent: a.Name, AgentGoal: g}); err != nil {
 		s.logf("%s: keeping its goal: %v", a.Ref(), err)
 		return task
@@ -129,7 +126,24 @@ func (s *Server) startGoal(ctx context.Context, a state.Agent, spec *api.GoalSpe
 	if _, err := s.chat.ShowGoal(a, g, "set"); err != nil {
 		s.logf("%s: showing its goal: %v", a.Ref(), err)
 	}
-	return strings.TrimSpace(task + "\n\n" + goalBrief(g))
+	return firstMessage(task, spec)
+}
+
+// newGoal is the goal spec asks for, as an agent is given it.
+func newGoal(spec api.GoalSpec, at time.Time) api.AgentGoal {
+	return api.AgentGoal{
+		Objective: spec.Objective, Source: api.GoalSourceAgentBox, Status: api.GoalActive,
+		Checks: spec.Checks, Budget: spec.Budget, UpdatedAt: at,
+	}
+}
+
+// firstMessage is what an agent made with task, and the goal spec when it
+// has one, is sent first: the task, with the goal and how it is checked.
+func firstMessage(task string, spec *api.GoalSpec) string {
+	if spec == nil {
+		return task
+	}
+	return strings.TrimSpace(task + "\n\n" + goalBrief(newGoal(*spec, time.Time{})))
 }
 
 // goalBrief is what an agent is told of its goal with its task.

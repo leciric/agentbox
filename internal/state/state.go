@@ -1768,6 +1768,18 @@ var migrations = []string{
 		runs    INTEGER NOT NULL DEFAULT 0,
 		at      INTEGER NOT NULL DEFAULT 0
 	)`,
+	// An agent's task until its AI tool has it (agenttasks.go): kept from the
+	// moment the agent's row is added, so a create AgentBox's stop cuts short
+	// — the daemon killed, the VM going down — still has it to send.
+	`CREATE TABLE agent_tasks (
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		text       TEXT NOT NULL,
+		goal       TEXT NOT NULL DEFAULT '',
+		by_lead    INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2593,6 +2605,7 @@ var projectOwned = []string{
 	"pr_merge_when_green",
 	"todos",
 	"agent_goals",
+	"agent_tasks",
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",
@@ -3515,6 +3528,9 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 		return err
 	}
 	if err := s.RemoveAgentConnectors(ctx, project, name); err != nil {
+		return err
+	}
+	if err := s.DeleteAgentTask(ctx, project, name); err != nil {
 		return err
 	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {

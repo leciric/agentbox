@@ -152,6 +152,8 @@ func (s *Server) noteLastStop(unclean bool, started time.Time) {
 // the user, after AgentBox stopped unexpectedly; or forgets the turns when
 // the setting is off. It returns once every one has started or been held.
 func (s *Server) continueTurns(ctx context.Context) {
+	// A task AgentBox stopped before sending is one of those turns.
+	s.sendLeftTasks(ctx)
 	turns, err := s.store.RunningTurns(ctx)
 	if err != nil {
 		s.logf("continue after restart: %v", err)
