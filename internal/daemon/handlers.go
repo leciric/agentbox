@@ -777,7 +777,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Project:     p.Name,
 		ProjectName: p.DisplayName,
 		Agent:       name,
-		Worktree:    s.cfg.Paths.Worktree(p.Name, name),
+		Worktree:    s.manager(nil).WorktreeFor(p, name),
 		Branch:      a.Branch,
 		BaseRef:     repo.CurrentBranch(),
 		EnvFiles:    envFiles,

@@ -88,9 +88,28 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 }
 
 // leadWorktree is where every session of a project's chat reads the project:
-// one detached worktree, which no lead ever writes to.
-func (m *Manager) leadWorktree(project string) string {
+// one detached worktree, which no lead ever writes to. A chat that had one
+// before worktrees moved to the VM's disk keeps it, for its new sessions too.
+func (m *Manager) leadWorktree(ctx context.Context, project string) string {
+	if leads, err := m.SessionLeads(ctx, project); err == nil {
+		for _, a := range leads {
+			if a.Worktree != "" {
+				return a.Worktree
+			}
+		}
+	}
 	return m.Paths.Worktree(project, state.LeadName)
+}
+
+// leadWorktrees are where a project's chat's worktree can be, for removing
+// it once no session reads it: Worktrees, and SharedWorktrees for a chat
+// made before worktrees moved to the VM's disk.
+func (m *Manager) leadWorktrees(project string) []string {
+	dirs := []string{m.Paths.Worktree(project, state.LeadName)}
+	if shared := m.Paths.SharedWorktree(project, state.LeadName); shared != "" {
+		dirs = append(dirs, shared)
+	}
+	return dirs
 }
 
 // EnsureLeadSession returns the lead of one of a project's chat sessions,
@@ -137,7 +156,7 @@ func (m *Manager) EnsureLeadSession(ctx context.Context, project, session string
 		// The name is reserved, and the column is UNIQUE. No such machine exists.
 		Instance:  InstanceName(p.Name, name),
 		Branch:    "", // detached: the lead commits nothing
-		Worktree:  m.leadWorktree(p.Name),
+		Worktree:  m.leadWorktree(ctx, p.Name),
 		Status:    state.AgentCreating,
 		CreatedAt: time.Now(),
 
@@ -207,7 +226,9 @@ func (m *Manager) DeleteLeadSession(ctx context.Context, project, session string
 	_ = os.RemoveAll(m.Paths.ChatImages(project, state.LeadSessionName(session)))
 	if leads, err := m.SessionLeads(ctx, project); err == nil && len(leads) == 0 {
 		if _, repo, err := m.project(ctx, project); err == nil {
-			_ = repo.RemoveWorktree(m.leadWorktree(project))
+			for _, dir := range m.leadWorktrees(project) {
+				_ = repo.RemoveWorktree(dir)
+			}
 		}
 	}
 }
@@ -434,10 +455,12 @@ func (m *Manager) DestroyLead(ctx context.Context, project string) error {
 	if err != nil {
 		return err
 	}
-	if _, repo, err := m.project(ctx, project); err == nil {
-		_ = repo.RemoveWorktree(m.leadWorktree(project))
-	} else {
-		_ = os.RemoveAll(m.leadWorktree(project))
+	for _, dir := range m.leadWorktrees(project) {
+		if _, repo, err := m.project(ctx, project); err == nil {
+			_ = repo.RemoveWorktree(dir)
+		} else {
+			_ = os.RemoveAll(dir)
+		}
 	}
 	for _, a := range leads {
 		_ = os.RemoveAll(m.leadHome(a))

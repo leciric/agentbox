@@ -17,7 +17,8 @@ import (
 	"agentbox/internal/state"
 )
 
-// An agent's node_modules are on the VM's disk (internal/nodemods): each
+// An agent's node_modules are on the VM's disk (internal/nodemods) when its
+// worktree is on the share (worktrees.go says which are): each
 // directory of its worktree that installs packages gets a directory of the
 // VM's mounted over its node_modules, a disk device named nodeModulesDevice
 // and a number. Writing them in a worktree the VM shares with a Mac was five
@@ -73,7 +74,7 @@ func (m *Manager) ensureNodeModules(ctx context.Context, a state.Agent) {
 			}
 		}
 	}()
-	if m.NodeModules == nil || m.NodeModulesOn == nil || !m.NodeModulesOn(ctx) {
+	if m.NodeModules == nil || m.NodeModulesOn == nil || !m.NodeModulesOn(ctx, a.Worktree) {
 		return
 	}
 	groups := nodemods.Plan(trackedFiles(a.Worktree), nodemods.ReadWorktreeFile(a.Worktree))

@@ -29,10 +29,11 @@
 //     command look for it, so the app talks to it as to a local daemon (D19).
 //   - The Mac's home directory is shared into the VM at the same path, so a
 //     project keeps its path, which is what AgentBox mounts into each agent.
-//     The daemon's state stays on the VM's own disk; agents' worktrees go on
-//     the share, where the Mac's editors can open them (paths.Worktrees), and
-//     so does their media, which the app opens in the host's default app or
-//     shows in its folder (paths.Media).
+//     The daemon's state stays on the VM's own disk, and so do new agents'
+//     worktrees, which an editor opens in the agent's machine over SSH
+//     (agent/worktrees.go, paths.SharedWorktrees for older agents'). Their
+//     media goes on the share, which the app opens in the host's default app
+//     or shows in its folder (paths.Media).
 //
 // The VM's agentbox is the Linux build this front end ships beside it, kept
 // identical: a command first compares the two and installs the Mac's copy
@@ -710,7 +711,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 		}
 	}
 	// A daemon started by hand in the VM, without the front end's settings,
-	// would put new worktrees on the VM's disk instead of the share.
+	// wouldn't know the host's home, nor where earlier agents' worktrees are.
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
@@ -732,7 +733,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
-	"AGENTBOX_SOCKET": true, iossim.StateFileEnv: true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
+	"AGENTBOX_SOCKET": true, iossim.StateFileEnv: true, "AGENTBOX_WORKTREES": true, paths.SharedWorktreesEnv: true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
 	vmMemoryCapEnv: true,
 }
 
@@ -741,7 +742,11 @@ var hostOnly = map[string]bool{
 const vmMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
 
 // vmEnv is what the VM's agentbox has to be told about the host whoever runs
-// it: the host's OS, its home directory, and where the worktrees and media go. A Cloud
+// it: the host's OS, its home directory, where media goes, and where the
+// worktrees of agents made before worktrees moved to the VM's own disk are, on
+// the share (paths.SharedWorktrees). New agents' go on the VM's disk, in its
+// data directory: AGENTBOX_WORKTREES is set empty, over the share's path a
+// login shell's older profile may still give it. A Cloud
 // Hypervisor VM's is also told the most memory it may be given, which is what
 // its agents' default limits are shares of (agent.HostMemory): its own
 // /proc/meminfo only has what it was granted so far. And where the host's
@@ -752,7 +757,8 @@ func (v *VM) vmEnv() []string {
 	env := []string{
 		hostos.Env + "=" + runtime.GOOS,
 		hostos.HomeEnv + "=" + v.Home,
-		"AGENTBOX_WORKTREES=" + v.Paths.Worktrees(),
+		"AGENTBOX_WORKTREES=",
+		paths.SharedWorktreesEnv + "=" + v.Paths.Worktrees(),
 		"AGENTBOX_MEDIA=" + v.Paths.Media(),
 	}
 	// The install ID is kept on the host, so a VM made again is the same install.

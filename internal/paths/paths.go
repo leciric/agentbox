@@ -12,6 +12,11 @@ type Paths struct {
 	Data   string // ~/.local/share/agentbox
 	// Home is ~/.agentbox, the Home chat's working directory (HomeChat).
 	Home string
+	// WorktreesDir, when set, is Worktrees: where that directory really is,
+	// which the daemon finds once its data is in place (on a Cloud Hypervisor
+	// VM, the data directory's worktrees is a symlink to the agents' disk).
+	// Incus mounts, and git records, the path with no symlink in it.
+	WorktreesDir string
 }
 
 func Default() (Paths, error) {
@@ -130,16 +135,43 @@ func (p Paths) ChatImages(project, agent string) string {
 	return filepath.Join(p.Data, "projects", project, "chat-images", agent)
 }
 
-// Worktrees is where agents' worktrees live: with the state, unless
-// AGENTBOX_WORKTREES names another directory. On a Mac the daemon runs in a
-// Linux VM whose state is on the VM's own disk, and its worktrees go on the
-// Mac's home directory, which the VM shares at the same path, so the Mac's
-// editors can open them (package hostvm).
+// Worktrees is where new agents' worktrees go: with the state, unless
+// AGENTBOX_WORKTREES names another directory. In a VM that's the VM's own
+// disk, where git and builds don't go through the folder it shares with the
+// computer it runs on; agents made before that keep theirs on the share
+// (SharedWorktrees).
 func (p Paths) Worktrees() string {
+	if p.WorktreesDir != "" {
+		return p.WorktreesDir
+	}
 	if d := os.Getenv("AGENTBOX_WORKTREES"); filepath.IsAbs(d) {
 		return d
 	}
 	return filepath.Join(p.Data, "worktrees")
+}
+
+// SharedWorktreesEnv names, in a VM, the worktrees directory on the host's
+// home, which the VM shares at the same path: where agents' worktrees were
+// made until they moved to the VM's own disk, and where those agents keep
+// them (package hostvm sets it).
+const SharedWorktreesEnv = "AGENTBOX_SHARED_WORKTREES"
+
+// SharedWorktrees is SharedWorktreesEnv's directory, or "" outside a VM, or
+// when it's Worktrees itself.
+func (p Paths) SharedWorktrees() string {
+	d := os.Getenv(SharedWorktreesEnv)
+	if !filepath.IsAbs(d) || filepath.Clean(d) == filepath.Clean(p.Worktrees()) {
+		return ""
+	}
+	return filepath.Clean(d)
+}
+
+// SharedWorktree is where an agent's worktree is in SharedWorktrees, or "".
+func (p Paths) SharedWorktree(project, agent string) string {
+	if d := p.SharedWorktrees(); d != "" {
+		return filepath.Join(d, project, agent)
+	}
+	return ""
 }
 
 // Media is where agents' media is kept, one directory per agent: with the
@@ -156,8 +188,21 @@ func (p Paths) Media() string {
 
 // WorktreeTrash is where destroyed agents' worktrees wait to be deleted:
 // beside Worktrees, so moving one there is a rename on the same disk.
-func (p Paths) WorktreeTrash() string {
-	return filepath.Join(filepath.Dir(filepath.Clean(p.Worktrees())), "worktrees-trash")
+func (p Paths) WorktreeTrash() string { return trashBeside(p.Worktrees()) }
+
+// WorktreeTrashes are the trashes of Worktrees and SharedWorktrees, each
+// beside its own, with the worktrees directory each one is for.
+func (p Paths) WorktreeTrashes() (trash, worktrees []string) {
+	for _, d := range []string{p.Worktrees(), p.SharedWorktrees()} {
+		if d != "" {
+			trash, worktrees = append(trash, trashBeside(d)), append(worktrees, filepath.Clean(d))
+		}
+	}
+	return trash, worktrees
+}
+
+func trashBeside(worktrees string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(worktrees)), "worktrees-trash")
 }
 
 func (p Paths) Worktree(project, agent string) string {

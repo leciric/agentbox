@@ -664,7 +664,7 @@ func shortSHA(sha string) string {
 func newPathCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "path <project/agent>",
-		Short: "Print the agent's worktree path",
+		Short: "Print the agent's worktree path, as its machine sees it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)

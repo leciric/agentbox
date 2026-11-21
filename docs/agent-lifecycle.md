@@ -13,8 +13,10 @@ The `Agent` row (`internal/state/state.go`) has, among others:
 - `Project`, `Name` — identity.
 - `Instance` — the Incus container name, `"ab-<project>-<agent>"` (`internal/agent/agent.go`).
 - `Branch` — the git branch: the project's branch prefix (`agentbox/` unless it was changed) and the agent's name.
-- `Worktree` — the host path, `~/.local/share/agentbox/worktrees/<project>/<agent>`
-  (`internal/paths`).
+- `Worktree` — `<data>/worktrees/<project>/<agent>` (`internal/paths`): on a host install,
+  `~/.local/share/agentbox/worktrees`; in AgentBox's VM, the VM's own disk
+  (`/var/lib/agentbox/worktrees` on Linux), with agents made before that keeping theirs in
+  the host's home. The agent's machine mounts it at the same path.
 - `Status` — `AgentCreating` or `AgentReady` (`state.go`). This is not the container's power
   state: `agentbox stop`/`pause`/`resume` (`internal/agent/agent.go`, `Manager.Stop`/`Pause`/
   `Resume`) act on the Incus instance directly (`incus stop`/`pause`/`resume`) and don't change

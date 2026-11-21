@@ -164,7 +164,7 @@ func (m *Manager) ensureBuildOutputs(ctx context.Context, a state.Agent) {
 			}
 		}
 	}()
-	if m.NodeModules == nil || m.NodeModulesOn == nil || !m.NodeModulesOn(ctx) {
+	if m.NodeModules == nil || m.NodeModulesOn == nil || !m.NodeModulesOn(ctx, a.Worktree) {
 		return
 	}
 	var dirs []string

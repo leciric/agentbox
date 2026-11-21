@@ -205,7 +205,7 @@ func TestForwardArgs(t *testing.T) {
 	t.Setenv("AGENTBOX_PREVIEW_ADDR", "127.0.0.1:17777")
 	got := vm.ForwardArgs("/Users/alice/app", []string{"create", "app", "--name", "it's mine"})
 	want := []string{vm.Limactl, "shell", "--workdir", "/Users/alice/app", "agentbox", "--", "env",
-		hostos.Env + "=" + goos(), hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + filepath.Join(vm.Paths.Data, "worktrees"),
+		hostos.Env + "=" + goos(), hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=", paths.SharedWorktreesEnv + "=" + filepath.Join(vm.Paths.Data, "worktrees"),
 		"AGENTBOX_MEDIA=" + filepath.Join(vm.Paths.Data, "media"),
 		hostos.InstallIDFileEnv + "=" + filepath.Join(vm.Paths.Config, "install-id"),
 		"AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
@@ -321,7 +321,10 @@ func TestProfile(t *testing.T) {
 	for _, want := range []string{
 		"export " + hostos.Env + "=" + shellQuote(goos()) + "\n",
 		"export " + hostos.HomeEnv + `='/Users/o'\''brien'` + "\n",
-		"export AGENTBOX_WORKTREES=" + shellQuote(vm.Paths.Worktrees()) + "\n",
+		// New worktrees go on the VM's disk, whatever an older profile said;
+		// the share's are where earlier agents keep theirs.
+		"export AGENTBOX_WORKTREES=''\n",
+		"export " + paths.SharedWorktreesEnv + "=" + shellQuote(vm.Paths.Worktrees()) + "\n",
 		"export AGENTBOX_MEDIA=" + shellQuote(vm.Paths.Media()) + "\n",
 	} {
 		if !strings.Contains(got, want) {

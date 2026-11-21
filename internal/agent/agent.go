@@ -302,10 +302,12 @@ type Manager struct {
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
 	// NodeModules, when set, is the VM's store of agents' node_modules and of
-	// their snapshots (nodemodules.go), and NodeModulesOn says whether a new
-	// agent gets its node_modules there.
+	// their snapshots (nodemodules.go), and NodeModulesOn says whether the
+	// agent whose worktree that is gets its node_modules there: only a
+	// worktree in a folder the VM shares, since the VM's own disk is where
+	// any other one already is.
 	NodeModules   *nodemods.Store
-	NodeModulesOn func(ctx context.Context) bool
+	NodeModulesOn func(ctx context.Context, worktree string) bool
 	// WorktreeTrashed, when set, is told a destroyed agent's worktree was
 	// moved into Paths.WorktreeTrash, for EmptyWorktreeTrash to delete. Unset,
 	// a destroy deletes the worktree itself.
@@ -694,7 +696,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		Branch:     branch,
 		BaseRef:    pl.baseRef,
 		BaseCommit: pl.baseCommit,
-		Worktree:   m.Paths.Worktree(pl.project.Name, name),
+		Worktree:   m.WorktreeFor(pl.project, name),
 		Status:     state.AgentCreating,
 		CreatedAt:  time.Now(),
 		Source:     pl.source,
@@ -1268,9 +1270,14 @@ func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Re
 			raise(name)
 		}
 	}
-	if entries, err := os.ReadDir(filepath.Join(m.Paths.Worktrees(), p.Name)); err == nil {
-		for _, entry := range entries {
-			raise(entry.Name())
+	for _, dir := range []string{m.Paths.Worktrees(), m.Paths.SharedWorktrees()} {
+		if dir == "" {
+			continue
+		}
+		if entries, err := os.ReadDir(filepath.Join(dir, p.Name)); err == nil {
+			for _, entry := range entries {
+				raise(entry.Name())
+			}
 		}
 	}
 	if branches, err := repo.BranchesStartingWith(p.BranchPrefix + "agent-"); err == nil {
