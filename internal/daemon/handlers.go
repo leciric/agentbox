@@ -1393,8 +1393,18 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 	if queued != "" {
 		req.Name = queued
 	}
+	task := strings.TrimSpace(req.Task)
+	first := firstMessage(task, req.Goal)
 	return func(ctx context.Context, log io.Writer) (any, error) {
 		began := time.Now()
+		// The agent is this job's to make from Added on (beingMade), until
+		// the job ends.
+		var making func()
+		defer func() {
+			if making != nil {
+				making()
+			}
+		}()
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
@@ -1429,8 +1439,20 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			FinishNotice: req.FinishNotice,
 			LeadSession:  req.LeadSession,
 			Connectors:   connectors,
-			Task:         strings.TrimSpace(req.Task),
+			Task:         task,
 			Queued:       queued != "",
+			// Kept with the agent until its AI tool has it (agenttasks.go):
+			// the minutes its machine takes to make are minutes AgentBox may
+			// stop in, and this job's memory goes with it.
+			Added: func(ctx context.Context, a state.Agent) error {
+				making = s.beingMade(a.Ref())
+				if task == "" {
+					return nil
+				}
+				return s.store.SaveAgentTask(ctx, state.AgentTask{
+					Project: a.Project, Agent: a.Name, Text: first, Goal: req.Goal, ByLead: byLead, CreatedAt: time.Now(),
+				})
+			},
 			// A machine copied from the project's own base doesn't need the
 			// base image; any other waits for it, listed as waiting, while
 			// it's being downloaded or built.
@@ -1481,10 +1503,15 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
-		task := strings.TrimSpace(req.Task)
+		// The agent is made: the rest is telling it, and everyone else, so,
+		// which AgentBox starting to stop mustn't leave half done.
+		made := context.WithoutCancel(ctx)
 		// Before the task, which is why the agent was made from the base: a
 		// catch-up changes the machine the task then checks and saves.
-		send := s.startGoal(ctx, a, req.Goal, task)
+		s.startGoal(made, a, req.Goal, task)
+		// Exactly what was kept: its chat knows the task is sent when a
+		// prompt carries this text (package chat, tasks.go).
+		send := first
 		if req.CatchUp {
 			what, err := s.manager(log).CatchUp(ctx, a)
 			if err != nil {
@@ -1498,10 +1525,10 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		if req.Model != nil {
 			model = *req.Model
 		}
-		s.captureEvent(ctx, a.Project, a.Name, "agent_created", map[string]any{
+		s.captureEvent(made, a.Project, a.Name, "agent_created", map[string]any{
 			"title": a.Title, "task": task, "model": model, "branch": a.Branch,
 		}, "")
-		s.addActiveAgent(ctx, a.Project, a.Name)
+		s.addActiveAgent(made, a.Project, a.Name)
 		if task != "" {
 			if byLead {
 				s.leadAsked(a)
@@ -1517,8 +1544,8 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		}
 		// The thread in the project chat's rail opens on this, so an agent the
 		// chat made is there from the start rather than at its first finish.
-		s.record(ctx, createdEvent(a, task, time.Now()))
-		return s.agentReady(ctx, a)
+		s.record(made, createdEvent(a, task, time.Now()))
+		return s.agentReady(made, a)
 	}
 }
 
@@ -1559,6 +1586,12 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
+			if s.unfinished(ctx, a) {
+				// AgentBox stopped while it was being made: starting it
+				// finishes making it, and hands it its task.
+				_, err = s.finishCreate(a)
+				break
+			}
 			if s.bootWaits() {
 				// Its boot waits its turn, or for the user's computer to be
 				// over its hard floor, On hold, for as long as that takes:

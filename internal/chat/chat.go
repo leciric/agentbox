@@ -1549,6 +1549,9 @@ type conversation struct {
 	// heldResume is a turn to carry on after AgentBox restarted, held until
 	// the agent's machine can start (HoldResume, restart.go).
 	heldResume *state.RunningTurn
+	// taskSettled says the agent's task, kept until its AI tool has it, is
+	// handed over or was never kept: no prompt need look for it (tasks.go).
+	taskSettled bool
 	// resumeTimer is the pending "carry on once the usage limit resets"
 	// wake-up, resumeGen names it so a timer that fires late does nothing, and
 	// resumeTry counts the waits this stretch of limit has already had. See
@@ -2457,6 +2460,8 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	// A session started after a rollback or a fork hasn't seen the
 	// conversation: its first prompt carries it (timeline.go).
 	handoff := c.stored.Handoff
+	// Nor has one whose agent's task never reached it (tasks.go).
+	text, handsTask := c.withTask(t, text, handoff)
 	if handoff != "" {
 		text = handoff + "\n\n---\n\n" + text
 	}
@@ -2483,6 +2488,9 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	t.asked(now)
 	if t.promptAt.IsZero() {
 		t.promptAt = now
+	}
+	if handsTask {
+		c.handTaskOver(a)
 	}
 	c.mu.Unlock()
 
