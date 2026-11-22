@@ -2,10 +2,12 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,5 +152,251 @@ func TestWatchRepositoryEvents(t *testing.T) {
 	}
 	if strings.Contains(query, `\n  viewer {`) || strings.Contains(query, "defaultBranchRef") || strings.Contains(query, "issues(") {
 		t.Errorf("a plain watch asked for events: %s", query)
+	}
+}
+
+// check builds a check run as GitHub's GraphQL answers with one: a run of the
+// workflow wf (its node ID), numbered n, or an app's check with no workflow
+// when wf is "".
+func check(name, status, conclusion, wf string, n int) map[string]any {
+	c := map[string]any{"__typename": "CheckRun", "name": name, "status": status, "detailsUrl": "https://ci/" + name}
+	if conclusion != "" {
+		c["conclusion"] = conclusion
+	}
+	suite := map[string]any{"workflowRun": nil}
+	if wf != "" {
+		suite["workflowRun"] = map[string]any{"runNumber": n, "workflow": map[string]any{"id": wf}}
+	}
+	c["checkSuite"] = suite
+	return c
+}
+
+func done(name, conclusion, wf string, n int) map[string]any {
+	return check(name, "COMPLETED", conclusion, wf, n)
+}
+
+// What GitHub rolls a head's checks up to isn't believed when it says
+// failing: a run cancelled because a newer run of its workflow took its place
+// on the same commit (a pull request opened, then labelled or marked ready) has
+// not failed, and a run waiting for approval is pending. A run cancelled with
+// no newer one, and any real failure, still fail.
+func TestWatchChecksJudgedApartFromTheRollup(t *testing.T) {
+	status := func(state string) map[string]any {
+		return map[string]any{"__typename": "StatusContext", "context": "ci/legacy", "state": state, "targetUrl": "https://ci/legacy"}
+	}
+	for _, c := range []struct {
+		name     string
+		rollup   string // GitHub's word
+		total    int    // how many checks GitHub has, when more than are read
+		contexts []map[string]any
+		checks   string   // the watch's word
+		failing  []string // what it names
+	}{
+		{
+			name:   "cancelled by a newer run that passed",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1), done("CI / lint", "CANCELLED", "ci", 1),
+				done("CI / test", "SUCCESS", "ci", 2), done("CI / lint", "SUCCESS", "ci", 2),
+			},
+			checks: "passing",
+		},
+		{
+			name:   "cancelled by a newer run still going",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1),
+				check("CI / test", "IN_PROGRESS", "", "ci", 2),
+			},
+			checks: "pending",
+		},
+		{
+			name:   "cancelled by a newer run that is queued",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1),
+				check("CI / test", "QUEUED", "", "ci", 2),
+			},
+			checks: "pending",
+		},
+		{
+			name:   "cancelled by a newer run that failed names only the newer one's failure",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1), done("CI / lint", "CANCELLED", "ci", 1),
+				done("CI / test", "FAILURE", "ci", 2), done("CI / lint", "SUCCESS", "ci", 2),
+			},
+			checks:  "failing",
+			failing: []string{"CI / test"},
+		},
+		{
+			name:     "cancelled with no newer run",
+			rollup:   "FAILURE",
+			contexts: []map[string]any{done("CI / test", "CANCELLED", "ci", 1), done("CI / lint", "SUCCESS", "ci", 1)},
+			checks:   "failing",
+			failing:  []string{"CI / test"},
+		},
+		{
+			name:   "cancelled in the newest run, with an older one that passed",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "SUCCESS", "ci", 1),
+				done("CI / test", "CANCELLED", "ci", 2),
+			},
+			checks:  "failing",
+			failing: []string{"CI / test"},
+		},
+		{
+			name:   "cancelled while a newer run of another workflow exists",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1),
+				done("Docs / build", "SUCCESS", "docs", 7),
+			},
+			checks:  "failing",
+			failing: []string{"CI / test"},
+		},
+		{
+			name:   "cancelled within the same run as the others, a job cancelled by hand",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 3), done("CI / lint", "SUCCESS", "ci", 3),
+			},
+			checks:  "failing",
+			failing: []string{"CI / test"},
+		},
+		{
+			name:   "cancelled check an app reported, beside a workflow's newer run",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("deploy-preview", "CANCELLED", "", 0),
+				done("CI / test", "SUCCESS", "ci", 2),
+			},
+			checks:  "failing",
+			failing: []string{"deploy-preview"},
+		},
+		{
+			name:     "waiting for approval",
+			rollup:   "FAILURE",
+			contexts: []map[string]any{done("CI / test", "ACTION_REQUIRED", "ci", 1), done("CI / lint", "SUCCESS", "ci", 1)},
+			checks:   "pending",
+		},
+		{
+			name:   "waiting for approval, and a real failure",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "ACTION_REQUIRED", "ci", 1),
+				done("Docs / build", "TIMED_OUT", "docs", 1),
+			},
+			checks:  "failing",
+			failing: []string{"Docs / build"},
+		},
+		{
+			name:   "cancelled by a newer run, and another run waiting for approval",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1), done("CI / test", "SUCCESS", "ci", 2),
+				done("Release / build", "ACTION_REQUIRED", "release", 1),
+			},
+			checks: "pending",
+		},
+		{
+			name:   "outright failures all fail",
+			rollup: "FAILURE",
+			contexts: []map[string]any{
+				done("a", "FAILURE", "ci", 1), done("b", "TIMED_OUT", "ci", 1), done("c", "STARTUP_FAILURE", "ci", 1),
+				status("ERROR"),
+			},
+			checks:  "failing",
+			failing: []string{"a", "b", "c", "ci/legacy"},
+		},
+		{
+			name:     "a commit status that failed",
+			rollup:   "FAILURE",
+			contexts: []map[string]any{done("CI / test", "CANCELLED", "ci", 1), done("CI / test", "SUCCESS", "ci", 2), status("FAILURE")},
+			checks:   "failing",
+			failing:  []string{"ci/legacy"},
+		},
+		{
+			name:     "a commit status still pending",
+			rollup:   "FAILURE",
+			contexts: []map[string]any{done("CI / test", "CANCELLED", "ci", 1), done("CI / test", "SUCCESS", "ci", 2), status("PENDING")},
+			checks:   "pending",
+		},
+		{
+			name:   "checks not all read: the failure may be in the ones left out",
+			rollup: "FAILURE",
+			total:  60,
+			contexts: []map[string]any{
+				done("CI / test", "CANCELLED", "ci", 1), done("CI / test", "SUCCESS", "ci", 2),
+			},
+			checks: "failing",
+		},
+		{
+			name:   "checks not all read, and one read failed",
+			rollup: "FAILURE",
+			total:  60,
+			contexts: []map[string]any{
+				done("CI / test", "FAILURE", "ci", 2),
+			},
+			checks:  "failing",
+			failing: []string{"CI / test"},
+		},
+		{
+			name:     "a roll-up that says pending stays pending",
+			rollup:   "PENDING",
+			contexts: []map[string]any{done("CI / test", "SUCCESS", "ci", 1), check("CI / lint", "IN_PROGRESS", "", "ci", 1)},
+			checks:   "pending",
+		},
+		{
+			name:     "a roll-up that says passing stays passing",
+			rollup:   "SUCCESS",
+			contexts: []map[string]any{done("CI / test", "CANCELLED", "ci", 1), done("CI / test", "SUCCESS", "ci", 2)},
+			checks:   "passing",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			total := c.total
+			if total == 0 {
+				total = len(c.contexts)
+			}
+			var query string
+			stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				query = string(b)
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"repository": map[string]any{
+					"open": map[string]any{"nodes": []any{map[string]any{
+						"number": 9, "state": "OPEN", "headRefOid": "abc", "mergeable": "MERGEABLE",
+						"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": "abc", "statusCheckRollup": map[string]any{
+							"state": c.rollup, "contexts": map[string]any{"totalCount": total, "nodes": c.contexts},
+						}}}}},
+					}}},
+				}}})
+			}))
+			defer stub.Close()
+			w, err := Client{BaseURL: stub.URL}.WatchPullRequests(context.Background(), Repo{"acme", "hello"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Without the workflow run in the query, GitHub would never say which
+			// run a cancelled check belongs to.
+			if !strings.Contains(query, "workflowRun { runNumber workflow { id } }") || !strings.Contains(query, "totalCount") {
+				t.Errorf("the query didn't ask which workflow run each check is, or how many there are: %s", query)
+			}
+			if len(w.Open) != 1 {
+				t.Fatalf("Open = %+v", w.Open)
+			}
+			pr := w.Open[0]
+			if pr.Checks != c.checks {
+				t.Errorf("Checks = %q, want %q", pr.Checks, c.checks)
+			}
+			var failing []string
+			for _, f := range pr.Failing {
+				failing = append(failing, f.Name)
+			}
+			if !slices.Equal(failing, c.failing) {
+				t.Errorf("Failing = %v, want %v", failing, c.failing)
+			}
+		})
 	}
 }
