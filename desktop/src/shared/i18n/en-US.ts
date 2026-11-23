@@ -2204,6 +2204,7 @@ export const enUS = {
   'chat.delivery.waiting': 'Sending…',
   'chat.delivery.sent': 'Sent while working',
   'chat.delivery.deferred': 'Waiting for this turn to end',
+  'chat.delivery.queued': 'Queued: runs when this turn ends',
   'chat.delivery.lost': 'Never reached the tool',
   'chat.delivery.held': 'Waiting for the compaction to finish',
   'chat.delivery.waking': 'Waiting for its machine to start',

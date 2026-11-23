@@ -43,7 +43,7 @@ func (m *Manager) Told(a state.Agent, to, text string, attached int) (api.ChatIt
 }
 
 // toldNote is what the user told agents from this chat since the turn before
-// t, a line each, for t's prompt; "" when they told none. The caller holds
+// t that was told it, a line each, for t's prompt; "" when they told none. The caller holds
 // c.mu.
 func (c *conversation) toldNote(t *turn) string {
 	end := len(c.items)
@@ -56,7 +56,9 @@ func (c *conversation) toldNote(t *turn) string {
 	var lines []string
 	for i := end - 1; i >= 0; i-- {
 		it := c.items[i]
-		if it.Kind == "user" {
+		// A slash command's turn carried no note (prompt), so the turn after
+		// it carries this one's.
+		if it.Kind == "user" && !slashCommand(it.Text) {
 			break
 		}
 		if it.Kind == "notice" && it.To != "" {

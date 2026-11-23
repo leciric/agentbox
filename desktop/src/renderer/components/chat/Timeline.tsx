@@ -299,6 +299,9 @@ const deliveries: Record<string, { label: MessageKey; className: string }> = {
   waiting: { label: 'chat.delivery.waiting', className: 'text-subtle' },
   sent: { label: 'chat.delivery.sent', className: 'text-subtle' },
   deferred: { label: 'chat.delivery.deferred', className: 'text-amber-300/70' },
+  // A command for the AI tool (/compact, a skill): it never joins a running
+  // turn, and goes in as a prompt of its own once the turn ends.
+  queued: { label: 'chat.delivery.queued', className: 'text-subtle' },
   lost: { label: 'chat.delivery.lost', className: 'text-rose-300/80' },
   held: { label: 'chat.delivery.held', className: 'text-amber-300/70' },
   waking: { label: 'chat.delivery.waking', className: 'text-amber-300/70' },

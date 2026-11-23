@@ -263,9 +263,13 @@ const (
 	ChatAsideWaiting  = "waiting"  // taken, not yet handed to the AI tool
 	ChatAsideSent     = "sent"     // the AI tool took it into the running turn
 	ChatAsideDeferred = "deferred" // it couldn't join that turn: it goes in as its own, after
-	ChatAsideLost     = "lost"     // the session ended before it could be delivered
-	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
-	ChatAsideWaking   = "waking"   // sent to a stopped agent that waits for memory: it starts the turn once its machine does
+	// ChatAsideQueued is a command for the AI tool (/compact, a skill): it
+	// never joins a running turn, whose model would only read it, and goes in
+	// as a prompt of its own once the turn ends.
+	ChatAsideQueued = "queued"
+	ChatAsideLost   = "lost"   // the session ended before it could be delivered
+	ChatAsideHeld   = "held"   // sent while the chat compacted: it starts the fresh session's first turn
+	ChatAsideWaking = "waking" // sent to a stopped agent that waits for memory: it starts the turn once its machine does
 	// ChatAsideStarting is a message sent before the AI tool could take it:
 	// on a user item, its turn waits for the tool's session to start; on an
 	// aside, the agent's machine is still being made. It goes in once ready.
