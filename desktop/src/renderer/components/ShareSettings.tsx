@@ -52,6 +52,8 @@ function SharePeers() {
   const share = useShare();
   const queryClient = useQueryClient();
   const st = share.data;
+  // Pairing goes through the phone page: off, it says so in the app's words.
+  const lanOn = !!useQuery({ queryKey: ['lan'], queryFn: api.lan }).data?.enabled;
   const [pairing, setPairing] = useState<T.SharePairing | null>(null);
   const [name, setName] = useState<string | null>(null);
   const pair = useMutation({
@@ -108,7 +110,7 @@ function SharePeers() {
             />
           </Field>
         </div>
-        {!st.ready && st.error && <SettingNote tone="muted">{st.error}</SettingNote>}
+        {!st.ready && <SettingNote tone="muted">{lanOn ? t('peers.noAddress', { error: st.error ?? '' }) : t('peers.phonesOff')}</SettingNote>}
         {pairing ? (
           <PairingLink pairing={pairing} onDone={() => setPairing(null)} />
         ) : (

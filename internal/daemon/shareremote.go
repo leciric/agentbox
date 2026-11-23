@@ -344,14 +344,19 @@ func (s *Server) remoteLists(ctx context.Context, c *remoteConn) (projects, agen
 		return items, nil
 	}
 	projects, err := get("/v1/projects")
-	if err == nil {
-		agents, err = get("/v1/agents")
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err != nil {
 		c.err = err.Error()
 		return c.projects, c.agents // what it last shared, until it answers again
+	}
+	// Its agents can fail on their own (its machines unreadable a moment):
+	// the projects still show, with the agents it last listed.
+	c.mu.Unlock()
+	agents, aerr := get("/v1/agents")
+	c.mu.Lock()
+	if aerr != nil {
+		agents = c.agents
 	}
 	for i, p := range projects {
 		projects[i] = withRemote(p, api.ProjectRemote{ID: c.r.ID, Owner: c.r.Name})

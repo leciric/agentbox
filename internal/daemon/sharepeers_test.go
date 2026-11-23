@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -379,5 +380,30 @@ func TestEventProject(t *testing.T) {
 		if got := eventProject(json.RawMessage(data)); got != want {
 			t.Errorf("eventProject(%s) = %q, want %q", data, got, want)
 		}
+	}
+}
+
+// An owner whose agents can't be listed still shows its shared projects.
+func TestRemoteListsWithoutAgents(t *testing.T) {
+	t.Parallel()
+	owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/share/api/v1/projects":
+			_, _ = w.Write([]byte(`[{"name":"web","displayName":"Web","iconVersion":0}]`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"incus list: connection refused"}`))
+		}
+	}))
+	defer owner.Close()
+	s := &Server{peering: newPeeringState()}
+	c := &remoteConn{r: state.ShareRemote{ID: "r1", Name: "Alice", URL: owner.URL}, token: "tok"}
+	projects, agents := s.remoteLists(context.Background(), c)
+	if len(projects) != 1 || !strings.Contains(string(projects[0]), `"name":"r1~web"`) || !strings.Contains(string(projects[0]), `"owner":"Alice"`) || len(agents) != 0 {
+		t.Errorf("remoteLists() = %s, %s", projects, agents)
 	}
 }

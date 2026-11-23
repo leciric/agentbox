@@ -5600,4 +5600,6 @@ export const ptBR: Messages = {
   'shell.sidebar.remote': 'Remotos',
   'shell.sidebar.remoteOwner': 'em {owner}',
   'shell.sidebar.remoteOff': '{owner} compartilha projetos com você, mas não responde: {error}',
+  'peers.phonesOff': 'Ative Parear um celular em Celulares primeiro: outro AgentBox pareia pela mesma página.',
+  'peers.noAddress': 'Ainda não há um endereço que outro AgentBox possa alcançar: {error}',
 };

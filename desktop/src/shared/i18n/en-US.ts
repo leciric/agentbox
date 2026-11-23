@@ -5599,6 +5599,8 @@ export const enUS = {
   'shell.sidebar.remote': 'Remote',
   'shell.sidebar.remoteOwner': 'on {owner}',
   'shell.sidebar.remoteOff': '{owner} is shared with you, but can\'t be reached: {error}',
+  'peers.phonesOff': 'Turn on Pair a phone under Phones first: another AgentBox pairs through the same page.',
+  'peers.noAddress': 'There\'s no address another AgentBox could reach yet: {error}',
 };
 
 export type MessageKey = keyof typeof enUS;
