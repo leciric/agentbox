@@ -1267,6 +1267,14 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
+	// An agent a paired AgentBox asks for runs here, on this machine's AI
+	// accounts, within its slots (sharepeers.go).
+	if peer := s.shareCreator(ctx, p.Name, req.LeadSession, byLead); peer != "" {
+		if err := s.checkShareSlots(ctx, peer); err != nil {
+			return fail(err)
+		}
+		req.SharedBy = peer
+	}
 	// An agent named as where to start is its branch: the new agent is
 	// stacked on it, and opens its pull request against it (stack.go).
 	if req.From != "" {
@@ -1446,6 +1454,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			// stop in, and this job's memory goes with it.
 			Added: func(ctx context.Context, a state.Agent) error {
 				making = s.beingMade(a.Ref())
+				if req.SharedBy != "" {
+					if err := s.store.AddSharePeerAgent(ctx, req.SharedBy, a.Project, a.Name); err != nil {
+						return err
+					}
+				}
 				if task == "" {
 					return nil
 				}

@@ -101,6 +101,7 @@ import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { appsGroups } from "./AppsSettings";
 import { phoneGroups } from "./PhoneSettings";
+import { shareGroups } from "./ShareSettings";
 import { SettingsPage, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
@@ -1214,7 +1215,7 @@ function InstalledSettings({
             title: t("settings.section.phone.title"),
             description: t("settings.section.phone.description"),
             scope: "installation" as const,
-            groups: phoneGroups(),
+            groups: [...phoneGroups(), ...shareGroups()],
           },
         ]
       : []),

@@ -252,6 +252,13 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventLAN:
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });
+        // Pairing another AgentBox needs the phone page's address.
+        void queryClient.invalidateQueries({ queryKey: ['share'] });
+        break;
+      case T.EventShare:
+        // Another AgentBox paired, unpaired or given projects (Settings,
+        // Share), or one this one paired with came or went.
+        void queryClient.invalidateQueries({ queryKey: ['share'] });
         break;
       case T.EventProject: {
         void queryClient.invalidateQueries({ queryKey: ['projects'] });

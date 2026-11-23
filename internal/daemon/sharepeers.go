@@ -1,0 +1,752 @@
+package daemon
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"agentbox/internal/api"
+	"agentbox/internal/state"
+)
+
+// Sharing projects with another AgentBox. The owner's side is here; the
+// side of the AgentBox that paired with an owner is shareremote.go.
+//
+// Pairing reuses the phone page (lan.go): the owner makes a one-time link
+// under Settings → Share (POST /v1/share/pairings), its phone page's address
+// with a secret in the fragment, valid for pairingTTL. The other AgentBox,
+// the peer, posts the secret to /share/pair at that address and gets a token
+// of its own; state keeps its hash (state.AddSharePeer). It reaches the page
+// as a phone does, over the local network or the Cloudflare Tunnel, with the
+// token in an Authorization header, under /share/api/.
+//
+// A peer reaches only the projects it was given (all of them, or a list),
+// and in them what a local user does (shareRouteOf): their chats, agents,
+// events, terminals and files. Never the machine's secrets, accounts,
+// settings or other projects, nor making, changing or removing a project.
+// The lists it reads (projects, agents, the event stream) are cut down to
+// its projects.
+//
+// Agents a peer makes run on this machine, on its AI accounts: so many at a
+// time as its slots allow (checkShareSlots), its own limit or the one set
+// for every peer. An agent counts as the peer's when the peer made it, or
+// when a project chat made it after the peer was the last to write in that
+// chat (peeringState.speaker).
+
+type peeringState struct {
+	mu       sync.Mutex
+	pairings map[string]time.Time                        // one-time secrets, to when each expires
+	open     map[string]map[*context.CancelFunc]struct{} // what each peer has open
+	seen     map[string]time.Time                        // when each peer's last visit was recorded
+	// speaker is, by "project/session" ("" for the project's own chat), the
+	// peer that wrote last in that chat, until someone here does.
+	speaker map[string]string
+	// running counts, of refs a peer made, those running now; nil is
+	// shareRunning's. A field for tests.
+	running func(ctx context.Context, refs []string) int
+
+	remotes *shareRemotes // shareremote.go
+}
+
+func newPeeringState() *peeringState {
+	return &peeringState{
+		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{},
+		seen: map[string]time.Time{}, speaker: map[string]string{}, remotes: newShareRemotes(),
+	}
+}
+
+// sharePeerKey is the context key of the peer a request came from.
+type sharePeerKey struct{}
+
+func sharePeerFrom(ctx context.Context) (state.SharePeer, bool) {
+	p, ok := ctx.Value(sharePeerKey{}).(state.SharePeer)
+	return p, ok
+}
+
+func (s *Server) shareName(ctx context.Context) string {
+	if v, _ := s.store.Setting(ctx, state.SettingShareName); strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
+	}
+	return "AgentBox"
+}
+
+func (s *Server) shareSlots(ctx context.Context) int {
+	v, err := s.store.Setting(ctx, state.SettingShareSlots)
+	if err != nil || v == "" {
+		return state.DefaultShareSlots
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 || n > state.MaxShareSlots {
+		return state.DefaultShareSlots
+	}
+	return n
+}
+
+func (s *Server) publishShare(context.Context) {
+	s.events.publish(api.EventShare, struct{}{})
+}
+
+func (s *Server) shareStatus(ctx context.Context) (api.ShareStatus, error) {
+	out := api.ShareStatus{Name: s.shareName(ctx), Slots: s.shareSlots(ctx), Peers: []api.SharePeer{}, Remotes: []api.ShareRemote{}}
+	lan, err := s.lanStatus(ctx)
+	if err != nil {
+		return api.ShareStatus{}, err
+	}
+	switch {
+	case !lan.Enabled:
+		out.Error = "turn on chatting from a phone first, under Phones: another AgentBox pairs through the same page"
+	case len(lan.URLs) == 0:
+		out.Error = cmp.Or(lan.Error, lan.Tunnel.Error, "there's no address another AgentBox could reach yet")
+	default:
+		out.Ready = true
+	}
+	peers, err := s.store.SharePeers(ctx)
+	if err != nil {
+		return api.ShareStatus{}, err
+	}
+	for _, p := range peers {
+		out.Peers = append(out.Peers, s.sharePeerInfo(ctx, p))
+	}
+	remotes, err := s.store.ShareRemotes(ctx)
+	if err != nil {
+		return api.ShareStatus{}, err
+	}
+	for _, r := range remotes {
+		out.Remotes = append(out.Remotes, s.shareRemoteInfo(r))
+	}
+	return out, nil
+}
+
+func (s *Server) sharePeerInfo(ctx context.Context, p state.SharePeer) api.SharePeer {
+	refs, _ := s.store.SharePeerAgents(ctx, p.ID)
+	return api.SharePeer{
+		ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr,
+		AllProjects: p.AllProjects, Projects: p.Projects, Slots: p.Slots, Running: s.shareRunningCount(ctx, refs),
+	}
+}
+
+func (s *Server) getShare(w http.ResponseWriter, r *http.Request) error {
+	st, err := s.shareStatus(r.Context())
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) updateShare(w http.ResponseWriter, r *http.Request) error {
+	var req api.UpdateShareRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	if req.Slots != nil {
+		if *req.Slots < 0 || *req.Slots > state.MaxShareSlots {
+			return fmt.Errorf("slots must be between 0 and %d, not %d", state.MaxShareSlots, *req.Slots)
+		}
+		if err := s.store.SetSetting(ctx, state.SettingShareSlots, strconv.Itoa(*req.Slots)); err != nil {
+			return err
+		}
+	}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if len([]rune(name)) > state.MaxPhoneNameLen {
+			return fmt.Errorf("the name is longer than %d characters", state.MaxPhoneNameLen)
+		}
+		if err := s.store.SetSetting(ctx, state.SettingShareName, name); err != nil {
+			return err
+		}
+	}
+	s.publishShare(ctx)
+	return s.getShare(w, r)
+}
+
+func (s *Server) addSharePairing(w http.ResponseWriter, r *http.Request) error {
+	st, err := s.shareStatus(r.Context())
+	if err != nil {
+		return err
+	}
+	if !st.Ready {
+		return errors.New(st.Error)
+	}
+	lan, err := s.lanStatus(r.Context())
+	if err != nil {
+		return err
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	secret := base64.RawURLEncoding.EncodeToString(raw)
+	out := api.SharePairing{Expires: time.Now().Add(pairingTTL)}
+	for _, u := range lan.URLs {
+		out.Links = append(out.Links, u+"#share="+secret)
+	}
+	out.Link = out.Links[0]
+	sh := s.peering
+	sh.mu.Lock()
+	for k, exp := range sh.pairings {
+		if time.Now().After(exp) {
+			delete(sh.pairings, k)
+		}
+	}
+	sh.pairings[secret] = out.Expires
+	sh.mu.Unlock()
+	return writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
+	var req api.UpdateSharePeerRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	p, err := s.store.SharePeer(ctx, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	all, projects, slots := p.AllProjects, p.Projects, p.Slots
+	if req.AllProjects != nil {
+		all = *req.AllProjects
+	}
+	if req.Projects != nil {
+		projects = nil
+		for _, ref := range *req.Projects {
+			proj, err := s.store.Project(ctx, ref)
+			if err != nil {
+				return err
+			}
+			projects = append(projects, proj.Name)
+		}
+	}
+	if req.Slots != nil {
+		slots = *req.Slots
+	}
+	if p, err = s.store.SetSharePeer(ctx, p.ID, all, projects, slots); err != nil {
+		return err
+	}
+	s.logf("share: %s (%s) reaches %s, slots %d", p.Name, p.ID, shareWhat(p), p.Slots)
+	// What it has open ends, its event stream first: it connects again at
+	// once, and lists the projects it now reaches.
+	s.peering.mu.Lock()
+	for cancel := range s.peering.open[p.ID] {
+		(*cancel)()
+	}
+	s.peering.mu.Unlock()
+	s.publishShare(ctx)
+	return writeJSON(w, http.StatusOK, s.sharePeerInfo(ctx, p))
+}
+
+func shareWhat(p state.SharePeer) string {
+	if p.AllProjects {
+		return "every project"
+	}
+	if len(p.Projects) == 0 {
+		return "no project"
+	}
+	return strings.Join(p.Projects, ", ")
+}
+
+func (s *Server) removeSharePeer(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	if err := s.store.RemoveSharePeer(r.Context(), id); err != nil {
+		return err
+	}
+	sh := s.peering
+	sh.mu.Lock()
+	for cancel := range sh.open[id] {
+		(*cancel)()
+	}
+	delete(sh.seen, id)
+	for k, v := range sh.speaker {
+		if v == id {
+			delete(sh.speaker, k)
+		}
+	}
+	sh.mu.Unlock()
+	s.publishShare(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// sharePair is a peer's daemon pairing with the secret of a link.
+func (s *Server) sharePair(w http.ResponseWriter, r *http.Request, addr string) {
+	if s.lan.limiter.Blocked(addr, true) {
+		s.tooMany(w)
+		return
+	}
+	var req api.SharePairRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := readJSON(r, &req); err != nil {
+		writeLANError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sh := s.peering
+	sh.mu.Lock()
+	expires, ok := sh.pairings[req.Secret]
+	delete(sh.pairings, req.Secret)
+	sh.mu.Unlock()
+	if req.Secret == "" || !ok || time.Now().After(expires) {
+		s.lan.limiter.Fail(addr)
+		s.logf("share: a pairing from %s with a link that has expired, was used, or never was", addr)
+		writeLANError(w, http.StatusForbidden, "this link has expired or was used already: make a new one in AgentBox's settings, under Share")
+		return
+	}
+	p, token, err := s.store.AddSharePeer(r.Context(), req.Name)
+	if err != nil {
+		writeLANError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = s.store.SawSharePeer(r.Context(), p.ID, addr, time.Now())
+	s.logf("share: paired %s (%s) from %s; it reaches no project until you choose", p.Name, p.ID, addr)
+	s.publishShare(r.Context())
+	_ = writeJSON(w, http.StatusOK, api.SharePairResponse{Token: token, Owner: s.shareName(r.Context())})
+}
+
+// sharePeerOf is the peer a request's bearer token says it is.
+func (s *Server) sharePeerOf(w http.ResponseWriter, r *http.Request, addr string) (state.SharePeer, bool) {
+	token, ok := lanBearer(r)
+	if ok && strings.HasPrefix(token, "share_") {
+		if s.lan.limiter.Blocked(addr, false) {
+			s.tooMany(w)
+			return state.SharePeer{}, false
+		}
+		p, err := s.store.SharePeerByToken(r.Context(), token)
+		if err == nil {
+			return p, true
+		}
+		if !errors.Is(err, state.ErrNotFound) {
+			writeLANError(w, http.StatusInternalServerError, err.Error())
+			return state.SharePeer{}, false
+		}
+		s.lan.limiter.Fail(addr)
+	}
+	writeLANError(w, http.StatusUnauthorized, "this AgentBox isn't paired, or was unpaired: pair it again with a new link")
+	return state.SharePeer{}, false
+}
+
+// shareAPI passes a peer's request on to the API, if it reaches the project
+// the request is in, and ends it when the peer is unpaired.
+func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
+	p, ok := s.sharePeerOf(w, r, addr)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	path := strings.TrimPrefix(r.URL.Path, "/share/api")
+	route := shareRouteOf(r.Method, path)
+	var body []byte
+	switch {
+	case route.never != "":
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf("a paired AgentBox can't reach %s", route.never))
+		return
+	case route.bodyProject:
+		var err error
+		if body, err = io.ReadAll(io.LimitReader(r.Body, 1<<20)); err != nil {
+			writeLANError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		var req struct {
+			Project string `json:"project"`
+		}
+		_ = json.Unmarshal(body, &req)
+		route.project = req.Project
+	case route.project == "" && route.global == "":
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf("%s %s isn't shared with another AgentBox: it works on the AgentBox that shares the project", r.Method, path))
+		return
+	}
+	if route.project != "" {
+		slug := route.project
+		if proj, err := s.store.Project(ctx, slug); err == nil {
+			slug = proj.Name
+		}
+		if !p.Shares(slug) {
+			writeLANError(w, http.StatusForbidden, fmt.Sprintf("project %s isn't shared with %s", route.project, p.Name))
+			return
+		}
+		route.project = slug
+	}
+	if route.slotted {
+		if err := s.checkShareStart(ctx, p, path); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if route.chat != "" {
+		s.peering.mu.Lock()
+		s.peering.speaker[route.project+"/"+route.chat[1:]] = p.ID
+		s.peering.mu.Unlock()
+	}
+
+	ctx, cancel := context.WithCancel(context.WithValue(ctx, sharePeerKey{}, p))
+	defer cancel()
+	sh := s.peering
+	sh.mu.Lock()
+	if sh.open[p.ID] == nil {
+		sh.open[p.ID] = map[*context.CancelFunc]struct{}{}
+	}
+	sh.open[p.ID][&cancel] = struct{}{}
+	record := time.Since(sh.seen[p.ID]) > time.Minute
+	if record {
+		sh.seen[p.ID] = time.Now()
+	}
+	sh.mu.Unlock()
+	defer func() {
+		sh.mu.Lock()
+		delete(sh.open[p.ID], &cancel)
+		if len(sh.open[p.ID]) == 0 {
+			delete(sh.open, p.ID)
+		}
+		sh.mu.Unlock()
+	}()
+	if record {
+		if err := s.store.SawSharePeer(ctx, p.ID, addr, time.Now()); err == nil {
+			s.publishShare(ctx)
+		}
+	}
+	if route.global == "events" {
+		s.shareEvents(w, r.WithContext(ctx), p)
+		return
+	}
+	s.lan.mu.Lock()
+	if s.lan.api == nil {
+		s.lan.api = s.routes()
+	}
+	routes := s.lan.api
+	s.lan.mu.Unlock()
+	r2 := r.Clone(ctx)
+	r2.URL.Path = path
+	r2.URL.RawPath = ""
+	if body != nil {
+		r2.Body = io.NopCloser(bytes.NewReader(body))
+		r2.ContentLength = int64(len(body))
+	} else if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		r2.Body = http.MaxBytesReader(w, r.Body, 96<<20)
+	}
+	if route.global == "projects" || route.global == "agents" {
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, r2)
+		if rec.Code != http.StatusOK {
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(rec.Body.Bytes())
+			return
+		}
+		out, err := shareFilterList(rec.Body.Bytes(), p, route.global)
+		if err != nil {
+			writeLANError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
+		return
+	}
+	routes.ServeHTTP(w, r2)
+}
+
+// shareFilterList cuts GET /v1/projects or /v1/agents down to the projects
+// p reaches. Projects lose where they are on this machine.
+func shareFilterList(body []byte, p state.SharePeer, what string) ([]byte, error) {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	key := "project"
+	if what == "projects" {
+		key = "name"
+	}
+	out := []map[string]json.RawMessage{}
+	for _, it := range items {
+		var name string
+		_ = json.Unmarshal(it[key], &name)
+		if !p.Shares(name) {
+			continue
+		}
+		if what == "projects" {
+			it["root"] = json.RawMessage(`""`)
+			it["envFiles"] = json.RawMessage(`[]`)
+		}
+		out = append(out, it)
+	}
+	return json.Marshal(out)
+}
+
+// eventProject is the project an event is about: its data's project, or the
+// project of the agent its ref (or a job's target) names; "" for one about no
+// project, which no peer is sent.
+func eventProject(data json.RawMessage) string {
+	var d struct {
+		Project string `json:"project"`
+		Ref     string `json:"ref"`
+		Target  string `json:"target"`
+	}
+	if json.Unmarshal(data, &d) != nil {
+		return ""
+	}
+	if d.Project != "" {
+		return d.Project
+	}
+	for _, ref := range []string{d.Ref, d.Target} {
+		if project, _, ok := strings.Cut(ref, "/"); ok {
+			return project
+		}
+	}
+	return ""
+}
+
+// shareEvents is the event stream as a peer sees it: only its projects'.
+func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.SharePeer) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeLANError(w, http.StatusInternalServerError, "streaming isn't supported on this connection")
+		return
+	}
+	events, unsubscribe := s.events.subscribe()
+	defer unsubscribe()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	send := func(ev api.Event) {
+		data, _ := json.Marshal(ev)
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
+		flusher.Flush()
+	}
+	_, _ = fmt.Fprint(w, ": connected\n\n")
+	for _, change := range s.agentStates() {
+		if project, _, _ := strings.Cut(change.Ref, "/"); p.Shares(project) {
+			data, _ := json.Marshal(change)
+			send(api.Event{Type: api.EventAgent, Time: time.Now(), Data: data})
+		}
+	}
+	flusher.Flush()
+	keepalive := time.NewTicker(cmp.Or(s.keepalive, 15*time.Second))
+	defer keepalive.Stop()
+	// What it reaches is read again now and then, so a project unshared
+	// stops reaching it without its stream starting over.
+	reread := time.NewTicker(10 * time.Second)
+	defer reread.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepalive.C:
+			_, _ = fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-reread.C:
+			if now, err := s.store.SharePeer(r.Context(), p.ID); err == nil {
+				p = now
+			}
+		case ev := <-events:
+			if ev.Type == api.EventLAN || ev.Type == api.EventShare {
+				continue
+			}
+			if p.Shares(eventProject(ev.Data)) {
+				send(ev)
+			}
+		}
+	}
+}
+
+// shareRoute is what a peer's request is: one no peer may make (never says
+// what it would reach), one in a project, which the peer must have been
+// given, or one of the lists the gateway cuts down to the peer's projects.
+type shareRoute struct {
+	never   string
+	project string
+	// global is "projects", "agents", "events" or "version".
+	global string
+	// bodyProject says the project is in the request's body (POST
+	// /v1/agents).
+	bodyProject bool
+	// slotted says it makes an agent run, which the peer's slots count:
+	// checkShareStart.
+	slotted bool
+	// chat is "/<session>" ("/" for the project's own chat) when it writes
+	// in a project's chat, which makes the peer its speaker.
+	chat string
+}
+
+// shareNever is refused to every peer, in any project it was given: what
+// hands over the machine, its secrets or accounts, pairs more devices, or
+// makes, changes and removes projects. Matched against "METHOD /path".
+var shareNever = []struct {
+	what string
+	re   *regexp.Regexp
+}{
+	{"secrets and credentials", regexp.MustCompile(`^\S+ (/v1/auth(/|$)|.*/(secrets|credentials?|browser-cookies)(/|$))`)},
+	{"connectors", regexp.MustCompile(`^\S+ .*/connectors?(/|$)`)},
+	{"pairing and the phone, share, remote and tunnel settings", regexp.MustCompile(`^\S+ /v1/(lan|remote|share)(/|$)`)},
+	{"adding, changing or removing projects", regexp.MustCompile(`^(POST /v1/projects|\S+ /v1/projects/(layout|clone)|PATCH /v1/projects/[^/]+|DELETE /v1/projects/[^/]+|POST /v1/projects/[^/]+/retire|(POST|DELETE) /v1/projects/[^/]+/base(/revert)?)/?$`)},
+	{"the project's memory shared with every project", regexp.MustCompile(`^POST /v1/projects/[^/]+/memory/(share|promote)$`)},
+	{"stopping agents, or deleting past agents, of every project at once", regexp.MustCompile(`^POST /v1/(agents/stop|archived-agents/delete)/?$`)},
+	{"forking or remaking agents, which its slots can't count yet: make a new agent", regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(fork|recreate)/?$`)},
+}
+
+// shareProjectRoute is a route in one project: the project's, its sessions'
+// and its agents', past agents included.
+var shareProjectRoute = regexp.MustCompile(`^/v1/(projects|agents|archived-agents)/([^/]+)(/.*)?$`)
+
+// shareChatWrite is a message sent in a project's chat, or one of its
+// sessions'.
+var shareChatWrite = regexp.MustCompile(`^POST /v1/projects/[^/]+(/sessions/([^/]+))?/chat/messages$`)
+
+// shareStart is starting an agent's machine again.
+var shareStart = regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`)
+
+func shareRouteOf(method, path string) shareRoute {
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return shareRoute{}
+	}
+	line := method + " " + path
+	for _, n := range shareNever {
+		if n.re.MatchString(line) {
+			return shareRoute{never: n.what}
+		}
+	}
+	get := method == http.MethodGet || method == http.MethodHead
+	switch {
+	case get && path == "/v1/projects":
+		return shareRoute{global: "projects"}
+	case get && path == "/v1/agents":
+		return shareRoute{global: "agents"}
+	case get && path == "/v1/events":
+		return shareRoute{global: "events"}
+	case get && path == "/v1/version":
+		return shareRoute{global: "version"}
+	case method == http.MethodPost && path == "/v1/agents":
+		return shareRoute{bodyProject: true, slotted: true}
+	}
+	m := shareProjectRoute.FindStringSubmatch(path)
+	if m == nil {
+		return shareRoute{}
+	}
+	project, err := url.PathUnescape(m[2])
+	if err != nil || project == "" || project == state.HomeProject {
+		return shareRoute{}
+	}
+	out := shareRoute{project: project, slotted: shareStart.MatchString(line)}
+	if c := shareChatWrite.FindStringSubmatch(line); c != nil {
+		out.chat = "/" + c[2]
+	}
+	return out
+}
+
+// shareRunningCount is how many of refs run now: a machine whose state can't
+// be read counts as running, so a peer is never let past its slots on a
+// guess.
+func (s *Server) shareRunningCount(ctx context.Context, refs []string) int {
+	if len(refs) == 0 {
+		return 0
+	}
+	if s.peering.running != nil {
+		return s.peering.running(ctx, refs)
+	}
+	n := 0
+	byProject := map[string][]string{}
+	for _, ref := range refs {
+		project, name, _ := strings.Cut(ref, "/")
+		byProject[project] = append(byProject[project], name)
+	}
+	for project, names := range byProject {
+		statuses, err := s.manager(nil).List(ctx, project)
+		if err != nil {
+			n += len(names)
+			continue
+		}
+		for _, st := range statuses {
+			if slices.Contains(names, st.Name) && st.State != "Stopped" && st.State != "stopped" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// shareSlotsFull refuses a peer one more agent.
+type shareSlotsFull struct {
+	peer           string
+	running, slots int
+}
+
+func (e shareSlotsFull) Error() string {
+	if e.slots == 0 {
+		return fmt.Sprintf("%s may not run agents on this AgentBox: its owner gave it no slots (Settings → Share)", e.peer)
+	}
+	return fmt.Sprintf("%s already has %d of its %d agents running on this AgentBox: stop one of them first, or ask the owner for more slots (Settings → Share)", e.peer, e.running, e.slots)
+}
+
+// checkShareSlots refuses a peer an agent more than its slots allow.
+func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
+	p, err := s.store.SharePeer(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	slots := p.Slots
+	if slots < 0 {
+		slots = s.shareSlots(ctx)
+	}
+	refs, err := s.store.SharePeerAgents(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if running := s.shareRunningCount(ctx, refs); running >= slots {
+		return shareSlotsFull{peer: p.Name, running: running, slots: slots}
+	}
+	return nil
+}
+
+// checkShareStart is checkShareSlots for starting one of the peer's own
+// agents again; starting the owner's agents counts nothing.
+func (s *Server) checkShareStart(ctx context.Context, p state.SharePeer, path string) error {
+	if !shareStart.MatchString("POST " + path) {
+		return nil // POST /v1/agents: checkCreate checks it, with the request's project
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/v1/agents/"), "/")
+	refs, err := s.store.SharePeerAgents(ctx, p.ID)
+	if err != nil || len(parts) < 2 || !slices.Contains(refs, parts[0]+"/"+parts[1]) {
+		return err
+	}
+	if s.shareRunningCount(ctx, []string{parts[0] + "/" + parts[1]}) > 0 {
+		return nil // already running
+	}
+	return s.checkShareSlots(ctx, p.ID)
+}
+
+// shareCreator is the peer an agent about to be made counts against: the one
+// that asked for it, or the one that last wrote in the chat that did.
+func (s *Server) shareCreator(ctx context.Context, project, session string, byLead bool) string {
+	if p, ok := sharePeerFrom(ctx); ok {
+		return p.ID
+	}
+	if !byLead {
+		return ""
+	}
+	s.peering.mu.Lock()
+	defer s.peering.mu.Unlock()
+	return s.peering.speaker[project+"/"+session]
+}
+
+// heardLocally says someone on this machine wrote in a project's chat, which
+// it is no longer a peer's to make agents from.
+func (s *Server) heardLocally(project, session string) {
+	s.peering.mu.Lock()
+	delete(s.peering.speaker, project+"/"+session)
+	s.peering.mu.Unlock()
+}

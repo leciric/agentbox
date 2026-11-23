@@ -1,0 +1,281 @@
+package state
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Sharing projects with another AgentBox (internal/daemon/share.go). The
+// owner pairs a peer with a one-time link, as a phone is paired; the peer
+// gets a token of its own, of which only the hash is kept here. Each peer
+// reaches the projects it was given, all of them or a list, and may have so
+// many agents running on this machine (its slots).
+//
+// The other side of it, an AgentBox that paired with an owner, keeps the
+// owner's address and the token it got (ShareRemote), sealed, to proxy the
+// shared projects to its own app.
+
+// SettingShareSlots is how many agents a peer may have running on this
+// machine when it has no limit of its own; "" is DefaultShareSlots.
+const SettingShareSlots = "share_slots"
+
+// SettingShareName is what this AgentBox is called on the others; "" is
+// the computer's name.
+const SettingShareName = "share_name"
+
+// DefaultShareSlots is SettingShareSlots' default.
+const DefaultShareSlots = 2
+
+// MaxShareSlots bounds a slot limit.
+const MaxShareSlots = 64
+
+// SharePeer is another AgentBox paired to reach some of this machine's
+// projects.
+type SharePeer struct {
+	ID       string
+	Name     string
+	Created  time.Time
+	LastSeen time.Time
+	LastAddr string
+	// AllProjects shares every project, those added later included;
+	// otherwise Projects, by slug.
+	AllProjects bool
+	Projects    []string
+	// Slots is how many agents it may have running here; -1 follows
+	// SettingShareSlots.
+	Slots int
+}
+
+// Shares says p reaches the project called slug.
+func (p SharePeer) Shares(slug string) bool {
+	return slug != "" && slug != HomeProject && (p.AllProjects || slices.Contains(p.Projects, slug))
+}
+
+const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots FROM share_peers`
+
+func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
+	var p SharePeer
+	var created, seen int64
+	var all int
+	var projects string
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots); err != nil {
+		return SharePeer{}, err
+	}
+	p.Created = time.Unix(created, 0)
+	if seen > 0 {
+		p.LastSeen = time.Unix(seen, 0)
+	}
+	p.AllProjects = all != 0
+	p.Projects = []string{}
+	for _, s := range strings.Split(projects, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			p.Projects = append(p.Projects, s)
+		}
+	}
+	return p, nil
+}
+
+// AddSharePeer pairs another AgentBox called name, sharing nothing until the
+// owner chooses, and returns it with its token, which isn't kept.
+func (s *Store) AddSharePeer(ctx context.Context, name string) (SharePeer, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "AgentBox"
+	}
+	if r := []rune(name); len(r) > MaxPhoneNameLen {
+		name = string(r[:MaxPhoneNameLen])
+	}
+	id := make([]byte, 6)
+	secret := make([]byte, 32)
+	if _, err := rand.Read(id); err != nil {
+		return SharePeer{}, "", err
+	}
+	if _, err := rand.Read(secret); err != nil {
+		return SharePeer{}, "", err
+	}
+	p := SharePeer{ID: "peer_" + hex.EncodeToString(id), Name: name, Created: time.Now(), Projects: []string{}, Slots: -1}
+	token := "share_" + p.ID + "." + base64.RawURLEncoding.EncodeToString(secret)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO share_peers (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
+		p.ID, p.Name, HashPhoneToken(token), p.Created.Unix())
+	if err != nil {
+		return SharePeer{}, "", err
+	}
+	return p, token, nil
+}
+
+// SharePeerByToken is the peer a token belongs to, or ErrNotFound.
+func (s *Store) SharePeerByToken(ctx context.Context, token string) (SharePeer, error) {
+	if token == "" {
+		return SharePeer{}, ErrNotFound
+	}
+	p, err := scanSharePeer(s.db.QueryRowContext(ctx, sharePeerSelect+` WHERE token_hash = ?`, HashPhoneToken(token)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return SharePeer{}, ErrNotFound
+	}
+	return p, err
+}
+
+// SharePeer is one peer, or ErrNotFound.
+func (s *Store) SharePeer(ctx context.Context, id string) (SharePeer, error) {
+	p, err := scanSharePeer(s.db.QueryRowContext(ctx, sharePeerSelect+` WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return SharePeer{}, ErrNotFound
+	}
+	return p, err
+}
+
+// SharePeers lists the paired peers, the most recently paired first.
+func (s *Store) SharePeers(ctx context.Context) ([]SharePeer, error) {
+	rows, err := s.db.QueryContext(ctx, sharePeerSelect+` ORDER BY created_at DESC, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []SharePeer
+	for rows.Next() {
+		p, err := scanSharePeer(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// SetSharePeer replaces what a peer reaches and its slots (-1 for the
+// default), and returns it as it now is.
+func (s *Store) SetSharePeer(ctx context.Context, id string, all bool, projects []string, slots int) (SharePeer, error) {
+	if slots < -1 || slots > MaxShareSlots {
+		return SharePeer{}, errors.New("a peer's slots must be between 0 and " + strconv.Itoa(MaxShareSlots))
+	}
+	var clean []string
+	for _, p := range projects {
+		if p = strings.TrimSpace(p); p != "" && !strings.Contains(p, ",") && !slices.Contains(clean, p) {
+			clean = append(clean, p)
+		}
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE share_peers SET all_projects = ?, projects = ?, slots = ? WHERE id = ?`,
+		boolInt(all), strings.Join(clean, ","), slots, id)
+	if err != nil {
+		return SharePeer{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return SharePeer{}, ErrNotFound
+	}
+	return s.SharePeer(ctx, id)
+}
+
+// SawSharePeer records when and from where a peer last connected.
+func (s *Store) SawSharePeer(ctx context.Context, id, addr string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE share_peers SET last_seen_at = ?, last_addr = ? WHERE id = ?`, at.Unix(), addr, id)
+	return err
+}
+
+// RemoveSharePeer revokes a peer: its token stops working at once.
+func (s *Store) RemoveSharePeer(ctx context.Context, id string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM share_peer_agents WHERE peer_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM share_peers WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// AddSharePeerAgent records that a peer made one of this machine's agents.
+func (s *Store) AddSharePeerAgent(ctx context.Context, peer, project, agent string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO share_peer_agents (peer_id, project, agent, created_at) VALUES (?, ?, ?, ?)`,
+		peer, project, agent, time.Now().Unix())
+	return err
+}
+
+// SharePeerAgents are the refs ("project/agent") of the agents a peer made
+// that this machine still has.
+func (s *Store) SharePeerAgents(ctx context.Context, peer string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT pa.project, pa.agent FROM share_peer_agents pa
+		JOIN agents a ON a.project = pa.project AND a.name = pa.agent
+		WHERE pa.peer_id = ? ORDER BY pa.created_at, pa.agent`, peer)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var project, agent string
+		if err := rows.Scan(&project, &agent); err != nil {
+			return nil, err
+		}
+		out = append(out, project+"/"+agent)
+	}
+	return out, rows.Err()
+}
+
+// ShareRemote is another AgentBox this one paired with, which shares some
+// of its projects with it.
+type ShareRemote struct {
+	ID string
+	// Name is what the owner calls its AgentBox.
+	Name string
+	// URL is where its share gateway is: its phone page's address.
+	URL     string
+	Token   []byte // sealed by internal/secrets
+	Created time.Time
+}
+
+// AddShareRemote keeps a pairing with an owner.
+func (s *Store) AddShareRemote(ctx context.Context, r ShareRemote) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO share_remotes (id, name, url, token, created_at) VALUES (?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.URL, r.Token, r.Created.Unix())
+	return err
+}
+
+// ShareRemotes lists the pairings with owners, the oldest first.
+func (s *Store) ShareRemotes(ctx context.Context) ([]ShareRemote, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, url, token, created_at FROM share_remotes ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []ShareRemote
+	for rows.Next() {
+		var r ShareRemote
+		var created int64
+		if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Token, &created); err != nil {
+			return nil, err
+		}
+		r.Created = time.Unix(created, 0)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RemoveShareRemote forgets a pairing with an owner.
+func (s *Store) RemoveShareRemote(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM share_remotes WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

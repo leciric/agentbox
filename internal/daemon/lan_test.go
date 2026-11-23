@@ -632,7 +632,7 @@ func TestLANNever(t *testing.T) {
 			"GET /v1/agents/p/a/browser/view", "GET /v1/agents/p/a/browser", "POST /v1/agents/p/a/browser/start",
 			"GET /v1/agents/p/a/android/stream", "POST /v1/agents/p/a/android/start",
 		},
-		"pairing and the phone, remote and tunnel settings": {
+		"pairing and the phone, share, remote and tunnel settings": {
 			"POST /v1/lan/pairings", "GET /v1/lan", "PATCH /v1/lan", "PATCH /v1/lan/phones/phone_1", "DELETE /v1/lan/phones/phone_1",
 			"GET /v1/lan/phones/phone_1/audit", "GET /v1/remote", "PUT /v1/remote", "DELETE /v1/remote",
 		},

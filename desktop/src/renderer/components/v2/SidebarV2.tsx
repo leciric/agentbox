@@ -110,6 +110,20 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     if (f.st !== kept.st || f.projects !== kept.projects) setFilterChoice(f.st, f.projects);
     setQ(f.q);
   };
+  // Local projects, and those another AgentBox shares with this one
+  // (Project.remote, internal/daemon/shareremote.go), each a list of its own,
+  // with which to show kept between launches.
+  const [where, setWhereState] = useState<Where>(() => keptWhere());
+  const setWhere = (w: Where) => {
+    setWhereState(w);
+    try {
+      localStorage.setItem(whereKey, w);
+    } catch {
+      // Not kept: the choice still holds while the app is open.
+    }
+  };
+  const localProjects = useMemo(() => (projects.data ?? []).filter((p) => !p.remote), [projects.data]);
+  const remoteProjects = useMemo(() => (projects.data ?? []).filter((p) => p.remote), [projects.data]);
   // No project opens its agents here any more: they're in the panel.
   const expanded: ReadonlyMap<string, boolean> = useMemo(() => new Map(), []);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -189,7 +203,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const order = useMemo(() => {
     return orderProjects({
       groupIdle: grouping,
-      projects: projects.data ?? [],
+      projects: where === 'remote' ? [] : localProjects,
       pins: kept.pins,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
       active,
@@ -199,7 +213,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, active, drafts, kept.pins, grouping, looseOrder]);
+  }, [localProjects, where, activity.data, active, drafts, kept.pins, grouping, looseOrder]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const { layout, save } = useSidebarLayout();
@@ -223,6 +237,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     idle: projectRows(loose(arranged.idle), rows, filters, expanded, label, ctx),
     hidden: projectRows(arranged.hidden, rows, filters, expanded, label, ctx),
   };
+  const remoteRows = where === 'local' ? [] : projectRows(remoteProjects, rows, filters, expanded, label, ctx);
   const searching = q.trim() !== '';
   // Under a search or a filter, a section shows what matches in it, open,
   // and one with nothing that matches doesn't show; otherwise every section
@@ -250,7 +265,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // A search looks in it too, and opens it on a match.
   const idleOpen = idleOnly || idleOpened || (searching && lists.idle.length > 0);
   const hiddenOpen = kept.hiddenOpen || (searching && lists.hidden.length > 0) || (!!onScreen && lists.hidden.some((p) => p.project.name === onScreen));
-  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length + lists.hidden.length + sectionLists.reduce((n, s) => n + s.shown.length, 0) === 0;
+  const nothing =
+    projects.data &&
+    projects.data.length > 0 &&
+    lists.pinned.length + lists.rest.length + lists.idle.length + lists.hidden.length + remoteRows.length + (where === 'remote' ? 0 : sectionLists.reduce((n, s) => n + s.shown.length, 0)) === 0;
 
   // Review all goes after the first list's label, whichever list is first.
   const openWork = useOpenWork();
@@ -589,16 +607,23 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
         {office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
+        {(remoteProjects.length > 0 || where !== 'all') && <WhereFilter where={where} onWhere={setWhere} />}
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-ui text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
             {t('shell.sidebar.addFirst')}
           </button>
         )}
-        {loaded && top.map(section)}
+        {loaded && where !== 'remote' && top.map(section)}
+        {loaded && remoteRows.length > 0 && (
+          <div data-v2-remote>
+            <ListHead>{t('shell.sidebar.remote')}</ListHead>
+            {remoteRows.map((p) => lead(p))}
+          </div>
+        )}
         {loaded && nothing && <div className="px-2.5 py-1.5 text-micro text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
         {/* Idle and Hidden dock at the bottom, just above the foot, the free space above them. */}
-        {loaded && dock.length > 0 && (
+        {loaded && where !== 'remote' && dock.length > 0 && (
           <div className="mt-auto pt-3" data-v2-dock>
             {dock.map(section)}
           </div>
@@ -669,6 +694,42 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <UpdateCheck />
       </div>
     </aside>
+  );
+}
+
+type Where = 'all' | 'local' | 'remote';
+const whereKey = 'agentbox.sidebar.where';
+
+function keptWhere(): Where {
+  try {
+    const v = localStorage.getItem(whereKey);
+    return v === 'local' || v === 'remote' ? v : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+// WhereFilter shows every project, only this AgentBox's, or only those other
+// AgentBoxes share with it.
+function WhereFilter({ where, onWhere }: { where: Where; onWhere: (w: Where) => void }) {
+  const t = useT();
+  const label: Record<Where, MessageKey> = { all: 'shell.sidebar.all', local: 'shell.sidebar.local', remote: 'shell.sidebar.remote' };
+  return (
+    <div role="radiogroup" aria-label={t('shell.sidebar.where')} className="mx-1 mt-1.5 flex items-center gap-0.5 rounded-lg bg-surface p-0.5" data-v2-where={where}>
+      {(['all', 'local', 'remote'] as const).map((w) => (
+        <button
+          key={w}
+          type="button"
+          role="radio"
+          aria-checked={where === w}
+          onClick={() => onWhere(w)}
+          className={cn('flex-1 rounded-md px-2 py-0.5 text-caption transition-colors', where === w ? 'bg-surface-raised font-medium text-title' : 'text-subtle hover:text-secondary')}
+          data-v2-where-option={w}
+        >
+          {t(label[w])}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1093,6 +1154,11 @@ function ProjectLead({
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-ui font-medium text-title">{name}</span>
+                {project.remote && (
+                  <span className="max-w-[45%] shrink-0 truncate text-micro text-subtle" data-v2-remote-owner title={t('shell.sidebar.remoteOwner', { owner: project.remote.owner })}>
+                    {t('shell.sidebar.remoteOwner', { owner: project.remote.owner })}
+                  </span>
+                )}
                 {leadRunning && <LoaderCircle className={cn('size-3 shrink-0 animate-spin', working ? 'text-sky-400' : 'text-subtle')} />}
                 {drafted && (
                   <Tip label={t('v2.sidebar.draft')}>

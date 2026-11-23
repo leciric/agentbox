@@ -1780,6 +1780,39 @@ var migrations = []string{
 		created_at INTEGER NOT NULL,
 		PRIMARY KEY (project, agent)
 	)`,
+	// Other AgentBoxes paired to reach some of this machine's projects
+	// (share.go): only their token's hash is kept. projects is a
+	// comma-separated list of slugs, unless all_projects; slots is how many
+	// agents each may have running here, -1 for SettingShareSlots.
+	`CREATE TABLE share_peers (
+		id           TEXT PRIMARY KEY,
+		name         TEXT NOT NULL,
+		token_hash   TEXT NOT NULL UNIQUE,
+		created_at   INTEGER NOT NULL,
+		last_seen_at INTEGER NOT NULL DEFAULT 0,
+		last_addr    TEXT NOT NULL DEFAULT '',
+		all_projects INTEGER NOT NULL DEFAULT 0,
+		projects     TEXT NOT NULL DEFAULT '',
+		slots        INTEGER NOT NULL DEFAULT -1
+	)`,
+	// The agents a paired AgentBox made here, which its slots count.
+	`CREATE TABLE share_peer_agents (
+		peer_id    TEXT NOT NULL REFERENCES share_peers(id) ON DELETE CASCADE,
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+	// The other AgentBoxes this one paired with, whose shared projects it
+	// shows (share.go): their address, and the token they gave it, sealed by
+	// internal/secrets.
+	`CREATE TABLE share_remotes (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL,
+		url        TEXT NOT NULL,
+		token      BLOB NOT NULL,
+		created_at INTEGER NOT NULL
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2606,6 +2639,8 @@ var projectOwned = []string{
 	"todos",
 	"agent_goals",
 	"agent_tasks",
+	// Which paired AgentBox made which agent (sharepeers.go).
+	"share_peer_agents",
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",

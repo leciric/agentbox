@@ -43,6 +43,7 @@ export interface Project {
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
+  remote?: ProjectRemote;
 }
 
 export interface ProjectActivity {
@@ -2984,6 +2985,62 @@ export interface LANAudit {
   more?: boolean;
 }
 
+export interface ShareStatus {
+  name: string;
+  slots: number;
+  ready: boolean;
+  error?: string;
+  peers: SharePeer[];
+  remotes: ShareRemote[];
+}
+
+export interface SharePeer {
+  id: string;
+  name: string;
+  paired: string;
+  lastSeen: string;
+  lastAddr?: string;
+  allProjects: boolean;
+  projects: string[];
+  slots: number;
+  running: number;
+}
+
+export interface UpdateShareRequest {
+  slots?: number;
+  name?: string;
+}
+
+export interface UpdateSharePeerRequest {
+  allProjects?: boolean;
+  projects?: string[];
+  slots?: number;
+}
+
+export interface SharePairing {
+  link: string;
+  links: string[];
+  expires: string;
+}
+
+export interface ShareRemote {
+  id: string;
+  name: string;
+  url: string;
+  paired: string;
+  projects: number;
+  error?: string;
+}
+
+export interface AddShareRemoteRequest {
+  link: string;
+}
+
+export interface ProjectRemote {
+  id: string;
+  owner: string;
+}
+
 export interface ChatThread {
   agent: string;
   seq: number;
@@ -4523,6 +4580,8 @@ export const DiskOK = "ok";
 export const DiskLow = "low";
 export const DiskFull = "full";
 export const EventLAN = "lan";
+export const EventShare = "share";
+export const ErrorShareSlotsFull = "share-slots-full";
 export const EventSnap = "snap";
 export const EventFiles = "files";
 export const PushFinished = "finished";
