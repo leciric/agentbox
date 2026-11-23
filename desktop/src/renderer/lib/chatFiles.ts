@@ -108,16 +108,22 @@ export function pastedFiles(data: DataTransfer | null): File[] {
 function namesOnly(text: string, files: File[]): boolean {
   const names = new Set(files.map((f) => f.name));
   const lines = text.split(/\r\n|\r|\n/).filter((line) => line.trim() !== '');
-  return lines.every((line) => names.has(baseName(line.trim())));
+  return lines.every((line) => {
+    const last = lastPart(line.trim());
+    // As written first: a file may be called chart%20draft.png. Then as a
+    // file:// URL writes it, with its escapes decoded.
+    return names.has(last) || names.has(decoded(last));
+  });
 }
 
-// baseName is the last part of a path or file:// URL, as the file's name.
-function baseName(path: string): string {
-  const last = path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? '';
+// lastPart is the last part of a path or file:// URL.
+const lastPart = (path: string): string => path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? '';
+
+function decoded(part: string): string {
   try {
-    return decodeURIComponent(last);
+    return decodeURIComponent(part);
   } catch {
-    return last;
+    return part;
   }
 }
 

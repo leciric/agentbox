@@ -45,6 +45,12 @@ test('pastedFiles attaches copied files, as they come with their names as text o
   assert.deepEqual(pastedFiles(clipboard([photo], '/home/lint/Pictures/photo one.png')), [photo]);
   assert.deepEqual(pastedFiles(clipboard([photo], 'file:///home/lint/Pictures/photo%20one.png\n')), [photo]);
   assert.deepEqual(pastedFiles(clipboard([photo], 'C:\\Users\\lint\\photo one.png')), [photo]);
+  // A name that itself holds a percent escape matches as written, and a URL's escapes still decode.
+  const literal = { name: 'chart%20draft.png', type: 'image/png' };
+  assert.deepEqual(pastedFiles(clipboard([literal], 'chart%20draft.png')), [literal]);
+  assert.deepEqual(pastedFiles(clipboard([literal], '/home/lint/Pictures/chart%20draft.png')), [literal]);
+  assert.deepEqual(pastedFiles(clipboard([literal], 'file:///home/lint/Pictures/chart%2520draft.png')), [literal]);
+  assert.deepEqual(pastedFiles(clipboard([{ name: 'a 100%.png', type: 'image/png' }], 'a 100%.png')).length, 1);
   // Files that aren't pictures are never a picture of the text beside them.
   assert.deepEqual(pastedFiles(clipboard([report], 'some other text')), [report]);
   assert.deepEqual(pastedFiles(clipboard([photo, report], 'some other text')), [photo, report]);
