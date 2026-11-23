@@ -23,9 +23,18 @@ import (
 // first-served queue while none is free.
 //
 //   - Counting: every 2 seconds, with the agents' memory limits (watchMemory),
-//     the pool is what the agents together may use before the kernel
-//     throttles them (agent.AgentsLimits' memory.high of the VM's memory
-//     now: the VM less what the daemon, Incus and the lead chats keep), what agents holding no slot use
+//     the pool is what the agents together may use once the VM has grown to
+//     what it can reach (agent.AgentsLimits' memory.high of
+//     reachableMemory: the VM's cap, lowered to the host's ceiling while the
+//     host can't spare that much, never under what is plugged in now: the VM
+//     less what the daemon, Incus and the lead chats keep). A VM plugged at
+//     8 of its 16 GiB, with the host room to grow it, counts 13 GiB, not 5,
+//     so a run doesn't wait for memory the VM is about to be given. The
+//     agents' own cgroup limit is not that figure: agentbox.agents is still
+//     sized from what the VM has now (watchShared), as it was on 20 Nov 2026
+//     when sizing it from the cap let the agents take all of a VM held at 13
+//     of its 16 GiB; the pool only counts who may start. With the cap unknown
+//     the pool is what the VM has now. What agents holding no slot use
 //     now comes off it (memory.current less page cache, agent.MachineUse),
 //     and each slot held reserves its project's learned run peak, or what
 //     its machine uses if that is more. A run is granted when its project's
@@ -189,7 +198,7 @@ func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, now tim
 		}
 	}
 	slices.Sort(projects)
-	pool := s.runPool()
+	pool := s.runPool(now)
 
 	sl := s.slots
 	sl.mu.Lock()
@@ -245,13 +254,20 @@ func (s *Server) stepRunSlots(ctx context.Context, agents []state.Agent, now tim
 	s.runSlotsChanged(false)
 }
 
-// runPool is what every agent's machine may use together: the agents'
-// shared memory.high in the VM as it is now (vmMemoryNow, which hotplug and
-// a balloon move), as the agents' own limit follows it.
-func (s *Server) runPool() int64 {
+// runPool is what every agent's machine may use together once the VM has
+// grown to what it can reach: the agents' shared memory.high in a VM of
+// reachableMemory at now (the cap, lowered to a fresh host ceiling), so a
+// run isn't held back for memory the host would plug in. With the cap unknown
+// it is the VM as it is now (vmMemoryNow, which hotplug and a balloon move).
+// Never less than that either: reachableMemory floors at what the gauge last
+// saw plugged, which is nothing before its first look.
+func (s *Server) runPool(now time.Time) int64 {
 	vm := s.vmMemoryNow()
 	if vm <= 0 {
 		vm = s.lastMem().Total
+	}
+	if vmCap := s.vmMemory(); vmCap > 0 {
+		vm = max(vm, s.reachableMemory(vmCap, now))
 	}
 	return agent.AgentsLimits(vm, 0).High
 }
