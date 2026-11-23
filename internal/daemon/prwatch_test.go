@@ -175,17 +175,25 @@ func newFakeGraphQL(t *testing.T, d testDaemon) *fakeGraphQL {
 // (SUCCESS, FAILURE, PENDING, or "" for none), and failing names the checks
 // that failed.
 func (f *fakeGraphQL) set(number int, head, state, mergeable, checks, review string, failing ...string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var commit map[string]any
+	var contexts []any
 	if checks != "" {
-		var contexts []any
 		for _, name := range failing {
 			contexts = append(contexts, map[string]any{"__typename": "CheckRun", "name": name, "status": "COMPLETED",
 				"conclusion": "FAILURE", "detailsUrl": "https://github.com/acme/hello-stack/actions/runs/1/job/" + name})
 		}
 		contexts = append(contexts, map[string]any{"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS"})
-		commit = map[string]any{"oid": head, "statusCheckRollup": map[string]any{"state": checks, "contexts": map[string]any{"nodes": contexts}}}
+	}
+	f.setContexts(number, head, state, mergeable, checks, review, contexts)
+}
+
+// setContexts is set with the head's check runs given as GitHub's GraphQL
+// answers them, whatever the rollup says of them.
+func (f *fakeGraphQL) setContexts(number int, head, state, mergeable, checks, review string, contexts []any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var commit map[string]any
+	if checks != "" {
+		commit = map[string]any{"oid": head, "statusCheckRollup": map[string]any{"state": checks, "contexts": map[string]any{"totalCount": len(contexts), "nodes": contexts}}}
 	} else {
 		commit = map[string]any{"oid": head, "statusCheckRollup": nil}
 	}
@@ -258,6 +266,65 @@ func pollNow(d testDaemon) {
 		d.srv.prWatch.poke(p)
 	}
 	d.srv.pollPRWatch(context.Background())
+}
+
+// GitHub rolls a run cancelled by a newer run of the same workflow, and a run
+// waiting for approval, up as failing; the agent is told of neither, only of a
+// check that really failed on that head.
+func TestPRWatchIgnoresSupersededAndWaitingRuns(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newFakeGraphQL(t, d)
+	rec := recordPRWatch(d)
+	_, agents := pullsProject(t, d, "agent-01")
+	head := commitOn(t, agents["agent-01"], "reminders.txt")
+	ctx := context.Background()
+
+	run := func(name, status, conclusion string, n int) map[string]any {
+		c := map[string]any{"__typename": "CheckRun", "name": name, "status": status, "detailsUrl": "https://github.com/acme/hello-stack/actions/runs/" + name,
+			"checkSuite": map[string]any{"workflowRun": map[string]any{"runNumber": n, "workflow": map[string]any{"id": "ci"}}}}
+		if conclusion != "" {
+			c["conclusion"] = conclusion
+		}
+		return c
+	}
+	checks := func() string {
+		rows, _ := d.srv.store.PRWatches(ctx, "hello-stack")
+		if len(rows) != 1 {
+			t.Fatalf("watched = %+v, want only #9", rows)
+		}
+		return rows[0].Checks
+	}
+	step := func(want string, contexts ...any) {
+		t.Helper()
+		gh.setContexts(9, head, "OPEN", "MERGEABLE", "FAILURE", "", contexts)
+		pollNow(d)
+		if said, leads := rec.take(); len(said) != 0 || len(leads) != 0 {
+			t.Fatalf("the agent or the lead was told %v %v, want nothing", said, leads)
+		}
+		if got := checks(); got != want {
+			t.Fatalf("checks = %q, want %q", got, want)
+		}
+	}
+
+	// Opened, then labelled: the first run was cancelled and the second is
+	// going, then passes.
+	step("pending", run("test", "COMPLETED", "CANCELLED", 1), run("test", "IN_PROGRESS", "", 2))
+	step("passing", run("test", "COMPLETED", "CANCELLED", 1), run("test", "COMPLETED", "SUCCESS", 2))
+	// A run waiting for someone to approve it.
+	step("pending", run("test", "COMPLETED", "ACTION_REQUIRED", 3))
+
+	// The newer run really fails: that one is told.
+	gh.setContexts(9, head, "OPEN", "MERGEABLE", "FAILURE", "", []any{
+		run("test", "COMPLETED", "CANCELLED", 3), run("test", "COMPLETED", "FAILURE", 4)})
+	pollNow(d)
+	said, _ := rec.take()
+	if len(said) != 1 || strings.Count(said[0], "`test`") != 1 {
+		t.Fatalf("a real failure told the agent %q", said)
+	}
+	if got := checks(); got != "failing" {
+		t.Fatalf("checks = %q, want failing", got)
+	}
 }
 
 // The watch finds the agent's pull request by its commits, and tells the

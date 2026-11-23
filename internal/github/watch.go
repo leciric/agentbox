@@ -25,7 +25,8 @@ import (
 const watchPageSize = 50
 
 // watchChecksLimit bounds how many of a commit's checks are read, which is all
-// the watch needs to name the failing ones.
+// the watch needs to name the failing ones. When there are more, GitHub's
+// roll-up is believed where the ones read can't say (see gqlPR.watched).
 const watchChecksLimit = 50
 
 // WatchedPR is a pull request as the watch sees it.
@@ -154,8 +155,9 @@ const watchFragment = `fragment pr on PullRequest {
   commits(last: 1) { nodes { commit { ...commit } } }
 }
 fragment commit on Commit { oid url messageHeadline statusCheckRollup { state
-  contexts(first: ` + "%d" + `) { nodes { __typename
-    ... on CheckRun { name status conclusion detailsUrl }
+  contexts(first: ` + "%d" + `) { totalCount nodes { __typename
+    ... on CheckRun { name status conclusion detailsUrl
+      checkSuite { workflowRun { runNumber workflow { id } } } }
     ... on StatusContext { context state targetUrl } } } } }`
 
 // watchQuery is the whole look: the page of open pull requests, and each
@@ -227,18 +229,34 @@ type gqlCommit struct {
 	Rollup          *struct {
 		State    string `json:"state"`
 		Contexts struct {
-			Nodes []struct {
-				Type       string `json:"__typename"`
-				Name       string `json:"name"`
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-				DetailsURL string `json:"detailsUrl"`
-				Context    string `json:"context"`
-				State      string `json:"state"`
-				TargetURL  string `json:"targetUrl"`
-			} `json:"nodes"`
+			TotalCount int          `json:"totalCount"`
+			Nodes      []gqlContext `json:"nodes"`
 		} `json:"contexts"`
 	} `json:"statusCheckRollup"`
+}
+
+// gqlContext is one check run or commit status on a head: a CheckRun fills
+// Name, Status, Conclusion, DetailsURL and CheckSuite, a StatusContext Context,
+// State and TargetURL.
+type gqlContext struct {
+	Type       string `json:"__typename"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	DetailsURL string `json:"detailsUrl"`
+	CheckSuite *struct {
+		// WorkflowRun is null for a check an app reports, as opposed to a
+		// GitHub Actions workflow.
+		WorkflowRun *struct {
+			RunNumber int `json:"runNumber"`
+			Workflow  struct {
+				ID string `json:"id"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
+	} `json:"checkSuite"`
+	Context   string `json:"context"`
+	State     string `json:"state"`
+	TargetURL string `json:"targetUrl"`
 }
 
 func (a *gqlLogin) login() string {
@@ -273,12 +291,21 @@ func (c gqlCommit) commit() Commit {
 		return out
 	}
 	out.Checks = rollupWord(c.Rollup.State)
-	for _, x := range c.Rollup.Contexts.Nodes {
+	failing, pending := judgeChecks(c.Rollup.Contexts.Nodes)
+	out.Failing = failing
+	if out.Checks == "failing" {
+		// GitHub's roll-up calls a run failed when it was cancelled, or is
+		// waiting for someone to approve it, so before the watch tells an agent
+		// its checks failed, it looks for one that did.
 		switch {
-		case x.Type == "CheckRun" && x.Status == "COMPLETED" && failedConclusion(x.Conclusion):
-			out.Failing = append(out.Failing, FailingCheck{Name: x.Name, URL: x.DetailsURL})
-		case x.Type == "StatusContext" && (x.State == "FAILURE" || x.State == "ERROR"):
-			out.Failing = append(out.Failing, FailingCheck{Name: x.Context, URL: x.TargetURL})
+		case len(failing) > 0:
+		case pending:
+			out.Checks = "pending"
+		case c.Rollup.Contexts.TotalCount > len(c.Rollup.Contexts.Nodes):
+			// Some checks weren't read, and the failure may be one of them:
+			// believe GitHub rather than hide it.
+		default:
+			out.Checks = "passing"
 		}
 	}
 	return out
@@ -297,9 +324,68 @@ func rollupWord(state string) string {
 	return ""
 }
 
+// judgeChecks names the checks on a head that failed, and says whether any is
+// still to settle. It differs from GitHub's roll-up on two runs it won't call
+// failed:
+//   - a cancelled run that a newer run of the same workflow superseded on this
+//     head, which is what opening a pull request and then labelling it, or
+//     marking it ready, does to the first run: it's neither failed nor pending,
+//     the newer run's checks speak for the workflow;
+//   - a run awaiting approval (ACTION_REQUIRED), which is pending.
+//
+// A run cancelled with no newer one still counts as failed, and so does any
+// other failure.
+func judgeChecks(nodes []gqlContext) (failing []FailingCheck, pending bool) {
+	newest := map[string]int{} // newest run number of each workflow
+	for _, c := range nodes {
+		if id, n, ok := c.workflowRun(); ok && n > newest[id] {
+			newest[id] = n
+		}
+	}
+	for _, c := range nodes {
+		switch c.Type {
+		case "CheckRun":
+			switch {
+			case c.Status != "COMPLETED":
+				pending = true
+			case c.Conclusion == "ACTION_REQUIRED":
+				pending = true
+			case c.Conclusion == "CANCELLED":
+				if id, n, ok := c.workflowRun(); ok && n < newest[id] {
+					continue // superseded
+				}
+				failing = append(failing, FailingCheck{Name: c.Name, URL: c.DetailsURL})
+			case failedConclusion(c.Conclusion):
+				failing = append(failing, FailingCheck{Name: c.Name, URL: c.DetailsURL})
+			}
+		case "StatusContext":
+			switch c.State {
+			case "FAILURE", "ERROR":
+				failing = append(failing, FailingCheck{Name: c.Context, URL: c.TargetURL})
+			case "PENDING", "EXPECTED":
+				pending = true
+			}
+		}
+	}
+	return failing, pending
+}
+
+// workflowRun is the GitHub Actions workflow a check run belongs to and which
+// run of it that was; run numbers count up within a workflow.
+func (c gqlContext) workflowRun() (workflow string, number int, ok bool) {
+	if c.CheckSuite == nil || c.CheckSuite.WorkflowRun == nil || c.CheckSuite.WorkflowRun.Workflow.ID == "" {
+		return "", 0, false
+	}
+	run := c.CheckSuite.WorkflowRun
+	return run.Workflow.ID, run.RunNumber, true
+}
+
+// failedConclusion is a completed check run's conclusion for a check that
+// failed outright. A cancelled run is judged apart, since a newer run may have
+// taken its place, and an ACTION_REQUIRED one hasn't failed, it's waiting.
 func failedConclusion(c string) bool {
 	switch c {
-	case "FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED":
+	case "FAILURE", "TIMED_OUT", "STARTUP_FAILURE":
 		return true
 	}
 	return false
