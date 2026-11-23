@@ -107,11 +107,18 @@ type runSlotsTest struct {
 
 func newRunSlotsTest(t *testing.T, n int, vm int64) *runSlotsTest {
 	t.Helper()
-	rt := &runSlotsTest{ops: &fakeRunPhase{}, vm: vm}
+	return newGrowingRunSlotsTest(t, n, vm, vm)
+}
+
+// newGrowingRunSlotsTest is newRunSlotsTest for a VM with plugged bytes now
+// that may grow to vmCap (0: its cap is unknown).
+func newGrowingRunSlotsTest(t *testing.T, n int, plugged, vmCap int64) *runSlotsTest {
+	t.Helper()
+	rt := &runSlotsTest{ops: &fakeRunPhase{}, vm: plugged}
 	rt.testDaemon = startTestDaemon(t, t.TempDir(), oneAgentIncus, testConfig{setup: func(s *Server) {
 		s.runPhase = rt.ops
-		s.vmMemory = func() int64 { return vm }
-		s.vmMemoryNow = func() int64 { return vm }
+		s.vmMemory = func() int64 { return vmCap }
+		s.vmMemoryNow = func() int64 { return plugged }
 	}})
 	first := addTestAgent(t, rt.testDaemon)
 	rt.agents = []state.Agent{first}
@@ -220,6 +227,65 @@ func TestRunSlotsAreCountedFromTheVMLessTheCodePhase(t *testing.T) {
 	}
 	if rs := rt.srv.runSlotOf(rt.agents[1].Ref()); rs != nil {
 		t.Fatalf("agent-02, coding, has run slot %+v", rs)
+	}
+}
+
+// The pool counts what the VM can grow to, not only what it has plugged in
+// now: a VM plugged at 8 GiB that may reach 16 has 13 GiB for its agents, not
+// 5, so a second 4 GiB run starts instead of waiting for memory the host
+// would give. The host's ceiling holds it back while the host can't spare
+// that much, but never to less than what is plugged, and with the cap unknown
+// the pool is what is plugged (what it was before the cap counted).
+func TestRunSlotsCountWhatTheVMCanReach(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name     string // short: it is part of the daemon's socket path
+		vmCap    int64
+		ceiling  int64 // the host's report, 0 for none
+		wantPool int64
+		granted  bool // whether a second 4 GiB run starts
+	}{
+		{"cap16", 16 * testGiB, 0, 13 * testGiB, true},
+		{"capunknown", 0, 0, 5 * testGiB, false},
+		{"ceil10", 16 * testGiB, 10 * testGiB, 7 * testGiB, false},
+		{"ceil12", 16 * testGiB, 12 * testGiB, 9 * testGiB, true},
+		{"ceilunder", 16 * testGiB, 6 * testGiB, 5 * testGiB, false},
+		{"ceilover", 16 * testGiB, 20 * testGiB, 13 * testGiB, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			rt := newGrowingRunSlotsTest(t, 2, 8*testGiB, c.vmCap)
+			sl := rt.srv.slots
+			sl.mu.Lock()
+			sl.pool.SetPeak("hello-stack", runslots.Peak{Bytes: 4 * testGiB, Runs: 3, At: time.Now()})
+			sl.mu.Unlock()
+			if c.ceiling > 0 {
+				h := &rt.srv.hostLoad
+				h.mu.Lock()
+				h.last, h.got = api.HostLoad{VMCeiling: c.ceiling}, time.Now()
+				h.mu.Unlock()
+			}
+			rt.step(t, time.Now())
+			// 4 GiB for the first run, half a GiB for the agent still coding.
+			if ph := rt.up(t, 0, 0); ph.State != api.RunSlotHolding {
+				t.Fatalf("the first run = %+v, want it granted", ph)
+			}
+			rt.step(t, time.Now())
+			slots, err := rt.client.RunSlots(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slots.Pool != c.wantPool {
+				t.Errorf("the pool is %d GiB, want %d GiB", slots.Pool/testGiB, c.wantPool/testGiB)
+			}
+			ph := rt.up(t, 1, 0)
+			if got := ph.State == api.RunSlotHolding; got != c.granted {
+				t.Errorf("the second 4 GiB run: %+v, granted %v, want %v (pool %d GiB, free %d MiB)", ph, got, c.granted, slots.Pool/testGiB, slots.FreeMemory>>20)
+			}
+			if !c.granted && ph.State != api.RunSlotWaiting {
+				t.Errorf("the refused run = %+v, want it waiting", ph)
+			}
+		})
 	}
 }
 
