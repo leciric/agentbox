@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -37,10 +38,11 @@ type hostTools struct {
 // path rather than left to its `#!/usr/bin/env node`, which picks whichever
 // node comes first on the PATH, and on a machine with mise that is a shim:
 // mise itself, which under the lead's private HOME can't see the user's
-// ~/.tool-versions or ~/.mise.toml and fails with "mise ERROR".
+// ~/.tool-versions or ~/.mise.toml and fails with "mise ERROR". Run by path,
+// node is given claudeAdapterNode too, as an agent's adapter is.
 func (t hostTools) command() (string, []string) {
 	if t.Node != "" && nodeScript(t.Adapter) {
-		return t.Node, []string{t.Adapter}
+		return t.Node, append(slices.Clone(claudeAdapterNode), t.Adapter)
 	}
 	return t.Adapter, nil
 }
