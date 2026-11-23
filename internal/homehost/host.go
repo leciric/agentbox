@@ -11,12 +11,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/yamux"
+
+	"agentbox/internal/shim"
 )
 
 // Host is the helper's side: it runs what the daemon asks, as the user, on
@@ -251,19 +254,19 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 	var args []string
 	switch spec.Tool {
 	case "claude":
-		adapter, err := h.adapter(ctx, spec.Package, "claude-agent-acp", name, status)
+		adapter, adapterEnv, err := h.adapter(ctx, env, spec.Package, "claude-agent-acp", name, status)
 		if err != nil {
 			return nil, err
 		}
 		// The adapter carries a Claude Code of its own; this runs the one
 		// the user installed, with their settings and login.
-		command, env = adapter, append(env, "CLAUDE_CODE_EXECUTABLE="+tool.Path)
+		command, env = adapter, append(adapterEnv, "CLAUDE_CODE_EXECUTABLE="+tool.Path)
 	case "codex":
-		adapter, err := h.adapter(ctx, spec.Package, "codex-acp", name, status)
+		adapter, adapterEnv, err := h.adapter(ctx, env, spec.Package, "codex-acp", name, status)
 		if err != nil {
 			return nil, err
 		}
-		command = adapter
+		command, env = adapter, adapterEnv
 	case "opencode":
 		command, args = tool.Path, []string{"acp"}
 	case "gemini":
@@ -310,14 +313,27 @@ func writeFiles(dir string, files map[string]string) error {
 }
 
 // adapter finds an ACP adapter on the host, or installs pkg (an npm package
-// at the version AgentBox pins) into Tools with the host's npm.
-func (h *Host) adapter(ctx context.Context, pkg, command, tool string, status func(string)) (string, error) {
-	if path, err := exec.LookPath(command); err == nil {
-		return path, nil
+// at the version AgentBox pins) into Tools with the host's npm. It returns env
+// with what runs the adapter in front of the PATH.
+//
+// Every program here must run without a version manager: the adapter runs in
+// the chat's folder, where mise has no configuration to say what a shim means,
+// and fails with "mise ERROR" (shim.Look). The adapter is a Node script whose
+// `#!/usr/bin/env node` takes the first node on the PATH, which on a machine
+// with mise is a shim too, so the real node's directory goes first on the PATH
+// of the adapter and of the npm that installs it.
+func (h *Host) adapter(ctx context.Context, env []string, pkg, command, tool string, status func(string)) (string, []string, error) {
+	node := shim.Look("node")
+	if node == "" {
+		return "", nil, noNodeError(tool)
+	}
+	env = pathFirst(env, filepath.Dir(node))
+	if path := shim.Look(command); path != "" {
+		return path, env, nil
 	}
 	pkg = strings.TrimPrefix(pkg, "npm:")
 	if pkg == "" {
-		return "", fmt.Errorf("%s's adapter, %s, isn't installed on this computer", tool, command)
+		return "", nil, fmt.Errorf("%s's adapter, %s, isn't installed on this computer", tool, command)
 	}
 	own := filepath.Join(h.Tools, "node_modules", ".bin", command)
 	if runtime.GOOS == "windows" {
@@ -326,27 +342,62 @@ func (h *Host) adapter(ctx context.Context, pkg, command, tool string, status fu
 	at := strings.LastIndex(pkg, "@")
 	if at > 0 && installedVersion(h.Tools, pkg[:at]) == pkg[at+1:] {
 		if _, err := os.Stat(own); err == nil {
-			return own, nil
+			return own, env, nil
 		}
 	}
-	npm, err := exec.LookPath("npm")
-	if err != nil {
-		return "", fmt.Errorf("%s's adapter is an npm package, and Node.js isn't installed on this computer", tool)
+	npm := shim.Look("npm")
+	if npm == "" {
+		return "", nil, fmt.Errorf("%s's adapter is an npm package, and Node.js isn't installed on this computer", tool)
 	}
 	status("Installing " + tool + "'s adapter on your computer, once")
 	if err := os.MkdirAll(h.Tools, 0o700); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, npm, "install", "--silent", "--no-fund", "--no-audit", "--prefix", h.Tools, pkg).CombinedOutput()
+	install := exec.CommandContext(ctx, npm, "install", "--silent", "--no-fund", "--no-audit", "--prefix", h.Tools, pkg)
+	install.Env = env
+	out, err := install.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("installing %s on your computer: %w: %s", pkg, err, lastLines(string(out)))
+		return "", nil, fmt.Errorf("installing %s on your computer: %w: %s", pkg, err, lastLines(string(out)))
 	}
 	if _, err := os.Stat(own); err != nil {
-		return "", fmt.Errorf("installing %s on your computer: npm succeeded but %s isn't there", pkg, own)
+		return "", nil, fmt.Errorf("installing %s on your computer: npm succeeded but %s isn't there", pkg, own)
 	}
-	return own, nil
+	return own, env, nil
+}
+
+// noNodeError says why the adapter has no node: there is none, or the PATH
+// has one only as a shim mise can't resolve from the user's home, which the fix
+// for is theirs to make.
+func noNodeError(tool string) error {
+	if path, err := exec.LookPath("node"); err == nil && shim.Is(path) {
+		return fmt.Errorf("%s's adapter runs on Node.js, and the node on this computer's PATH is a shim (%s) that has no version set for your home folder: run `mise use -g node`, or install Node.js", tool, path)
+	}
+	return fmt.Errorf("%s's adapter runs on Node.js, which isn't installed on this computer", tool)
+}
+
+// pathFirst is env with dir at the front of its PATH. Of two entries for a
+// variable the later wins, as it does for a process.
+func pathFirst(env []string, dir string) []string {
+	key, path := "PATH", ""
+	for _, kv := range env {
+		if name, value, ok := strings.Cut(kv, "="); ok && pathVar(name) {
+			key, path = name, value
+		}
+	}
+	if path != "" {
+		dir += string(os.PathListSeparator) + path
+	}
+	return append(slices.Clone(env), key+"="+dir)
+}
+
+// pathVar reports whether name is the PATH variable: Windows' is Path.
+func pathVar(name string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(name, "PATH")
+	}
+	return name == "PATH"
 }
 
 // installedVersion is the version of npm package name installed under dir.
