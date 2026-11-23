@@ -614,7 +614,8 @@ impl ChatView {
     fn render_user(&self, ix: usize, view: &Entity<Self>, window: &Window) -> AnyElement {
         let it = self.item(ix);
         let delivery = match it.delivery.as_str() {
-            "waiting" | "sent" | "starting" => {
+            // queued: a command (/compact, a skill), run once the turn ends.
+            "waiting" | "sent" | "starting" | "queued" => {
                 Some((format!("chat.delivery.{}", it.delivery), theme::faint()))
             }
             "deferred" | "held" | "waking" => {

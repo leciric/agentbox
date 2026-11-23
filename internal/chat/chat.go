@@ -563,7 +563,9 @@ func (m *Manager) Start(a state.Agent) (api.ChatSession, error) {
 // turn, so the model reads it in the middle of its work and decides for itself
 // what it's worth: changing course now, or carrying on and handling it once
 // what it's doing is done. That judgement is the model's, not a queue's — see
-// aside for what happens when the tool can't take it.
+// aside for what happens when the tool can't take it. A command for the tool
+// (/compact, a skill: isCommand) is the exception: the model would only read
+// it, so it waits for the turn to end and goes in as a prompt of its own.
 //
 // images are pictures sent with the message, which may then have no text.
 func (m *Manager) Send(a state.Agent, text string, images ...api.ChatImageUpload) (api.ChatItem, error) {
@@ -576,6 +578,7 @@ func (m *Manager) SendMessage(a state.Agent, msg api.ChatMessageRequest) (api.Ch
 	if text == "" && len(msg.Images) == 0 && len(msg.Files) == 0 {
 		return api.ChatItem{}, errors.New("the message is empty")
 	}
+	command := m.commandFor(a, text)
 	c, err := m.conversation(a)
 	if err != nil {
 		return api.ChatItem{}, err
@@ -586,13 +589,13 @@ func (m *Manager) SendMessage(a state.Agent, msg api.ChatMessageRequest) (api.Ch
 		return api.ChatItem{}, err
 	}
 	if c.compaction != nil {
-		return clone(*c.hold(text, sent)), nil
+		return clone(*c.hold(text, sent, command)), nil
 	}
 	if c.holding && c.turn == nil {
-		return clone(*c.waitHidden(text, sent)), nil
+		return clone(*c.waitHidden(text, sent, command)), nil
 	}
 	if c.turn != nil {
-		return clone(*c.aside(text, sent)), nil
+		return clone(*c.aside(text, sent, command)), nil
 	}
 	return clone(*c.startTurn(text, sent)), nil
 }
@@ -788,11 +791,15 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 
 // aside takes a message that arrived while a turn was running. It goes into the
 // conversation straight away, inside the turn it interrupted, and joins the
-// outbox for drain to hand over. The conversation is locked and a turn runs.
-func (c *conversation) aside(text string, sent attached) *api.ChatItem {
+// outbox for drain to hand over. A command (isCommand) is queued there for the
+// turn's end. The conversation is locked and a turn runs.
+func (c *conversation) aside(text string, sent attached, command bool) *api.ChatItem {
 	it := c.add("aside", c.turn.id)
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaiting
-	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, turn: c.turn})
+	if command {
+		it.Delivery = api.ChatAsideQueued
+	}
+	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, turn: c.turn, command: command})
 	c.flush(true)
 	c.drain()
 	return it
@@ -828,21 +835,29 @@ func (c *conversation) drain() {
 
 // drainOutbox gives each waiting message to the AI tool: into the running turn
 // while one runs and the adapter takes them, otherwise as a turn of its own once
-// that turn ends. It holds the conversation except while it waits on the
-// adapter, which it must not do under the lock — the adapter's own replies come
-// in on a goroutine that needs it.
+// that turn ends. A command only ever goes the second way, and the plain
+// messages sent after it still join the running turn: they were written for
+// it. It holds the conversation except while it waits on the adapter, which it
+// must not do under the lock — the adapter's own replies come in on a
+// goroutine that needs it.
 func (c *conversation) drainOutbox() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer func() { c.draining = false }()
 	for len(c.outbox) > 0 {
-		out := c.outbox[0]
 		t, ad := c.turn, c.adapter
-		switch {
-		case t == nil:
-			// Nothing is running: everything waiting becomes one turn of its own.
+		if t == nil {
+			// Nothing is running: what waits first becomes a turn of its own,
+			// and finishTurn drains again for the rest when it ends.
 			c.sendOutbox()
 			return
+		}
+		i := slices.IndexFunc(c.outbox, func(o *outgoing) bool { return !o.command })
+		if i < 0 {
+			return // only commands wait, for the turn to end: finishTurn drains again
+		}
+		out := c.outbox[i]
+		switch {
 		case ad != nil && !ad.ready && ad.err == nil:
 			// The tool is still starting. Wait for it rather than give up on a
 			// turn that hasn't really begun.
@@ -875,7 +890,10 @@ func (c *conversation) drainOutbox() {
 		batch := make([]*outgoing, 0, len(c.outbox))
 		texts := make([]string, 0, len(c.outbox))
 		var sent attached
-		for _, o := range c.outbox {
+		for _, o := range c.outbox[i:] {
+			if o.command {
+				continue
+			}
 			if o.turn != t {
 				break
 			}
@@ -901,7 +919,7 @@ func (c *conversation) drainOutbox() {
 			Meta: &acp.SteerMeta{Steering: acp.SteerOptions{IdleBehavior: acp.SteerPromptRequired}},
 		}, &res)
 		c.mu.Lock()
-		if len(c.outbox) == 0 || c.outbox[0] != out {
+		if !slices.Contains(c.outbox, out) {
 			return // cleared, or given up on, while the adapter had it
 		}
 		if err != nil || res.Outcome == acp.SteerPromptRequired {
@@ -915,8 +933,8 @@ func (c *conversation) drainOutbox() {
 			return
 		}
 		// Injected, or (from an adapter that didn't know to hand it back) a turn
-		// of its own. Either way the tool has them.
-		c.outbox = c.outbox[len(batch):]
+		// of its own. Either way the tool has them; the commands among them wait on.
+		c.outbox = slices.DeleteFunc(c.outbox, func(o *outgoing) bool { return slices.Contains(batch, o) })
 		t.steeredAt = time.Now()
 		for _, o := range batch {
 			c.setDelivery(o.item, api.ChatAsideSent)
@@ -925,13 +943,26 @@ func (c *conversation) drainOutbox() {
 	}
 }
 
-// sendOutbox sends everything waiting as one turn of its own. The messages are
-// already in the conversation, from when they were taken, so the oldest becomes
-// the turn's own message where it stands and the rest join it: the turn is one
-// prompt, and no text is repeated. The conversation is locked and no turn runs.
+// sendOutbox sends what waits first as one turn of its own: a command alone,
+// since the tool runs one only as its prompt's first word, or else every
+// message up to the next command. The messages are already in the
+// conversation, from when they were taken, so the oldest becomes the turn's
+// own message where it stands and the rest join it: the turn is one prompt,
+// and no text is repeated. Whatever waits behind them goes in once that turn
+// ends (finishTurn drains). The conversation is locked and no turn runs.
 func (c *conversation) sendOutbox() {
-	out := c.outbox
-	c.outbox = nil
+	if len(c.outbox) == 0 {
+		return
+	}
+	n := 1
+	for n < len(c.outbox) && !c.outbox[0].command && !c.outbox[n].command {
+		n++
+	}
+	out := c.outbox[:n:n]
+	c.outbox = c.outbox[n:]
+	if len(c.outbox) == 0 {
+		c.outbox = nil
+	}
 	texts := make([]string, 0, len(out))
 	var sent attached
 	var head *api.ChatItem
@@ -953,8 +984,17 @@ func (c *conversation) sendOutbox() {
 		c.touch(it)
 	}
 	if head == nil {
+		if len(c.outbox) > 0 {
+			c.sendOutbox()
+			return
+		}
 		c.flush(true)
 		return
+	}
+	// The rest, held for a compaction or a machine waking, now waits for
+	// this turn instead.
+	for _, o := range c.outbox {
+		c.setDelivery(o.item, o.waits())
 	}
 	c.beginTurn(head, strings.Join(texts, "\n\n"), sent)
 }
@@ -963,7 +1003,7 @@ func (c *conversation) sendOutbox() {
 // The conversation is locked.
 func (c *conversation) deferOutbox() {
 	for _, o := range c.outbox {
-		c.setDelivery(o.item, api.ChatAsideDeferred)
+		c.setDelivery(o.item, o.waits())
 	}
 	c.flush(true)
 }
@@ -1605,6 +1645,17 @@ type outgoing struct {
 	text string
 	sent attached
 	turn *turn
+	// command is a command for the tool (isCommand): it never joins a running
+	// turn, and goes in as a turn of its own, alone.
+	command bool
+}
+
+// waits is what o's delivery says while it waits for the running turn to end.
+func (o *outgoing) waits() string {
+	if o.command {
+		return api.ChatAsideQueued
+	}
+	return api.ChatAsideDeferred
 }
 
 type turn struct {
@@ -2457,19 +2508,27 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	c.session.State = c.stateNow()
 	c.markSession()
 	sessionID, dir, text, sent, embed := ad.sessionID, c.m.imageDir(c.agent), t.text, t.sent, ad.embedded
+	// A slash command runs only as the prompt's first word, so it goes as it
+	// was typed, and what AgentBox has to say goes with the next turn instead.
+	command := slashCommand(text)
 	// A session started after a rollback or a fork hasn't seen the
 	// conversation: its first prompt carries it (timeline.go).
 	handoff := c.stored.Handoff
-	// Nor has one whose agent's task never reached it (tasks.go).
-	text, handsTask := c.withTask(t, text, handoff)
-	if handoff != "" {
-		text = handoff + "\n\n---\n\n" + text
-	}
-	if note := c.permissionNote(); note != "" {
-		text = note + "\n\n" + text
-	}
-	if note := c.toldNote(t); note != "" {
-		text = note + "\n\n" + text
+	handsTask := false
+	if !command {
+		// Nor has one whose agent's task never reached it (tasks.go).
+		text, handsTask = c.withTask(t, text, handoff)
+		if handoff != "" {
+			text = handoff + "\n\n---\n\n" + text
+		}
+		if note := c.permissionNote(); note != "" {
+			text = note + "\n\n" + text
+		}
+		if note := c.toldNote(t); note != "" {
+			text = note + "\n\n" + text
+		}
+	} else {
+		handoff = "" // not carried, so not cleared once the prompt is answered
 	}
 	if len(sent.images) > 0 && !ad.images {
 		// Attached before this tool's adapter had ever said whether it reads

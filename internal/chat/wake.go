@@ -38,6 +38,7 @@ func (m *Manager) hold(a state.Agent, msg api.ChatMessageRequest, delivery strin
 	if text == "" && len(msg.Images) == 0 && len(msg.Files) == 0 {
 		return api.ChatItem{}, errors.New("the message is empty")
 	}
+	command := m.commandFor(a, text)
 	c, err := m.conversation(a)
 	if err != nil {
 		return api.ChatItem{}, err
@@ -49,13 +50,13 @@ func (m *Manager) hold(a state.Agent, msg api.ChatMessageRequest, delivery strin
 	}
 	switch {
 	case c.compaction != nil:
-		return clone(*c.hold(text, sent)), nil
+		return clone(*c.hold(text, sent, command)), nil
 	case c.turn != nil:
-		return clone(*c.aside(text, sent)), nil
+		return clone(*c.aside(text, sent, command)), nil
 	}
 	it := c.add("aside", c.lastTurn())
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, delivery
-	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent})
+	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, command: command})
 	c.flush(true)
 	return clone(*it), nil
 }

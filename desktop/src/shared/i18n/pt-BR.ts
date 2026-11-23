@@ -2205,6 +2205,7 @@ export const ptBR: Messages = {
   'chat.delivery.waiting': 'Enviando…',
   'chat.delivery.sent': 'Enviada durante o trabalho',
   'chat.delivery.deferred': 'Aguardando o fim deste turno',
+  'chat.delivery.queued': 'Na fila: roda quando este turno terminar',
   'chat.delivery.lost': 'Nunca chegou à ferramenta',
   'chat.delivery.held': 'Aguardando o fim da compactação',
   'chat.delivery.waking': 'Aguardando a máquina dele iniciar',
