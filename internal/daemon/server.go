@@ -329,6 +329,7 @@ type Server struct {
 	agentsOnImage map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
 	remote        *remote.Connector // the connection to a hub, when this machine is an environment
 	lan           *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	mcpLocal      mcpLocalState     // other apps on this computer, over MCP without a hub (remotemcplocal.go)
 	// firstImage is how fetchFirstImage checks the user mapping and starts
 	// the build: image.CheckHost and startImageBuild, unless a test says.
 	firstImage struct {
@@ -709,6 +710,8 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
 	defer s.closeLAN()
+	s.applyMCPLocal(ctx)
+	defer s.closeMCPLocal()
 	s.watchTheme(ctx)
 	defer s.fileWatches.closeAll()
 	// Run's own loops end with it, and it waits for them: deferred after the
@@ -1343,6 +1346,12 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	// Other apps paired over remote MCP (remotemcp.go). Like the rest of
 	// /v1/remote, these answer on this machine only (remoteHandler).
 	h("GET /v1/remote/mcp", s.getRemoteMCP)
+	h("PATCH /v1/remote/mcp", s.updateRemoteMCP)
+	h("GET /v1/remote/mcp/local/host", s.getMCPLocalHost)
+	h("PUT /v1/remote/mcp/local/host", s.mcpLocalHostReport)
+	// What an app on the user's computer sends the local MCP port there, as
+	// the computer passes it on (remotemcplocal.go): its token is checked.
+	h(api.MCPLocalPath, s.serveMCPLocal)
 	h("POST /v1/remote/mcp/pairings", s.pairRemoteMCP)
 	h("POST /v1/remote/mcp/pairings/{id}/code", s.renewRemoteMCPCode)
 	h("DELETE /v1/remote/mcp/pairings/{id}", s.revokeRemoteMCP)

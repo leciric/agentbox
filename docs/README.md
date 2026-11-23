@@ -78,8 +78,9 @@ flowchart LR
   chat as a bug report, with its accessibility tree.
 - [A hub](hub.md) — `npx agentbox-hub`, its setup link, connecting the app and your environments
   to it, and approving and revoking devices.
-- [Using AgentBox from another app](other-apps.md) — Claude, ChatGPT, Poke and other remote-MCP
-  clients seeing your projects and talking to their leads, through your hub
+- [Using AgentBox from another app](other-apps.md) — Claude Code, Cursor, Claude, ChatGPT and other
+  remote-MCP clients seeing your projects and talking to their leads: on this computer, through a
+  Cloudflare tunnel, or through your hub
 - [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
