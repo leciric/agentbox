@@ -4,8 +4,10 @@
 //! POST /v1/remote/mcp/pairings makes one (through the hub with a code, and
 //! a token when asked; on this computer or through the tunnel with a token),
 //! POST …/pairings/{id}/code gives one a new code or token and DELETE
-//! …/pairings/{id} revokes it. The hub is always there (`available`), at
-//! hub.example.com, and the local port at 127.0.0.1:7782.
+//! …/pairings/{id} revokes it. The hub is there (`available`), at
+//! hub.example.com, unless `FAKE_HUB=none`: then there's none, no pairing
+//! through it, and pairing with no route is on this computer, as the daemon
+//! does. The local port is at 127.0.0.1:7782.
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -24,12 +26,19 @@ const TUNNEL: &str = "https://quiet-river-1234.trycloudflare.com/mcp";
 static PAIRINGS: Mutex<Option<Vec<MCPPairing>>> = Mutex::new(None);
 static TUNNEL_ON: Mutex<bool> = Mutex::new(false);
 
+// no_hub is FAKE_HUB=none: this computer isn't connected to a hub.
+fn no_hub() -> bool {
+    std::env::var("FAKE_HUB").is_ok_and(|v| v == "none")
+}
+
 fn list(pairings: &[MCPPairing]) -> MCPPairings {
     let on = *TUNNEL_ON.lock().unwrap();
+    let hub = !no_hub();
     MCPPairings {
-        available: true,
-        hub: "hub.example.com".into(),
-        url: URL.into(),
+        available: hub,
+        reason: if hub { "" } else { "no-hub" }.into(),
+        hub: if hub { "hub.example.com" } else { "" }.into(),
+        url: if hub { URL } else { "" }.into(),
         local: MCPLocal {
             port: 7782,
             url: LOCAL.into(),
@@ -43,7 +52,11 @@ fn list(pairings: &[MCPPairing]) -> MCPPairings {
             url: if on { TUNNEL.into() } else { String::new() },
             ..Default::default()
         },
-        pairings: pairings.to_vec(),
+        pairings: pairings
+            .iter()
+            .filter(|p| hub || p.route != "hub")
+            .cloned()
+            .collect(),
         ..Default::default()
     }
 }
@@ -154,11 +167,14 @@ pub async fn route(
         }
         (Method::POST, ["pairings"]) => {
             let ask: MCPPairRequest = serde_json::from_slice(&body).unwrap_or_default();
-            let route = if ask.route.is_empty() {
-                "hub".to_string()
-            } else {
-                ask.route
+            let route = match ask.route.as_str() {
+                "" if no_hub() => "local".to_string(),
+                "" => "hub".to_string(),
+                _ => ask.route,
             };
+            if route == "hub" && no_hub() {
+                return Ok(bad_request("this computer isn't connected to a hub".into()));
+            }
             if route == "tunnel" && !*TUNNEL_ON.lock().unwrap() {
                 return Ok(bad_request(
                     "let other apps reach AgentBox through its tunnel first".into(),
