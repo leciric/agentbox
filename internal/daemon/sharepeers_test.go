@@ -317,14 +317,14 @@ func TestEveryRouteIsClassifiedForPeers(t *testing.T) {
 func TestRenameJSON(t *testing.T) {
 	t.Parallel()
 	in := `{"type":"x","project":"web","ref":"web/agent-01","target":"web","n":12345678901234567890,` +
-		`"items":[{"name":"web","displayName":"Web","iconVersion":3},{"name":"agent-01","project":"_home"}]}`
+		`"agent":"web/lead","items":[{"name":"web","displayName":"Web","iconVersion":3},{"name":"agent-01","project":"_home"}]}`
 	var got map[string]any
 	if err := json.Unmarshal(renameJSON(json.RawMessage(in), "r1"), &got); err != nil {
 		t.Fatal(err)
 	}
 	items := got["items"].([]any)
 	for k, want := range map[string]any{
-		"project": "r1~web", "ref": "r1~web/agent-01", "target": "web",
+		"project": "r1~web", "ref": "r1~web/agent-01", "target": "web", "agent": "r1~web/lead",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %v, want %v", k, got[k], want)
@@ -359,6 +359,25 @@ func TestShareLink(t *testing.T) {
 	for _, bad := range []string{"", "abc", "ftp://x/#share=1", "http://x/#pair=1"} {
 		if _, _, err := shareLink(bad); err == nil {
 			t.Errorf("shareLink(%q) succeeded", bad)
+		}
+	}
+}
+
+// A peer is sent an event when it is about one of its projects, however the
+// event names it.
+func TestEventProject(t *testing.T) {
+	t.Parallel()
+	for data, want := range map[string]string{
+		`{"project":"web"}`:                  "web",
+		`{"ref":"web/agent-01","state":"x"}`: "web",
+		`{"target":"web/agent-01"}`:          "web",
+		`{"agent":"web/lead","seq":3}`:       "web",
+		`{"agent":"agent-01"}`:               "",
+		`{"theme":"dark"}`:                   "",
+		`[]`:                                 "",
+	} {
+		if got := eventProject(json.RawMessage(data)); got != want {
+			t.Errorf("eventProject(%s) = %q, want %q", data, got, want)
 		}
 	}
 }

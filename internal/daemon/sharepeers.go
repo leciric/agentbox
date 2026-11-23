@@ -489,13 +489,15 @@ func shareFilterList(body []byte, p state.SharePeer, what string) ([]byte, error
 }
 
 // eventProject is the project an event is about: its data's project, or the
-// project of the agent its ref (or a job's target) names; "" for one about no
+// project of the agent its ref (a job's target, a chat event's agent) names;
+// "" for one about no
 // project, which no peer is sent.
 func eventProject(data json.RawMessage) string {
 	var d struct {
 		Project string `json:"project"`
 		Ref     string `json:"ref"`
 		Target  string `json:"target"`
+		Agent   string `json:"agent"` // a chat event's
 	}
 	if json.Unmarshal(data, &d) != nil {
 		return ""
@@ -503,7 +505,7 @@ func eventProject(data json.RawMessage) string {
 	if d.Project != "" {
 		return d.Project
 	}
-	for _, ref := range []string{d.Ref, d.Target} {
+	for _, ref := range []string{d.Ref, d.Target, d.Agent} {
 		if project, _, ok := strings.Cut(ref, "/"); ok {
 			return project
 		}

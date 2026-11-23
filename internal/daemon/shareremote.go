@@ -385,7 +385,8 @@ func (s *Server) remoteConns() []*remoteConn {
 }
 
 // renameJSON names the projects in data as they are known here: a
-// "project", the project of a "ref" or a job's "target" ("project/agent"),
+// "project", the project of a "ref", a job's "target" or a chat event's
+// "agent" ("project/agent"),
 // and the "name" of a project itself. Numbers are kept as they were.
 func renameJSON(data json.RawMessage, remote string) json.RawMessage {
 	if len(data) == 0 || (data[0] != '{' && data[0] != '[') {
@@ -418,7 +419,7 @@ func renameValue(v any, remote string) any {
 			switch {
 			case isStr && str != "" && k == "project" && str != state.HomeProject:
 				x[k] = remote + remoteSep + str
-			case isStr && (k == "ref" || k == "target") && strings.Contains(str, "/"):
+			case isStr && (k == "ref" || k == "target" || k == "agent") && strings.Contains(str, "/"):
 				x[k] = remote + remoteSep + str
 			case isStr && str != "" && k == "name" && isProject && hasIcon:
 				x[k] = remote + remoteSep + str
