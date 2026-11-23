@@ -87,6 +87,46 @@ export function uploads(pending: Pending[], pictures = true): { images: T.ChatIm
 // droppedFiles is every file pasted or dropped.
 export const droppedFiles = (data: DataTransfer | null): File[] => Array.from(data?.files ?? []);
 
+// pastedFiles is what a paste attaches: the files on the clipboard, unless it
+// holds text as well and they are only a picture of it. Word, Excel and
+// LibreOffice put a PNG of the copied cells or paragraphs beside their text,
+// and the page sees that PNG as a file; pasting it as one drops the text,
+// which is what the person copied. A screenshot has no text, and files copied
+// in a file manager aren't bitmaps: Finder and the Linux managers add their
+// names or paths as text, which doesn't make them a picture of it. [] is
+// "paste the text".
+export function pastedFiles(data: DataTransfer | null): File[] {
+  const files = droppedFiles(data);
+  const text = data?.getData('text/plain') ?? '';
+  if (files.length === 0 || text.trim() === '') return files;
+  const picturesOfText = files.every((f) => f.type.startsWith('image/')) && !namesOnly(text, files);
+  return picturesOfText ? [] : files;
+}
+
+// namesOnly says whether every line of the text is the name or path of one of
+// the files: what a file manager puts on the clipboard beside a copied file.
+function namesOnly(text: string, files: File[]): boolean {
+  const names = new Set(files.map((f) => f.name));
+  const lines = text.split(/\r\n|\r|\n/).filter((line) => line.trim() !== '');
+  return lines.every((line) => {
+    const last = lastPart(line.trim());
+    // As written first: a file may be called chart%20draft.png. Then as a
+    // file:// URL writes it, with its escapes decoded.
+    return names.has(last) || names.has(decoded(last));
+  });
+}
+
+// lastPart is the last part of a path or file:// URL.
+const lastPart = (path: string): string => path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? '';
+
+function decoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1 << 20) return `${Math.round(bytes / 1024)} KB`;
