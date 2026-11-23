@@ -320,8 +320,8 @@ const (
 	// user turns it on.
 	SettingLeadRecheck        = "lead_recheck"
 	SettingLeadRecheckMinutes = "lead_recheck_minutes"
-	// SettingLeadSleep says whether a project's chat that sat idle
-	// SettingLeadSleepMinutes has its AI tool stopped, until its next turn
+	// SettingLeadSleep says whether a chat (a project's or an agent's) that
+	// sat idle SettingLeadSleepMinutes has its AI tool stopped, until its next turn
 	// resumes the session (internal/chat/idle.go). On until somebody turns
 	// it off (FlagOn); empty minutes is DefaultLeadSleep.
 	SettingLeadSleep        = "lead_sleep"
@@ -504,9 +504,9 @@ func (s *Store) LeadRecheck(ctx context.Context) (on bool, every time.Duration, 
 	return on, every, nil
 }
 
-// DefaultLeadSleep is how long a project's chat sits idle before its AI tool
-// is stopped, when nobody chose: past the five-minute prompt cache, short
-// enough that a day of leads nobody writes to doesn't hold the VM's memory.
+// DefaultLeadSleep is how long a chat sits idle before its AI tool is
+// stopped, when nobody chose: past the five-minute prompt cache, short enough
+// that a day of chats nobody writes to doesn't hold the VM's memory.
 const DefaultLeadSleep = 15 * time.Minute
 
 // LeadSleep reads "stop idle chats": whether it's on, and after how long.

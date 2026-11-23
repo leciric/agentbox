@@ -75,6 +75,36 @@ func openCodeAdapter(adapter ChatAdapter, version opencode.Release) ChatAdapter 
 // label). The terminal interface really is "cli" and sets nothing.
 const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=agentbox"
 
+// claudeAdapterNode is what node is told when it runs Claude Code's ACP
+// adapter, which relays a chat's messages between AgentBox and Claude Code
+// and is otherwise idle, in every chat, for as long as the chat is up. V8's
+// young generation gets semi-spaces of 1 MB rather than up to 16, and lite
+// mode interprets the adapter rather than compiling it, keeping no optimised
+// code or type feedback for it. Over six real turns (23 Nov 2026) the
+// adapter held 104 MB idle against 122, and at most 106 MB against 152, for
+// about 35 ms more CPU a turn and 70 ms more to start. Lite mode has no
+// WebAssembly, which nothing in the adapter uses.
+//
+// Not through NODE_OPTIONS: the adapter's environment is Claude Code's, and
+// through its shell every node an agent's builds and tests run would get it.
+var claudeAdapterNode = []string{"--max-semi-space-size=1", "--lite-mode"}
+
+// claudeAdapterCommand runs Claude Code's ACP adapter, installed as spec,
+// with node given claudeAdapterNode. Its bin can't pass node flags: mise
+// makes it a shell script that runs node itself. So node runs the script the
+// bin would, with the NODE_PATH the bin sets, under node_modules where mise
+// installs npm packages now, or under lib/node_modules where it did. In
+// neither, the bin runs as it always has.
+func claudeAdapterCommand(spec string) string {
+	const entry = "@agentclientprotocol/claude-agent-acp/dist/index.js"
+	node := "exec node " + strings.Join(claudeAdapterNode, " ")
+	script := `if [ -f "$1/node_modules/` + entry + `" ]; then export NODE_PATH="$1/node_modules:$1/node_modules/.mise/node_modules"; ` +
+		node + ` "$1/node_modules/` + entry + `"; fi; ` +
+		`if [ -f "$1/lib/node_modules/` + entry + `" ]; then ` + node + ` "$1/lib/node_modules/` + entry + `"; fi; ` +
+		`exec ` + ChatAdapters["claude"].Command
+	return "sh -c " + shellQuote(script) + " " + ChatAdapters["claude"].Command + ` "$(mise where ` + shellQuote(spec) + `)"`
+}
+
 // geminiNoRelaunch keeps Gemini CLI in the process the chat started. Without
 // it, `gemini` starts itself again as a child with more heap and waits on it,
 // ignoring SIGTERM: stopping the chat kills the parent and leaves the child,
@@ -245,6 +275,7 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 	var env string
 	if a.AI == "claude" {
 		env = claudeEntrypoint + " "
+		command = claudeAdapterCommand(spec)
 	}
 	if a.AI == "gemini" {
 		env = geminiNoRelaunch + " "

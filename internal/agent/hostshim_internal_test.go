@@ -122,6 +122,11 @@ func nodeDist(t *testing.T) (url string, downloads *atomic.Int32) {
 	return srv.URL, downloads
 }
 
+// nodeArgs is what node is given to run the adapter at path.
+func nodeArgs(path string) string {
+	return strings.Join(append(slices.Clone(claudeAdapterNode), path), " ")
+}
+
 // runAsLead runs the adapter the way LeadChatCommand does: with the lead's
 // private HOME, and its PATH of the tools' directories then the daemon's.
 func runAsLead(t *testing.T, tools hostTools) (string, error) {
@@ -159,7 +164,7 @@ func TestTheLeadsAdapterNeverRunsThroughANodeShim(t *testing.T) {
 		t.Errorf("Adapter = %q, want the user's real one %q", tools.Adapter, adapter)
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "mise's real node ran "+adapter) {
+	if err != nil || !strings.Contains(out, "mise's real node ran "+nodeArgs(adapter)) {
 		t.Errorf("the adapter ran as %q (%v), want mise's real node running %s", out, err, adapter)
 	}
 	for _, dir := range filepath.SplitList(tools.Bin) {
@@ -189,7 +194,7 @@ func TestTheLeadGetsAgentBoxsNodeWhenMiseCantResolveOne(t *testing.T) {
 		t.Errorf("Node was downloaded %d times, want once", downloads.Load())
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "AgentBox's node ran "+adapter) {
+	if err != nil || !strings.Contains(out, "AgentBox's node ran "+nodeArgs(adapter)) {
 		t.Errorf("the adapter ran as %q (%v), want AgentBox's node running %s", out, err, adapter)
 	}
 	if strings.Contains(out, "mise ERROR") {
@@ -233,7 +238,7 @@ func TestAnAdapterBehindAShimIsReplacedByAgentBoxsOwn(t *testing.T) {
 		t.Errorf("Adapter = %q, want AgentBox's own %q", tools.Adapter, m.adapterPath())
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "AgentBox's node ran "+m.adapterPath()) {
+	if err != nil || !strings.Contains(out, "AgentBox's node ran "+nodeArgs(m.adapterPath())) {
 		t.Errorf("the adapter ran as %q (%v), want AgentBox's node running AgentBox's adapter", out, err)
 	}
 }
@@ -256,7 +261,7 @@ func TestHostToolsCommandRunsNodeScriptsWithItsNode(t *testing.T) {
 	script, binary := filepath.Join(dir, "script"), filepath.Join(dir, "binary")
 	writeExec(t, script, "#!/usr/bin/env node\n")
 	writeExec(t, binary, "#!/bin/sh\n")
-	if cmd, args := (hostTools{Adapter: script, Node: "/n/node"}).command(); cmd != "/n/node" || !slices.Equal(args, []string{script}) {
+	if cmd, args := (hostTools{Adapter: script, Node: "/n/node"}).command(); cmd != "/n/node" || !slices.Equal(args, append(slices.Clone(claudeAdapterNode), script)) {
 		t.Errorf("command() for a Node script = %q %q", cmd, args)
 	}
 	if cmd, args := (hostTools{Adapter: binary, Node: "/n/node"}).command(); cmd != binary || len(args) != 0 {

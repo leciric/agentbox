@@ -125,9 +125,18 @@ func TestActivityPutsOffSleeping(t *testing.T) {
 	}
 }
 
+// timerTurn arms a cron of Claude Code's own, which lives in its process.
+func timerTurn(f *fakeTool, s, _ string) acp.PromptResponse {
+	f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"cron-1","title":"CronCreate","kind":"other","status":"in_progress","_meta":{"claudeCode":{"toolName":"CronCreate"}}}`)
+	f.update(s, `{"sessionUpdate":"tool_call_update","toolCallId":"cron-1","status":"completed"}`)
+	f.update(s, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll look at CI again in an hour."}}`)
+	return acp.PromptResponse{StopReason: "end_turn"}
+}
+
 // TestWhatKeepsAChatAwake: a tool that can't resume, a chat the setting
-// doesn't reach, one with the setting off, a schedule due soon, and work
-// left running in the background all keep the adapter up.
+// doesn't reach, one with the setting off, a schedule due soon, work left
+// running in the background, and a timer armed in the tool's own process all
+// keep the adapter up.
 func TestWhatKeepsAChatAwake(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -137,7 +146,7 @@ func TestWhatKeepsAChatAwake(t *testing.T) {
 		applies bool
 	}{
 		{name: "no resume", setup: func(f *fakeTool, _ *Manager) { f.resume = false }},
-		{name: "not a lead", setup: func(_ *fakeTool, m *Manager) {
+		{name: "not reached", setup: func(_ *fakeTool, m *Manager) {
 			m.IdleStop = func(state.Agent) (time.Duration, bool) { return 0, false }
 		}},
 		{name: "turned off", setup: func(_ *fakeTool, m *Manager) {
@@ -147,6 +156,7 @@ func TestWhatKeepsAChatAwake(t *testing.T) {
 			m.StayUp = func(state.Agent) bool { return true }
 		}},
 		{name: "background work", turn: watchingTurn},
+		{name: "a timer of its own", turn: timerTurn},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
