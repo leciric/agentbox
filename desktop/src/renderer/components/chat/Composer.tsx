@@ -51,7 +51,7 @@ import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
 import { useReviewCardShown } from '../v2/ReviewV2';
 import { previewUrl } from '../../lib/chatImages';
-import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
+import { droppedFiles, isElement, isFile, pastedFiles, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
 import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
 import { atTarget, cycleTarget, liveTarget, targetOrder, targetsOf } from '../../../shared/messageTarget';
@@ -300,7 +300,7 @@ export function Composer({
     picker.current?.click();
   };
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = droppedFiles(event.clipboardData);
+    const files = pastedFiles(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
     void attach(files);

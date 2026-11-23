@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { droppedFiles, fileKind, formatSize, isFile, maxFileBytes, maxFiles, maxFilesBytes, prepareFile, room, uploads, type Pending, type PendingFile } from './chatFiles.ts';
+import { droppedFiles, fileKind, formatSize, isFile, maxFileBytes, maxFiles, maxFilesBytes, pastedFiles, prepareFile, room, uploads, type Pending, type PendingFile } from './chatFiles.ts';
 import { maxImages, type PendingImage } from './chatImages.ts';
 
 const file = (name: string, size = 10): PendingFile => ({ key: name, name, size, data: 'AAAA', mimeType: 'text/plain', file: true });
@@ -12,6 +12,50 @@ test('droppedFiles keeps every file pasted or dropped, images or not', () => {
   const pdf = { type: 'application/pdf' } as File;
   assert.deepEqual(droppedFiles({ files: [png, pdf] } as unknown as DataTransfer), [png, pdf]);
   assert.deepEqual(droppedFiles(null), []);
+});
+
+// A paste as the page gets it: the files on the clipboard and its plain text.
+const clipboard = (files: Array<{ name: string; type: string }>, text = '') =>
+  ({ files, getData: (type: string) => (type === 'text/plain' ? text : '') }) as unknown as DataTransfer;
+const png = { name: 'image.png', type: 'image/png' };
+
+test('pastedFiles pastes the text when Word, Excel or LibreOffice put a picture of it beside it', () => {
+  // The PNG of the copied cells: the page sees it as a file called image.png.
+  assert.deepEqual(pastedFiles(clipboard([png], 'Q3\t1200\nQ4\t1500\n')), []);
+  assert.deepEqual(pastedFiles(clipboard([png], 'a paragraph from Word')), []);
+  // Whatever its name, a picture of text is not the text's name.
+  assert.deepEqual(pastedFiles(clipboard([{ name: 'chart.png', type: 'image/png' }], 'Q3\t1200')), []);
+});
+
+test('pastedFiles attaches a screenshot: a picture and no text', () => {
+  assert.deepEqual(pastedFiles(clipboard([png])), [png]);
+  // A blank cell or a stray newline beside a picture is no text to keep.
+  assert.deepEqual(pastedFiles(clipboard([png], ' \r\n')), [png]);
+});
+
+test('pastedFiles attaches copied files, as they come with their names as text or without', () => {
+  const photo = { name: 'photo one.png', type: 'image/png' };
+  const report = { name: 'report.pdf', type: 'application/pdf' };
+  // Windows Explorer: no text at all.
+  assert.deepEqual(pastedFiles(clipboard([photo, report])), [photo, report]);
+  // Finder: the names, one a line.
+  assert.deepEqual(pastedFiles(clipboard([photo], 'photo one.png')), [photo]);
+  assert.deepEqual(pastedFiles(clipboard([photo, { name: 'b.png', type: 'image/png' }], 'photo one.png\r\nb.png\r\n')).length, 2);
+  // The Linux managers: paths or file:// URLs, percent-encoded.
+  assert.deepEqual(pastedFiles(clipboard([photo], '/home/lint/Pictures/photo one.png')), [photo]);
+  assert.deepEqual(pastedFiles(clipboard([photo], 'file:///home/lint/Pictures/photo%20one.png\n')), [photo]);
+  assert.deepEqual(pastedFiles(clipboard([photo], 'C:\\Users\\lint\\photo one.png')), [photo]);
+  // Files that aren't pictures are never a picture of the text beside them.
+  assert.deepEqual(pastedFiles(clipboard([report], 'some other text')), [report]);
+  assert.deepEqual(pastedFiles(clipboard([photo, report], 'some other text')), [photo, report]);
+});
+
+test('pastedFiles leaves a paste with no files to the text field', () => {
+  assert.deepEqual(pastedFiles(clipboard([], 'just text')), []);
+  assert.deepEqual(pastedFiles(clipboard([])), []);
+  assert.deepEqual(pastedFiles(null), []);
+  // Text that merely mentions the file's name is still text.
+  assert.deepEqual(pastedFiles(clipboard([{ name: 'photo.png', type: 'image/png' }], 'photo.png\nand what I think of it')), []);
 });
 
 test('uploads splits what waits into the pictures and the files the daemon takes', () => {

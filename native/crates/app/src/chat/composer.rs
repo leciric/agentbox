@@ -453,11 +453,11 @@ impl Composer {
         }
     }
 
-    /// paste attaches the pictures and files on the clipboard; it says
-    /// whether it took the paste (text pastes as text).
+    /// paste attaches the pictures and files on the clipboard (pasted_entries
+    /// says which); it says whether it took the paste (text pastes as text).
     pub fn paste(&mut self, item: &ClipboardItem, session: &ChatSession, cx: &mut App) -> bool {
-        let mut took = false;
-        for e in item.entries() {
+        let attach = pasted_entries(item);
+        for e in &attach {
             match e {
                 ClipboardEntry::Image(im) => {
                     let n = self.attachments.len() + 1;
@@ -476,17 +476,40 @@ impl Composer {
                         session.no_images,
                         cx,
                     );
-                    took = true;
                 }
-                ClipboardEntry::ExternalPaths(p) => {
-                    self.drop_paths(p.paths(), session, cx);
-                    took = true;
-                }
+                ClipboardEntry::ExternalPaths(p) => self.drop_paths(p.paths(), session, cx),
                 ClipboardEntry::String(_) => {}
             }
         }
-        took
+        !attach.is_empty()
     }
+}
+
+/// pasted_entries is what a paste attaches: the clipboard's copied files and
+/// pictures, unless it holds text as well and there are no files. Word, Excel
+/// and LibreOffice put a PNG of the copied cells or paragraphs beside their
+/// text, and attaching that drops the text, which is what the person copied.
+/// A screenshot has no text; files copied in a file manager are paths, which
+/// come with their names as text (Finder's), and that doesn't make them a
+/// picture of it. Empty is "paste the text".
+fn pasted_entries(item: &ClipboardItem) -> Vec<&ClipboardEntry> {
+    let attach: Vec<&ClipboardEntry> = item
+        .entries()
+        .iter()
+        .filter(|e| !matches!(e, ClipboardEntry::String(_)))
+        .collect();
+    let copied_files = attach
+        .iter()
+        .any(|e| matches!(e, ClipboardEntry::ExternalPaths(_)));
+    // Text that is only blanks, a cell with nothing in it, is no text to keep.
+    let has_text = item
+        .entries()
+        .iter()
+        .any(|e| matches!(e, ClipboardEntry::String(s) if !s.text().trim().is_empty()));
+    if has_text && !copied_files {
+        return Vec::new();
+    }
+    attach
 }
 
 impl ChatView {
@@ -2768,7 +2791,67 @@ thread_local! {
 
 #[cfg(test)]
 mod tests {
-    use super::{match_files, mention_at, slash_query};
+    use super::{match_files, mention_at, pasted_entries, slash_query};
+    use gpui::{ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat};
+    use std::path::PathBuf;
+
+    fn text(s: &str) -> ClipboardEntry {
+        ClipboardEntry::String(ClipboardString::new(s.into()))
+    }
+
+    fn picture() -> ClipboardEntry {
+        ClipboardEntry::Image(Image::from_bytes(
+            ImageFormat::Png,
+            vec![0x89, b'P', b'N', b'G'],
+        ))
+    }
+
+    fn files(names: &[&str]) -> ClipboardEntry {
+        let mut paths = ExternalPaths::default();
+        paths.0.extend(names.iter().map(PathBuf::from));
+        ClipboardEntry::ExternalPaths(paths)
+    }
+
+    fn pasted(entries: Vec<ClipboardEntry>) -> Vec<ClipboardEntry> {
+        pasted_entries(&ClipboardItem { entries })
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_paste_of_text_and_a_picture_of_it_pastes_the_text() {
+        // Word, Excel and LibreOffice on Windows: the text, and a PNG of it.
+        assert!(pasted(vec![text("Q3\t1200\nQ4\t1500\n"), picture()]).is_empty());
+        // In either order: GPUI lists the formats as the clipboard does.
+        assert!(pasted(vec![picture(), text("a paragraph from Word")]).is_empty());
+        // Text and no picture is text, as it always was.
+        assert!(pasted(vec![text("just text")]).is_empty());
+        assert!(pasted(vec![]).is_empty());
+    }
+
+    #[test]
+    fn a_screenshot_is_attached() {
+        assert_eq!(pasted(vec![picture()]), [picture()]);
+        // A blank cell or a stray newline beside a picture is no text to keep.
+        assert_eq!(pasted(vec![text(" \r\n"), picture()]), [picture()]);
+    }
+
+    #[test]
+    fn copied_files_are_attached_with_the_names_the_file_manager_adds_as_text() {
+        let copied = files(&["/home/lint/Pictures/photo.png", "/home/lint/report.pdf"]);
+        assert_eq!(pasted(vec![copied.clone()]), std::slice::from_ref(&copied));
+        // macOS puts the path beside it as text, for editors that paste text.
+        assert_eq!(
+            pasted(vec![copied.clone(), text("/home/lint/Pictures/photo.png")]),
+            std::slice::from_ref(&copied)
+        );
+        // What was attached before is still: copied files and a picture both.
+        assert_eq!(
+            pasted(vec![copied.clone(), picture(), text("photo.png")]),
+            [copied, picture()]
+        );
+    }
 
     #[test]
     fn mentions_and_commands_are_found_where_the_cursor_is() {
