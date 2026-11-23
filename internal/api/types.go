@@ -804,8 +804,8 @@ type Settings struct {
 	// agents.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
-	// LeadSleep is "stop idle chats": while on, a project's chat that sat
-	// idle LeadSleepMinutes has its AI tool stopped to give its memory back,
+	// LeadSleep is "stop idle chats": while on, a chat (a project's or an
+	// agent's) that sat idle LeadSleepMinutes has its AI tool stopped to give its memory back,
 	// and its next message, notice or schedule resumes the same session.
 	// Claude Code only. On unless it was turned off.
 	LeadSleep        bool `json:"leadSleep"`

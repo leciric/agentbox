@@ -1788,6 +1788,7 @@ type adapter struct {
 	images    bool   // it takes images in a prompt, per promptCapabilities.image
 	embedded  bool   // it takes resource blocks in a prompt, per promptCapabilities.embeddedContext
 	resumable bool   // it can resume a session (session/resume or session/load)
+	timers    bool   // its tool armed a timer in its own process, so it never sleeps (idle.go)
 	err       error  // why it didn't start
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)

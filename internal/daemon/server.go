@@ -617,7 +617,7 @@ func New(cfg Config) (*Server, error) {
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
 		LeadWaiting:       s.leadWaiting,
-		IdleStop:          s.leadSleepAfter,
+		IdleStop:          s.chatSleepAfter,
 		StayUp:            s.leadDueSoon,
 		GoalOf:            s.chatGoalOf,
 		GoalChanged:       s.goalFromTool,
