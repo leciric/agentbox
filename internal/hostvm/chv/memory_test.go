@@ -541,17 +541,19 @@ func TestMemPolicyRealHostHeadroom(t *testing.T) {
 	}
 }
 
-// The host keeps the larger of 4 GiB and a quarter of its memory, and a cap
-// leaves it that, in whole GiB, never under what the VM boots with.
+// The host keeps a fixed 4 GiB, or its hard floor where that is more, and a
+// cap leaves it that, in whole GiB, never under what the VM boots with.
 func TestHostReserve(t *testing.T) {
 	for _, tc := range []struct{ total, reserve, most int64 }{
 		{8 * GiB, 4 * GiB, 4 * GiB},
 		{6 * GiB, 4 * GiB, DefaultMemoryMin}, // never below what it boots with
 		{16 * GiB, 4 * GiB, 12 * GiB},
-		{20 * GiB, 5 * GiB, 15 * GiB}, // a quarter
-		{24 * GiB, 6 * GiB, 18 * GiB},
-		{32 * GiB, 8 * GiB, 24 * GiB},
-		{64 * GiB, 16 * GiB, 48 * GiB},
+		{20 * GiB, 4 * GiB, 16 * GiB},
+		{24 * GiB, 4 * GiB, 20 * GiB},
+		{61 * GiB / 2, 4 * GiB, 26 * GiB}, // kept 7.6 GiB, a quarter, until 24 Nov 2026
+		{32 * GiB, 4 * GiB, 28 * GiB},
+		{64 * GiB, 4 * GiB, 60 * GiB},
+		{128 * GiB, hostFloor(128 * GiB), 120 * GiB}, // 6%, 7.7 GiB: the floor
 		{0, 4 * GiB, 0}, // unknown: no limit
 	} {
 		if got := HostReserve(tc.total); got != tc.reserve {
@@ -567,7 +569,7 @@ func TestHostReserve(t *testing.T) {
 // Mac's too; one within it and one on a host that can't be read are left
 // alone.
 func TestFitHost(t *testing.T) {
-	// 24 GiB keeps 6: 18 is the most. The 17.8 GiB cap that left a desktop
+	// 24 GiB keeps 4: 20 is the most. The 17.8 GiB cap that left a desktop
 	// struggling fits: what keeps the host its reserve then is the growth
 	// gate (TestMemPolicyHostGate).
 	c := Config{MemoryMin: 4 * GiB, MemoryCap: 17*GiB + 800<<20}
@@ -575,12 +577,12 @@ func TestFitHost(t *testing.T) {
 		t.Errorf("17.8 GiB on 24: lowered to %s", gib(got.MemoryCap))
 	}
 	c.MemoryCap = 22 * GiB
-	if got, lowered := FitHost(c, 24*GiB); !lowered || got.MemoryCap != 18*GiB {
-		t.Errorf("22 GiB on 24: %s, lowered %v; want 18 GiB", gib(got.MemoryCap), lowered)
+	if got, lowered := FitHost(c, 24*GiB); !lowered || got.MemoryCap != 20*GiB {
+		t.Errorf("22 GiB on 24: %s, lowered %v; want 20 GiB", gib(got.MemoryCap), lowered)
 	}
 	mac := Config{MemoryMin: 4 * GiB, MemoryCap: 24 * GiB, Driver: DriverVZ}
-	if got, lowered := FitHost(mac, 24*GiB); !lowered || got.MemoryCap != 18*GiB {
-		t.Errorf("a Mac's 24 GiB on 24: %s, lowered %v; want 18 GiB", gib(got.MemoryCap), lowered)
+	if got, lowered := FitHost(mac, 24*GiB); !lowered || got.MemoryCap != 20*GiB {
+		t.Errorf("a Mac's 24 GiB on 24: %s, lowered %v; want 20 GiB", gib(got.MemoryCap), lowered)
 	}
 	for name, tc := range map[string]struct {
 		c     Config
@@ -616,13 +618,19 @@ func TestMemPolicyHostGate(t *testing.T) {
 		{"plenty", 20 * GiB, 11 * GiB},
 		{"room for 1.5 GiB more", 5*GiB + 512<<20, 9*GiB + 512<<20},
 		{"at the reserve", 4*GiB + 400<<20, 8 * GiB},
-		{"below it", 3*GiB + 512<<20, 5 * GiB}, // gives back down to 3 in use and 2 of headroom
+		// Gives back down to 3 in use and 2 of headroom, then, the host
+		// having its 4 GiB again, grows back to what it can spare at once:
+		// no wait for it to have stayed calm (24 Nov 2026).
+		{"below it", 3*GiB + 512<<20, 7*GiB + 512<<20},
 	} {
 		st := memState{Requested: 8 * GiB}
 		x := host(tc.avail)
-		got, _ := settle(p, &st, x, now, 30*time.Second)
+		got, targets := settle(p, &st, x, now, 30*time.Second)
 		if got != tc.want {
 			t.Errorf("%s: settles at %s, want %s", tc.name, gib(got), gib(tc.want))
+		}
+		if tc.avail < HostKeep(32*GiB) && (len(targets) == 0 || targets[0] != 5*GiB) {
+			t.Errorf("%s: targets %v, want a shrink to 5 GiB first", tc.name, targets)
 		}
 	}
 	// One step at a time, and the reason says why it stopped.
@@ -730,13 +738,10 @@ func TestMemPolicyHostStallStopsGrowth(t *testing.T) {
 	if d := p.decide(&st, x, now); d.Target != 0 {
 		t.Fatalf("host stalling: %+v, want no grow", d)
 	}
-	// Calm again: it grows as it would have, once that has lasted
-	// memHostCalm, a GiB at a time.
+	// Calm again: it grows as it would have on the next sample past
+	// memGrowEvery, a GiB at a time, with no wait for the calm to last.
 	x.HostPressure = 0
-	if d := p.decide(&st, x, now.Add(memHostCalm-time.Second)); d.Target != 0 {
-		t.Fatalf("host calm for less than %s: %+v, want no grow yet", memHostCalm, d)
-	}
-	if d := p.decide(&st, x, now.Add(memHostCalm)); d.Target != 9*GiB {
+	if d := p.decide(&st, x, now.Add(memGrowEvery)); d.Target != 9*GiB {
 		t.Fatalf("host calm: %+v, want 9 GiB", d)
 	}
 	// Stalling with more than it needs: it gives back soon.

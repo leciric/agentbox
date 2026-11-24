@@ -375,7 +375,6 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	s.chat.Forget(a.Ref())
 	s.disks.forget(a.Ref())
 	s.dropHeavy(a.Ref())
-	s.dropRunSlot(a.Ref())
 	s.stopAgentAPI(a.Instance)
 	s.iosUnforward(a)
 	s.removeBrowserSockets(a.Instance)

@@ -21,8 +21,8 @@ var errNoSession = errors.New("no session to the distro")
 // seconds. WSL sizes its VM itself, so the daemon is asked to drop its caches
 // when Windows is short of memory, which WSL's autoMemoryReclaim
 // (wslconfig.go) then hands back.
-func (r *Relay) reportHostLoad(ctx context.Context, logf func(string, ...any)) {
-	hostload.Report(ctx, hostload.HTTPPut(r.dialExisting), true, hostload.LogChange(logf))
+func (r *Relay) reportHostLoad(ctx context.Context) {
+	hostload.Report(ctx, hostload.HTTPPut(r.dialExisting), true)
 }
 
 // dialExisting opens a stream to the daemon over the relay's session, if it

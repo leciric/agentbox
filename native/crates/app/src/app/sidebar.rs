@@ -244,14 +244,6 @@ impl Sidebar {
         }
         true
     }
-
-    /// apply_run_slot keeps where an agent stands for a run slot current
-    /// from events (AgentChange.runSlot): holding one, waiting, or neither.
-    pub fn apply_run_slot(&mut self, r#ref: &str, slot: Option<agentbox_api::RunSlot>) {
-        if let Some(a) = self.agents.iter_mut().find(|a| a.r#ref == r#ref) {
-            a.run_slot = slot;
-        }
-    }
 }
 
 /// Counts is what a project's row says is going on.

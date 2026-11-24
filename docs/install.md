@@ -117,8 +117,8 @@ package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
 of your memory by default), and gives it back as they stop. The cap can't go past your computer's
-memory less the larger of 4 GiB and a quarter of it (a cap set higher by an earlier version is
-lowered to it). While it runs, the VM grows only into what your computer has free beyond the larger
+memory less 4 GiB, or less 6% of it on a computer with more than 66 GiB (a cap set higher by hand
+is lowered to it). While it runs, the VM grows only into what your computer has free beyond the larger
 of 3 GiB and an eighth of its memory, and gives back what it can spare within seconds when your
 computer has less than that free or stalls for memory. When your computer is what keeps the VM
 from growing, the top bar's machine status says so, with how much the agents need. The top bar's **Free resources** stops
@@ -148,21 +148,11 @@ nearly out of memory (under 2 GiB free, or 6% of its memory when that's more), n
 starts and AgentBox stops agents to give memory back, and they start again as soon as it is over
 that. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ scheduler, and each agent's
 machine gets a quarter of their weight, so a build writing as fast as it can doesn't keep Incus from
-answering. Tests and builds that start while memory is
-short run half as many parallel jobs (Go, make, cargo, vitest, turbo, nx, pnpm workspaces), back to
-the usual count two minutes after it eases. To give every agent more, raise the VM's cap
-(`agentbox vm resize --memory-cap`).
-
-Agents work in two phases. Editing, builds and targeted tests are an agent's code phase, which
-never waits. Running the app, `docker compose up`, Playwright, the desktop, the browser or the
-Android emulator, and recording, is its run phase, which takes a run slot: as many runs as the VM's
-memory fits at once, after what the agents that are coding use, counted in each project's run peak
-(learned from its earlier runs, 2 GiB until then). When none is free, an agent waits in line and
-keeps coding; the top bar shows "Run slots N of M free", and clicking it lists who holds one and who
-waits. An agent gives its slot back with `agentbox run down`, which stops what its run phase
-started, and a slot unused for ten minutes is taken back the same way. An agent that holds no slot
-is slowed past three quarters of its memory limit, so a dev server it left running gives memory
-back.
+answering. Tests and builds split the VM's cores between those running at once (Go, make, cargo,
+vitest, turbo, nx, pnpm workspaces), however short the VM's memory and however busy your computer
+is; any other command can join in as `agentbox heavy -- <command>`. Running the app, Docker
+Compose, Playwright, the desktop or a recording never waits for anything either. To give every
+agent more, raise the VM's cap (`agentbox vm resize --memory-cap`).
 
 An agent that's only editing code holds little: its browser closes after five minutes unused (no
 browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,
@@ -265,11 +255,12 @@ in, so it needs nothing else installed: where there's no AgentBox yet it offers 
 and **Set up the distro** on Windows, and **Set up the VM** on Linux and a Mac, and shows how each
 goes. It updates itself in place.
 
-The same memory rule holds there: AgentBox's VM never takes more than your computer's memory less
-the larger of 4 GiB and a quarter. On a Mac it's the most Settings and `agentbox vm resize` let you
-give the Lima VM. On Windows, WSL gives its distros half of your memory unless `memory=` under
-`[wsl2]` in `%UserProfile%\.wslconfig` says otherwise. Setup lowers a `memory=` set above the
-limit to it, and leaves one under it alone. WSL reads that file when it starts, so the new limit
+On a Mac the same memory rule holds: AgentBox's VM never takes more than your computer's memory
+less 4 GiB (6% of it past 66 GiB), the most Settings and `agentbox vm resize` let you give the Lima
+VM. Windows keeps more, the larger of 4 GiB and a quarter of its memory, because WSL sizes its VM
+itself and nothing gives memory back the moment Windows needs it. WSL gives its distros half of
+your memory unless `memory=` under `[wsl2]` in `%UserProfile%\.wslconfig` says otherwise. Setup
+lowers a `memory=` set above the limit to it, and leaves one under it alone. WSL reads that file when it starts, so the new limit
 counts after `wsl --shutdown` or a restart. Setup doesn't run that for you, because it would also
 stop your other distros.
 

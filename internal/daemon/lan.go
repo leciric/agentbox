@@ -1026,7 +1026,6 @@ var lanRefused = []struct {
 		"GET /v1/recap",
 		"GET /v1/limits",
 		"GET /v1/pressure",
-		"GET /v1/run-slots",
 		"GET /v1/agents/{project}/{agent}/disk",
 		"GET /v1/agents/{project}/{agent}/resources",
 		"GET /v1/usage",

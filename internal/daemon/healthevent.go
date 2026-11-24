@@ -65,16 +65,14 @@ type healthEvent struct {
 	ZramSizePct     *int64 `json:"zram_size_pct,omitempty"`
 	ZramRatioPct    *int64 `json:"zram_ratio_pct,omitempty"`
 
-	Episodes       int64  `json:"episodes"`
-	EpisodeS       int64  `json:"episode_s"`
-	EpisodeMaxS    int64  `json:"episode_max_s"`
-	PSIPeakPct     *int64 `json:"psi_peak_pct,omitempty"`
-	PSIFullPct     *int64 `json:"psi_full_peak_pct,omitempty"`
-	RunPauses      int64  `json:"run_pauses"`
-	MachineFreezes int64  `json:"machine_freezes"`
-	IdleFreezes    int64  `json:"idle_freezes"`
-	IdleStops      int64  `json:"idle_stops"`
-	OOMKills       int64  `json:"oom_kills"`
+	Episodes    int64  `json:"episodes"`
+	EpisodeS    int64  `json:"episode_s"`
+	EpisodeMaxS int64  `json:"episode_max_s"`
+	PSIPeakPct  *int64 `json:"psi_peak_pct,omitempty"`
+	PSIFullPct  *int64 `json:"psi_full_peak_pct,omitempty"`
+	IdleFreezes int64  `json:"idle_freezes"`
+	IdleStops   int64  `json:"idle_stops"`
+	OOMKills    int64  `json:"oom_kills"`
 
 	DaemonRSSMiB  int64 `json:"daemon_rss_mib"`
 	DaemonPeakMiB int64 `json:"daemon_peak_mib"`
@@ -123,8 +121,6 @@ type healthStats struct {
 
 	psiRead          bool
 	psiSome, psiFull float64
-	runPauses        int64
-	machineFreezes   int64
 	idleFreezes      int64
 	idleStops        int64
 	oomKills         int64
@@ -150,10 +146,8 @@ func (h *healthStats) count(field *int64, n int64) {
 	h.mu.Unlock()
 }
 
-func (s *Server) countRunPause()      { s.health.count(&s.health.runPauses, 1) }
-func (s *Server) countMachineFreeze() { s.health.count(&s.health.machineFreezes, 1) }
-func (s *Server) countIdleFreeze()    { s.health.count(&s.health.idleFreezes, 1) }
-func (s *Server) countIdleStop()      { s.health.count(&s.health.idleStops, 1) }
+func (s *Server) countIdleFreeze() { s.health.count(&s.health.idleFreezes, 1) }
+func (s *Server) countIdleStop()   { s.health.count(&s.health.idleStops, 1) }
 func (s *Server) countOOMKills(n int64) {
 	s.health.count(&s.health.oomKills, n)
 }
@@ -356,8 +350,6 @@ func (s *Server) healthNow(ctx context.Context, trigger string, now time.Time) h
 		e.PSIPeakPct = ptr(min(int64(h.psiSome+0.5), 100))
 		e.PSIFullPct = ptr(min(int64(h.psiFull+0.5), 100))
 	}
-	e.RunPauses = min(h.runPauses, maxHealthCount)
-	e.MachineFreezes = min(h.machineFreezes, maxHealthCount)
 	e.IdleFreezes = min(h.idleFreezes, maxHealthCount)
 	e.IdleStops = min(h.idleStops, maxHealthCount)
 	e.OOMKills = min(h.oomKills, maxHealthCount)
@@ -379,7 +371,7 @@ func (h *healthStats) reset(now time.Time) {
 		h.episodeAt, h.episodes = now, 1
 	}
 	h.psiRead, h.psiSome, h.psiFull = false, 0, 0
-	h.runPauses, h.machineFreezes, h.idleFreezes, h.idleStops, h.oomKills = 0, 0, 0, 0, 0
+	h.idleFreezes, h.idleStops, h.oomKills = 0, 0, 0
 	h.sharePeak = 0
 	h.errors = nil
 }
@@ -467,11 +459,4 @@ func daemonMemory() (rss, peak int64) {
 		}
 	}
 	return rss, peak
-}
-
-// fleetWhyNow is why the fleet (agentfreeze.go) holds machines back now.
-func (s *Server) fleetWhyNow() pressure.Reason {
-	s.frozen.mu.Lock()
-	defer s.frozen.mu.Unlock()
-	return s.frozen.f.Why()
 }

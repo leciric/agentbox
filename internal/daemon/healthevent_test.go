@@ -61,8 +61,6 @@ var healthFields = func() map[string]healthField {
 		"episode_max_s":     healthInt("the longest, seconds", 0, maxHealthSeconds),
 		"psi_peak_pct":      healthOptional(healthInt("memory PSI 'some' avg10 at its peak; left out where PSI can't be read", 0, 100)),
 		"psi_full_peak_pct": healthOptional(healthInt("memory PSI 'full' avg10 at its peak; left out where PSI can't be read", 0, 100)),
-		"run_pauses":        count("heavy commands paused for memory"),
-		"machine_freezes":   count("whole agents' machines frozen for memory (experimental)"),
 		"idle_freezes":      count("idle agents frozen by idle reclaim"),
 		"idle_stops":        count("finished idle agents' machines stopped by idle reclaim"),
 		"oom_kills":         count("agents' processes killed for memory"),
@@ -167,7 +165,7 @@ func TestHealthEventIsWithinItsRanges(t *testing.T) {
 	d.srv.noteLog("syncing /home/someone/secret-repo failed: exit status 1")
 	d.srv.noteLog("zram swap: on, 4.0G")
 	for range maxHealthCount + 5 {
-		d.srv.countRunPause()
+		d.srv.countIdleFreeze()
 	}
 	d.srv.noteShare(9_000, 10_000)
 	e := d.srv.healthNow(ctx, healthEpisode, time.Now())
@@ -187,7 +185,7 @@ func TestHealthEventIsWithinItsRanges(t *testing.T) {
 		}
 	}
 	for k, want := range map[string]any{
-		"trigger": healthEpisode, "err_too_many_files": float64(1), "run_pauses": float64(maxHealthCount),
+		"trigger": healthEpisode, "err_too_many_files": float64(1), "idle_freezes": float64(maxHealthCount),
 		"agents_idle": float64(1), "agents_busy": float64(0),
 	} {
 		if props[k] != want {
@@ -198,7 +196,7 @@ func TestHealthEventIsWithinItsRanges(t *testing.T) {
 		t.Errorf("err_other = %v", props["err_other"])
 	}
 	// The counts start over.
-	if again := healthProps(t, d.srv.healthNow(ctx, healthDaily, time.Now())); again["run_pauses"] != float64(0) || again["err_too_many_files"] != float64(0) {
+	if again := healthProps(t, d.srv.healthNow(ctx, healthDaily, time.Now())); again["idle_freezes"] != float64(0) || again["err_too_many_files"] != float64(0) {
 		t.Errorf("the next event = %v", again)
 	}
 }
@@ -232,7 +230,7 @@ func TestHealthCountsMemoryEpisodes(t *testing.T) {
 	d.srv.health.lastEpisodeEvent = now // no event of its own, which wants the stats on
 	d.srv.notePressure(now, s, true, pressure.Stalling)
 	d.srv.notePressure(now.Add(time.Minute), pressure.Sample{}, true, pressure.Low)
-	d.srv.notePressure(now.Add(90*time.Second), pressure.Sample{}, true, pressure.Easing)
+	d.srv.notePressure(now.Add(90*time.Second), pressure.Sample{}, true, "")
 	d.srv.notePressure(now.Add(2*time.Minute), pressure.Sample{}, true, pressure.Falling)
 	e := d.srv.healthNow(context.Background(), healthDaily, now.Add(3*time.Minute))
 	if e.Episodes != 2 || e.EpisodeS != 90+60 || e.EpisodeMaxS != 90 || *e.PSIPeakPct != 42 || *e.PSIFullPct != 8 {
