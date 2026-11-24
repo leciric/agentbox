@@ -1367,6 +1367,26 @@ html[data-blurred] .ab-monitor * {
 [data-session-color="lemon"] { --session: var(--ab-session-peach); }
 [data-session-color="lime"] { --session: var(--ab-session-mint); }
 
+/* A person of a shared project (components/People.tsx, lib/people.ts): one of
+   the session hues, picked by their name so it is the same on every
+   AgentBox. .person-avatar is their initials on it, .person-name their name
+   in it, .person-line a message's edge (chat/Timeline). */
+[data-person-color="rose"] { --person: var(--ab-session-rose); }
+[data-person-color="sky"] { --person: var(--ab-session-sky); }
+[data-person-color="mint"] { --person: var(--ab-session-mint); }
+[data-person-color="lilac"] { --person: var(--ab-session-lilac); }
+[data-person-color="peach"] { --person: var(--ab-session-peach); }
+.person-avatar {
+  background: var(--person);
+  color: var(--ab-on-bright);
+  font-size: 0.625rem;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--ab-chat);
+}
+.person-avatar[data-size="xs"] { font-size: 0.5625rem; }
+.person-name { color: var(--person); }
+.person-line { border-left: 2px solid color-mix(in srgb, var(--person) 70%, transparent); }
+
 /* A short rule under the tab's name, rather than a box around the tab. */
 .session-line,
 .session-line-quiet {

@@ -181,7 +181,11 @@ type ChatItem struct {
 	// from its composer (ChatMessageRequest.To): the app shows it as the
 	// user's message to that agent, and the lead reads it as "User told
 	// agent-31: …" at the start of its next turn.
-	To         string          `json:"to,omitempty"`
+	To string `json:"to,omitempty"`
+	// Author, on a message somebody sent (user, aside, or a notice with
+	// To), is who sent it when it wasn't this app's own user: someone on a
+	// paired AgentBox, or on the AgentBox that shares the project.
+	Author     *Person         `json:"author,omitempty"`
 	Streaming  bool            `json:"streaming,omitempty"` // more text is coming
 	Tool       *ChatTool       `json:"tool,omitempty"`
 	Plan       []ChatPlanEntry `json:"plan,omitempty"`
@@ -492,6 +496,9 @@ type ChatMessageRequest struct {
 	// ChatItem.To that the lead reads at its next turn, starting none. The
 	// answer is that notice.
 	To string `json:"to,omitempty"`
+	// Author is who sent it, set by the daemon for a message a paired
+	// AgentBox sent (ChatItem.Author); never read from the request.
+	Author *Person `json:"-"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file

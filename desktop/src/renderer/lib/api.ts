@@ -237,6 +237,12 @@ export const api = {
   removeSharePeer: (id: string) => call<void>('DELETE', `/v1/share/peers/${encodeURIComponent(id)}`),
   addShareRemote: (link: string) => call<T.ShareRemote>('POST', '/v1/share/remotes', { link } satisfies T.AddShareRemoteRequest),
   removeShareRemote: (id: string) => call<void>('DELETE', `/v1/share/remotes/${encodeURIComponent(id)}`),
+  sharePeerActivity: (id: string, limit = 100) => call<T.ShareActivity[]>('GET', `/v1/share/peers/${encodeURIComponent(id)}/activity?limit=${limit}`),
+  // What this window has open, for the people of a shared project
+  // (lib/here.ts), and who is in each project.
+  renewHere: (req: T.HereRequest) => call<void>('PUT', '/v1/here', req),
+  leaveHere: (client: string) => call<void>('DELETE', `/v1/here/${encodeURIComponent(client)}`),
+  whoIsHere: () => call<T.ProjectHere[]>('GET', '/v1/here'),
   mcpApps: () => call<T.MCPPairings>('GET', '/v1/remote/mcp'),
   updateMCPApps: (req: T.UpdateMCPRequest) => call<T.MCPPairings>('PATCH', '/v1/remote/mcp', req),
   pairMCPApp: (req: T.MCPPairRequest) => call<T.MCPPairingSecret>('POST', '/v1/remote/mcp/pairings', req),

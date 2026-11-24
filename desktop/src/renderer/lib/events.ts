@@ -14,6 +14,7 @@ import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
 import { changesFiles, refreshFiles } from './files.ts';
+import { applyHere, loadHere } from './here.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
@@ -263,6 +264,18 @@ export function connectEvents(queryClient: QueryClient): void {
         // Share), or one this one paired with came or went.
         void queryClient.invalidateQueries({ queryKey: ['share'] });
         break;
+      case T.EventHere:
+        // Who is in a project, and what they have open (lib/here.ts).
+        applyHere(event.data as T.ProjectHere);
+        break;
+      case T.EventShareActivity: {
+        // A paired AgentBox did something here: its feed, and what it
+        // spent, in Settings → Share.
+        const peer = (event.data as T.ShareActivityEvent).peer;
+        void queryClient.invalidateQueries({ queryKey: ['shareActivity', peer] });
+        void queryClient.invalidateQueries({ queryKey: ['share'] });
+        break;
+      }
       case T.EventProject: {
         void queryClient.invalidateQueries({ queryKey: ['projects'] });
         // A project just added has its first chat session once this is
@@ -403,6 +416,7 @@ export function connectEvents(queryClient: QueryClient): void {
       // A restarted daemon numbers chat events from the start again.
       resetChatEvents();
       void queryClient.invalidateQueries();
+      loadHere();
     }
   };
   window.agentbox.onConnection(setConnection);

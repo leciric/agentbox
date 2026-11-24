@@ -554,6 +554,7 @@ func TestEveryRouteIsClassifiedForPeers(t *testing.T) {
 	_, patterns := (&Server{}).apiRoutes()
 	globals := map[string]string{
 		"GET /v1/projects": "projects", "GET /v1/agents": "agents", "GET /v1/events": "events", "GET /v1/version": "version",
+		"PUT /v1/here": "here", "DELETE /v1/here/{client}": "here",
 	}
 	for _, pattern := range patterns {
 		method, path, ok := strings.Cut(pattern, " ")
@@ -576,6 +577,11 @@ func TestEveryRouteIsClassifiedForPeers(t *testing.T) {
 				t.Errorf("%s is in no project, but a peer reaches it as project %q", pattern, route.project)
 			case !inProject && route.global != globals[m+" "+path]:
 				t.Errorf("%s reaches peers as %q: a route in no project reaches none, but the lists in globals", pattern, route.global)
+			}
+			// Every route a peer may take says what access it needs: none
+			// may be taken with less than view.
+			if route.never == "" && (route.project != "" || route.global != "" || route.bodyProject) && state.ShareAccessRank(route.needs) == 0 {
+				t.Errorf("%s reaches peers needing access %q: shareNeeds must say view, chat or full", pattern, route.needs)
 			}
 		}
 	}
@@ -603,6 +609,37 @@ func TestEveryRouteIsClassifiedForPeers(t *testing.T) {
 		route := shareRouteOf(c.method, c.path)
 		if (route.never != "") != c.never || route.project != c.project {
 			t.Errorf("shareRouteOf(%s %s) = %+v; want never %v, project %q", c.method, c.path, route, c.never, c.project)
+		}
+	}
+	// What each level of access lets a peer do.
+	for _, c := range []struct{ method, path, needs string }{
+		{"GET", "/v1/projects", "view"},
+		{"GET", "/v1/events", "view"},
+		{"GET", "/v1/projects/p/chat", "view"},
+		{"GET", "/v1/agents/p/a/diff", "view"},
+		{"PUT", "/v1/here", "view"},
+		{"DELETE", "/v1/here/w1", "view"},
+		{"POST", "/v1/projects/p/sessions/s/seen", "view"},
+		{"PUT", "/v1/agents/p/a/viewing", "view"},
+		{"POST", "/v1/projects/p/chat/messages", "chat"},
+		{"POST", "/v1/projects/p/sessions/s/chat/messages", "chat"},
+		{"POST", "/v1/projects/p/sessions/s/chat/cancel", "chat"},
+		{"POST", "/v1/projects/p/chat/permissions/i1", "chat"},
+		{"POST", "/v1/agents/p/a/chat/messages", "chat"},
+		{"POST", "/v1/projects/p/questions/q1/answer", "chat"},
+		{"POST", "/v1/projects/p/sessions", "chat"},
+		{"POST", "/v1/projects/p/sessions/s/close", "chat"},
+		{"POST", "/v1/agents", "full"},
+		{"POST", "/v1/agents/p/a/merge", "full"},
+		{"POST", "/v1/projects/p/pulls/7/merge", "full"},
+		{"POST", "/v1/agents/p/a/start", "full"},
+		{"DELETE", "/v1/agents/p/a", "full"},
+		{"GET", "/v1/agents/p/a/terminal", "full"},
+		{"GET", "/v1/agents/p/a/browser/view", "full"},
+		{"PUT", "/v1/projects/p/chat/runner", "full"},
+	} {
+		if got := shareRouteOf(c.method, c.path).needs; got != c.needs {
+			t.Errorf("shareRouteOf(%s %s) needs %q, want %q", c.method, c.path, got, c.needs)
 		}
 	}
 	for path, want := range map[string]string{

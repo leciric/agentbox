@@ -4179,6 +4179,8 @@ pub struct Question {
     pub answer: String,
     #[serde(rename = "answeredBy", skip_serializing_if = "is_empty")]
     pub answered_by: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<Person>,
     #[serde(skip_serializing_if = "is_empty")]
     pub escalation: String,
     #[serde(rename = "createdAt")]
@@ -5020,6 +5022,8 @@ pub struct SharePeer {
     pub projects: Vec<String>,
     pub slots: i64,
     pub running: i64,
+    pub access: String,
+    pub usage: SharePeerUsage,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5040,6 +5044,8 @@ pub struct UpdateSharePeerRequest {
     pub projects: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slots: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5074,6 +5080,99 @@ pub struct AddShareRemoteRequest {
 pub struct ProjectRemote {
     pub id: String,
     pub owner: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub access: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SharePeerUsage {
+    pub tokens: i64,
+    #[serde(rename = "costUsd")]
+    pub cost_usd: f64,
+    #[serde(rename = "agentMinutes")]
+    pub agent_minutes: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Person {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Here {
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub tab: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub typing: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HereRequest {
+    pub client: String,
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub tab: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub typing: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PersonHere {
+    pub id: String,
+    pub name: String,
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub tab: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub typing: bool,
+    pub since: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectHere {
+    pub project: String,
+    #[serde(deserialize_with = "nullable")]
+    pub people: Vec<PersonHere>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareActivity {
+    pub id: i64,
+    pub at: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareActivityEvent {
+    pub peer: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5228,6 +5327,8 @@ pub struct ChatItem {
     pub hidden: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<Person>,
     #[serde(skip_serializing_if = "is_empty")]
     pub streaming: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -7582,6 +7683,22 @@ pub const DISK_FULL: &str = "full";
 pub const EVENT_LAN: &str = "lan";
 pub const EVENT_SHARE: &str = "share";
 pub const ERROR_SHARE_SLOTS_FULL: &str = "share-slots-full";
+pub const SHARE_ACCESS_VIEW: &str = "view";
+pub const SHARE_ACCESS_CHAT: &str = "chat";
+pub const SHARE_ACCESS_FULL: &str = "full";
+pub const EVENT_HERE: &str = "here";
+pub const EVENT_SHARE_ACTIVITY: &str = "share-activity";
+pub const SHARE_DID_CREATE_AGENT: &str = "create-agent";
+pub const SHARE_DID_START_AGENT: &str = "start-agent";
+pub const SHARE_DID_STOP_AGENT: &str = "stop-agent";
+pub const SHARE_DID_REMOVE_AGENT: &str = "remove-agent";
+pub const SHARE_DID_MESSAGE: &str = "message";
+pub const SHARE_DID_PROMPT: &str = "prompt";
+pub const SHARE_DID_ANSWER: &str = "answer";
+pub const SHARE_DID_MERGE: &str = "merge";
+pub const SHARE_DID_REVIEW: &str = "review";
+pub const SHARE_DID_OPEN_DESKTOP: &str = "open-desktop";
+pub const SHARE_DID_OPEN_TERMINAL: &str = "open-terminal";
 pub const EVENT_SNAP: &str = "snap";
 pub const EVENT_FILES: &str = "files";
 pub const PUSH_FINISHED: &str = "finished";

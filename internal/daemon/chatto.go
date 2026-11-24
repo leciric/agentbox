@@ -28,10 +28,10 @@ func (s *Server) sendToAgent(ctx context.Context, lead state.Agent, req api.Chat
 	if a.IsLead() {
 		return api.ChatItem{}, errNotAnAgent
 	}
-	msg := api.ChatMessageRequest{Text: req.Text, Images: req.Images, Files: req.Files}
+	msg := api.ChatMessageRequest{Text: req.Text, Images: req.Images, Files: req.Files, Author: req.Author}
 	if _, err := s.tellAgentMessage(ctx, a, msg); err != nil {
 		return api.ChatItem{}, err
 	}
 	s.countFeature(api.FeatureAgentTurn)
-	return s.chat.Told(lead, a.Name, req.Text, len(req.Images)+len(req.Files))
+	return s.chat.Told(lead, a.Name, req.Text, len(req.Images)+len(req.Files), req.Author)
 }

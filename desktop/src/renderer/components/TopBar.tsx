@@ -151,7 +151,7 @@ export function TopBar({
           </span>
         )}
         {crumbProject ? (
-          <ProjectCrumb project={crumbProject} then={crumbThen} onProject={view.kind === 'agent' ? () => onSelect({ kind: 'project', project: crumbProject.name }) : undefined} />
+          <ProjectCrumb project={crumbProject} then={crumbThen} agent={view.kind === 'agent' ? view.ref.split('/')[1] : undefined} onProject={view.kind === 'agent' ? () => onSelect({ kind: 'project', project: crumbProject.name }) : undefined} />
         ) : crumbs.map((crumb, i) => (
           <span key={i} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-faint" />}

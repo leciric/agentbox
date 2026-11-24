@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { noteTyping } from '../../lib/here';
 import {
   ArrowUp,
   Brain,
@@ -823,6 +824,7 @@ export function Composer({
             onChange={(event) => {
               setText(event.target.value);
               syncCursor(event);
+              if (event.target.value.trim()) noteTyping();
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}

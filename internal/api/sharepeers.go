@@ -51,6 +51,35 @@ type SharePeer struct {
 	// Running is how many of the agents it made run now.
 	Slots   int `json:"slots"`
 	Running int `json:"running"`
+	// Access is what it may do in the projects it reaches: ShareAccessView,
+	// ShareAccessChat or ShareAccessFull.
+	Access string `json:"access"`
+	// Usage is what it spent here, on this machine and its AI accounts.
+	Usage SharePeerUsage `json:"usage"`
+}
+
+// What a paired AgentBox may do in the projects it reaches. Each level may do
+// what the one before it may, and more; the daemon enforces it.
+const (
+	// ShareAccessView reads: the chats, agents, pull requests and files.
+	ShareAccessView = "view"
+	// ShareAccessChat writes in the chats as well: messages to the project's
+	// chat and to agents, and answers to their questions.
+	ShareAccessChat = "chat"
+	// ShareAccessFull makes agents (within its slots), merges and opens pull
+	// requests, and reaches the agents' terminals and desktops.
+	ShareAccessFull = "full"
+)
+
+// SharePeerUsage is what a peer spent on the owner's machine and accounts.
+type SharePeerUsage struct {
+	// Tokens are its agents' and the chat turns its messages started, every
+	// kind (input, output, cache) together; CostUSD what the tools said
+	// those cost, 0 when they didn't say.
+	Tokens  int64   `json:"tokens"`
+	CostUSD float64 `json:"costUsd"`
+	// AgentMinutes is how long its agents' machines ran here.
+	AgentMinutes int64 `json:"agentMinutes"`
 }
 
 // UpdateShareRequest is PATCH /v1/share.
@@ -66,6 +95,8 @@ type UpdateSharePeerRequest struct {
 	Projects    *[]string `json:"projects,omitempty"`
 	// Slots is -1 to follow ShareStatus.Slots.
 	Slots *int `json:"slots,omitempty"`
+	// Access is ShareAccessView, ShareAccessChat or ShareAccessFull.
+	Access *string `json:"access,omitempty"`
 }
 
 // SharePairing is POST /v1/share/pairings: a one-time link another
@@ -100,6 +131,10 @@ type AddShareRemoteRequest struct {
 type ProjectRemote struct {
 	ID    string `json:"id"`
 	Owner string `json:"owner"`
+	// Access is what its owner lets this AgentBox do in it (ShareAccessView
+	// and the rest); "" from an owner from before access levels, which
+	// allowed everything.
+	Access string `json:"access,omitempty"`
 }
 
 // SharePairRequest is what a peer's daemon sends the owner's

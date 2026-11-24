@@ -150,7 +150,13 @@ func questionNotice(q state.Question) string {
 
 // answerQuestion records an answer and hands it to the waiting agent.
 func (s *Server) answerQuestion(ctx context.Context, id, answer, by string) (state.Question, error) {
-	q, err := s.store.AnswerQuestion(ctx, id, answer, by)
+	var q state.Question
+	var err error
+	if who := shareAuthor(ctx); who != nil && by == "user" {
+		q, err = s.store.AnswerQuestionAs(ctx, id, answer, by, who.ID, who.Name)
+	} else {
+		q, err = s.store.AnswerQuestion(ctx, id, answer, by)
+	}
 	if err != nil {
 		return q, err
 	}
@@ -299,6 +305,9 @@ func toAPIQuestion(q state.Question) api.Question {
 	}
 	if !q.AnsweredAt.IsZero() {
 		out.AnsweredAt = &q.AnsweredAt
+	}
+	if q.AuthorID != "" {
+		out.Author = &api.Person{ID: q.AuthorID, Name: q.AuthorName}
 	}
 	return out
 }

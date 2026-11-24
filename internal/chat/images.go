@@ -166,10 +166,20 @@ func (c *conversation) promptBlocks(dir string, texts []string, sent attached, e
 type attached struct {
 	images []api.ChatImage
 	files  []api.ChatFile
+	// author is who sent it, when someone on a paired AgentBox did
+	// (api.ChatItem.Author).
+	author *api.Person
 }
 
 func (a attached) join(b attached) attached {
-	return attached{images: append(a.images, b.images...), files: append(a.files, b.files...)}
+	return attached{images: append(a.images, b.images...), files: append(a.files, b.files...), author: firstAuthor(b.author, a.author)}
+}
+
+func firstAuthor(a, b *api.Person) *api.Person {
+	if a != nil {
+		return a
+	}
+	return b
 }
 
 // saveAttached keeps a message's pictures and files, or neither. The
@@ -187,7 +197,7 @@ func (c *conversation) saveAttached(msg api.ChatMessageRequest) (attached, error
 		}
 		return attached{}, err
 	}
-	return attached{images: images, files: files}, nil
+	return attached{images: images, files: files, author: msg.Author}, nil
 }
 
 // setImageSupport records whether the running adapter takes images, for the

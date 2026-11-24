@@ -76,13 +76,14 @@ type peeringState struct {
 	running func(ctx context.Context, refs []string) int
 
 	remotes *shareRemotes // shareremote.go
+	here    *hereState    // sharepeople.go
 }
 
 func newPeeringState() *peeringState {
 	return &peeringState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]shareOpen{},
 		seen: map[string]time.Time{}, speaker: map[string]string{}, heard: map[string]uint64{}, holds: map[string]*shareHold{},
-		remotes: newShareRemotes(),
+		remotes: newShareRemotes(), here: newHereState(),
 	}
 }
 
@@ -192,9 +193,15 @@ func (s *Server) shareStatus(ctx context.Context) (api.ShareStatus, error) {
 
 func (s *Server) sharePeerInfo(ctx context.Context, p state.SharePeer) api.SharePeer {
 	refs, _ := s.store.SharePeerAgents(ctx, p.ID)
+	usage, err := s.store.SharePeerUsage(ctx, p.ID)
+	if err != nil {
+		s.logf("share: what %s spent: %v", p.Name, err)
+	}
 	return api.SharePeer{
 		ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr,
 		AllProjects: p.AllProjects, Projects: p.Projects, Slots: p.Slots, Running: s.shareRunningCount(ctx, refs),
+		Access: p.Access,
+		Usage:  api.SharePeerUsage{Tokens: usage.Tokens, CostUSD: usage.CostUSD, AgentMinutes: usage.RunSeconds / 60},
 	}
 }
 
@@ -295,15 +302,20 @@ func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
 		slots = *req.Slots
 	}
 	was := p
+	if req.Access != nil && *req.Access != p.Access {
+		if err := s.store.SetSharePeerAccess(ctx, p.ID, *req.Access); err != nil {
+			return err
+		}
+	}
 	if p, err = s.store.SetSharePeer(ctx, p.ID, all, projects, slots); err != nil {
 		return err
 	}
-	s.logf("share: %s (%s) reaches %s, slots %d", p.Name, p.ID, shareWhat(p), p.Slots)
+	s.logf("share: %s (%s) reaches %s, slots %d, access %s", p.Name, p.ID, shareWhat(p), p.Slots, p.Access)
 	// What it had open in a project it no longer reaches ends. Its event
 	// stream ends when what it reaches changed at all: it connects again at
 	// once, and lists the projects it reaches now. Its slots changing ends
 	// nothing.
-	reaches := was.AllProjects != p.AllProjects || !slices.Equal(was.Projects, p.Projects)
+	reaches := was.AllProjects != p.AllProjects || !slices.Equal(was.Projects, p.Projects) || was.Access != p.Access
 	s.peering.end(p.ID, func(o shareOpen) bool {
 		return (o.events && reaches) || (o.project != "" && !p.Shares(o.project))
 	})
@@ -427,6 +439,10 @@ func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
 		writeLANError(w, http.StatusForbidden, fmt.Sprintf("%s %s isn't shared with another AgentBox: it works on the AgentBox that shares the project", r.Method, path))
 		return
 	}
+	if !p.May(route.needs) {
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf("%s can't %s; its owner chooses what it may do, in Settings → Share", p.Name, shareCant(route.needs)))
+		return
+	}
 	if route.project != "" {
 		slug := route.project
 		if proj, err := s.store.Project(ctx, slug); err == nil {
@@ -497,6 +513,12 @@ func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
 		_, _ = w.Write(out)
 		return
 	}
+	if act, ok := shareActivityOf(r.Method, path); ok {
+		sw := &statusWriter{ResponseWriter: w}
+		routes.ServeHTTP(sw, r2)
+		s.recordShareRequest(ctx, p, act, sw.status)
+		return
+	}
 	routes.ServeHTTP(w, r2)
 }
 
@@ -521,11 +543,17 @@ func shareFilterList(body []byte, p state.SharePeer, what string) ([]byte, error
 		if what == "projects" {
 			it["root"] = json.RawMessage(`""`)
 			it["envFiles"] = json.RawMessage(`[]`)
+			// What it may do in it, which its daemon moves into the
+			// project's remote (withRemote) for its app.
+			it[shareAccessKey], _ = json.Marshal(p.Access)
 		}
 		out = append(out, it)
 	}
 	return json.Marshal(out)
 }
+
+// shareAccessKey carries a peer's access in the projects the gateway lists.
+const shareAccessKey = "shareAccess"
 
 // eventProject is the project an event is about: its data's project, or the
 // project of the agent its ref (a job's target, a chat event's agent) names;
@@ -618,6 +646,12 @@ func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.Sha
 			}
 		}
 	}
+	for _, ph := range s.hereFor(p) {
+		data, _ := json.Marshal(ph)
+		if send(api.Event{Type: api.EventHere, Time: time.Now(), Data: data}) != nil {
+			return
+		}
+	}
 	keepalive := time.NewTicker(cmp.Or(s.keepalive, 15*time.Second))
 	defer keepalive.Stop()
 	// What it reaches is read again now and then, so a project unshared
@@ -669,6 +703,9 @@ type shareRoute struct {
 	// agent is the agent it starts again, which the peer's slots count
 	// when it is the peer's: checkShareStart.
 	agent string
+	// needs is the access a peer must have been given to take it
+	// (state.ShareAccessView and the rest): shareNeeds.
+	needs string
 }
 
 // shareNever is refused to every peer, in any project it was given: what
@@ -696,6 +733,60 @@ var shareProjectRoute = regexp.MustCompile(`^/v1/(projects|agents|archived-agent
 var shareStart = regexp.MustCompile(`^POST /v1/agents/[^/]+/([^/]+)/(start|resume)$`)
 
 func shareRouteOf(method, path string) shareRoute {
+	r := shareRouteIn(method, path)
+	if r.never == "" {
+		r.needs = shareNeeds(method, path)
+	}
+	return r
+}
+
+// shareChatRoute is what a peer given ShareAccessChat may do besides reading:
+// write in a project's chat (any session of it) and in an agent's, stop or
+// answer what it is doing, start and tend the chat's sessions, and answer an
+// agent's question.
+var shareChatRoute = regexp.MustCompile(`^(POST|PUT|PATCH|DELETE) /v1/(` +
+	`projects/[^/]+(/sessions/[^/]+)?/chat/(messages|cancel|start|permissions/[^/]+|options/[^/]+)` +
+	`|agents/[^/]+/[^/]+/chat/(messages|cancel|start|permissions/[^/]+|options/[^/]+)` +
+	`|projects/[^/]+/questions/[^/]+/answer` +
+	`|projects/[^/]+/sessions(/[^/]+(/(snooze|close|reopen))?)?` +
+	`)/?$`)
+
+// shareViewRoute is what a peer that may only look still sends: saying what
+// it has open (sharepeople.go), that it read a session, and that it opened
+// an agent (which wakes one stopped while idle, as opening it here does).
+var shareViewRoute = regexp.MustCompile(`^(PUT /v1/here|DELETE /v1/here/[^/]+|POST /v1/projects/[^/]+/sessions/[^/]+/seen|PUT /v1/agents/[^/]+/[^/]+/viewing)/?$`)
+
+// shareHandsOn are the reads that hand over the machine: an agent's
+// terminal and its desktops, whose streams carry keys and clicks back.
+var shareHandsOn = regexp.MustCompile(`^GET /v1/agents/[^/]+/[^/]+/(terminal|browser/view|ios/view|android/stream)/?$`)
+
+// shareNeeds is the access a peer needs for a route no shareNever refuses:
+// reading needs ShareAccessView; the chat's routes ShareAccessChat; anything
+// else, which makes, changes or runs something on this machine (agents,
+// merges, pull requests, files, terminals and desktops), ShareAccessFull.
+func shareNeeds(method, path string) string {
+	line := method + " " + path
+	switch {
+	case shareHandsOn.MatchString(line):
+		return state.ShareAccessFull
+	case method == http.MethodGet || method == http.MethodHead || shareViewRoute.MatchString(line):
+		return state.ShareAccessView
+	case shareChatRoute.MatchString(line):
+		return state.ShareAccessChat
+	}
+	return state.ShareAccessFull
+}
+
+// shareCant is what a level of access doesn't let a peer do, for the error
+// it gets.
+func shareCant(need string) string {
+	if need == state.ShareAccessChat {
+		return "write in this project's chats: it may only look"
+	}
+	return "make or change things in this project (agents, merges, pull requests, terminals, desktops)"
+}
+
+func shareRouteIn(method, path string) shareRoute {
 	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
 		return shareRoute{}
 	}
@@ -715,6 +806,8 @@ func shareRouteOf(method, path string) shareRoute {
 		return shareRoute{global: "events"}
 	case get && path == "/v1/version":
 		return shareRoute{global: "version"}
+	case method == http.MethodPut && path == "/v1/here", method == http.MethodDelete && strings.HasPrefix(path, "/v1/here/") && strings.Count(path, "/") == 3:
+		return shareRoute{global: "here"}
 	case method == http.MethodPost && path == "/v1/agents":
 		return shareRoute{bodyProject: true}
 	}
@@ -779,6 +872,18 @@ func (e shareSlotsFull) Error() string {
 	return fmt.Sprintf("%s already has %d of its %d agents running on this AgentBox: stop one of them first, or ask the owner for more slots (Settings → Share)", e.peer, e.running, e.slots)
 }
 
+// shareNoAgents refuses an agent to a peer whose access doesn't reach making
+// one, whether it asked or the project's chat did after its message.
+type shareNoAgents struct{ peer, access string }
+
+func (e shareNoAgents) Error() string {
+	may := "only look"
+	if e.access == state.ShareAccessChat {
+		may = "only chat"
+	}
+	return fmt.Sprintf("%s may not make agents on this AgentBox: its owner lets it %s (Settings → Share)", e.peer, may)
+}
+
 // shareRefused is what a paired AgentBox may not do in a project it was
 // given, such as writing a memory every project of this machine reads.
 type shareRefused struct{ what string }
@@ -820,6 +925,11 @@ func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 	p, err := s.store.SharePeer(ctx, peerID)
 	if err != nil {
 		return err
+	}
+	if !p.May(state.ShareAccessFull) {
+		// Its messages may still have the project's chat make one for it:
+		// refused the same, so what it may do isn't got round that way.
+		return shareNoAgents{peer: p.Name, access: p.Access}
 	}
 	slots := p.Slots
 	if slots < 0 {

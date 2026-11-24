@@ -721,6 +721,7 @@ func (c *conversation) deliver(text string, opts NoticeOptions) {
 func (c *conversation) startTurn(text string, sent attached) *api.ChatItem {
 	it := c.add("user", "")
 	it.Turn, it.Text, it.Images, it.Files = it.ID, text, sent.images, sent.files
+	it.Author = sent.author
 	c.beginTurn(it, text, sent)
 	return it
 }
@@ -796,6 +797,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 func (c *conversation) aside(text string, sent attached, command bool) *api.ChatItem {
 	it := c.add("aside", c.turn.id)
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaiting
+	it.Author = sent.author
 	if command {
 		it.Delivery = api.ChatAsideQueued
 	}

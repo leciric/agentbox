@@ -230,6 +230,7 @@ func (s *Server) removeShareRemote(w http.ResponseWriter, r *http.Request) error
 		delete(rs.conns, id)
 	}
 	rs.mu.Unlock()
+	s.forgetRemoteHere(id)
 	s.publishShare(r.Context())
 	s.events.publish(api.EventProject, struct{}{})
 	w.WriteHeader(http.StatusNoContent)
@@ -243,6 +244,8 @@ func (s *Server) remoteEvents(ctx context.Context, c *remoteConn) {
 	for ctx.Err() == nil {
 		began := time.Now()
 		err := s.remoteEventsOnce(ctx, c)
+		// Who is in its projects is told again when it is back.
+		s.forgetRemoteHere(c.r.ID)
 		if ctx.Err() != nil {
 			return
 		}
@@ -302,7 +305,11 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 			c.listedAt = time.Time{}
 			c.mu.Unlock()
 		}
-		s.events.publish(ev.Type, json.RawMessage(renameJSON(ev.Data, c.r.ID)))
+		data := fromRemote(ev.Data, c)
+		if ev.Type == api.EventHere {
+			s.remoteHere(c.r.ID, data)
+		}
+		s.events.publish(ev.Type, json.RawMessage(data))
 	}
 }
 
@@ -413,7 +420,7 @@ func (s *Server) remoteLists(ctx context.Context, c *remoteConn) (projects, agen
 			return nil, err
 		}
 		for i, it := range items {
-			items[i] = renameJSON(it, c.r.ID)
+			items[i] = fromRemote(it, c)
 		}
 		return items, nil
 	}
@@ -446,6 +453,10 @@ func withRemote(project json.RawMessage, r api.ProjectRemote) json.RawMessage {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(project, &m) != nil {
 		return project
+	}
+	if access, ok := m[shareAccessKey]; ok {
+		_ = json.Unmarshal(access, &r.Access)
+		delete(m, shareAccessKey)
 	}
 	m["remote"], _ = json.Marshal(r)
 	out, err := json.Marshal(m)
@@ -632,7 +643,7 @@ func (s *Server) proxyRemote(w http.ResponseWriter, r *http.Request, id, path st
 			if err != nil {
 				return err
 			}
-			out := renameJSON(raw, id)
+			out := fromRemote(raw, c)
 			resp.Body = io.NopCloser(bytes.NewReader(out))
 			resp.ContentLength = int64(len(out))
 			resp.Header.Set("Content-Length", strconv.Itoa(len(out)))

@@ -53,6 +53,35 @@ type SharePeer struct {
 	// Slots is how many agents it may have running here; -1 follows
 	// SettingShareSlots.
 	Slots int
+	// Access is what it may do in the projects it reaches: ShareAccessView,
+	// ShareAccessChat or ShareAccessFull.
+	Access string
+}
+
+// What a peer may do in the projects it reaches, each level all the one
+// before it may and more (api.ShareAccessView and the rest).
+const (
+	ShareAccessView = "view"
+	ShareAccessChat = "chat"
+	ShareAccessFull = "full"
+)
+
+// ShareAccessRank orders the levels, "" (unknown) lowest.
+func ShareAccessRank(access string) int {
+	switch access {
+	case ShareAccessView:
+		return 1
+	case ShareAccessChat:
+		return 2
+	case ShareAccessFull:
+		return 3
+	}
+	return 0
+}
+
+// May says p's access reaches need.
+func (p SharePeer) May(need string) bool {
+	return ShareAccessRank(p.Access) >= ShareAccessRank(need)
 }
 
 // RemoteProjectSep is in the name of a project another AgentBox shares with
@@ -71,14 +100,14 @@ func (p SharePeer) Shares(slug string) bool {
 	return p.AllProjects || slices.Contains(p.Projects, slug)
 }
 
-const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots FROM share_peers`
+const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, access FROM share_peers`
 
 func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 	var p SharePeer
 	var created, seen int64
 	var all int
 	var projects string
-	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &p.Access); err != nil {
 		return SharePeer{}, err
 	}
 	p.Created = time.Unix(created, 0)
@@ -113,7 +142,7 @@ func (s *Store) AddSharePeer(ctx context.Context, name string) (SharePeer, strin
 	if _, err := rand.Read(secret); err != nil {
 		return SharePeer{}, "", err
 	}
-	p := SharePeer{ID: "peer_" + hex.EncodeToString(id), Name: name, Created: time.Now(), Projects: []string{}, Slots: -1}
+	p := SharePeer{ID: "peer_" + hex.EncodeToString(id), Name: name, Created: time.Now(), Projects: []string{}, Slots: -1, Access: ShareAccessFull}
 	token := "share_" + p.ID + "." + base64.RawURLEncoding.EncodeToString(secret)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO share_peers (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.Name, HashPhoneToken(token), p.Created.Unix())
@@ -185,6 +214,21 @@ func (s *Store) SetSharePeer(ctx context.Context, id string, all bool, projects 
 	return s.SharePeer(ctx, id)
 }
 
+// SetSharePeerAccess sets what a peer may do in the projects it reaches.
+func (s *Store) SetSharePeerAccess(ctx context.Context, id, access string) error {
+	if ShareAccessRank(access) == 0 {
+		return errors.New("access must be view, chat or full, not " + strconv.Quote(access))
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE share_peers SET access = ? WHERE id = ?`, access, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SawSharePeer records when and from where a peer last connected.
 func (s *Store) SawSharePeer(ctx context.Context, id, addr string, at time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE share_peers SET last_seen_at = ?, last_addr = ? WHERE id = ?`, at.Unix(), addr, id)
@@ -194,6 +238,9 @@ func (s *Store) SawSharePeer(ctx context.Context, id, addr string, at time.Time)
 // RemoveSharePeer revokes a peer: its token stops working at once.
 func (s *Store) RemoveSharePeer(ctx context.Context, id string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM share_peer_agents WHERE peer_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM share_activity WHERE peer_id = ?`, id); err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM share_peers WHERE id = ?`, id)

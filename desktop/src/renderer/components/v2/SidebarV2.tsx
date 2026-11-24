@@ -67,6 +67,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
+import { usePeopleIn } from '../../lib/here';
+import { Avatars } from '../People';
 import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, snoozedOf, useSeenAt } from '../../lib/sessions';
 import { wakeTime } from '../chat/SessionHeader';
 
@@ -1093,6 +1095,8 @@ function ProjectLead({
     onChangeIcon: () => setIconOpen(true),
     onNewAgent,
   });
+  // Who else is in it now, from another AgentBox (lib/here.ts).
+  const people = usePeopleIn(project.name);
   const item = (a: ProjectAction) => [
     a.separatorBefore && <ContextMenuSeparator key={`${a.key}-sep`} />,
     <ContextMenuItem key={a.key} icon={a.icon} onSelect={a.onSelect} data-v2-project-action={a.key}>
@@ -1159,6 +1163,7 @@ function ProjectLead({
                     {t('shell.sidebar.remoteOwner', { owner: project.remote.owner })}
                   </span>
                 )}
+                <Avatars people={people} size="xs" max={2} />
                 {leadRunning && <LoaderCircle className={cn('size-3 shrink-0 animate-spin', working ? 'text-sky-400' : 'text-subtle')} />}
                 {drafted && (
                   <Tip label={t('v2.sidebar.draft')}>

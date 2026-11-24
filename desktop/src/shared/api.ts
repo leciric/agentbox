@@ -2514,6 +2514,7 @@ export interface Question {
   status: string;
   answer?: string;
   answeredBy?: string;
+  author?: Person;
   escalation?: string;
   createdAt: string;
   answeredAt?: string;
@@ -3040,6 +3041,8 @@ export interface SharePeer {
   projects: string[];
   slots: number;
   running: number;
+  access: string;
+  usage: SharePeerUsage;
 }
 
 export interface UpdateShareRequest {
@@ -3051,6 +3054,7 @@ export interface UpdateSharePeerRequest {
   allProjects?: boolean;
   projects?: string[];
   slots?: number;
+  access?: string;
 }
 
 export interface SharePairing {
@@ -3075,6 +3079,64 @@ export interface AddShareRemoteRequest {
 export interface ProjectRemote {
   id: string;
   owner: string;
+  access?: string;
+}
+
+export interface SharePeerUsage {
+  tokens: number;
+  costUsd: number;
+  agentMinutes: number;
+}
+
+export interface Person {
+  id: string;
+  name: string;
+}
+
+export interface Here {
+  project: string;
+  session?: string;
+  agent?: string;
+  tab?: string;
+  typing?: boolean;
+}
+
+export interface HereRequest {
+  client: string;
+  project: string;
+  session?: string;
+  agent?: string;
+  tab?: string;
+  typing?: boolean;
+}
+
+export interface PersonHere {
+  id: string;
+  name: string;
+  project: string;
+  session?: string;
+  agent?: string;
+  tab?: string;
+  typing?: boolean;
+  since: string;
+}
+
+export interface ProjectHere {
+  project: string;
+  people: PersonHere[];
+}
+
+export interface ShareActivity {
+  id: number;
+  at: string;
+  kind: string;
+  project?: string;
+  agent?: string;
+  detail?: string;
+}
+
+export interface ShareActivityEvent {
+  peer: string;
 }
 
 export interface ChatThread {
@@ -3165,6 +3227,7 @@ export interface ChatItem {
   woken?: boolean;
   hidden?: boolean;
   to?: string;
+  author?: Person;
   streaming?: boolean;
   tool?: ChatTool;
   plan?: ChatPlanEntry[];
@@ -4618,6 +4681,22 @@ export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventShare = "share";
 export const ErrorShareSlotsFull = "share-slots-full";
+export const ShareAccessView = "view";
+export const ShareAccessChat = "chat";
+export const ShareAccessFull = "full";
+export const EventHere = "here";
+export const EventShareActivity = "share-activity";
+export const ShareDidCreateAgent = "create-agent";
+export const ShareDidStartAgent = "start-agent";
+export const ShareDidStopAgent = "stop-agent";
+export const ShareDidRemoveAgent = "remove-agent";
+export const ShareDidMessage = "message";
+export const ShareDidPrompt = "prompt";
+export const ShareDidAnswer = "answer";
+export const ShareDidMerge = "merge";
+export const ShareDidReview = "review";
+export const ShareDidOpenDesktop = "open-desktop";
+export const ShareDidOpenTerminal = "open-terminal";
 export const EventSnap = "snap";
 export const EventFiles = "files";
 export const PushFinished = "finished";

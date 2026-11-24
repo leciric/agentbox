@@ -2539,9 +2539,12 @@ type Question struct {
 	Context  string `json:"context,omitempty"` // what the agent was doing
 	// Status is pending (waiting for the chat), escalated (waiting for you),
 	// answered or cancelled.
-	Status     string     `json:"status"`
-	Answer     string     `json:"answer,omitempty"`
-	AnsweredBy string     `json:"answeredBy,omitempty"` // lead or user
+	Status     string `json:"status"`
+	Answer     string `json:"answer,omitempty"`
+	AnsweredBy string `json:"answeredBy,omitempty"` // lead or user
+	// Author is who answered, when AnsweredBy is user and it wasn't this
+	// app's own user (Person).
+	Author     *Person    `json:"author,omitempty"`
 	Escalation string     `json:"escalation,omitempty"` // why the chat couldn't answer
 	CreatedAt  time.Time  `json:"createdAt"`
 	AnsweredAt *time.Time `json:"answeredAt,omitempty"`

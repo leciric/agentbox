@@ -210,6 +210,7 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err := readJSON(r, &req); err != nil {
 			return err
 		}
+		req.Author = shareAuthor(r.Context())
 		if req.To != "" {
 			if !a.IsLead() {
 				return errors.New("to is for a project's chat: write in the agent's own chat")

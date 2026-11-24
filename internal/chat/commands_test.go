@@ -225,7 +225,7 @@ func TestNotesWaitPastACommand(t *testing.T) {
 	m, _ := newManager(t, store, f)
 	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
 
-	if _, err := m.Told(lead, "agent-02", "Fix the login", 0); err != nil {
+	if _, err := m.Told(lead, "agent-02", "Fix the login", 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Send(lead, "/compact"); err != nil {
