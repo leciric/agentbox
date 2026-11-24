@@ -1244,6 +1244,9 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	}
 	create := s.createJob(req, byLead, "")
 	j, err := s.launchJob("create", req.Project, create)
+	if err != nil {
+		s.releaseShareSlot(req.ShareHold)
+	}
 	return withTool(j, req), err
 }
 
@@ -1267,13 +1270,13 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
-	// An agent a paired AgentBox asks for runs here, on this machine's AI
-	// accounts, within its slots (sharepeers.go).
-	if peer := s.shareCreator(ctx, p.Name, req.LeadSession, byLead); peer != "" {
+	// A paired AgentBox over its slots hears that first, rather than of
+	// this machine's own setup; the slot itself is held last.
+	peer := s.shareCreator(ctx, p.Name, req.LeadSession, byLead)
+	if peer != "" {
 		if err := s.checkShareSlots(ctx, peer); err != nil {
 			return fail(err)
 		}
-		req.SharedBy = peer
 	}
 	// An agent named as where to start is its branch: the new agent is
 	// stacked on it, and opens its pull request against it (stack.go).
@@ -1332,6 +1335,18 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	// heavy commands, not agents (pressure.go).
 	if err := s.diskRefusal("creating an agent"); err != nil {
 		return fail(err)
+	}
+	// An agent a paired AgentBox asks for runs here, on this machine's AI
+	// accounts, within its slots (sharepeers.go). Its slot is held from here,
+	// the last check, so creates at once can't all take the last one: the
+	// caller releases it if the create never starts, and the create's job
+	// when it ends.
+	if peer != "" {
+		hold, err := s.holdShareSlot(ctx, peer)
+		if err != nil {
+			return fail(err)
+		}
+		req.SharedBy, req.ShareHold = peer, hold
 	}
 	return req, nil
 }
@@ -1405,6 +1420,9 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 	first := firstMessage(task, req.Goal)
 	return func(ctx context.Context, log io.Writer) (any, error) {
 		began := time.Now()
+		// A peer's slot held for it is given back as the job ends: the agent
+		// it made counts by its machine from then.
+		defer s.releaseShareSlot(req.ShareHold)
 		// The agent is this job's to make from Added on (beingMade), until
 		// the job ends.
 		var making func()
@@ -1458,6 +1476,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 					if err := s.store.AddSharePeerAgent(ctx, req.SharedBy, a.Project, a.Name); err != nil {
 						return err
 					}
+					s.shareSlotMade(req.ShareHold, a.Ref())
 				}
 				if task == "" {
 					return nil

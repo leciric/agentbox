@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { maxShareSlots, parseSlots } from '../lib/shareSlots';
 import { formatDate, formatDateTime, t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
 import { cn, errorMessage } from '../lib/utils';
@@ -66,6 +67,19 @@ function SharePeers() {
     onSuccess: (next) => queryClient.setQueryData(['share'], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
+  // The default slots save once typing stops, or on leaving the field or
+  // Enter; emptied, or anything but 0 to 64, saves nothing and goes back to
+  // what is saved on leaving.
+  const [slots, setSlots] = useState<string | null>(null);
+  const slotsTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(slotsTimer.current), []);
+  const saveSlots = (text: string): boolean => {
+    clearTimeout(slotsTimer.current);
+    const n = parseSlots(text);
+    if (n === null || n === st?.slots) return false;
+    save.mutate({ slots: n }, { onSettled: () => setSlots((cur) => (cur === text ? null : cur)) });
+    return true;
+  };
   // The link goes once another AgentBox pairs with it.
   const peers = st?.peers.length ?? 0;
   const before = useRef(peers);
@@ -101,11 +115,19 @@ function SharePeers() {
               data-share-slots
               type="number"
               min={0}
-              max={64}
-              value={st.slots}
+              max={maxShareSlots}
+              value={slots ?? String(st.slots)}
               onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isInteger(n) && n >= 0 && n <= 64) save.mutate({ slots: n });
+                const text = e.target.value;
+                setSlots(text);
+                clearTimeout(slotsTimer.current);
+                slotsTimer.current = setTimeout(() => saveSlots(text), 800);
+              }}
+              onBlur={() => {
+                if (slots === null || !saveSlots(slots)) setSlots(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
               }}
             />
           </Field>

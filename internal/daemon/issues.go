@@ -251,6 +251,13 @@ func (s *Server) issueAgentJob(ctx context.Context, req api.CreateAgentRequest, 
 	if err != nil {
 		return api.Job{}, err
 	}
+	// A peer's slot it held is the job's once it starts (createJob).
+	hold, launched := req.ShareHold, false
+	defer func() {
+		if !launched {
+			s.releaseShareSlot(hold)
+		}
+	}()
 	p, err := s.store.Project(ctx, req.Project)
 	if err != nil {
 		return api.Job{}, err
@@ -283,6 +290,7 @@ func (s *Server) issueAgentJob(ctx context.Context, req api.CreateAgentRequest, 
 	if err != nil {
 		return api.Job{}, err
 	}
+	launched = true
 	j = withTool(j, req)
 	if err := s.store.RecordIssueAgent(ctx, state.IssueAgent{
 		Project: p.Name, Repo: repo.String(), Number: issue.Number, Title: issue.Title, Job: j.ID, Auto: auto,

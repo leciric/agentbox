@@ -234,6 +234,11 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			switch req.Scope {
 			case "", api.MemoryScopeProject:
 			case api.MemoryScopeAll:
+				// Every project of this machine reads it: not a paired
+				// AgentBox's to write, which reaches only some of them.
+				if err := refuseSharePeer(ctx, "write a memory for every project"); err != nil {
+					return err
+				}
 				// For every project, from this one: it is where the
 				// user asked for it, which the app shows beside it.
 				if who.project != memory.Global {
@@ -359,6 +364,15 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			var req api.ResolveMemoryRequest
 			if err := readJSON(r, &req); err != nil {
 				return err
+			}
+			// ResolveMemory finds a memory for every project by its id
+			// too: a paired AgentBox closes only its project's.
+			if who.project != memory.Global {
+				if _, err := m.Memory(ctx, memory.Global, req.ID); err == nil {
+					if err := refuseSharePeer(ctx, "close a memory for every project"); err != nil {
+						return err
+					}
+				}
 			}
 			out, err := m.ResolveMemory(ctx, who.project, req.ID, req.Why)
 			if err != nil {

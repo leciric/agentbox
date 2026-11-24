@@ -45,8 +45,9 @@ type SharePeer struct {
 	Created  time.Time
 	LastSeen time.Time
 	LastAddr string
-	// AllProjects shares every project, those added later included;
-	// otherwise Projects, by slug.
+	// AllProjects shares every project of this machine, those added later
+	// included, but never one another AgentBox shares with it; otherwise
+	// Projects, by slug.
 	AllProjects bool
 	Projects    []string
 	// Slots is how many agents it may have running here; -1 follows
@@ -54,9 +55,20 @@ type SharePeer struct {
 	Slots int
 }
 
-// Shares says p reaches the project called slug.
+// RemoteProjectSep is in the name of a project another AgentBox shares with
+// this one, between that AgentBox and its project ("r1a2b3~web",
+// internal/daemon/shareremote.go). No project's own slug has it.
+const RemoteProjectSep = "~"
+
+// Shares says p reaches the project called slug: one of this machine's own.
+// A project another AgentBox shares with this one is never passed on, which
+// with two AgentBoxes sharing everything with each other would send each
+// one's events back to it, renamed, without end.
 func (p SharePeer) Shares(slug string) bool {
-	return slug != "" && slug != HomeProject && (p.AllProjects || slices.Contains(p.Projects, slug))
+	if slug == "" || slug == HomeProject || strings.Contains(slug, RemoteProjectSep) {
+		return false
+	}
+	return p.AllProjects || slices.Contains(p.Projects, slug)
 }
 
 const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots FROM share_peers`

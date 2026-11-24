@@ -1296,6 +1296,10 @@ type CreateAgentRequest struct {
 	// SharedBy is the paired AgentBox the agent counts against
 	// (internal/daemon/sharepeers.go), set by the daemon.
 	SharedBy string `json:"-"`
+	// ShareHold is the slot of SharedBy's held for the agent from when its
+	// create was accepted until its job ends (holdShareSlot), set by the
+	// daemon.
+	ShareHold string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent: its machine's boot, in

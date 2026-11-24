@@ -14,7 +14,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,7 +37,7 @@ import (
 // renamed the same way (remoteEvents).
 
 // remoteSep is between a remote's id and its project's name.
-const remoteSep = "~"
+const remoteSep = state.RemoteProjectSep
 
 type shareRemotes struct {
 	mu    sync.Mutex
@@ -62,7 +61,20 @@ type remoteConn struct {
 	agents   []json.RawMessage
 	listedAt time.Time
 	err      string
+	// A remote that didn't answer is asked again only after retryAt, each
+	// failure in a row waiting longer (backoff), and by one list at a time
+	// (listing): the others are served what it last shared meanwhile.
+	retryAt time.Time
+	backoff time.Duration
+	listing bool
 }
+
+// remoteRetry is how long a remote that didn't answer is left alone, at first
+// and at most.
+const (
+	remoteRetryFirst = 5 * time.Second
+	remoteRetryMax   = time.Minute
+)
 
 func (c *remoteConn) base() string { return strings.TrimRight(c.r.URL, "/") + "/share/api" }
 
@@ -271,6 +283,7 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 	hadErr := c.err != ""
 	c.err = ""
 	c.listedAt = time.Time{} // list again: what it shares may have changed while it was away
+	c.retryAt, c.backoff = time.Time{}, 0
 	c.mu.Unlock()
 	if hadErr {
 		s.publishShare(ctx)
@@ -315,14 +328,22 @@ func remoteStatusError(c *remoteConn, resp *http.Response) error {
 
 // remoteLists are a remote's shared projects and their agents, renamed, read
 // again when older than a few seconds or when its events said a project
-// changed.
+// changed. A remote that doesn't answer is left alone a while (retryAt), so
+// a list of projects doesn't wait on it each time: what it last shared, or
+// nothing, shows meanwhile.
 func (s *Server) remoteLists(ctx context.Context, c *remoteConn) (projects, agents []json.RawMessage) {
 	c.mu.Lock()
-	if time.Since(c.listedAt) < 5*time.Second {
+	if time.Since(c.listedAt) < 5*time.Second || time.Now().Before(c.retryAt) || c.listing {
 		defer c.mu.Unlock()
 		return c.projects, c.agents
 	}
+	c.listing = true
 	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.listing = false
+		c.mu.Unlock()
+	}()
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	get := func(path string) ([]json.RawMessage, error) {
@@ -348,6 +369,8 @@ func (s *Server) remoteLists(ctx context.Context, c *remoteConn) (projects, agen
 	defer c.mu.Unlock()
 	if err != nil {
 		c.err = err.Error()
+		c.backoff = min(max(2*c.backoff, remoteRetryFirst), remoteRetryMax)
+		c.retryAt = time.Now().Add(c.backoff)
 		return c.projects, c.agents // what it last shared, until it answers again
 	}
 	// Its agents can fail on their own (its machines unreadable a moment):
@@ -362,6 +385,7 @@ func (s *Server) remoteLists(ctx context.Context, c *remoteConn) (projects, agen
 		projects[i] = withRemote(p, api.ProjectRemote{ID: c.r.ID, Owner: c.r.Name})
 	}
 	c.projects, c.agents, c.listedAt, c.err = projects, agents, time.Now(), ""
+	c.retryAt, c.backoff = time.Time{}, 0
 	return projects, agents
 }
 
@@ -442,9 +466,6 @@ func unrename(b []byte, remote string) []byte {
 	return bytes.ReplaceAll(b, []byte(`"`+remote+remoteSep), []byte(`"`))
 }
 
-// shareLocalChat is a message written in a local project's chat.
-var shareLocalChat = regexp.MustCompile(`^/v1/projects/([^/]+)(/sessions/([^/]+))?/chat/messages$`)
-
 // shareProxy is the socket's API with the remote projects in it: what is
 // asked of one goes to its owner (proxyRemote), and the lists of projects and
 // agents have theirs added.
@@ -455,11 +476,6 @@ func (s *Server) shareProxy(next http.Handler) http.Handler {
 			if id, project, ok := remoteOf(m[2]); ok {
 				s.proxyRemote(w, r, id, "/v1/"+m[1]+"/"+project+m[3], nil)
 				return
-			}
-			if r.Method == http.MethodPost {
-				if c := shareLocalChat.FindStringSubmatch(path); c != nil {
-					s.heardLocally(c[1], c[3])
-				}
 			}
 		}
 		switch {
@@ -483,7 +499,9 @@ func (s *Server) shareProxy(next http.Handler) http.Handler {
 				s.proxyRemote(w, r, id, path, nil)
 				return
 			}
-		case r.Method == http.MethodGet && (path == "/v1/projects" || path == "/v1/agents") && len(s.remoteConns()) > 0:
+		// GET /v1/agents?project=<a local project> is that project's agents
+		// only: no remote's are added to it.
+		case r.Method == http.MethodGet && (path == "/v1/projects" || (path == "/v1/agents" && r.URL.Query().Get("project") == "")) && len(s.remoteConns()) > 0:
 			rec := httptest.NewRecorder()
 			next.ServeHTTP(rec, r)
 			var items []json.RawMessage

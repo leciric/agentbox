@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,16 +48,23 @@ import (
 // time as its slots allow (checkShareSlots), its own limit or the one set
 // for every peer. An agent counts as the peer's when the peer made it, or
 // when a project chat made it after the peer was the last to write in that
-// chat (peeringState.speaker).
+// session of the chat (peeringState.speaker). A create takes its slot when
+// it is accepted, before its machine runs (holdShareSlot).
 
 type peeringState struct {
 	mu       sync.Mutex
-	pairings map[string]time.Time                        // one-time secrets, to when each expires
-	open     map[string]map[*context.CancelFunc]struct{} // what each peer has open
-	seen     map[string]time.Time                        // when each peer's last visit was recorded
-	// speaker is, by "project/session" ("" for the project's own chat), the
-	// peer that wrote last in that chat, until someone here does.
+	pairings map[string]time.Time                         // one-time secrets, to when each expires
+	open     map[string]map[*context.CancelFunc]shareOpen // what each peer has open (track)
+	seen     map[string]time.Time                         // when each peer's last visit was recorded
+	// speaker is, by "project/session", the peer that wrote last in that
+	// session of a project's chat, until someone here does (heardInChat).
 	speaker map[string]string
+	// holds are the slots of agents being made for peers, by id, from when
+	// their create is accepted until its job ends (holdShareSlot).
+	holds map[string]*shareHold
+	// slotMu makes counting a peer's slots and holding one a single step, so
+	// creates at once can't all take its last slot.
+	slotMu sync.Mutex
 	// running counts, of refs a peer made, those running now; nil is
 	// shareRunning's. A field for tests.
 	running func(ctx context.Context, refs []string) int
@@ -66,8 +74,48 @@ type peeringState struct {
 
 func newPeeringState() *peeringState {
 	return &peeringState{
-		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{},
-		seen: map[string]time.Time{}, speaker: map[string]string{}, remotes: newShareRemotes(),
+		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]shareOpen{},
+		seen: map[string]time.Time{}, speaker: map[string]string{}, holds: map[string]*shareHold{},
+		remotes: newShareRemotes(),
+	}
+}
+
+// shareOpen is what one of a peer's open requests is in.
+type shareOpen struct {
+	project string // "" for one in no project
+	events  bool   // its event stream
+}
+
+// track records a peer's request as open until untrack, and says whether its
+// visit is to be recorded (once a minute at most).
+func (sh *peeringState) track(peer string, o shareOpen, cancel *context.CancelFunc) (record bool, untrack func()) {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.open[peer] == nil {
+		sh.open[peer] = map[*context.CancelFunc]shareOpen{}
+	}
+	sh.open[peer][cancel] = o
+	if record = time.Since(sh.seen[peer]) > time.Minute; record {
+		sh.seen[peer] = time.Now()
+	}
+	return record, func() {
+		sh.mu.Lock()
+		defer sh.mu.Unlock()
+		delete(sh.open[peer], cancel)
+		if len(sh.open[peer]) == 0 {
+			delete(sh.open, peer)
+		}
+	}
+}
+
+// end cancels those of a peer's open requests that ends picks.
+func (sh *peeringState) end(peer string, ends func(shareOpen) bool) {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	for cancel, o := range sh.open[peer] {
+		if ends(o) {
+			(*cancel)()
+		}
 	}
 }
 
@@ -240,17 +288,19 @@ func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
 	if req.Slots != nil {
 		slots = *req.Slots
 	}
+	was := p
 	if p, err = s.store.SetSharePeer(ctx, p.ID, all, projects, slots); err != nil {
 		return err
 	}
 	s.logf("share: %s (%s) reaches %s, slots %d", p.Name, p.ID, shareWhat(p), p.Slots)
-	// What it has open ends, its event stream first: it connects again at
-	// once, and lists the projects it now reaches.
-	s.peering.mu.Lock()
-	for cancel := range s.peering.open[p.ID] {
-		(*cancel)()
-	}
-	s.peering.mu.Unlock()
+	// What it had open in a project it no longer reaches ends. Its event
+	// stream ends when what it reaches changed at all: it connects again at
+	// once, and lists the projects it reaches now. Its slots changing ends
+	// nothing.
+	reaches := was.AllProjects != p.AllProjects || !slices.Equal(was.Projects, p.Projects)
+	s.peering.end(p.ID, func(o shareOpen) bool {
+		return (o.events && reaches) || (o.project != "" && !p.Shares(o.project))
+	})
 	s.publishShare(ctx)
 	return writeJSON(w, http.StatusOK, s.sharePeerInfo(ctx, p))
 }
@@ -271,10 +321,8 @@ func (s *Server) removeSharePeer(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	sh := s.peering
+	sh.end(id, func(shareOpen) bool { return true })
 	sh.mu.Lock()
-	for cancel := range sh.open[id] {
-		(*cancel)()
-	}
 	delete(sh.seen, id)
 	for k, v := range sh.speaker {
 		if v == id {
@@ -383,40 +431,23 @@ func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
 			return
 		}
 		route.project = slug
+		// The route goes on naming the project by the slug that was
+		// checked, whatever case or name the peer used for it.
+		if m := shareProjectRoute.FindStringSubmatch(path); m != nil && !route.bodyProject {
+			path = "/v1/" + m[1] + "/" + slug + m[3]
+		}
 	}
-	if route.slotted {
-		if err := s.checkShareStart(ctx, p, path); err != nil {
+	if route.agent != "" {
+		if err := s.checkShareStart(ctx, p, route.project, route.agent); err != nil {
 			writeError(w, err)
 			return
 		}
 	}
-	if route.chat != "" {
-		s.peering.mu.Lock()
-		s.peering.speaker[route.project+"/"+route.chat[1:]] = p.ID
-		s.peering.mu.Unlock()
-	}
 
 	ctx, cancel := context.WithCancel(context.WithValue(ctx, sharePeerKey{}, p))
 	defer cancel()
-	sh := s.peering
-	sh.mu.Lock()
-	if sh.open[p.ID] == nil {
-		sh.open[p.ID] = map[*context.CancelFunc]struct{}{}
-	}
-	sh.open[p.ID][&cancel] = struct{}{}
-	record := time.Since(sh.seen[p.ID]) > time.Minute
-	if record {
-		sh.seen[p.ID] = time.Now()
-	}
-	sh.mu.Unlock()
-	defer func() {
-		sh.mu.Lock()
-		delete(sh.open[p.ID], &cancel)
-		if len(sh.open[p.ID]) == 0 {
-			delete(sh.open, p.ID)
-		}
-		sh.mu.Unlock()
-	}()
+	record, untrack := s.peering.track(p.ID, shareOpen{project: route.project, events: route.global == "events"}, &cancel)
+	defer untrack()
 	if record {
 		if err := s.store.SawSharePeer(ctx, p.ID, addr, time.Now()); err == nil {
 			s.publishShare(ctx)
@@ -575,14 +606,11 @@ type shareRoute struct {
 	// global is "projects", "agents", "events" or "version".
 	global string
 	// bodyProject says the project is in the request's body (POST
-	// /v1/agents).
+	// /v1/agents), which makes an agent: checkCreate holds its slot.
 	bodyProject bool
-	// slotted says it makes an agent run, which the peer's slots count:
-	// checkShareStart.
-	slotted bool
-	// chat is "/<session>" ("/" for the project's own chat) when it writes
-	// in a project's chat, which makes the peer its speaker.
-	chat string
+	// agent is the agent it starts again, which the peer's slots count
+	// when it is the peer's: checkShareStart.
+	agent string
 }
 
 // shareNever is refused to every peer, in any project it was given: what
@@ -599,18 +627,15 @@ var shareNever = []struct {
 	{"the project's memory shared with every project", regexp.MustCompile(`^POST /v1/projects/[^/]+/memory/(share|promote)$`)},
 	{"stopping agents, or deleting past agents, of every project at once", regexp.MustCompile(`^POST /v1/(agents/stop|archived-agents/delete)/?$`)},
 	{"forking or remaking agents, which its slots can't count yet: make a new agent", regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(fork|recreate)/?$`)},
+	{"scheduled tasks, whose agents its slots can't count", regexp.MustCompile(`^\S+ /v1/projects/[^/]+/schedules(/|$)`)},
 }
 
 // shareProjectRoute is a route in one project: the project's, its sessions'
 // and its agents', past agents included.
 var shareProjectRoute = regexp.MustCompile(`^/v1/(projects|agents|archived-agents)/([^/]+)(/.*)?$`)
 
-// shareChatWrite is a message sent in a project's chat, or one of its
-// sessions'.
-var shareChatWrite = regexp.MustCompile(`^POST /v1/projects/[^/]+(/sessions/([^/]+))?/chat/messages$`)
-
 // shareStart is starting an agent's machine again.
-var shareStart = regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`)
+var shareStart = regexp.MustCompile(`^POST /v1/agents/[^/]+/([^/]+)/(start|resume)$`)
 
 func shareRouteOf(method, path string) shareRoute {
 	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
@@ -633,7 +658,7 @@ func shareRouteOf(method, path string) shareRoute {
 	case get && path == "/v1/version":
 		return shareRoute{global: "version"}
 	case method == http.MethodPost && path == "/v1/agents":
-		return shareRoute{bodyProject: true, slotted: true}
+		return shareRoute{bodyProject: true}
 	}
 	m := shareProjectRoute.FindStringSubmatch(path)
 	if m == nil {
@@ -643,9 +668,11 @@ func shareRouteOf(method, path string) shareRoute {
 	if err != nil || project == "" || project == state.HomeProject {
 		return shareRoute{}
 	}
-	out := shareRoute{project: project, slotted: shareStart.MatchString(line)}
-	if c := shareChatWrite.FindStringSubmatch(line); c != nil {
-		out.chat = "/" + c[2]
+	out := shareRoute{project: project}
+	if st := shareStart.FindStringSubmatch(line); st != nil {
+		if out.agent, err = url.PathUnescape(st[1]); err != nil || out.agent == "" {
+			return shareRoute{}
+		}
 	}
 	return out
 }
@@ -694,7 +721,39 @@ func (e shareSlotsFull) Error() string {
 	return fmt.Sprintf("%s already has %d of its %d agents running on this AgentBox: stop one of them first, or ask the owner for more slots (Settings → Share)", e.peer, e.running, e.slots)
 }
 
-// checkShareSlots refuses a peer an agent more than its slots allow.
+// shareRefused is what a paired AgentBox may not do in a project it was
+// given, such as writing a memory every project of this machine reads.
+type shareRefused struct{ what string }
+
+func (e shareRefused) Error() string {
+	return "a paired AgentBox can't " + e.what + ": the owner of this AgentBox can"
+}
+
+// refuseSharePeer is shareRefused when the request came from a peer.
+func refuseSharePeer(ctx context.Context, what string) error {
+	if _, ok := sharePeerFrom(ctx); ok {
+		return shareRefused{what: what}
+	}
+	return nil
+}
+
+// shareHold is the slot of an agent being made for a peer: its create was
+// accepted, and its job hasn't ended.
+type shareHold struct {
+	peer  string
+	ref   string // the agent's, once its create has recorded it
+	since time.Time
+}
+
+// shareHoldTTL is when a hold stops counting even if nothing released it, so
+// one a bug left behind can't take a peer's slot for good. A create's job
+// records its agent long before, which then counts by its machine.
+const shareHoldTTL = time.Hour
+
+// checkShareSlots refuses a peer an agent more than its slots allow: those
+// of its agents that run, and those being made for it (holds), each once.
+// Only under slotMu (holdShareSlot, checkShareStart) does what it says still
+// hold when the caller acts on it.
 func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 	p, err := s.store.SharePeer(ctx, peerID)
 	if err != nil {
@@ -708,31 +767,92 @@ func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 	if err != nil {
 		return err
 	}
-	if running := s.shareRunningCount(ctx, refs); running >= slots {
+	held, heldRefs := 0, map[string]bool{}
+	sh := s.peering
+	sh.mu.Lock()
+	for id, h := range sh.holds {
+		switch {
+		case time.Since(h.since) > shareHoldTTL:
+			delete(sh.holds, id)
+		case h.peer == p.ID:
+			held++
+			heldRefs[h.ref] = true
+		}
+	}
+	sh.mu.Unlock()
+	refs = slices.DeleteFunc(refs, func(ref string) bool { return heldRefs[ref] })
+	if running := s.shareRunningCount(ctx, refs) + held; running >= slots {
 		return shareSlotsFull{peer: p.Name, running: running, slots: slots}
 	}
 	return nil
 }
 
-// checkShareStart is checkShareSlots for starting one of the peer's own
-// agents again; starting the owner's agents counts nothing.
-func (s *Server) checkShareStart(ctx context.Context, p state.SharePeer, path string) error {
-	if !shareStart.MatchString("POST " + path) {
-		return nil // POST /v1/agents: checkCreate checks it, with the request's project
+// holdShareSlot takes one of a peer's slots for an agent about to be made, or
+// says why it can't: the slot is the agent's from now, before its machine
+// runs, until releaseShareSlot.
+func (s *Server) holdShareSlot(ctx context.Context, peerID string) (string, error) {
+	sh := s.peering
+	sh.slotMu.Lock()
+	defer sh.slotMu.Unlock()
+	if err := s.checkShareSlots(ctx, peerID); err != nil {
+		return "", err
 	}
-	parts := strings.Split(strings.TrimPrefix(path, "/v1/agents/"), "/")
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	id := hex.EncodeToString(raw)
+	sh.mu.Lock()
+	sh.holds[id] = &shareHold{peer: peerID, since: time.Now()}
+	sh.mu.Unlock()
+	return id, nil
+}
+
+// shareSlotMade says which agent a hold's create recorded: until the hold is
+// released, the agent counts as the hold, not twice.
+func (s *Server) shareSlotMade(id, ref string) {
+	if id == "" {
+		return
+	}
+	s.peering.mu.Lock()
+	defer s.peering.mu.Unlock()
+	if h := s.peering.holds[id]; h != nil {
+		h.ref = ref
+	}
+}
+
+// releaseShareSlot gives a hold's slot back: its create's job ended, made or
+// not, or the create never started. Releasing twice is releasing once.
+func (s *Server) releaseShareSlot(id string) {
+	if id == "" || s.peering == nil {
+		return
+	}
+	s.peering.mu.Lock()
+	defer s.peering.mu.Unlock()
+	delete(s.peering.holds, id)
+}
+
+// checkShareStart is checkShareSlots for starting one of the peer's own
+// agents again (project is its slug); starting the owner's agents counts
+// nothing.
+func (s *Server) checkShareStart(ctx context.Context, p state.SharePeer, project, name string) error {
+	ref := project + "/" + name
 	refs, err := s.store.SharePeerAgents(ctx, p.ID)
-	if err != nil || len(parts) < 2 || !slices.Contains(refs, parts[0]+"/"+parts[1]) {
+	if err != nil || !slices.Contains(refs, ref) {
 		return err
 	}
-	if s.shareRunningCount(ctx, []string{parts[0] + "/" + parts[1]}) > 0 {
+	sh := s.peering
+	sh.slotMu.Lock()
+	defer sh.slotMu.Unlock()
+	if s.shareRunningCount(ctx, []string{ref}) > 0 {
 		return nil // already running
 	}
 	return s.checkShareSlots(ctx, p.ID)
 }
 
 // shareCreator is the peer an agent about to be made counts against: the one
-// that asked for it, or the one that last wrote in the chat that did.
+// that asked for it, or the one that last wrote in the session of the chat
+// that did.
 func (s *Server) shareCreator(ctx context.Context, project, session string, byLead bool) string {
 	if p, ok := sharePeerFrom(ctx); ok {
 		return p.ID
@@ -740,15 +860,28 @@ func (s *Server) shareCreator(ctx context.Context, project, session string, byLe
 	if !byLead {
 		return ""
 	}
+	if session == "" {
+		session = state.MigratedSession
+	}
 	s.peering.mu.Lock()
 	defer s.peering.mu.Unlock()
 	return s.peering.speaker[project+"/"+session]
 }
 
-// heardLocally says someone on this machine wrote in a project's chat, which
-// it is no longer a peer's to make agents from.
-func (s *Server) heardLocally(project, session string) {
+// heardInChat records who wrote last in the session of a project's chat that
+// lead is, as the message lands there: the peer the request came from, whose
+// the agents that session makes are then, or someone on this machine, whose
+// they are again.
+func (s *Server) heardInChat(ctx context.Context, lead state.Agent) {
+	if s.peering == nil || !lead.IsLead() || lead.IsHome() {
+		return
+	}
+	key := lead.Project + "/" + lead.Session()
 	s.peering.mu.Lock()
-	delete(s.peering.speaker, project+"/"+session)
-	s.peering.mu.Unlock()
+	defer s.peering.mu.Unlock()
+	if p, ok := sharePeerFrom(ctx); ok {
+		s.peering.speaker[key] = p.ID
+	} else {
+		delete(s.peering.speaker, key)
+	}
 }

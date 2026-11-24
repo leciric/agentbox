@@ -120,6 +120,16 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	}
 	reqs := make([]api.CreateAgentRequest, len(req.Variants))
 	members := make([]state.GroupMember, len(req.Variants))
+	// The slots a peer's members hold (checkCreate) are their jobs' once
+	// they start; until then, a group that goes no further gives them back.
+	launched := make([]bool, len(req.Variants))
+	defer func() {
+		for i, one := range reqs {
+			if !launched[i] {
+				s.releaseShareSlot(one.ShareHold)
+			}
+		}
+	}()
 	for i, v := range req.Variants {
 		label := groupLabel(i + 1)
 		one := api.CreateAgentRequest{
@@ -153,6 +163,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 			_ = s.store.SetGroupMember(ctx, g.ID, position, "", "", err.Error())
 			continue
 		}
+		launched[i] = true
 		_ = s.store.SetGroupMember(ctx, g.ID, position, j.ID, "", "")
 		out.Jobs = append(out.Jobs, j)
 	}
