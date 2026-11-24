@@ -58,9 +58,12 @@ type Question struct {
 	Answer  string
 	// AnsweredBy is "lead" or "user"; Escalation is why the lead passed it on.
 	AnsweredBy string
-	Escalation string
-	CreatedAt  time.Time
-	AnsweredAt time.Time
+	// AuthorID and AuthorName are the paired AgentBox that answered, when
+	// one did (AnsweredBy is then "user"); "" for someone on this machine.
+	AuthorID, AuthorName string
+	Escalation           string
+	CreatedAt            time.Time
+	AnsweredAt           time.Time
 }
 
 func (q Question) Ref() string { return q.Project + "/" + q.Agent }
@@ -72,13 +75,13 @@ func (q Question) Credential() bool { return q.Kind != QuestionDecision }
 // Waiting reports whether somebody still has to answer.
 func (q Question) Waiting() bool { return q.Status == QuestionPending || q.Status == QuestionEscalated }
 
-const questionColumns = `id, project, agent, kind, secret_name, connector, connector_url, text, context, status, answer, answered_by, escalation, created_at, answered_at, ports`
+const questionColumns = `id, project, agent, kind, secret_name, connector, connector_url, text, context, status, answer, answered_by, escalation, created_at, answered_at, ports, author_id, author_name`
 
 func (s *Store) AddQuestion(ctx context.Context, q Question) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.ID, q.Project, q.Agent, q.Kind, q.SecretName, q.Connector, q.ConnectorURL, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
-		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt), joinPorts(q.Ports))
+		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt), joinPorts(q.Ports), q.AuthorID, q.AuthorName)
 	return err
 }
 
@@ -107,9 +110,15 @@ func (s *Store) Questions(ctx context.Context, project string, waiting bool) ([]
 
 // AnswerQuestion records an answer, unless somebody answered it first.
 func (s *Store) AnswerQuestion(ctx context.Context, id, answer, by string) (Question, error) {
+	return s.AnswerQuestionAs(ctx, id, answer, by, "", "")
+}
+
+// AnswerQuestionAs is AnswerQuestion for an answer a paired AgentBox sent:
+// authorID and authorName are that peer's.
+func (s *Store) AnswerQuestionAs(ctx context.Context, id, answer, by, authorID, authorName string) (Question, error) {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE questions SET status = ?, answer = ?, answered_by = ?, answered_at = ? WHERE id = ? AND status IN (?, ?)`,
-		QuestionAnswered, answer, by, time.Now().UnixMilli(), id, QuestionPending, QuestionEscalated)
+		`UPDATE questions SET status = ?, answer = ?, answered_by = ?, answered_at = ?, author_id = ?, author_name = ? WHERE id = ? AND status IN (?, ?)`,
+		QuestionAnswered, answer, by, time.Now().UnixMilli(), authorID, authorName, id, QuestionPending, QuestionEscalated)
 	if err != nil {
 		return Question{}, err
 	}
@@ -223,7 +232,7 @@ func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) 
 		var created, answered int64
 		var ports string
 		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Kind, &q.SecretName, &q.Connector, &q.ConnectorURL, &q.Text, &q.Context, &q.Status,
-			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered, &ports); err != nil {
+			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered, &ports, &q.AuthorID, &q.AuthorName); err != nil {
 			return nil, err
 		}
 		q.Ports = splitPorts(ports)

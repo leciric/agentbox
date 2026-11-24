@@ -1477,6 +1477,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 						return err
 					}
 					s.shareSlotMade(req.ShareHold, a.Ref())
+					detail := ""
+					if byLead {
+						detail = "chat"
+					}
+					s.recordShareActivity(ctx, req.SharedBy, api.ShareDidCreateAgent, a.Project, a.Name, detail)
 				}
 				if task == "" {
 					return nil

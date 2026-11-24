@@ -1,4 +1,7 @@
 import { startPresence, usePresence } from "./lib/presence";
+import { loadHere, setHere, startHere } from "./lib/here";
+import { useChosenSession } from "./lib/sessions";
+import { isLeadRef } from "./lib/pages";
 import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -63,7 +66,7 @@ import { chooseSession } from "./lib/sessions";
 import { HomeProject } from "../shared/api";
 import { launchArrival, tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
-import { onList, openAgentChat, openPanelOn, usePanel } from "./lib/rightPanel";
+import { onList, openAgentChat, openPanelOn, panelTarget, usePanel, type PanelState } from "./lib/rightPanel";
 import { usingDesktop } from "./lib/pip";
 import { chatOf } from "./components/v2/PanelButton";
 import { resetChatEvents } from "./lib/chat";
@@ -120,6 +123,12 @@ export function App({ initial }: { initial?: View } = {}) {
   // screen, so the daemon's housekeeping backs off for the rest.
   useEffect(() => startPresence(), []);
   usePresence(presenceOf(view));
+  // What this window has open, for the people of a shared project
+  // (lib/here.ts): who else is in it shows from the daemon's events.
+  useEffect(() => {
+    loadHere();
+    return startHere();
+  }, []);
   const beforeOffice = useRef<View>({ kind: "home" });
   // Where cockpit mode was entered from, which leaving it returns to.
   const beforeCockpit = useRef<View>({ kind: "home" });
@@ -136,6 +145,10 @@ export function App({ initial }: { initial?: View } = {}) {
   // xl (1280px); folding the panel to its strip brings the sidebar back.
   const [navOpen, setNavOpen] = useState(false);
   const panel = usePanel();
+  const hereProject = view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : "";
+  const hereSession = useChosenSession(hereProject);
+  const { project: hp, session: hs, agent: ha, tab: ht } = hereOf(view, panel, tabs, hereSession);
+  useEffect(() => setHere({ project: hp, ...(hs ? { session: hs } : {}), ...(ha ? { agent: ha } : {}), ...(ht ? { tab: ht } : {}) }), [hp, hs, ha, ht]);
   useEffect(() => {
     if (!navOpen) return;
     const close = (e: KeyboardEvent) => {
@@ -910,6 +923,28 @@ export function App({ initial }: { initial?: View } = {}) {
     </div>
   );
   return <ReviewV2 onSelect={select}>{shell}</ReviewV2>;
+}
+
+// hereOf is what a view shows, for the people of a shared project: the
+// project, the session of its chat, and the agent with what of it is on screen
+// (its desktop or terminal, in its page's tab or the right-hand panel).
+function hereOf(view: View, panel: PanelState, tabs: Record<string, AgentPlaceName>, session: string | undefined): T.Here {
+  const machine = (chat: string): Pick<T.Here, "agent" | "tab"> | undefined => {
+    const target = panelTarget(panel, chat);
+    const shown = target && !isLeadRef(target) ? panel.views[target] : undefined;
+    return target && (shown === "desktop" || shown === "terminal") ? { agent: target.split("/")[1], tab: shown } : undefined;
+  };
+  switch (view.kind) {
+    case "project":
+      return { project: view.project, ...(session ? { session } : {}), ...machine(`${view.project}/lead`) };
+    case "agent": {
+      const [project, agent] = view.ref.split("/");
+      const tab = view.tab ?? tabs[view.ref] ?? "chat";
+      const own = { agent, tab: String(tab) };
+      return { project, ...own, ...machine(view.ref) };
+    }
+  }
+  return { project: "" };
 }
 
 // presenceOf is what a view shows, for the presence lease.

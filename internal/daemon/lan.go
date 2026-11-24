@@ -977,6 +977,11 @@ var lanRefused = []struct {
 	why    string
 	routes []string
 }{
+	{"Who has what open in a shared project, which the phone's app neither says nor shows (lib/here.ts): its requests are each audited, and a renewal every few seconds would bury the log", []string{
+		"GET /v1/here",
+		"PUT /v1/here",
+		"DELETE /v1/here/{client}",
+	}},
 	{"Worktree files, which the phone doesn't show: the code stays on the computer", []string{
 		"GET /v1/projects/{project}/files",
 		"GET /v1/projects/{project}/sessions/{session}/files",

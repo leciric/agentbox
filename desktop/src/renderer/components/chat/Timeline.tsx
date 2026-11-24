@@ -1,4 +1,6 @@
 import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
+import { personColor } from '../../lib/people';
+import { PersonAvatar } from '../People';
 import { useQuery } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
@@ -100,11 +102,15 @@ const TimelineRow = memo(
     const t = useT();
     switch (row.type) {
       case 'user': {
+        // Someone else's message (from another AgentBox sharing the
+        // project) sits on the other side, under their name and colour.
+        const author = row.item.author;
         const message = (
-          <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
-            <UserMessage item={row.item} chatRef={chatRef} />
+          <div className={cn('group flex flex-col gap-1 pb-4 pt-1', author ? 'items-start' : 'items-end')} data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id} data-chat-author={author?.id}>
+            {author && <AuthorName person={author} />}
+            <UserMessage item={row.item} chatRef={chatRef} author={author} />
             {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
-            {!isSending(row.item) && <Meta item={row.item} className="justify-end pr-1" />}
+            {!isSending(row.item) && <Meta item={row.item} className={author ? 'pl-1' : 'justify-end pr-1'} />}
           </div>
         );
         // Not yet sent, it has no id the daemon knows to fork at.
@@ -455,21 +461,33 @@ function ToldMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
   const t = useT();
   const to = item.to!;
   return (
-    <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item="told" data-chat-to={to} data-chat-id={item.id}>
+    <div className={cn('group flex flex-col gap-1 pb-4 pt-1', item.author ? 'items-start' : 'items-end')} data-chat-item="told" data-chat-to={to} data-chat-id={item.id} data-chat-author={item.author?.id}>
+      {item.author && <AuthorName person={item.author} />}
       <Tip label={t('chat.target.toldTip', { name: to })}>
         <button className="flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium text-brand-300 transition hover:bg-brand-500/15" onClick={() => chooseTarget(chatRef, to)} data-chat-told-tag>
           <ArrowRight className="size-3" />
           {to}
         </button>
       </Tip>
-      <UserMessage item={item} chatRef={chatRef} />
+      <UserMessage item={item} chatRef={chatRef} author={item.author} />
       {item.delivery === failed ? <NotSent item={item} /> : isSending(item) && <Delivered item={item} />}
-      {!isSending(item) && <Meta item={item} className="justify-end pr-1" />}
+      {!isSending(item) && <Meta item={item} className={item.author ? 'pl-1' : 'justify-end pr-1'} />}
     </div>
   );
 }
 
-function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
+// AuthorName heads someone else's message: their avatar and name, in their
+// colour (lib/people.ts).
+function AuthorName({ person }: { person: T.Person }) {
+  return (
+    <span className="flex items-center gap-1.5 pl-1 text-caption font-medium" data-person-color={personColor(person)} data-chat-author-name>
+      <PersonAvatar person={person} size="xs" />
+      <span className="person-name">{person.name}</span>
+    </span>
+  );
+}
+
+function UserMessage({ item, chatRef, author }: { item: T.ChatItem; chatRef: string; author?: T.Person }) {
   const split = useMemo(() => splitPicked(item.text ?? ''), [item.text]);
   const images = item.images ?? [];
   const picked = (image: T.ChatImage) => split.picks.some((p) => p.n === pickImageNumber(image.name));
@@ -480,7 +498,11 @@ function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
       {!!item.files?.length && <SentFiles chatRef={chatRef} files={item.files} />}
       {split.picks.length > 0 && <SentPicks chatRef={chatRef} picks={split.picks} images={images} />}
       {split.text && (
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary" data-chat-text>
+        <div
+          className={cn('max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed text-primary', author ? 'person-line rounded-l-md bg-surface' : 'bg-surface-raised')}
+          data-person-color={author ? personColor(author) : undefined}
+          data-chat-text
+        >
           <Mentions text={split.text} />
         </div>
       )}

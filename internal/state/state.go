@@ -1831,6 +1831,34 @@ var migrations = []string{
 	// Whether a paired AgentBox may run the agents its messages ask for on
 	// its own computer (sharemachines.go), on by default.
 	`ALTER TABLE share_peers ADD COLUMN own_machine INTEGER NOT NULL DEFAULT 1`,
+	// Who sent a message through a paired AgentBox (sharepeople.go): the
+	// item's author, kept in its JSON, read out as a column for what a
+	// peer spent (SharePeerUsage). '' is someone on this machine.
+	`ALTER TABLE chat_items ADD COLUMN author TEXT GENERATED ALWAYS AS (
+		CASE WHEN json_valid(data) THEN coalesce(json_extract(data, '$.author.id'), '') ELSE '' END) VIRTUAL`,
+	// Who answered a question, when a paired AgentBox did (answered_by is
+	// then "user"): its id and the name it had.
+	`ALTER TABLE questions ADD COLUMN author_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE questions ADD COLUMN author_name TEXT NOT NULL DEFAULT ''`,
+	// What a paired AgentBox may do in the projects it reaches: view, chat,
+	// or full (chat, make agents, merge and open pull requests). Peers
+	// paired before had everything.
+	`ALTER TABLE share_peers ADD COLUMN access TEXT NOT NULL DEFAULT 'full'`,
+	// The seconds each of a peer's agents has run here, counted a minute at
+	// a time while it runs (shareMeter).
+	`ALTER TABLE share_peer_agents ADD COLUMN run_seconds INTEGER NOT NULL DEFAULT 0`,
+	// What each paired AgentBox did here, newest last, for Settings → Share:
+	// kind is what (api.ShareActivity), agent and detail what it was done to.
+	`CREATE TABLE share_activity (
+		id      INTEGER PRIMARY KEY,
+		peer_id TEXT NOT NULL,
+		at      INTEGER NOT NULL,
+		kind    TEXT NOT NULL,
+		project TEXT NOT NULL DEFAULT '',
+		agent   TEXT NOT NULL DEFAULT '',
+		detail  TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX share_activity_by_peer ON share_activity (peer_id, id)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2720,6 +2748,9 @@ var projectKept = map[string]string{
 	// The ledger of what was spent, which `agentbox tokens` totals across
 	// projects: a removed project's spending still happened.
 	"token_usage": "spend history",
+	// What a paired AgentBox did here (sharepeers.go) is the peer's history,
+	// trimmed per peer and removed with it.
+	"share_activity": "a paired AgentBox's history, removed with the peer",
 }
 
 // SetProjectClaudeAccount picks the Claude Code account a project's new agents

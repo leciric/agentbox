@@ -11,6 +11,7 @@ import { useT } from '../../lib/i18n';
 import { projectLabel } from '../../lib/projectName';
 import { togglePin } from '../../lib/projectOrder';
 import { setPins, useV2Projects } from '../../lib/v2Projects';
+import { HerePeople } from '../People';
 import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from '../ui/menu';
@@ -40,7 +41,7 @@ export function InTopBar({ end, children }: { end?: boolean; children: ReactNode
 // ProjectCrumb is "Project › Lead" (or the agent): the project's root is in
 // a tooltip and copied on click. Its last item is the screen's h1, at 16px. With onProject (an agent's chat), a click on
 // the project opens its lead's chat instead, and the copy icon copies.
-export function ProjectCrumb({ project, then, onProject }: { project: T.Project; then: string; onProject?: () => void }) {
+export function ProjectCrumb({ project, then, agent, onProject }: { project: T.Project; then: string; agent?: string; onProject?: () => void }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -65,6 +66,7 @@ export function ProjectCrumb({ project, then, onProject }: { project: T.Project;
       <h1 className={`min-w-0 truncate text-heading font-semibold ${then === T.LeadName ? 'text-secondary' : 'text-title'}`} data-crumb-title>
         {then === T.LeadName ? t('v2.header.lead') : then}
       </h1>
+      <HerePeople project={project} agent={agent} />
     </span>
   );
 }

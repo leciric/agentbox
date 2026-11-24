@@ -293,6 +293,7 @@ func (c *conversation) endCompaction(rolled bool, unsaved error) bool {
 func (c *conversation) hold(text string, sent attached, command bool) *api.ChatItem {
 	it := c.add("aside", c.lastTurn())
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideHeld
+	it.Author = sent.author
 	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, command: command})
 	c.compaction.Compaction.Waiting++
 	c.touch(c.compaction)
@@ -306,6 +307,7 @@ func (c *conversation) hold(text string, sent attached, command bool) *api.ChatI
 func (c *conversation) waitHidden(text string, sent attached, command bool) *api.ChatItem {
 	it := c.add("aside", c.lastTurn())
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaiting
+	it.Author = sent.author
 	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, command: command})
 	c.flush(true)
 	return it

@@ -22,8 +22,9 @@ const maxToldLine = 300
 
 // Told adds to a's chat, a project's, the notice that the user wrote text to
 // agent to; attached counts the pictures and files that went with it. It
-// starts no turn, and doesn't wait for a running one.
-func (m *Manager) Told(a state.Agent, to, text string, attached int) (api.ChatItem, error) {
+// starts no turn, and doesn't wait for a running one. author is who wrote it,
+// when someone on a paired AgentBox did.
+func (m *Manager) Told(a state.Agent, to, text string, attached int, author *api.Person) (api.ChatItem, error) {
 	text = strings.TrimSpace(text)
 	if to == "" || (text == "" && attached == 0) {
 		return api.ChatItem{}, errors.New("nothing was told")
@@ -34,7 +35,7 @@ func (m *Manager) Told(a state.Agent, to, text string, attached int) (api.ChatIt
 	}
 	defer c.mu.Unlock()
 	it := c.add("notice", c.lastTurn())
-	it.Text, it.To = text, to
+	it.Text, it.To, it.Author = text, to, author
 	if text == "" {
 		it.Text = fmt.Sprintf("(%d attached)", attached)
 	}

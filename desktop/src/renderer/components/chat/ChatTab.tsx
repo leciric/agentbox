@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChatPeople } from '../People';
 import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -398,6 +399,7 @@ export function ChatTab({
             <>
               {agent.waitingForImage && <ImageWait agent={agent} />}
               {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
+              <ChatPeople chatRef={agent.ref} />
               <PageStack agent={agent} />
               <Composer
                 key={agent.ref}

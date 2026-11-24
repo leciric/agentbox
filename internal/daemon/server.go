@@ -699,6 +699,8 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
 	s.startShareRemotes(ctx)
+	go s.sweepHere(ctx)
+	go s.shareMeter(ctx)
 	defer s.closeLAN()
 	s.applyMCPLocal(ctx)
 	defer s.closeMCPLocal()
@@ -1164,6 +1166,9 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/here", s.getHere)
+	h("PUT /v1/here", s.putHere)
+	h("DELETE /v1/here/{client}", s.leaveHere)
 	h("GET /v1/presence", s.getPresence)
 	h("PUT /v1/presence", s.renewPresence)
 	h("DELETE /v1/presence/{client}", s.endPresence)
@@ -1334,6 +1339,7 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("PATCH /v1/share", s.updateShare)
 	h("POST /v1/share/pairings", s.addSharePairing)
 	h("PATCH /v1/share/peers/{id}", s.updateSharePeer)
+	h("GET /v1/share/peers/{id}/activity", s.sharePeerActivity)
 	h("DELETE /v1/share/peers/{id}", s.removeSharePeer)
 	h("POST /v1/share/remotes", s.addShareRemote)
 	h("DELETE /v1/share/remotes/{id}", s.removeShareRemote)
@@ -1402,7 +1408,7 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusServiceUnavailable
 	case isDiskFull(err):
 		status = http.StatusInsufficientStorage
-	case errors.As(err, new(shareRefused)):
+	case errors.As(err, new(shareRefused)), errors.As(err, new(shareNoAgents)):
 		status = http.StatusForbidden
 	case errors.As(err, new(shareSlotsFull)):
 		status = http.StatusConflict

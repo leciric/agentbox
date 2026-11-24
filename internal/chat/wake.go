@@ -56,6 +56,7 @@ func (m *Manager) hold(a state.Agent, msg api.ChatMessageRequest, delivery strin
 	}
 	it := c.add("aside", c.lastTurn())
 	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, delivery
+	it.Author = sent.author
 	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, command: command})
 	c.flush(true)
 	return clone(*it), nil

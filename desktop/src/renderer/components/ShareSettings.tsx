@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatTokens } from '../lib/chat';
 import { maxShareSlots, parseSlots } from '../lib/shareSlots';
 import { formatDate, formatDateTime, t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
@@ -223,6 +224,9 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
             {p.lastAddr && ` · ${t('defaults.phone.fromAddr', { addr: p.lastAddr })}`}
             {` · ${t('peers.running', { running: p.running, slots: limit })}`}
           </p>
+          <p className="break-words text-caption text-subtle [overflow-wrap:anywhere]" data-share-usage>
+            {t('peers.usage', { tokens: formatTokens(p.usage?.tokens ?? 0), minutes: p.usage?.agentMinutes ?? 0 })}
+          </p>
         </div>
         <Button size="sm" variant="ghost" className="shrink-0" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
           {t('defaults.phone.unpair')}
@@ -250,6 +254,16 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
       </div>
       {!p.allProjects && shared.length === 0 && <p className="pl-7 text-caption text-subtle">{t('peers.nothingShared')}</p>}
       <div className="flex min-w-0 items-center gap-3 pl-7">
+        <span className="text-caption text-subtle">{t('peers.access')}</span>
+        <div className="w-64" data-share-access={p.access || 'full'}>
+          <Select aria-label={t('peers.access')} value={p.access || 'full'} onChange={(v) => update.mutate({ access: v })}>
+            <SelectOption value="view">{t('peers.access.view')}</SelectOption>
+            <SelectOption value="chat">{t('peers.access.chat')}</SelectOption>
+            <SelectOption value="full">{t('peers.access.full')}</SelectOption>
+          </Select>
+        </div>
+      </div>
+      <div className="flex min-w-0 items-center gap-3 pl-7">
         <span className="text-caption text-subtle">{t('peers.slots')}</span>
         <div className="w-40">
           <Select aria-label={t('peers.slots')} value={String(p.slots)} onChange={(v) => update.mutate({ slots: Number(v) })}>
@@ -262,6 +276,7 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
           </Select>
         </div>
       </div>
+      <PeerActivity peer={p} />
       {/* Agents its chat messages ask to run on its own computer
           (internal/daemon/sharemachines.go): on its accounts, not your slots. */}
       <div className="flex min-w-0 items-start gap-3 pl-7" data-share-own-machine>
@@ -281,6 +296,73 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
       </div>
     </li>
   );
+}
+
+// PeerActivity is what a paired AgentBox did here, the newest first, with
+// when (internal/daemon/shareactivity.go).
+function PeerActivity({ peer }: { peer: T.SharePeer }) {
+  const t = useT();
+  const [limit, setLimit] = useState(8);
+  const acts = useQuery({ queryKey: ['shareActivity', peer.id], queryFn: () => api.sharePeerActivity(peer.id, 100) });
+  const all = acts.data ?? [];
+  const shown = all.slice(0, limit);
+  return (
+    <div className="grid min-w-0 gap-1.5 pl-7" data-share-activity={peer.id}>
+      <span className="text-caption text-subtle">{t('peers.activity')}</span>
+      {all.length === 0 ? (
+        <p className="text-caption text-faint">{t('peers.activityEmpty')}</p>
+      ) : (
+        <ul className="grid min-w-0 gap-1 border-l border-line-faint pl-3">
+          {shown.map((a) => (
+            <li key={a.id} className="flex min-w-0 items-baseline gap-2 text-caption" data-share-act={a.kind}>
+              <span className="w-28 shrink-0 tabular-nums text-faint">{formatDateTime(new Date(a.at))}</span>
+              <span className="min-w-0 break-words text-secondary [overflow-wrap:anywhere]">
+                {activityText(a)}
+                {a.project && <span className="text-subtle"> · {a.project}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {all.length > limit && (
+        <div>
+          <Button size="sm" variant="ghost" onClick={() => setLimit((n) => n + 20)}>
+            {t('peers.activityMore')}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// activityText says what a peer did, in the app's language.
+function activityText(a: T.ShareActivity): string {
+  const agent = a.agent ?? '';
+  switch (a.kind) {
+    case 'create-agent':
+      return a.detail === 'chat' ? t('peers.did.create-agent-chat', { agent }) : t('peers.did.create-agent', { agent });
+    case 'start-agent':
+      return t('peers.did.start-agent', { agent });
+    case 'stop-agent':
+      return t('peers.did.stop-agent', { agent });
+    case 'remove-agent':
+      return t('peers.did.remove-agent', { agent });
+    case 'message':
+      return t('peers.did.message');
+    case 'prompt':
+      return t('peers.did.prompt', { agent });
+    case 'answer':
+      return t('peers.did.answer', { agent });
+    case 'merge':
+      return agent ? t('peers.did.merge', { agent }) : t('peers.did.merge-pr', { number: a.detail ?? '' });
+    case 'review':
+      return t('peers.did.review', { agent });
+    case 'open-desktop':
+      return t('peers.did.open-desktop', { agent });
+    case 'open-terminal':
+      return t('peers.did.open-terminal', { agent });
+  }
+  return t('peers.did.other', { kind: a.kind });
 }
 
 function ShareJoin() {
