@@ -215,7 +215,8 @@ func (s *Server) shareMachineFor(ctx context.Context, project, name string) (p s
 	}
 	name = strings.TrimSpace(name)
 	for _, p := range peers {
-		if !p.Shares(project) || !(strings.EqualFold(p.Name, name) || name == shareOriginPrefix+p.ID || name == p.ID) {
+		named := strings.EqualFold(p.Name, name) || name == shareOriginPrefix+p.ID || name == p.ID
+		if !p.Shares(project) || !named {
 			continue
 		}
 		switch m := s.shareMachine(p.ID); {
@@ -460,7 +461,7 @@ func (s *Server) remoteMachineOnce(ctx context.Context, c *remoteConn) error {
 		case resp == nil:
 			return fmt.Errorf("%s can't be reached: %w", c.r.Name, err)
 		case resp.StatusCode == http.StatusForbidden:
-			return errMachineRefused{remoteStatusError(c, resp).Error(), time.Minute}
+			return errMachineRefused{remoteStatusError(c, resp).Error(), 20 * time.Second}
 		case resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound:
 			// Its phone page answered: an AgentBox from before this.
 			return errMachineRefused{fmt.Sprintf("%s's AgentBox is too old to run agents on this computer: it has to be updated", c.r.Name), 10 * time.Minute}
