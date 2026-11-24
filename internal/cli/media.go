@@ -324,9 +324,6 @@ app's Android tab.`,
 			if err != nil {
 				return err
 			}
-			if err := inRunPhase(cmd.Context(), ref, cmd.ErrOrStderr()); err != nil {
-				return err
-			}
 			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, NoEdit: noEdit, Pair: pair.pair, Side: pair.side()})
 			if err != nil {
 				return err

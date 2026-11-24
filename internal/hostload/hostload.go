@@ -1,21 +1,20 @@
 // Package hostload reads how loaded the user's own computer is, on the side
 // of AgentBox's VM that the user works on, and tells the daemon in the VM.
 //
-// A share of the host kept free (chv.HostReserve, the VM's cap) isn't enough
-// on its own: what the user's own programs need varies, and a desktop stalls
-// on a disk or CPU it shares with a VM long before its memory runs out. So
-// each front end reads the host's pressure every Interval and puts it to the
-// daemon (PUT /v1/host/load), which holds heavy commands back while the host
-// is Busy (the governor's HostBusy) and, where the front end has no memory
-// loop of its own, drops the VM's caches so its memory goes back:
+// Each front end reads the host every Interval and puts it to the daemon
+// (PUT /v1/host/load). Nothing waits or runs fewer jobs for it (24 Nov
+// 2026, the user's decision): until then a host past any threshold was
+// "busy", which halved every build's workers, held the VM's growth for half
+// a minute after, and showed "Computer busy" in the app, and a host sitting
+// at a reserve of a quarter of its memory turned busy every minute, held
+// at 7 GiB of its VM. What a report still does:
 //
 //   - Linux: PSI, the share of the last 10 s some task stalled on memory, the
 //     CPU or the disk (/proc/pressure), and MemAvailable against Reserve.
-//     Cloud Hypervisor's supervisor reports it, and its memory loop also
-//     never grows the VM past what the host can spare above Reserve, nor
-//     while the host is busy for memory or its disk, gives back while it
-//     is short, and adds to the report what the VM may grow to and whether
-//     boots should wait (chv/memory.go).
+//     Cloud Hypervisor's supervisor reports it, and adds what the VM may
+//     grow to now (VMCeiling) and whether the host is below its hard floor,
+//     where no machine boots (HoldBoots, chv/memory.go). Its own memory loop
+//     sizes the VM.
 //   - Mac: the kernel's memory pressure level (kern.memorystatus_vm_pressure_level,
 //     what Activity Monitor's graph shows), warn or critical. For Lima's VM
 //     `agentbox vm lan`, which runs beside it as long as it does, reports
@@ -24,8 +23,11 @@
 //     the CPU's busy share from GetSystemTimes; the relay
 //     (`agentbox.exe relay`, while the app is open) reports it.
 //
-// A front end that stops reporting stops holding anything: the daemon forgets
-// a report after api.HostLoadTTL.
+// Where the front end doesn't size the VM itself (Lima, WSL), a host short
+// of memory has the daemon drop the VM's caches (Reclaim), which free page
+// reporting or WSL's autoMemoryReclaim gives back. A front end that stops
+// reporting stops all of it: the daemon forgets a report after
+// api.HostLoadTTL.
 package hostload
 
 import (
@@ -44,29 +46,43 @@ const (
 	// Interval is how often a front end reads and reports.
 	Interval = 2 * time.Second
 	// MemoryBusy, CPUBusy and IOBusy are the PSI "some avg10" percentages
-	// past which the host counts as busy. Memory as chv's memHostPressure:
-	// any real stall on memory means the desktop is waiting on the disk.
-	// CPU and IO only when they are high: some tasks waiting for a CPU or the
-	// disk is normal on a desktop, a third or half of the time isn't.
+	// past which the host is over a threshold (Why). Memory as chv's
+	// memHostPressure: any real stall on memory means the desktop is
+	// waiting on the disk. CPU and IO only when they are high: some tasks
+	// waiting for a CPU or the disk is normal on a desktop, a third or half
+	// of the time isn't.
 	MemoryBusy = 10.0
 	CPUBusy    = 50.0
 	IOBusy     = 40.0
 	// CPUBusyShare is, where there's no PSI (Windows), the share of all
-	// cores busy past which the host counts as busy.
+	// cores busy past which the host is over a threshold.
 	CPUBusyShare = 90.0
-	// CalmAfter is how long every reading must stay under the thresholds
-	// before a busy host counts as calm again, so heavy commands don't start
-	// in the gap between two bursts of the desktop's own.
-	CalmAfter = 10 * time.Second
-	// ReserveMin and ReserveShare (of its memory) make Reserve.
-	ReserveMin   = int64(4) << 30
-	ReserveShare = 0.25
+	// ReserveMin is the least a host keeps for itself, its desktop and the
+	// app: what a desktop session with a browser and the app needs to stay
+	// responsive.
+	ReserveMin = int64(4) << 30
+	// FloorMin and FloorShare (of its memory) make Floor.
+	FloorMin   = int64(2) << 30
+	FloorShare = 0.06
 )
 
+// Floor is what a host with total bytes of memory can't go under without
+// freezing: the larger of FloorMin and FloorShare of it. Below it no agent's
+// machine boots and agents are stopped (chv's Shed).
+func Floor(total int64) int64 {
+	return max(FloorMin, int64(float64(total)*FloorShare))
+}
+
 // Reserve is what a host with total bytes of memory keeps for itself, its
-// desktop and the app: the larger of ReserveMin and ReserveShare of it.
+// desktop and the app, which the VM's cap leaves it (chv.MaxCap): ReserveMin,
+// or the host's Floor where that is more (past 66 GiB), so the cap never
+// takes the host under it. It was a quarter of the host (7.6 GiB of 30.5),
+// which held back a VM whose host had 7.5 GiB available and its desktop
+// calm. What keeps the desktop from stalling moment to moment is the VM's
+// memory loop (chv.HostKeep, the host's own memory pressure, the floor), not
+// a share fixed in advance.
 func Reserve(total int64) int64 {
-	return max(ReserveMin, int64(float64(total)*ReserveShare))
+	return max(ReserveMin, Floor(total))
 }
 
 // Reading is one look at the host, before it's judged.
@@ -84,12 +100,6 @@ type Reading struct {
 	MemoryTotal, Available int64
 }
 
-// Judge turns readings into api.HostLoad, with CalmAfter's hysteresis.
-type Judge struct {
-	busy      bool
-	calmSince time.Time
-}
-
 // over says why r is past a threshold: "memory", "cpu" or "io", or "".
 func (r Reading) over() string {
 	switch {
@@ -104,66 +114,18 @@ func (r Reading) over() string {
 	return ""
 }
 
-// Judge makes r's report at now. A host becomes busy at the first reading
-// over a threshold, and calm once readings have stayed under them all for
-// CalmAfter.
-func (j *Judge) Judge(r Reading, now time.Time) api.HostLoad {
+// Judge makes r's report at now: what is over its threshold, and, for
+// memory, that the VM's caches should go back to the host.
+func Judge(r Reading, now time.Time) api.HostLoad {
 	why := r.over()
-	switch {
-	case why != "":
-		j.busy, j.calmSince = true, time.Time{}
-	case j.busy && j.calmSince.IsZero():
-		j.calmSince = now
-	case j.busy && now.Sub(j.calmSince) >= CalmAfter:
-		j.busy, j.calmSince = false, time.Time{}
-	}
 	return api.HostLoad{
 		OS:     r.OS,
 		Memory: r.Memory, CPU: r.CPU, IO: r.IO, CPUShare: r.CPUShare,
 		Level:       r.Level,
 		MemoryTotal: r.MemoryTotal, Available: r.Available,
-		Busy:    j.busy,
 		Why:     why,
 		Reclaim: why == "memory",
 		At:      now.UTC(),
-	}
-}
-
-// Words says what made l busy, for the logs, as the computer's own and not
-// the VM's: "memory, 12% stalled", "memory, 5.3 GiB available of the 7.6 GiB
-// it keeps", "CPU, 60% stalled"; "calming down" while it is. A host short of
-// its reserve with nothing stalling said "memory, 0% stalled" before.
-func Words(l api.HostLoad) string {
-	switch l.Why {
-	case "memory":
-		switch {
-		case l.Level != "":
-			return "memory pressure " + l.Level
-		case l.Memory >= MemoryBusy:
-			return fmt.Sprintf("memory, %.0f%% stalled", l.Memory)
-		}
-		return fmt.Sprintf("memory, %s available of the %s it keeps", gib(l.Available), gib(Reserve(l.MemoryTotal)))
-	case "cpu":
-		if l.CPU >= 0 {
-			return fmt.Sprintf("CPU, %.0f%% stalled", l.CPU)
-		}
-		return fmt.Sprintf("CPU, %.0f%% busy", l.CPUShare)
-	case "io":
-		return fmt.Sprintf("disk, %.0f%% stalled", l.IO)
-	}
-	return "calming down"
-}
-
-func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30)) }
-
-// LogChange is a Front.OnChange that says so in a front end's log.
-func LogChange(logf func(string, ...any)) func(api.HostLoad) {
-	return func(l api.HostLoad) {
-		if l.Busy {
-			logf("host load: this computer, outside the VM, is busy (%s): the daemon holds heavy commands back", Words(l))
-		} else {
-			logf("host load: this computer is calm again")
-		}
 	}
 }
 
@@ -173,23 +135,16 @@ type Put func(ctx context.Context, load api.HostLoad) error
 // Report reads the host every Interval and puts each report with put, until
 // ctx ends. reclaim says whether the daemon should drop the VM's caches when
 // the host is short of memory: false where the front end sizes the VM's
-// memory itself (Cloud Hypervisor). onChange, if set, is told each time the
-// host turns busy or calm, for the front end's log (LogChange).
-func Report(ctx context.Context, put Put, reclaim bool, onChange func(api.HostLoad)) {
-	var j Judge
+// memory itself (Cloud Hypervisor).
+func Report(ctx context.Context, put Put, reclaim bool) {
 	r := newReader()
-	was := false
 	tick := time.NewTicker(Interval)
 	defer tick.Stop()
 	for {
 		reading, err := r.read()
 		if err == nil {
-			load := j.Judge(reading, time.Now())
+			load := Judge(reading, time.Now())
 			load.Reclaim = load.Reclaim && reclaim
-			if load.Busy != was && onChange != nil {
-				onChange(load)
-			}
-			was = load.Busy
 			pctx, cancel := context.WithTimeout(ctx, Interval)
 			_ = put(pctx, load) // a daemon that's down or busy hears the next one
 			cancel()

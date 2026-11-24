@@ -50,8 +50,8 @@ func TestBootDoesNotWaitForMemory(t *testing.T) {
 	f.srv.heavy.mu.Lock()
 	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, time.Now())
 	f.srv.heavy.mu.Unlock()
-	// The host busy, under its reserve but over its floor: nothing held.
-	if err := f.client.PutHostLoad(ctx, api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", MemoryTotal: 30 << 30, Available: 8 << 30, At: time.Now()}); err != nil {
+	// The host stalling on memory, over its floor: nothing held.
+	if err := f.client.PutHostLoad(ctx, api.HostLoad{OS: "linux", Memory: 30, Why: "memory", MemoryTotal: 30 << 30, Available: 8 << 30, At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if f.srv.bootWaits() {

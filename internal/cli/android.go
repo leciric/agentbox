@@ -90,9 +90,6 @@ func newAndroidStartCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := inRunPhase(cmd.Context(), ref, cmd.ErrOrStderr()); err != nil {
-				return err
-			}
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Starting the emulator; Android takes 20 to 50 seconds to boot…")
 			status, err := c.StartAndroid(cmd.Context(), ref, req)
 			if err != nil {
@@ -202,9 +199,6 @@ func newAndroidRecordStartCmd(a *app) *cobra.Command {
 			ref := optionalRef(args)
 			c, err := a.scopedClient(cmd, ref)
 			if err != nil {
-				return err
-			}
-			if err := inRunPhase(cmd.Context(), ref, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: "android", Name: name, LimitSeconds: int(limit.Seconds()), Pair: pair.pair, Side: pair.side()})

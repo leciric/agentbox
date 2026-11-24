@@ -1099,10 +1099,6 @@ type Agent struct {
 	// Memory is what the daemon holds of the agent: its machine waiting to
 	// boot. Absent when it holds nothing.
 	Memory *MemoryHold `json:"memory,omitempty"`
-	// RunSlot is where the agent stands for a run slot (runslots.go):
-	// holding one for its run phase, or waiting with others ahead. Absent
-	// in its code phase.
-	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
 	// "frozen" when what it left running is frozen and pushed out to swap,
 	// "stopped" when its machine was stopped after it finished. Absent
@@ -1363,9 +1359,9 @@ type AgentsMemory struct {
 const HostLoadTTL = 15 * time.Second
 
 // HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
-// end reads it, PUT /v1/host/load. While Busy, builds and tests run fewer
-// jobs at once, so the user's own programs come first; nothing waits for
-// it.
+// end reads it, PUT /v1/host/load. Nothing waits or runs fewer jobs for it
+// (24 Nov 2026, the user's decision): what the daemon acts on is HoldBoots,
+// Reclaim and VMCeiling.
 type HostLoad struct {
 	OS string `json:"os"` // "linux", "darwin" or "windows"
 	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
@@ -1380,10 +1376,8 @@ type HostLoad struct {
 	Level       string `json:"level,omitempty"`
 	MemoryTotal int64  `json:"memoryTotal,omitempty"`
 	Available   int64  `json:"available,omitempty"`
-	// Busy says the host is loaded enough that the VM should hold back.
-	Busy bool `json:"busy"`
 	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
-	// while a busy host is calming down.
+	// for nothing. Shown, never acted on.
 	Why string `json:"why,omitempty"`
 	// Reclaim asks the daemon to drop the VM's caches so their memory goes
 	// back to the host: set by front ends that don't size the VM's memory
@@ -3187,8 +3181,6 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
-	// RunSlot is Agent.RunSlot.
-	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// WaitingForImage is Agent.WaitingForImage.
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.

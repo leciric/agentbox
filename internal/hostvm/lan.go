@@ -136,10 +136,10 @@ func (v *VM) RunLAN(ctx context.Context) error {
 			}
 		}
 	}()
-	// The computer's own load, for the daemon to hold heavy commands back
-	// by and drop the VM's caches for (internal/hostload): Lima's VM has no
+	// The computer's own load, for the daemon to drop the VM's caches for
+	// when it is short of memory (internal/hostload): Lima's VM has no
 	// supervisor of ours to do it, and this runs exactly as long as the VM.
-	go hostload.Report(ctx, hostload.HTTPPut(dial), true, hostload.LogChange(logf))
+	go hostload.Report(ctx, hostload.HTTPPut(dial), true)
 	logf("phones: watching for the daemon to turn them on")
 	fwd.Run(ctx)
 	return nil

@@ -62,8 +62,7 @@ func TestAdmissionWaitsOnlyForTheHostsHardFloor(t *testing.T) {
 }
 
 // What was last resumed has settled once the VM's memory doesn't stall, its
-// disk isn't paged to, the computer isn't busy and, while asked, memory
-// isn't falling fast.
+// disk isn't paged to and, while asked, memory isn't falling fast.
 func TestUnsettled(t *testing.T) {
 	p := DefaultPolicy
 	calm := Sample{PSI: PSI{Some: Stall{Avg10: 2}, Full: Stall{Avg10: 1}}}
@@ -78,7 +77,6 @@ func TestUnsettled(t *testing.T) {
 		{"some stall", Sample{PSI: PSI{Some: Stall{Avg10: p.Admit}}}, Trend{}, true, true},
 		{"full stall", Sample{PSI: PSI{Full: Stall{Avg10: p.Calm}}}, Trend{}, true, true},
 		{"disk swap", Sample{Mem: Mem{Total: 8 << 30, DiskSwapTotal: 4 << 30, DiskSwapFree: 4<<30 - DiskSwapTolerance}}, Trend{}, true, true},
-		{"host busy", Sample{HostBusy: true}, Trend{}, true, true},
 		{"falling", calm, Trend{Fall: SettleFall}, true, true},
 		{"falling, steady no longer asked", calm, Trend{Fall: SettleFall}, false, false},
 		{"falling slowly", calm, Trend{Fall: SettleFall / 2}, true, false},

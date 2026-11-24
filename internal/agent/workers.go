@@ -21,9 +21,10 @@ import (
 // hears of every heavy command start and end in every agent, answers
 // HeavyWorkers for the heavy commands running at that moment, and the
 // command starts with WorkerEnv's counts. A command that isn't heavy is
-// given none: its tools count the cores themselves. Memory doesn't change
-// the count (20 Nov 2026, the user's decision): the kernel's limits protect
-// it (memory.max, agentbox.agents' memory.high and memory.max).
+// given none: its tools count the cores themselves. Neither memory (20 Nov
+// 2026) nor the user's computer being busy (24 Nov 2026) changes the count,
+// the user's decisions: the kernel's limits protect the VM (memory.max,
+// agentbox.agents' memory.high and memory.max).
 
 // minWorkers is the fewest workers a heavy command is given, however many
 // run at once.
@@ -31,15 +32,13 @@ const minWorkers = 2
 
 // HeavyWorkers is how many workers a heavy command starts with: the VM's
 // cores split between the heavy commands running, this one counted, rounded
-// up so no core is left to nobody; halved while the user's computer is busy
-// (hostBusy, hostload), as its own programs come first; never fewer than
-// minWorkers nor more than every core.
-func HeavyWorkers(cores, running int, hostBusy bool) int {
+// up so no core is left to nobody; never fewer than minWorkers nor more than
+// every core. The user's computer being busy doesn't change it (24 Nov 2026,
+// the user's decision): it was halved then, and a host that sat at its
+// reserve turned busy every minute and halved every build with it.
+func HeavyWorkers(cores, running int) int {
 	cores, running = max(cores, 1), max(running, 1)
 	n := (cores + running - 1) / running
-	if hostBusy {
-		n = (n + 1) / 2
-	}
 	return min(max(n, minWorkers), cores)
 }
 

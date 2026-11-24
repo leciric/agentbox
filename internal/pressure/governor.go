@@ -124,8 +124,6 @@ const (
 	Churning Reason = "churning"
 	// Low: little is available, swap full.
 	Low Reason = "low"
-	// HostBusy: the user's computer is loaded (Sample.HostBusy).
-	HostBusy Reason = "host"
 )
 
 // floor is the memory the VM keeps available, in bytes.
@@ -317,8 +315,6 @@ func (g *Runs) Observe(now time.Time, s Sample) {
 		g.why = why
 	case s.Full.Avg10 >= g.Policy.Freeze || s.Some.Avg10 >= g.Policy.Admit:
 		g.why = Stalling
-	case s.HostBusy:
-		g.why = HostBusy
 	default:
 		g.why = ""
 	}
@@ -331,9 +327,9 @@ func (g *Runs) Last() Sample { return g.last }
 func (g *Runs) Trend() Trend { return g.trend }
 
 // Why is how short the VM's memory was at the last observation, "" for not
-// at all: running out (Judge's Low, Falling or Churning), its tasks stalling
-// on it (Stalling), or the user's computer busy (HostBusy). Builds run fewer
-// jobs while it is anything; nothing waits or is paused for it.
+// at all: running out (Judge's Low, Falling or Churning), or its tasks
+// stalling on it (Stalling). The app shows it; nothing waits, is paused or
+// runs fewer jobs for it.
 func (g *Runs) Why() Reason { return g.why }
 
 // trends keeps the readings of the last Policy.Window, at least a second
