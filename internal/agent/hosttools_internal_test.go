@@ -9,51 +9,14 @@ import (
 	"agentbox/internal/paths"
 )
 
-// A project's chat runs with its own HOME, so anything it runs must be a real
-// executable. A version manager's shim is the manager itself, working out what
-// to run from directories under HOME, so a shim in the lead's environment fails
-// with "not a valid shim" and takes the adapter down with it. Found on a real
-// machine after 0.3.0, which is why each of these is pinned.
-func TestIsShim(t *testing.T) {
-	t.Parallel()
-	for path, want := range map[string]bool{
-		"/home/you/.local/share/mise/shims/claude-agent-acp":        true,
-		"/home/you/.local/share/mise/shims/node":                    true,
-		"/opt/asdf/shims/node":                                      true,
-		"/home/you/.local/share/mise/installs/claude/latest/claude": false,
-		"/home/you/.local/share/agentbox/tools/.local/bin/claude":   false,
-		"/usr/bin/node":                       false,
-		"/home/you/shims-are-not-here/claude": false,
-		"":                                    false,
-	} {
-		if got := isShim(path); got != want {
-			t.Errorf("isShim(%q) = %v, want %v", path, got, want)
-		}
-	}
-}
-
-func TestDeshimLeavesRealBinariesAlone(t *testing.T) {
-	t.Parallel()
-	real := "/home/you/.local/share/mise/installs/claude/latest/claude"
-	if got := deshim(real); got != real {
-		t.Errorf("deshim(%q) = %q, want it unchanged", real, got)
-	}
-	if got := deshim(""); got != "" {
-		t.Errorf("deshim(\"\") = %q", got)
-	}
-}
-
 // A shim that can't be resolved is not a tool the lead can run, so it reports
 // nothing and the caller installs AgentBox's own copy instead. Reporting the
 // shim would hand the lead something that fails the moment it starts.
-func TestDeshimReportsNothingWhenItCannotResolve(t *testing.T) {
-	// A PATH with no version manager on it.
-	t.Setenv("PATH", t.TempDir())
-	if got := deshim("/home/you/.local/share/mise/shims/claude-agent-acp"); got != "" {
-		t.Errorf("deshim() = %q, want nothing: a shim it can't resolve is unusable", got)
-	}
+func TestOnPathReportsNothingForAShimItCannotResolve(t *testing.T) {
+	mm := newMiseMachine(t, false, "claude-agent-acp")
+	t.Setenv("PATH", strings.Join([]string{mm.shims, filepath.Dir(mm.mise)}, string(os.PathListSeparator)))
 	if got := onPath("claude-agent-acp"); got != "" {
-		t.Errorf("onPath() = %q, want nothing", got)
+		t.Errorf("onPath() = %q, want nothing: a shim it can't resolve is unusable", got)
 	}
 }
 

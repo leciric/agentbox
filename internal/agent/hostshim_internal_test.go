@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"agentbox/internal/paths"
+	"agentbox/internal/shim"
 )
 
 // A machine set up with mise, as the user whose Home chat failed with "mise
@@ -135,7 +136,7 @@ func runAsLead(t *testing.T, tools hostTools) (string, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Env = []string{
 		"HOME=" + t.TempDir(),
-		"PATH=" + tools.Bin + string(os.PathListSeparator) + withoutShims(os.Getenv("PATH")),
+		"PATH=" + tools.Bin + string(os.PathListSeparator) + shim.WithoutShims(os.Getenv("PATH")),
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -168,7 +169,7 @@ func TestTheLeadsAdapterNeverRunsThroughANodeShim(t *testing.T) {
 		t.Errorf("the adapter ran as %q (%v), want mise's real node running %s", out, err, adapter)
 	}
 	for _, dir := range filepath.SplitList(tools.Bin) {
-		if isShim(filepath.Join(dir, "x")) {
+		if shim.Is(filepath.Join(dir, "x")) {
 			t.Errorf("the lead's PATH additions %q include the shims %s", tools.Bin, dir)
 		}
 	}
@@ -240,17 +241,6 @@ func TestAnAdapterBehindAShimIsReplacedByAgentBoxsOwn(t *testing.T) {
 	out, err := runAsLead(t, tools)
 	if err != nil || !strings.Contains(out, "AgentBox's node ran "+nodeArgs(m.adapterPath())) {
 		t.Errorf("the adapter ran as %q (%v), want AgentBox's node running AgentBox's adapter", out, err)
-	}
-}
-
-func TestWithoutShimsDropsOnlyShimDirectories(t *testing.T) {
-	t.Parallel()
-	sep := string(os.PathListSeparator)
-	path := strings.Join([]string{"/home/you/.local/share/mise/shims", "/usr/bin", "/opt/asdf/shims", "", "/home/you/.local/bin", "/home/you/shims-not"}, sep)
-	got := filepath.SplitList(withoutShims(path))
-	want := []string{"/usr/bin", "/home/you/.local/bin", "/home/you/shims-not"}
-	if !slices.Equal(got, want) {
-		t.Errorf("withoutShims() = %q, want %q", got, want)
 	}
 }
 

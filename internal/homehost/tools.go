@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"agentbox/internal/shim"
 )
 
 // toolCommands are the AI tools' own command lines: what says a tool is
@@ -15,13 +17,16 @@ import (
 var toolCommands = map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode", "gemini": "gemini", "copilot": "copilot"}
 
 // FindTools finds the AI tools on this computer, and whether each has a login
-// of its own.
+// of its own. A tool the PATH reaches through a version manager's shim is
+// found by the real path mise gives for it, and one mise can't resolve from the
+// user's home is not found: the chat runs in a folder of its own where the shim
+// would fail with "mise ERROR" (shim.Look).
 func FindTools() map[string]Tool {
 	home, _ := os.UserHomeDir()
 	out := map[string]Tool{}
 	for name, command := range toolCommands {
-		path, err := exec.LookPath(command)
-		if err != nil {
+		path := shim.Look(command)
+		if path == "" {
 			out[name] = Tool{}
 			continue
 		}
