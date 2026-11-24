@@ -133,7 +133,7 @@ and Windows included. A new push cancels the run it supersedes.
   and for macOS `scripts/mac-sign.sh` and the entitlements.
 - **The native app on Windows** (`native-windows`): a release build and the installer, installed
   and uninstalled on the runner, on pushes to `main` and on a PR labelled `ci:full`, when the change
-  reaches `native/` or `scripts/native-(package|cli).sh`. Linux type-checks it for Windows on every
+  reaches `native/` or `scripts/native-(package|cli).sh` or `scripts/find-makensis.sh`. Linux type-checks it for Windows on every
   native change. `WINDOWS_RUN=wine scripts/native-package.sh windows …` tries the packaging on Linux.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
 
