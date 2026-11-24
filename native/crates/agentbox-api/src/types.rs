@@ -4092,6 +4092,10 @@ pub struct RemoteAgent {
     pub pr_url: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub shared: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub here: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4108,6 +4112,8 @@ pub struct Machine {
     pub project: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub shared: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5020,6 +5026,9 @@ pub struct SharePeer {
     pub projects: Vec<String>,
     pub slots: i64,
     pub running: i64,
+    #[serde(rename = "ownMachine")]
+    pub own_machine: bool,
+    pub machine: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5040,6 +5049,8 @@ pub struct UpdateSharePeerRequest {
     pub projects: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slots: Option<i64>,
+    #[serde(rename = "ownMachine", skip_serializing_if = "Option::is_none")]
+    pub own_machine: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5061,6 +5072,9 @@ pub struct ShareRemote {
     pub projects: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+    pub machine: bool,
+    #[serde(rename = "machineError", skip_serializing_if = "is_empty")]
+    pub machine_error: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5074,6 +5088,15 @@ pub struct AddShareRemoteRequest {
 pub struct ProjectRemote {
     pub id: String,
     pub owner: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareRunOn {
+    pub owner: String,
+    pub here: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub why: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5717,6 +5740,8 @@ pub struct ChatMessageRequest {
     pub files: Vec<ChatFileUpload>,
     #[serde(skip_serializing_if = "is_empty")]
     pub to: String,
+    #[serde(rename = "runOn", skip_serializing_if = "is_empty")]
+    pub run_on: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

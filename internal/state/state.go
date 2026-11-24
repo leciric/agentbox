@@ -1820,6 +1820,9 @@ var migrations = []string{
 		token      BLOB NOT NULL,
 		created_at INTEGER NOT NULL
 	)`,
+	// Whether a paired AgentBox may run the agents its messages ask for on
+	// its own computer (sharemachines.go), on by default.
+	`ALTER TABLE share_peers ADD COLUMN own_machine INTEGER NOT NULL DEFAULT 1`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

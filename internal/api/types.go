@@ -2472,6 +2472,11 @@ type RemoteAgent struct {
 	Summary   string    `json:"summary,omitempty"`
 	PRURL     string    `json:"prUrl,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Shared says the machine is a paired AgentBox's computer, which the
+	// project is shared with, rather than the hub account's (sharemachines.go);
+	// Here, in what a paired AgentBox is sent, that it is its own.
+	Shared bool `json:"shared,omitempty"`
+	Here   bool `json:"here,omitempty"`
 }
 
 // Machine is another machine connected to the same hub account, which a
@@ -2488,6 +2493,10 @@ type Machine struct {
 	Project    string `json:"project,omitempty"`
 	// Error is why the machine couldn't be asked, when it couldn't.
 	Error string `json:"error,omitempty"`
+	// Shared says it is the computer of a paired AgentBox the project is
+	// shared with, not one of the hub account's: its agents run on that
+	// person's AI accounts and GitHub access.
+	Shared bool `json:"shared,omitempty"`
 }
 
 // RetireAdvice is whether an agent can be retired, and what would keep its

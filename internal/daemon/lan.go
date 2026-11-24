@@ -622,6 +622,14 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			s.sharePair(w, r, addr)
 		case strings.HasPrefix(r.URL.Path, "/share/api/"):
 			s.shareAPI(w, r, addr)
+		// A peer's computer taking the agents its messages ask for
+		// (sharemachines.go).
+		case r.URL.Path == "/share/machine":
+			s.shareMachineConnect(w, r, addr)
+		case r.URL.Path == "/share/run-on" && r.Method == http.MethodGet:
+			s.shareRunOn(w, r, addr)
+		case r.URL.Path == "/share/agent-events" && r.Method == http.MethodPost:
+			s.shareAgentEventIn(w, r, addr)
 		default:
 			s.serveLANWeb(w, r)
 		}

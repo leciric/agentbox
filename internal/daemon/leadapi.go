@@ -288,6 +288,13 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 	}
 	req.Project = r.PathValue("project")
 	req.LeadSession = sessionFrom(r)
+	// A paired AgentBox that wrote last in this session chose its own
+	// computer for the agents it makes (sharemachines.go).
+	if peer := s.runsOnPeer(req.Project, req.LeadSession); peer != "" {
+		body, _ := json.Marshal(req)
+		r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
+		return s.leadCreateOnPeer(w, r, peer)
+	}
 	return s.createAgentFrom(w, r, req, true)
 }
 

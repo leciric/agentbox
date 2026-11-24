@@ -640,7 +640,7 @@ func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 			"one precisely (\"the Stripe key is in $STRIPE_SECRET_KEY\"), and which you manage. connectors: remote MCP servers like Notion, each one's " +
 			"status and agents; the connected ones are your tools too (mcp__<name>__*). A missing secret or connector is the user's " +
 			"to add, in the project's Settings: never ask for a value in this chat. issues: open GitHub issues and which agent has each. " +
-			"machines: your hub account's other machines, and whether each is reachable and has this project. " +
+			"machines: your hub account's other machines, and the computers of paired AgentBoxes this project is shared with, and whether each is reachable and has this project. " +
 			"features: what AgentBox does, where it is and its tool or command, matching query; offer, before suggesting one, says if it was already.",
 		Schema: object([]string{"kind"}, map[string]any{
 			"kind":  choiceOf("what to list", "accounts", "secrets", "connectors", "issues", "machines", "features"),
@@ -706,13 +706,16 @@ func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 // describeMachines lists the hub account's other machines for list_resources.
 func describeMachines(machines []api.Machine) string {
 	if len(machines) == 0 {
-		return "This hub account has no other machine. Agents run here."
+		return "This hub account has no other machine, and no paired AgentBox runs agents for this project. Agents run here."
 	}
 	var b strings.Builder
 	for _, m := range machines {
 		fmt.Fprintf(&b, "- %s", m.Name)
 		if m.Hostname != "" && m.Hostname != m.Name {
 			fmt.Fprintf(&b, " (%s)", m.Hostname)
+		}
+		if m.Shared {
+			b.WriteString(" (a paired AgentBox's computer: agents there run on its user's AI accounts and GitHub access, for them)")
 		}
 		switch {
 		case !m.Online:
