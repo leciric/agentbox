@@ -814,3 +814,51 @@ func TestRemoteEventsOnce(t *testing.T) {
 		})
 	}
 }
+
+// Turning phones off ends a peer's events on the daemon's own port, though
+// they are a WebSocket, which closing the listener leaves open.
+func TestLANOffEndsSharedEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	owner := startTestDaemon(t, t.TempDir(), fakeIncus)
+	peer := startTestDaemon(t, t.TempDir(), fakeIncus)
+	owner.srv.lan.mu.Lock()
+	owner.srv.lan.own = true
+	owner.srv.lan.addresses = func() []string { return []string{"127.0.0.1"} }
+	owner.srv.lan.mu.Unlock()
+	port, on, off := freePort(t), true, false
+	if _, err := owner.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port}); err != nil {
+		t.Fatal(err)
+	}
+	pairing, err := owner.client.PairShare(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.client.AddShareRemote(ctx, pairing.Link); err != nil {
+		t.Fatal(err)
+	}
+	sealed, _ := peer.srv.store.ShareRemotes(ctx)
+	token, err := peer.srv.secrets().Open(sealed[0].Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, _, err := websocket.Dial(ctx, "http://127.0.0.1:"+strconv.Itoa(port)+"/share/api/v1/events", &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + token}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.CloseNow() }()
+
+	if _, err := owner.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		if _, _, err := conn.Read(rctx); err != nil {
+			if rctx.Err() != nil {
+				t.Error("a peer's events on the daemon's port outlived turning phones off")
+			}
+			return
+		}
+	}
+}

@@ -83,6 +83,7 @@ type lanState struct {
 	applying  sync.Mutex
 	mu        sync.Mutex
 	srv       *http.Server // the daemon's own listener, when it has one
+	srvEnd    func()       // ends the contexts of srv's requests (closeServerLocked)
 	port      int          // what srv listens on
 	listenErr string
 	pairings  map[string]time.Time // one-time secrets, to when each expires
@@ -171,8 +172,7 @@ func (s *Server) applyLAN(ctx context.Context) {
 	}
 	want := on && l.own
 	if l.srv != nil && (!want || l.port != port) {
-		_ = l.srv.Close()
-		l.srv = nil
+		l.closeServerLocked()
 	}
 	l.listenErr = ""
 	if !want || l.srv != nil {
@@ -184,21 +184,30 @@ func (s *Server) applyLAN(ctx context.Context) {
 		s.logf("phones: %s", l.listenErr)
 		return
 	}
+	srvCtx, end := context.WithCancel(ctx)
 	srv := &http.Server{
 		Handler:           s.lanHandler(lanDirect),
 		ReadHeaderTimeout: 10 * time.Second,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		BaseContext:       func(net.Listener) context.Context { return srvCtx },
 	}
-	l.srv, l.port = srv, port
+	l.srv, l.srvEnd, l.port = srv, end, port
 	go func() { _ = srv.Serve(ln) }()
 	s.logf("phones can pair on port %d", port)
+}
+
+// closeServerLocked closes the daemon's own listener, and ends what it
+// hijacked, which Close leaves open: a peer's events or a phone's terminal,
+// over a WebSocket, see their request's context end.
+func (l *lanState) closeServerLocked() {
+	_ = l.srv.Close()
+	l.srvEnd()
+	l.srv, l.srvEnd = nil, nil
 }
 
 func (s *Server) closeLAN() {
 	s.lan.mu.Lock()
 	if s.lan.srv != nil {
-		_ = s.lan.srv.Close()
-		s.lan.srv = nil
+		s.lan.closeServerLocked()
 	}
 	t := s.lan.tunnel
 	s.lan.tunnel = nil

@@ -562,6 +562,10 @@ func eventProject(data json.RawMessage) string {
 // a peer seconds late, in bursts, while a WebSocket through the same tunnel
 // takes milliseconds.
 func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.SharePeer) {
+	// Subscribed first, so nothing published once the peer sees the
+	// stream open is missed.
+	events, unsubscribe := s.events.subscribe()
+	defer unsubscribe()
 	ctx := r.Context()
 	var send func(api.Event) error
 	var beat func() error
@@ -606,8 +610,6 @@ func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.Sha
 		_, _ = fmt.Fprint(w, ": connected\n\n")
 		flusher.Flush()
 	}
-	events, unsubscribe := s.events.subscribe()
-	defer unsubscribe()
 	for _, change := range s.agentStates() {
 		if project, _, _ := strings.Cut(change.Ref, "/"); p.Shares(project) {
 			data, _ := json.Marshal(change)
