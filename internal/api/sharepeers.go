@@ -51,6 +51,11 @@ type SharePeer struct {
 	// Running is how many of the agents it made run now.
 	Slots   int `json:"slots"`
 	Running int `json:"running"`
+	// OwnMachine lets it run the agents a project's chat makes for it on its
+	// own computer instead of here ("On my PC" in its composer), and Machine
+	// says its computer is connected to take them now.
+	OwnMachine bool `json:"ownMachine"`
+	Machine    bool `json:"machine"`
 }
 
 // UpdateShareRequest is PATCH /v1/share.
@@ -66,6 +71,8 @@ type UpdateSharePeerRequest struct {
 	Projects    *[]string `json:"projects,omitempty"`
 	// Slots is -1 to follow ShareStatus.Slots.
 	Slots *int `json:"slots,omitempty"`
+	// OwnMachine lets it run agents on its own computer, or stops it.
+	OwnMachine *bool `json:"ownMachine,omitempty"`
 }
 
 // SharePairing is POST /v1/share/pairings: a one-time link another
@@ -87,6 +94,54 @@ type ShareRemote struct {
 	// couldn't be reached the last time it was asked.
 	Projects int    `json:"projects"`
 	Error    string `json:"error,omitempty"`
+	// Machine says this computer is connected to it to run, here, the
+	// agents its projects' chats make for this AgentBox, and MachineError
+	// why it isn't, when it isn't.
+	Machine      bool   `json:"machine"`
+	MachineError string `json:"machineError,omitempty"`
+}
+
+// Where the agents a project's chat makes for a paired AgentBox run, as its
+// composer chooses for each message (ChatMessageRequest.RunOn).
+const (
+	RunOnOwner = "owner" // on the computer that shares the project, the default
+	RunOnPeer  = "peer"  // on the paired AgentBox's own computer
+)
+
+// ShareRunOn is GET /v1/projects/{project}/run-on, for a project another
+// AgentBox shares with this one: whether this computer can run the agents
+// its chat makes for this AgentBox ("On my PC"), and why not when it can't.
+type ShareRunOn struct {
+	Owner string `json:"owner"` // what the project's AgentBox is called
+	Here  bool   `json:"here"`
+	// Why is why it can't, for the composer to show.
+	Why string `json:"why,omitempty"`
+}
+
+// ShareOwnerRunOn is what the owner's /share/run-on answers a peer about one
+// of the projects it shares: whether it lets the peer run agents for it on
+// its own computer, and the repository a computer clones the project from.
+type ShareOwnerRunOn struct {
+	Allowed bool   `json:"allowed"`
+	Why     string `json:"why,omitempty"`
+	Repo    string `json:"repo,omitempty"`
+	// Connected says the peer's computer is connected to take agents.
+	Connected bool `json:"connected"`
+}
+
+// ShareAgentEvent is what a paired AgentBox tells the owner, at
+// /share/agent-events, about an agent it runs for one of the owner's
+// projects' chats: what the owner shows of it, and what its lead is told.
+type ShareAgentEvent struct {
+	Project string `json:"project"` // the project's name on the owner
+	Agent   string `json:"agent"`
+	Title   string `json:"title,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	PRURL   string `json:"prUrl,omitempty"`
+	Notice  string `json:"notice,omitempty"`
+	Act     bool   `json:"act,omitempty"`
 }
 
 // AddShareRemoteRequest is POST /v1/share/remotes: the link the owner made.
@@ -153,6 +208,13 @@ func (c *Client) RemoveSharePeer(ctx context.Context, id string) error {
 func (c *Client) AddShareRemote(ctx context.Context, link string) (ShareRemote, error) {
 	var out ShareRemote
 	return out, c.do(ctx, http.MethodPost, "/v1/share/remotes", AddShareRemoteRequest{Link: link}, &out)
+}
+
+// ShareRunOn says whether this computer can run the agents a remote
+// project's chat makes for this AgentBox.
+func (c *Client) ShareRunOn(ctx context.Context, project string) (ShareRunOn, error) {
+	var out ShareRunOn
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/run-on", nil, &out)
 }
 
 // RemoveShareRemote forgets a pairing with another AgentBox.

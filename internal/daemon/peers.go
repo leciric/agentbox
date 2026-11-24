@@ -252,7 +252,11 @@ func (s *Server) forgetPeerProject(ctx context.Context, p state.Project) {
 // leadMachines answers GET /v1/project/machines: the account's other
 // machines, and whether each has the project.
 func (s *Server) leadMachines(w http.ResponseWriter, r *http.Request) error {
+	shared := s.shareMachines(r.Context(), r.PathValue("project"))
 	cfg, peers, err := s.hubPeers(r.Context(), true)
+	if errors.Is(err, errNoHub) && len(shared) > 0 {
+		return writeJSON(w, http.StatusOK, shared)
+	}
 	if err != nil {
 		return err
 	}
@@ -280,7 +284,7 @@ func (s *Server) leadMachines(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 	wg.Wait()
-	return writeJSON(w, http.StatusOK, out)
+	return writeJSON(w, http.StatusOK, append(shared, out...))
 }
 
 // peerProjectAnswer is GET /v1/peer/project's answer.
@@ -332,6 +336,20 @@ func (s *Server) peerCall(ctx context.Context, cfg *remoteConfig, peer, method, 
 // passed back as it is.
 func (s *Server) leadOnMachine(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
+	route := "/" + r.PathValue("path")
+	// A paired AgentBox's computer, which the project is shared with
+	// (sharemachines.go), before the hub's machines.
+	if p, sm, ok, err := s.shareMachineFor(r.Context(), project, r.PathValue("machine")); ok {
+		if err != nil {
+			return err
+		}
+		if !peerLeadRoute(r.Method, route) {
+			return fmt.Errorf("%s %s can't be sent to another machine", r.Method, route)
+		}
+		return s.leadOnShareMachine(w, r, p, sm, route)
+	} else if err != nil {
+		return err
+	}
 	cfg, m, err := s.findMachine(r.Context(), r.PathValue("machine"))
 	if err != nil {
 		return err
@@ -340,7 +358,6 @@ func (s *Server) leadOnMachine(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	route := "/" + r.PathValue("path")
 	if !peerLeadRoute(r.Method, route) {
 		return fmt.Errorf("%s %s can't be sent to another machine", r.Method, route)
 	}
@@ -622,6 +639,10 @@ var peerRetries = []time.Duration{time.Second, 5 * time.Second, 30 * time.Second
 // sendPeerEvent tells another machine about an agent its lead made here, in
 // the background, trying again while it can't be reached.
 func (s *Server) sendPeerEvent(peerID, peerName string, ev peerEvent) {
+	if remoteID, ok := strings.CutPrefix(peerID, shareOriginPrefix); ok {
+		s.sendShareEvent(remoteID, ev) // a paired AgentBox's (sharemachines.go)
+		return
+	}
 	ctx := s.runCtx
 	if ctx == nil {
 		ctx = context.Background()
@@ -661,10 +682,13 @@ func (s *Server) remoteAgents(ctx context.Context, project string) []api.RemoteA
 		return nil
 	}
 	var out []api.RemoteAgent
+	asking, _ := sharePeerFrom(ctx)
 	for _, a := range rows {
+		peer, shared := strings.CutPrefix(a.MachineID, shareOriginPrefix)
 		out = append(out, api.RemoteAgent{
 			Machine: a.MachineName, MachineID: a.MachineID, Name: a.Agent, Title: a.Title, Branch: a.Branch,
 			Status: a.Status, Summary: a.Summary, PRURL: a.PRURL, UpdatedAt: a.UpdatedAt,
+			Shared: shared, Here: shared && asking.ID != "" && peer == asking.ID,
 		})
 	}
 	return out

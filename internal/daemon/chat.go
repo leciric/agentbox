@@ -223,6 +223,11 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		// the paired AgentBox that wrote this, or no one's (sharepeers.go):
 		// keyed by the session it lands in, whatever the path named.
 		undo := s.heardInChat(r.Context(), a)
+		// And where they run: here, or its own computer (sharemachines.go).
+		if err := s.choseRunOn(r.Context(), a, req.RunOn); err != nil {
+			undo()
+			return err
+		}
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
 			undo()

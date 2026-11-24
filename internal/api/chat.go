@@ -492,6 +492,11 @@ type ChatMessageRequest struct {
 	// ChatItem.To that the lead reads at its next turn, starting none. The
 	// answer is that notice.
 	To string `json:"to,omitempty"`
+	// RunOn, on a message a paired AgentBox sends a shared project's chat, is
+	// where the agents that chat makes for it are to run: RunOnOwner (the
+	// default) or RunOnPeer, its own computer. It lasts for the session,
+	// until someone on the owner's computer writes there.
+	RunOn string `json:"runOn,omitempty"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file

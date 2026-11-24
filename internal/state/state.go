@@ -1828,6 +1828,9 @@ var migrations = []string{
 	// Run slots are gone (an agent's app, desktop and recordings start when
 	// asked, 24 Nov 2026): the run peaks they learned go with them.
 	`DROP TABLE IF EXISTS run_peaks`,
+	// Whether a paired AgentBox may run the agents its messages ask for on
+	// its own computer (sharemachines.go), on by default.
+	`ALTER TABLE share_peers ADD COLUMN own_machine INTEGER NOT NULL DEFAULT 1`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

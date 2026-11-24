@@ -58,6 +58,8 @@ import { atTarget, cycleTarget, liveTarget, targetOrder, targetsOf } from '../..
 import { chooseTarget, useChosenTarget } from '../../lib/messageTarget';
 import { targetShortcut } from '../../lib/shortcuts';
 import { TargetChip } from './TargetChip';
+import { RunOnChip } from './RunOnChip';
+import { chooseRunOn, sentRunOn, useChosenRunOn } from '../../lib/runOn';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { aiLabel, ToolMark } from '../state';
@@ -139,6 +141,12 @@ export function Composer({
   const targetNames = useMemo(() => [...targets.own, ...targets.others].map((a) => a.name), [targets]);
   const at = leadChat ? atTarget(text, targetNames) : undefined;
   const sendTo = at?.to ?? target;
+  // In a project another AgentBox shares with this one: where the agents its
+  // lead makes for you run (RunOnChip), sent with each message to the lead.
+  const projectList = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: leadChat });
+  const sharedBy = leadChat ? projectList.data?.find((p) => p.name === agent.project)?.remote : undefined;
+  const runOnInfo = useQuery({ queryKey: ['runOn', agent.project], queryFn: () => api.shareRunOn(agent.project), enabled: !!sharedBy, refetchInterval: 30_000 });
+  const chosenRunOn = useChosenRunOn(agent.ref);
   // Mod+. and Mod+Shift+. move the target on, from anywhere in the window
   // while this chat is on screen.
   const order = useMemo(() => targetOrder(targets), [targets]);
@@ -197,7 +205,8 @@ export function Composer({
     const project = agent.ref.split('/')[0];
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat !== 'running' ? { ...a, chat: 'running' } : a)));
     queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref ? { ...info, chat: 'running' } : info));
-    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () => api.sendChat(agent.ref, text, images, files)).then((sent) => {
+    const runOn = sharedBy ? { runOn: sentRunOn(chosenRunOn, runOnInfo.data?.here) } : undefined;
+    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () => api.sendChat(agent.ref, text, images, files, runOn)).then((sent) => {
       if (sent) return;
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       void queryClient.invalidateQueries({ queryKey: ['projectChat', project] });
@@ -843,6 +852,17 @@ export function Composer({
               once={!!at}
               onChoose={(name) => {
                 chooseTarget(agent.ref, name);
+                area.current?.focus();
+              }}
+            />
+          )}
+          {sharedBy && !sendTo && (
+            <RunOnChip
+              owner={sharedBy.owner}
+              info={runOnInfo.data}
+              chosen={chosenRunOn}
+              onChoose={(runOn) => {
+                chooseRunOn(agent.ref, runOn);
                 area.current?.focus();
               }}
             />
