@@ -21,10 +21,6 @@ import (
 // (state.HoldMemory), machine stopped: the mark is kept in the database, so
 // a daemon that restarts starts it again (continueTurns, restart.go), and it
 // is only ever a mark.
-//
-// With pausing whole agents on (experimental), its fleet does all of this
-// instead (admitMachine in agentfreeze.go), as it did: it still boots
-// machines only into memory that is there.
 
 type admitState struct {
 	mu sync.Mutex
@@ -49,7 +45,6 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 	if ad.a.Ask(ref, a.CreatedAt, time.Now()) {
 		ad.mu.Unlock()
 		s.unhold(ctx, a, state.HoldMemory)
-		go s.measureBoot(context.WithoutCancel(ctx), a.Instance)
 		return nil
 	}
 	ch := ad.started[ref]
@@ -92,7 +87,6 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 		}
 	}
 	s.unhold(context.WithoutCancel(ctx), a, state.HoldMemory)
-	go s.measureBoot(context.WithoutCancel(ctx), a.Instance)
 	s.refreshSoon()
 	return nil
 }
@@ -121,9 +115,6 @@ func (s *Server) unhold(ctx context.Context, a state.Agent, _ string) {
 // bootWaits reports whether a machine asking to boot now would wait: for
 // its turn, or for the user's computer to be over its hard floor.
 func (s *Server) bootWaits() bool {
-	if s.fleetOn() {
-		return true // the fleet decides aside (admitMachine)
-	}
 	now := time.Now()
 	short := s.hostLoad.holdBoots(now)
 	ad := s.admit

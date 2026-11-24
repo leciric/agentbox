@@ -85,12 +85,6 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 	switch inst.Status {
 	case "Running":
 	case "Frozen":
-		if s.frozenForMemory(a.Ref()) {
-			// Frozen for memory: it waits its turn to thaw, and the chat
-			// hands the message over then (thawMachine).
-			item, err := s.chat.HoldMessage(a, msg)
-			return told{item: item}, err
-		}
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
@@ -105,7 +99,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		}
 		if s.bootWaits() {
 			// Its boot may wait its turn, or for the user's computer
-			// (admitMachine): the message waits in its chat meanwhile, and
+			// (admitBoot): the message waits in its chat meanwhile, and
 			// nobody waits on it.
 			item, err := s.chat.HoldMessage(a, msg)
 			if err != nil {

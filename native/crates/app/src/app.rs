@@ -40,7 +40,6 @@ mod recap_card;
 mod resources;
 mod restart_hold;
 mod review;
-mod run_slots;
 mod running;
 mod schedules;
 mod search;
@@ -99,8 +98,6 @@ pub struct AppView {
     stale: stale::StaleDaemon,
     /// What waits for you after AgentBox stopped unexpectedly (restart_hold.rs).
     restart_hold: restart_hold::RestartHoldState,
-    /// The VM's run slots, in the top bar (run_slots.rs).
-    run_slots: run_slots::RunSlotsState,
     /// When the update status was last read (update_poll.rs).
     update_poll: update_poll::UpdatePoll,
     /// The top bar's chips (topbar.rs).
@@ -241,7 +238,6 @@ impl AppView {
             conn: Default::default(),
             stale: Default::default(),
             restart_hold: Default::default(),
-            run_slots: Default::default(),
             update_poll: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
@@ -355,7 +351,6 @@ impl AppView {
             self.load_update(cx);
             // And what a daemon that just started holds for you.
             self.load_restart_hold(cx);
-            self.load_run_slots(cx);
             for chat in self.cockpit_chats() {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -381,8 +376,6 @@ impl AppView {
                 {
                     self.load_sidebar(cx);
                 }
-                self.side
-                    .apply_run_slot(&change.r#ref, change.run_slot.clone());
                 self.check_agents(cx);
                 cx.notify();
                 let mine = self
@@ -400,10 +393,7 @@ impl AppView {
                             self.open_chat("lead".into(), window, cx);
                         }
                     }
-                    Some(ix) => {
-                        self.fleet[ix].state = change.state;
-                        self.fleet[ix].run_slot = change.run_slot;
-                    }
+                    Some(ix) => self.fleet[ix].state = change.state,
                     None => self.load_fleet(window, cx),
                 }
                 self.sync_chat_agent(cx);
@@ -472,12 +462,6 @@ impl AppView {
                 match serde_json::from_value::<agentbox_api::RestartHold>(ev.data) {
                     Ok(hold) => self.apply_restart_hold(hold, cx),
                     Err(_) => self.load_restart_hold(cx),
-                }
-            }
-            agentbox_api::EVENT_RUN_SLOTS => {
-                match serde_json::from_value::<agentbox_api::RunSlots>(ev.data) {
-                    Ok(slots) => self.apply_run_slots(slots, cx),
-                    Err(_) => self.load_run_slots(cx),
                 }
             }
             agentbox_api::EVENT_LEAD_SESSIONS => {

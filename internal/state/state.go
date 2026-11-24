@@ -1820,6 +1820,14 @@ var migrations = []string{
 		token      BLOB NOT NULL,
 		created_at INTEGER NOT NULL
 	)`,
+	// "Pause whole agents for memory" (Settings → Experimental) is gone: it
+	// could leave agents frozen and boots waiting until a restart. Its switch
+	// and the boots it measured go; the agents it had frozen
+	// (agent_freeze_frozen) are left for the daemon to thaw as it starts.
+	`DELETE FROM settings WHERE key IN ('agent_freeze', 'boot_costs')`,
+	// Run slots are gone (an agent's app, desktop and recordings start when
+	// asked, 24 Nov 2026): the run peaks they learned go with them.
+	`DROP TABLE IF EXISTS run_peaks`,
 	// Whether a paired AgentBox may run the agents its messages ask for on
 	// its own computer (sharemachines.go), on by default.
 	`ALTER TABLE share_peers ADD COLUMN own_machine INTEGER NOT NULL DEFAULT 1`,
@@ -2639,8 +2647,6 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 var projectOwned = []string{
 	// agent_seq has a foreign key to projects: an agent ever made leaves a row.
 	"agent_seq",
-	// What a project's runs peaked at (runpeaks.go) means nothing without it.
-	"run_peaks",
 	// Members first: they point at their group.
 	"agent_group_members",
 	"agent_groups",

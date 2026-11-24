@@ -1048,42 +1048,16 @@ func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path
 }
 
 // memoryHeld is what holds an agent, for list_agents: its machine waiting to
-// boot, in turn or for the user's computer, or, with pausing whole agents
-// on, its machine or heavy commands paused for memory; "" for nothing.
-// Nothing else waits for memory.
+// boot, in turn or for the user's computer; "" for nothing. Nothing else
+// waits or is paused for memory.
 func memoryHeld(h *api.MemoryHold) string {
 	switch {
-	case h == nil:
+	case h == nil || h.Machine != "waiting":
 		return ""
-	case h.Machine == "paused":
-		return fmt.Sprintf("paused, waiting for memory, %s in line (it resumes by itself; messages wait for it)", ordinal(h.Ahead+1))
-	case h.Machine == "waiting" && h.Why == api.HoldWhyHost:
+	case h.Why == api.HoldWhyHost:
 		return "waiting to boot until the user's computer, nearly out of memory, has more to spare"
-	case h.Machine == "waiting" && h.Why == api.HoldWhyTurn:
-		return "booting in turn, a few seconds after the machine before it"
-	case h.Machine == "waiting":
-		// Pausing whole agents (experimental) still waits for memory.
-		return fmt.Sprintf("waiting for memory to boot, %s in line", ordinal(h.Ahead+1))
-	case h.Paused > 0:
-		return fmt.Sprintf("%d test/build %s paused for memory", h.Paused, plural(h.Paused, "command", "commands"))
 	}
-	return ""
-}
-
-// ordinal is n as "1st", "2nd", "3rd", "11th".
-func ordinal(n int) string {
-	suffix := "th"
-	if n%100 < 11 || n%100 > 13 {
-		switch n % 10 {
-		case 1:
-			suffix = "st"
-		case 2:
-			suffix = "nd"
-		case 3:
-			suffix = "rd"
-		}
-	}
-	return fmt.Sprintf("%d%s", n, suffix)
+	return "booting in turn, a few seconds after the machine before it"
 }
 
 func describeFleet(fleet api.Fleet) string {

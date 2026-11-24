@@ -11,9 +11,9 @@ import (
 	"agentbox/internal/testutil"
 )
 
-// waiterAgent is a third agent, made after the fleet test's two, whose
+// waiterAgent is a third agent, made after the boot test's two, whose
 // machine asks to boot.
-func waiterAgent(t *testing.T, f *fleetTest) state.Agent {
+func waiterAgent(t *testing.T, f *bootTest) state.Agent {
 	t.Helper()
 	a := state.Agent{
 		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
@@ -28,7 +28,7 @@ func waiterAgent(t *testing.T, f *fleetTest) state.Agent {
 // belowFloor has the host report, as its supervisor does, that it is below
 // its hard floor (on) or not. Tests that use it give the daemon a reading
 // first (setAvailable): a test daemon with none, and no loop, boots at once.
-func (f *fleetTest) belowFloor(t *testing.T, on bool) {
+func (f *bootTest) belowFloor(t *testing.T, on bool) {
 	t.Helper()
 	load := api.HostLoad{OS: "linux", Memory: 0, HoldBoots: on, MemoryTotal: 30 << 30, Available: 1 << 30, At: time.Now()}
 	if err := f.client.PutHostLoad(context.Background(), load); err != nil {
@@ -42,7 +42,7 @@ func (f *fleetTest) belowFloor(t *testing.T, on bool) {
 // minutes and more.
 func TestBootDoesNotWaitForMemory(t *testing.T) {
 	t.Parallel()
-	f := newFleetTest(t, false)
+	f := newBootTest(t)
 	ctx := context.Background()
 	f.setAvailable(0.5, 4) // under the floor, swap full
 	f.set(62, 8)           // every agent stalled at the shared limit
@@ -50,8 +50,8 @@ func TestBootDoesNotWaitForMemory(t *testing.T) {
 	f.srv.heavy.mu.Lock()
 	f.srv.heavy.g.Ask(f.newer.Ref(), "k", "cargo build", time.Hour, time.Now())
 	f.srv.heavy.mu.Unlock()
-	// The host busy, under its reserve but over its floor: nothing held.
-	if err := f.client.PutHostLoad(ctx, api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", MemoryTotal: 30 << 30, Available: 8 << 30, At: time.Now()}); err != nil {
+	// The host stalling on memory, over its floor: nothing held.
+	if err := f.client.PutHostLoad(ctx, api.HostLoad{OS: "linux", Memory: 30, Why: "memory", MemoryTotal: 30 << 30, Available: 8 << 30, At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if f.srv.bootWaits() {
@@ -59,7 +59,7 @@ func TestBootDoesNotWaitForMemory(t *testing.T) {
 	}
 	waiter := waiterAgent(t, f)
 	done := make(chan error, 1)
-	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
+	go func() { done <- f.srv.admitBoot(ctx, waiter) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -77,19 +77,19 @@ func TestBootDoesNotWaitForMemory(t *testing.T) {
 // for its turn, says so with no place in line, and boots by itself.
 func TestBootsAreStaggered(t *testing.T) {
 	t.Parallel()
-	f := newFleetTest(t, false)
+	f := newBootTest(t)
 	ctx := context.Background()
 	f.setAvailable(12, 0)
 	f.step(t)
 	f.srv.admit.mu.Lock()
 	f.srv.admit.a.BootStep = time.Hour
 	f.srv.admit.mu.Unlock()
-	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
+	if err := f.srv.admitBoot(ctx, f.newer); err != nil {
 		t.Fatal(err)
 	}
 	waiter := waiterAgent(t, f)
 	done := make(chan error, 1)
-	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
+	go func() { done <- f.srv.admitBoot(ctx, waiter) }()
 	waitFor(t, "the next boot to wait its turn On hold", func() bool {
 		held := f.srv.memoryHold(waiter.Ref())
 		return held != nil && held.Machine == "waiting" && held.Why == api.HoldWhyTurn && held.Ahead == 0 && mustAgent(t, f, waiter).Hold == state.HoldMemory
@@ -122,14 +122,14 @@ func TestBootsAreStaggered(t *testing.T) {
 // the computer; once it is over it, the machine boots at the next step.
 func TestBootWaitsOnlyWhileTheHostIsBelowItsFloor(t *testing.T) {
 	t.Parallel()
-	f := newFleetTest(t, false)
+	f := newBootTest(t)
 	ctx := context.Background()
 	f.setAvailable(12, 0)
 	f.belowFloor(t, true)
 	f.step(t)
 	waiter := waiterAgent(t, f)
 	done := make(chan error, 1)
-	go func() { done <- f.srv.admitMachine(ctx, waiter) }()
+	go func() { done <- f.srv.admitBoot(ctx, waiter) }()
 	waitFor(t, "the boot to wait for the host", func() bool {
 		held := f.srv.memoryHold(waiter.Ref())
 		return held != nil && held.Machine == "waiting" && held.Why == api.HoldWhyHost && mustAgent(t, f, waiter).Hold == state.HoldMemory
@@ -152,7 +152,7 @@ func TestBootWaitsOnlyWhileTheHostIsBelowItsFloor(t *testing.T) {
 	}
 }
 
-func mustAgent(t *testing.T, f *fleetTest, a state.Agent) state.Agent {
+func mustAgent(t *testing.T, f *bootTest, a state.Agent) state.Agent {
 	t.Helper()
 	got, err := f.srv.store.Agent(context.Background(), a.Project, a.Name)
 	if err != nil {
@@ -166,7 +166,7 @@ func mustAgent(t *testing.T, f *fleetTest, a state.Agent) state.Agent {
 // gives up on a request after minutes.
 func TestStartRequestDoesNotWaitForTheHost(t *testing.T) {
 	t.Parallel()
-	f := newFleetTest(t, false)
+	f := newBootTest(t)
 	ctx := context.Background()
 	f.setAvailable(12, 0)
 	f.belowFloor(t, true)
@@ -202,7 +202,7 @@ esac`
 // waiting for good.
 func TestCancelledBootLeavesNoHold(t *testing.T) {
 	t.Parallel()
-	f := newFleetTest(t, false)
+	f := newBootTest(t)
 	ctx := context.Background()
 	f.setAvailable(12, 0)
 	f.belowFloor(t, true)
@@ -219,4 +219,32 @@ func TestCancelledBootLeavesNoHold(t *testing.T) {
 	if a := mustAgent(t, f, waiter); a.Hold != "" {
 		t.Errorf("still On hold (%q) after its wait was given up", a.Hold)
 	}
+}
+
+// bootTest is pressureTest with a second agent, newer than the first, and
+// the daemon's log kept.
+type bootTest struct {
+	*pressureTest
+	newer state.Agent
+	log   *syncBuffer
+}
+
+func newBootTest(t *testing.T) *bootTest {
+	t.Helper()
+	log := &syncBuffer{}
+	p := newPressureTest(t, func(s *Server) { s.cfg.Log = log })
+	newer := state.Agent{
+		Project: "hello-stack", Name: "agent-02", Instance: "ab-hello-stack-agent-02", AI: "none",
+		Branch: "agentbox/agent-02", Worktree: "/worktrees/agent-02", Status: state.AgentReady, CreatedAt: time.Now().Add(time.Minute),
+	}
+	if err := p.srv.store.AddAgent(context.Background(), newer); err != nil {
+		t.Fatal(err)
+	}
+	return &bootTest{pressureTest: p, newer: newer, log: log}
+}
+
+// step takes a pressure step.
+func (f *bootTest) step(t *testing.T) {
+	t.Helper()
+	f.srv.stepPressure(context.Background())
 }

@@ -866,13 +866,6 @@ impl AppView {
                     )
                     // On by default (SettingsView.tsx: !s.idleReclaim).
                     .modified(changed(|s| !s.idle_reclaim)),
-                    entry(
-                        "agent-freeze",
-                        "settings.entry.agent-freeze.label",
-                        "settings.agentFreeze.description",
-                        "settings.entry.agent-freeze.keywords",
-                    )
-                    .modified(changed(|s| s.agent_freeze)),
                 ],
             ),
         ];
@@ -2284,16 +2277,6 @@ impl AppView {
                 |s| s.block_full_suite,
                 |v| UpdateSettingsRequest {
                     block_full_suite: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "agent-freeze" => self.switch_row(
-                e,
-                "settings.agentFreeze.details",
-                |s| s.agent_freeze,
-                |v| UpdateSettingsRequest {
-                    agent_freeze: Some(v),
                     ..Default::default()
                 },
                 cx,

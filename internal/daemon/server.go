@@ -416,29 +416,21 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
-	// slots (runslots.go) is the run slots, and runPhase what reads the
-	// machines for them and stops a run phase's work: agent's, or a test's.
-	slots    *runSlotState
-	runPhase runPhaseOps
 	// hostLoad is the user's computer's last load report (hostload.go).
 	hostLoad hostLoad
 	// vmCores is how many cores the agents' machines see, all of the VM's,
 	// which heavy commands' worker counts split (agent.HeavyWorkers).
 	vmCores func() int
-	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
-	// with Settings → Experimental's switch, and machineCgroups what
-	// freezes them.
-	frozen *fleetState
 	// admit (admission.go) is when agents' machines boot, and those On hold.
 	admit *admitState
 	// resumes (restart.go) carries on, one at a time, what a restart cut
 	// short, and holds it for the user after AgentBox stopped unexpectedly.
 	resumes *resumeState
 	// view (viewing.go) is the agent the app shows.
-	view           viewingState
+	view viewingState
+	// machineCgroups is what the daemon reads and thaws of the agents'
+	// machines' cgroups (machines.go).
 	machineCgroups machineCgroups
-	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
-	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -448,7 +440,6 @@ type Server struct {
 	vmMemoryNow    func() int64 // what the VM has now (agent.MemoryNow), which hotplug and a balloon move
 	vmCap          func() int64 // the VM's memory cap as its front end set it (configuredCap)
 	setMemoryLimit func(instance string, limit int64) error
-	setMemoryHigh  func(instance string, high int64) error // the code phase's (runslots.go)
 	setIOWeight    func(instance string, weight int) error
 	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
 	setCaps        func(instance string, caps agent.Caps) error
@@ -545,8 +536,6 @@ func New(cfg Config) (*Server, error) {
 		peering:          newPeeringState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
-		slots:            newRunSlotState(),
-		frozen:           newFleetState(),
 		admit:            newAdmitState(),
 		resumes:          newResumeState(),
 		machineCgroups:   agentMachineCgroups{},
@@ -560,7 +549,6 @@ func New(cfg Config) (*Server, error) {
 		vmMemoryNow:      agent.MemoryNow,
 		vmCap:            configuredCap,
 		setMemoryLimit:   agent.SetMemoryLimit,
-		setMemoryHigh:    agent.SetMemoryHigh,
 		setIOWeight:      agent.SetIOWeight,
 		vmSwap:           agent.VMSwap,
 		setCaps:          agent.SetCaps,
@@ -589,7 +577,6 @@ func New(cfg Config) (*Server, error) {
 	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
 	s.credentialTell = s.tellOwner
 	s.lostResumeDelay = 10 * time.Second
-	s.runPhase = agentRunPhase{s}
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
@@ -928,7 +915,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
-		Admit:            s.admitMachine,
+		Admit:            s.admitBoot,
 		NodeModules:      s.nodeModules,
 		NodeModulesOn:    s.nodeModulesOn,
 		ShareRoom:        s.shareRoom,
@@ -1173,7 +1160,6 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
-	h("GET /v1/run-slots", s.getRunSlots)
 	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
@@ -1418,7 +1404,7 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusInsufficientStorage
 	case errors.As(err, new(shareRefused)):
 		status = http.StatusForbidden
-	case errors.As(err, new(noRunSlot)), errors.As(err, new(shareSlotsFull)):
+	case errors.As(err, new(shareSlotsFull)):
 		status = http.StatusConflict
 	}
 	body := api.Error{Error: err.Error()}
@@ -1434,8 +1420,6 @@ func writeError(w http.ResponseWriter, err error) {
 		body.Code = api.ErrorFolderExists
 	case errors.As(err, new(badRepoURL)):
 		body.Code = api.ErrorBadRepoURL
-	case errors.As(err, new(noRunSlot)):
-		body.Code = api.ErrorNoRunSlot
 	case errors.As(err, new(shareSlotsFull)):
 		body.Code = api.ErrorShareSlotsFull
 	}

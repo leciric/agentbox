@@ -426,11 +426,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			s.readyVMGPU(s.runCtx, true)
 		}
 	}
-	if req.AgentFreeze != nil {
-		if err := s.setFleet(r.Context(), *req.AgentFreeze); err != nil {
-			return err
-		}
-	}
 	if req.CockpitMode != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingCockpitMode, *req.CockpitMode); err != nil {
 			return err
@@ -722,10 +717,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	agentFreeze, err := s.store.Flag(r.Context(), state.SettingAgentFreeze)
-	if err != nil {
-		return api.Settings{}, err
-	}
 	compactWindow, err := s.store.ClaudeCompactWindow(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -853,7 +844,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
 		MergeWhenGreen:       mergeWhenGreen,
-		AgentFreeze:          agentFreeze,
 		MediaRetention:       mediaRetention,
 		Language:             language,
 		Timezone:             timezone,

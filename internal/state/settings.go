@@ -230,17 +230,12 @@ const (
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
 	SettingAgentGPU = "agent_gpu"
-	// SettingAgentFreeze says whether memory pressure freezes whole agents'
-	// machines, newest first, and new machines start on the VM's real free
-	// memory (pressure.Fleet), rather than nothing waiting or being paused
-	// for memory. Experimental: off until somebody turns it on (Flag).
-	SettingAgentFreeze = "agent_freeze"
-	// SettingAgentFreezeFrozen is the agents the fleet froze, a JSON list of
-	// refs, so a daemon that restarts thaws them.
+	// SettingAgentFreezeFrozen is the agents whose machines the experimental
+	// "Pause whole agents for memory" (agent_freeze, gone, a migration
+	// deletes it) had frozen when a daemon before this one stopped, a JSON
+	// list of refs. The daemon thaws them as it starts and deletes it
+	// (daemon/leftfrozen.go); nothing writes it any more.
 	SettingAgentFreezeFrozen = "agent_freeze_frozen"
-	// SettingBootCosts is what the last machines' boots took, a JSON list of
-	// bytes, newest last: what the fleet holds a new machine's start to.
-	SettingBootCosts = "boot_costs"
 	// SettingRestartHold is why what AgentBox didn't carry on as it started
 	// waits for the user (daemon/restart.go), a JSON object, until they
 	// resume it.

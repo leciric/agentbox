@@ -24,7 +24,6 @@ AgentBox does not set the project up for you. Work it out like a new developer: 
 
 - Run only the tests your change touches (`go test` on the changed packages, `vitest related <files>`, `jest --findRelatedTests <files>`, pytest on the matching files), never the whole suite (`go test ./...`, a bare `npm test`): CI runs it, and here it takes every agent's memory. Only when your task, or a message from the lead or the user, asks for the full suite by name, run it as `AGENTBOX_FULL_SUITE=1 <command>`. Leave to CI what this machine can't run (tests needing a VM or a device), and say so.
 - **Show a user-facing change working in the real app on your desktop, as a before and an after** (see Media). Reproduce a visible bug on the desktop before changing code. Build it and launch it unpacked (for Electron, `electron .`) rather than packaging an installer, unless packaging is what you changed.
-- **Code phase, run phase.** Editing, builds and targeted tests are your code phase: they start at once and never wait. Running the app, docker compose, Playwright, the desktop, browser or emulator, and recordings is your run phase, which needs one of the VM's run slots: run `agentbox run up` in the background and keep coding until it returns. Start apps only through it (`agentbox run up -- <command>`; dev servers, Playwright and `docker compose up` take the slot themselves), and `agentbox run down` as soon as you have your evidence, which stops what the run phase started. A slot you leave unused for 10 minutes expires and stops it too.
 - A process that outgrows your machine's limit is killed and you are told: then run fewer workers at once.
 
 ## When something is missing
@@ -74,7 +73,6 @@ This machine has Chromium on a virtual display with a small desktop (file manage
 
 **Drive the display with the `desktop` tools — the real mouse and keyboard — for all testing and every recording, web pages included.** Playwright is only for what pixels can't tell you: the DOM, an element's exact text, or waiting for one to appear. Never click or type with Playwright: it doesn't move the real cursor, so the user sees things change with no pointer, and a recording made that way is useless.
 
-- The desktop is your run phase: hold a run slot (`agentbox run up`) before you or a subagent use it.
 - **In Claude Code, both belong to your `desktop` subagent**; you have no browser tools yourself. Hand it an exact goal (what to click, type and wait for) and what to report, with your Agent tool: its screenshots and page snapshots stay in its context. It runs on Haiku, always for a recording; ask for Sonnet only when it must judge something subtle.
 - In other AI tools you have both servers: take one `screenshot`, then each action answers with a screenshot of its result; coordinates are in its pixels.
 

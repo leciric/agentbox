@@ -31,10 +31,10 @@ var t0 = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 // again is the same run: nothing waits for memory (19 Nov 2026).
 func TestRunsStartAtOnceWhateverTheMemory(t *testing.T) {
 	g := NewRuns(DefaultPolicy)
-	for i, s := range []Sample{psi(80, 60), atCap(0.5, 4), {HostBusy: true}, {}} {
+	for i, s := range []Sample{psi(80, 60), atCap(0.5, 4), psi(0, 0), {}} {
 		g.Observe(t0, s)
 		key := string(rune('a' + i))
-		if r := g.Ask("p/a", key, "go test ./...", time.Minute, t0); r.Started.IsZero() || r.Paused {
+		if r := g.Ask("p/a", key, "go test ./...", time.Minute, t0); r.Started.IsZero() {
 			t.Fatalf("%s didn't start under %s: %+v", key, s, r)
 		}
 	}
@@ -80,8 +80,6 @@ func keys(runs []*Run) []string {
 // the time stalled, with the VM's memory free, is Stalling, and builds still
 // start at once.
 func TestWhyIsHowShortMemoryIs(t *testing.T) {
-	busy := psi(0, 0)
-	busy.HostBusy = true
 	throttled := Sample{PSI: PSI{Some: Stall{Avg10: 62}, Full: Stall{Avg10: 8}},
 		Mem: Mem{Total: gibs(8), Cap: gibs(8), Available: gibs(3), SwapTotal: gibs(2), SwapFree: gibs(1)}}
 	for _, c := range []struct {
@@ -93,7 +91,6 @@ func TestWhyIsHowShortMemoryIs(t *testing.T) {
 		{"some stall", psi(DefaultPolicy.Admit, 0), Stalling},
 		{"full stall", psi(0, DefaultPolicy.Freeze), Stalling},
 		{"under the floor, swap full", atCap(1, 4), Low},
-		{"the user's computer busy", busy, HostBusy},
 		{"19 Nov 2026, agents at their shared limit", throttled, Stalling},
 		{"a full swap of cold pages with memory to spare", trace20261012(0), ""},
 	} {
@@ -181,26 +178,6 @@ func trace20261012(sec int) Sample {
 		PSI: PSI{Some: Stall{Avg10: 0.3}, Full: Stall{Avg10: 0.2}},
 		Mem: Mem{Total: gibs(17.8), Cap: gibs(18), Available: gibs(6.2 - 0.05*float64(sec%3)),
 			SwapTotal: gibs(4.5), SwapFree: gibs(4.5 - 4.38), Refaulted: gibs(3) + int64(sec)<<20},
-	}
-}
-
-func TestTheFleetPausesAnAgentsRuns(t *testing.T) {
-	g := NewRuns(DefaultPolicy)
-	for _, key := range []string{"1", "2"} {
-		g.Ask("p/a", key, "vue-tsc", time.Minute, t0)
-	}
-	g.Ask("p/b", "1", "vitest", time.Minute, t0)
-	g.Place("p/a", "1")
-	g.Place("p/b", "1")
-	paused := g.PauseAgent("p/a", t0, Low)
-	if len(paused) != 1 || paused[0].ID() != "p/a/1" || !paused[0].ForFleet || paused[0].Why != Low {
-		t.Fatalf("paused %v, want p/a's placed run only", paused)
-	}
-	if got := g.ResumeAgent("p/a"); len(got) != 1 || got[0].Paused {
-		t.Fatalf("resumed %v", got)
-	}
-	if got := g.ResumeAgent(""); len(got) != 0 {
-		t.Fatalf("resumed %v again", got)
 	}
 }
 

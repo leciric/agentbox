@@ -27,9 +27,8 @@ import (
 // Heavy commands inside an agent: a test run or a build tells the daemon as
 // it starts, which is how the daemon knows the agent works, starts with as
 // many workers as the daemon answers (the VM's cores split between the heavy
-// commands running then, agent.HeavyWorkers), and joins a cgroup of its own,
-// which only the experimental "pause whole agents" pauses
-// (internal/daemon/pressure.go). Nothing waits for memory. The shims for go,
+// commands running then, agent.HeavyWorkers), and joins a cgroup of its own
+// (internal/daemon/pressure.go). Nothing waits or is paused for memory. The shims for go,
 // cargo, npm, make… do it by themselves (agent/heavyshims.go); `agentbox
 // heavy` does it around any other command.
 
@@ -53,14 +52,15 @@ const (
 func newHeavyCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "heavy [--] <command> [args...]",
-		Short: "Run a command that needs a lot of memory in your run phase, holding a run slot",
-		Long: `Runs a command that needs a lot of memory for a while (an emulator, a load
-test) in the agent's run phase: it waits for a run slot as ` + "`agentbox run up`" + ` does,
-runs with its share of the VM's cores as its jobs (GOMAXPROCS, CARGO_BUILD_JOBS,
-MAKEFLAGS…), and ` + "`agentbox run down`" + ` stops it.
+		Short: "Run a heavy command, with its share of the VM's cores as its jobs",
+		Long: `Runs a command that needs a lot of CPU or memory for a while (a test suite, a
+big build, an emulator) the way an agent's tests and builds run: it starts at
+once, with the VM's cores split between the heavy commands running in every
+agent as its jobs (GOMAXPROCS, CARGO_BUILD_JOBS, MAKEFLAGS…, unless you set
+them), and the daemon counts the agent as working while it runs.
 
-Run it inside an agent. Builds and targeted tests are the code phase, which
-never waits: they need none of this.`,
+Run it inside an agent. Its tests and builds do this by themselves; use it
+for anything else.`,
 		Example: `  agentbox heavy -- ./gradlew assembleDebug
   agentbox heavy make -j4`,
 		Args: cobra.MinimumNArgs(1),
@@ -97,21 +97,15 @@ func runHeavy(ctx context.Context, c heavyClient, args []string, stderr io.Write
 	if len(args) == 0 {
 		return 0, errors.New("say which command to run")
 	}
-	command := strings.Join(args, " ")
-	return runHeavyCommand(ctx, c, heavyCommandRun{path: args[0], argv: args, command: command, run: true, beat: isRunTest(command)}, stderr)
+	return runHeavyCommand(ctx, c, heavyCommandRun{path: args[0], argv: args, command: strings.Join(args, " ")}, stderr)
 }
 
 // heavyCommandRun is one heavy command to run: the executable, its argv
-// (argv[0] the name it is run by), and how it is shown. run says it is the
-// run phase's (runphase.go): it waits for a run slot and joins the run
-// phase's cgroup, which `agentbox run down` stops; beat, that it renews the
-// slot while it runs.
+// (argv[0] the name it is run by), and how it is shown.
 type heavyCommandRun struct {
 	path    string
 	argv    []string
 	command string
-	run     bool
-	beat    bool
 }
 
 // runHeavyCommand tells the daemon run starts, starts it at once in a
@@ -121,27 +115,9 @@ type heavyCommandRun struct {
 func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (code int, err error) {
 	env := os.Environ()
 	key := "heavy-" + randomKey()
-	// A run phase's command waits for a run slot, and joins its cgroup
-	// rather than one of its own.
-	var rc runClient
-	if run.run && c != nil {
-		if r, ok := c.(runClient); ok {
-			switch _, err := waitRunSlot(ctx, r, run.command, stderr); {
-			case err == nil:
-				rc = r
-			case ctx.Err() != nil:
-				return 0, ctx.Err()
-			case !noRunSlots(err):
-				_, _ = fmt.Fprintf(stderr, "agentbox: couldn't ask for a run slot (%v); running anyway\n", err)
-			}
-		}
-	}
 	var started time.Time // as the command starts, past asking the daemon
 	jobs := 0
 	if c != nil {
-		// In its cgroup before the command starts, so all it starts is: the
-		// run phase's, or (below) one of its own.
-		joined := rc != nil && rc.RunJoin(ctx, os.Getpid()) == nil
 		req := api.HeavyRequest{Key: key, Command: run.command, TTLSeconds: int(heavyTTL.Seconds())}
 		// startErr, not err: the deferred EndHeavy below reads err, the
 		// command's own.
@@ -154,10 +130,8 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 		} else {
 			env = agent.WorkerEnv(env, start.Workers)
 			jobs = start.Workers
-			if !joined {
-				// In its cgroup before the command starts, so all it starts is.
-				_ = c.JoinHeavy(ctx, key, os.Getpid())
-			}
+			// In its cgroup before the command starts, so all it starts is.
+			_ = c.JoinHeavy(ctx, key, os.Getpid())
 			stop := make(chan struct{})
 			defer func() {
 				close(stop)
@@ -179,9 +153,6 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 						return
 					case <-tick.C:
 						_, _ = c.StartHeavy(ctx, req)
-						if rc != nil && run.beat {
-							_, _ = rc.RunUp(ctx, api.RunUpRequest{Try: true, Command: run.command})
-						}
 					}
 				}
 			}()
@@ -253,15 +224,14 @@ func heavyShim(ctx context.Context, name, dir string, args []string, stderr io.W
 	argv := append([]string{name}, args...)
 	command := shellJoin(argv)
 	socket := inAgentSocket()
-	runPhase := isRunPhase(command)
-	if os.Getenv(agent.HeavyEnv) != "" || (!runPhase && !isHeavy(command)) || !fileExists(socket) {
+	if os.Getenv(agent.HeavyEnv) != "" || !isHeavy(command) || !fileExists(socket) {
 		if err := execReal(real, argv, os.Environ()); err != nil {
 			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
 			return 126
 		}
 		return 0
 	}
-	code, err := runHeavyCommand(ctx, api.NewClient(socket), heavyCommandRun{path: real, argv: argv, command: command, run: runPhase, beat: runPhase && isRunTest(command)}, stderr)
+	code, err := runHeavyCommand(ctx, api.NewClient(socket), heavyCommandRun{path: real, argv: argv, command: command}, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
 		return max(code, 1)

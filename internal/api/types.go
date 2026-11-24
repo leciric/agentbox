@@ -726,12 +726,6 @@ type Settings struct {
 	// review: the daemon merges a pull request the user resolved once its
 	// checks pass. Off unless turned on.
 	MergeWhenGreen bool `json:"mergeWhenGreen"`
-	// AgentFreeze is the experimental memory governor: under memory
-	// pressure whole agents' machines are frozen, newest first, never the
-	// oldest working one, and thaw oldest first; a new machine starts once
-	// the VM really has the memory to boot it. Off, only heavy commands are
-	// held, as ever.
-	AgentFreeze bool `json:"agentFreeze"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -954,8 +948,6 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
 	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
-	// AgentFreeze turns the experimental memory governor on or off.
-	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// Language sets Settings.Language: a language tag, "" going back to
@@ -1105,13 +1097,8 @@ type Agent struct {
 	// the image is ready.
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Memory is what the daemon holds of the agent: its machine waiting to
-	// boot, or, with pausing whole agents on, its machine or heavy commands
-	// paused for memory. Absent when it holds nothing.
+	// boot. Absent when it holds nothing.
 	Memory *MemoryHold `json:"memory,omitempty"`
-	// RunSlot is where the agent stands for a run slot (runslots.go):
-	// holding one for its run phase, or waiting with others ahead. Absent
-	// in its code phase.
-	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
 	// "frozen" when what it left running is frozen and pushed out to swap,
 	// "stopped" when its machine was stopped after it finished. Absent
@@ -1303,42 +1290,32 @@ type CreateAgentRequest struct {
 }
 
 // MemoryHold is what the daemon holds of an agent: its machine's boot, in
-// turn or for the user's computer, or, with pausing whole agents on
-// (Settings.AgentFreeze), its machine or heavy commands for the VM's memory.
-// Nothing else waits or is paused for memory.
+// turn or for the user's computer. Nothing else waits or is paused for
+// memory.
+//
+// Only Machine ("waiting"), Since and Why (HoldWhyTurn or HoldWhyHost) are
+// set now. The rest is a daemon before this one's, which the apps still
+// read from one: Waiting, heavy commands waiting for memory (until 19 Nov
+// 2026), and the experimental "Pause whole agents for memory" (gone, 24 Nov
+// 2026): Paused heavy commands, Machine "paused", Ahead, a pressure.Reason
+// for Why with its Stalled and Rate, Available, Total and SwapFull.
 type MemoryHold struct {
-	// Paused is how many of its heavy commands pausing whole agents paused
-	// (frozen) while the VM's memory is under pressure. Waiting is a daemon
-	// before 19 Nov 2026's: heavy commands no longer wait.
 	Paused  int `json:"paused,omitempty"`
 	Waiting int `json:"waiting,omitempty"`
-	// Machine is what holds the agent's whole machine: "waiting" to boot
-	// (Why "turn" or "host"; with pausing whole agents on, until the VM has
-	// the memory to boot it), or "paused" by pausing whole agents (frozen
-	// for memory, it thaws by itself); "" for neither. Ahead is, with
-	// pausing whole agents on, how many machines thaw or start before it.
+	// Machine is "waiting" while the agent's machine waits to boot, "" for
+	// nothing.
 	Machine string `json:"machine,omitempty"`
 	Ahead   int    `json:"ahead,omitempty"`
-	// Since is when the oldest of them was paused or began to wait.
+	// Since is when it began to wait.
 	Since time.Time `json:"since"`
-	// Why is what holds them now: for a machine waiting to boot, HoldWhyTurn
-	// or HoldWhyHost; with pausing whole agents on, a pressure.Reason:
-	// "stalling" (tasks stall on memory, Stalled percent of the last 10
-	// seconds), "falling" (what is available falls Rate bytes a second
-	// toward running out), "churning" (memory pushed out to swap comes back
-	// Rate bytes a second), "low" (little available with swap full),
-	// "easing" (it eased: paused ones resume first, one at a time), or ""
-	// (their turn comes next).
+	// Why is what it waits for: HoldWhyTurn or HoldWhyHost.
 	Why     string  `json:"why,omitempty"`
 	Stalled float64 `json:"stalled,omitempty"`
 	Rate    int64   `json:"rate,omitempty"`
 	// Available and Total are the VM's memory, MemAvailable and MemTotal.
 	Available int64 `json:"available,omitempty"`
 	Total     int64 `json:"total,omitempty"`
-	// SwapFull says the VM's swap is full, with pausing whole agents on:
-	// what a paused machine or command holds stays in memory, so pausing it
-	// stops it growing and frees nothing.
-	SwapFull bool `json:"swapFull,omitempty"`
+	SwapFull  bool  `json:"swapFull,omitempty"`
 }
 
 // PressureStatus is the VM's memory pressure and the heavy commands going:
@@ -1349,12 +1326,10 @@ type PressureStatus struct {
 	// waiting for memory.
 	Some float64 `json:"some"`
 	Full float64 `json:"full"`
-	// Why is how short the VM's memory is now, as in MemoryHold.Why;
-	// nothing waits for it. With pausing whole agents on, what the fleet
-	// holds machines back for.
+	// Why is how short the VM's memory is now, a pressure.Reason; nothing
+	// waits for it.
 	Why string `json:"why,omitempty"`
-	// Runs are the heavy commands going, oldest first: running, or paused
-	// by pausing whole agents.
+	// Runs are the heavy commands going, oldest first.
 	Runs []HeavyRun `json:"runs"`
 	// Host is the last report of the user's computer's own load
 	// (internal/hostload), when one came within HostLoadTTL.
@@ -1384,9 +1359,9 @@ type AgentsMemory struct {
 const HostLoadTTL = 15 * time.Second
 
 // HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
-// end reads it, PUT /v1/host/load. While Busy, builds and tests run fewer
-// jobs at once, so the user's own programs come first; nothing waits for
-// it.
+// end reads it, PUT /v1/host/load. Nothing waits or runs fewer jobs for it
+// (24 Nov 2026, the user's decision): what the daemon acts on is HoldBoots,
+// Reclaim and VMCeiling.
 type HostLoad struct {
 	OS string `json:"os"` // "linux", "darwin" or "windows"
 	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
@@ -1401,10 +1376,8 @@ type HostLoad struct {
 	Level       string `json:"level,omitempty"`
 	MemoryTotal int64  `json:"memoryTotal,omitempty"`
 	Available   int64  `json:"available,omitempty"`
-	// Busy says the host is loaded enough that the VM should hold back.
-	Busy bool `json:"busy"`
 	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
-	// while a busy host is calming down.
+	// for nothing. Shown, never acted on.
 	Why string `json:"why,omitempty"`
 	// Reclaim asks the daemon to drop the VM's caches so their memory goes
 	// back to the host: set by front ends that don't size the VM's memory
@@ -1428,11 +1401,12 @@ type HeavyRun struct {
 	Agent   string `json:"agent"` // its ref
 	Key     string `json:"key"`
 	Command string `json:"command,omitempty"`
-	// State is "running", "paused" or "waiting".
+	// State is "running". A daemon before this one's also said "waiting"
+	// (until 19 Nov 2026) and "paused" (by "Pause whole agents for
+	// memory", gone 24 Nov 2026).
 	State string    `json:"state"`
 	Since time.Time `json:"since"`
-	// Placed says its processes are in a cgroup of their own, which is what
-	// pausing it freezes; one that isn't is never paused.
+	// Placed says its processes are in a cgroup of their own.
 	Placed bool `json:"placed,omitempty"`
 }
 
@@ -3216,8 +3190,6 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
-	// RunSlot is Agent.RunSlot.
-	RunSlot *RunSlot `json:"runSlot,omitempty"`
 	// WaitingForImage is Agent.WaitingForImage.
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.
@@ -3234,7 +3206,7 @@ const (
 )
 
 // Why machines waiting to boot wait (MemoryHold.Why, with Machine
-// "waiting" and pausing whole agents off): another machine boots just
+// "waiting"): another machine boots just
 // before it, a few seconds (pressure.DefaultBootStep), or the user's
 // computer, outside the VM, is below its hard floor (HostLoad.HoldBoots).
 // Never for the VM's memory: a daemon before 19 Nov 2026 also said

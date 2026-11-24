@@ -847,7 +847,6 @@ type gateStats struct {
 	StepWaits  int            `json:"step_waits"`
 	LogPauses  int            `json:"log_pauses"`
 	LogLines   []string       `json:"log_lines,omitempty"`
-	FleetOn    bool           `json:"pause_whole_agents"`
 	Fired      bool           `json:"fired"`
 	Verdict    string         `json:"verdict"`
 }
@@ -955,11 +954,6 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 	for _, a := range agents {
 		r.Mix[a.Kind]++
 	}
-	var settings struct {
-		AgentFreeze bool `json:"agentFreeze"`
-	}
-	_ = c.do(ctx, http.MethodGet, "/v1/settings", nil, &settings)
-	r.Heavy.FleetOn = settings.AgentFreeze
 	r.IO.Max, r.Jobs = cfg.ioMax, cfg.jobs
 
 	startEvents := map[string]MemoryCounts{}
@@ -1355,8 +1349,6 @@ func gateVerdict(r *loadReport) string {
 		return "Couldn't fire: LAB_GATE=none runs every command without asking, as Codex, OpenCode, Cursor and Gemini agents do. The gate only sees commands that ask (Claude Code's hook, or agentbox heavy)."
 	case g.Asked == 0:
 		return "Didn't fire: no heavy command reached the daemon, so it had nothing to hold. `agentbox heavy` in the agents ran the commands without asking (no in-agent API socket, or it couldn't reach the daemon)."
-	case g.FleetOn:
-		return "Didn't fire as runs: pausing whole agents is on, which starts every run at once and pauses machines instead."
 	}
 	why := fmt.Sprintf("Didn't fire: %d heavy runs asked and all started at once. Its rule is %s. The daemon read memory PSI some at most %.1f%% (full %.1f%%), and the VM's available memory never went under %s of %s",
 		g.Asked, pol, g.SomePeak, g.FullPeak, HumanBytes(r.Memory.MinAvailable), HumanBytes(r.Memory.Total))
@@ -1419,7 +1411,7 @@ func (r *loadReport) markdown() string {
 	g := r.Heavy
 	p("\n**Heavy-command gate**: %s\n\n", g.Verdict)
 	p("- runs asked %d (in a cgroup of their own %d), waited %d, paused %d; at once at most %d running, %d waiting, %d paused; steps that printed \"waiting for memory\": %d\n", g.Asked, g.Placed, g.Waited, g.Paused, g.MaxRunning, g.MaxWaiting, g.MaxPaused, g.StepWaits)
-	p("- daemon's memory PSI some peak %.1f%%, full %.1f%%; pausing whole agents %v\n", g.SomePeak, g.FullPeak, g.FleetOn)
+	p("- daemon's memory PSI some peak %.1f%%, full %.1f%%\n", g.SomePeak, g.FullPeak)
 	p("\n**Memory**: %s total, lowest available %s, swap used at most %s of %s\n\n", HumanBytes(r.Memory.Total), HumanBytes(r.Memory.MinAvailable), HumanBytes(r.Memory.PeakSwapUsed), HumanBytes(r.Memory.SwapTotal))
 	p("**OOM kills**: %d at an agent's own limit (%s), %d beyond it, %d outside agents\n\n", r.OOM.AtOwnLimit, HumanBytes(r.OOM.Limit), r.OOM.OutsideLimit, r.OOM.OutsideAgents)
 	var rd, wr int64

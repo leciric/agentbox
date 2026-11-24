@@ -55,6 +55,16 @@ const (
 // DefaultBootStep is the daemon's.
 const DefaultBootStep = 5 * time.Second
 
+// BootSettle is how long a machine let boot counts as booting (Booted): its
+// asker, asking again within it, boots at once rather than in line again.
+const BootSettle = 45 * time.Second
+
+// booting is a machine let boot, until when it counts as booting.
+type booting struct {
+	agent string
+	until time.Time
+}
+
 // NewAdmission is an admission booting a machine every DefaultBootStep.
 func NewAdmission() *Admission {
 	return &Admission{BootStep: DefaultBootStep}
@@ -167,8 +177,9 @@ const SettleFall = 32 << 20 // 32 MiB/s
 // Unsettled says what keeps the VM from being settled at s, with t, for one
 // more piece of work a restart cut short to be carried on after the last,
 // or "" when nothing does: a memory stall (some pressure at Admit, or full
-// at Calm), the VM paging to its disk, the user's computer busy, and, while
-// steady is asked for, its memory still falling at SettleFall or faster.
+// at Calm), the VM paging to its disk, and, while steady is asked for, its
+// memory still falling at SettleFall or faster. The user's computer being
+// busy doesn't (24 Nov 2026).
 // It spaces out what a restart carries on, one after another; it holds
 // nothing else back.
 func (p Policy) Unsettled(s Sample, t Trend, steady bool) string {
@@ -177,8 +188,6 @@ func (p Policy) Unsettled(s Sample, t Trend, steady bool) string {
 		return "memory pressure in the VM (" + s.String() + ")"
 	case s.Mem.DiskSwapOut():
 		return "the VM paging out to its disk"
-	case s.HostBusy:
-		return "your computer being busy"
 	case steady && t.Fall >= SettleFall:
 		return "the VM's memory still falling"
 	}

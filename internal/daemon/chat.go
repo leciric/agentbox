@@ -89,7 +89,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 		// noise from the machine coming up, not news. It reads as starting
 		// in every client until the create job is done, or as waiting for
 		// the memory to boot its machine.
-		info.Memory = s.machineHold(info.Ref)
+		info.Memory = s.admitHold(info.Ref)
 		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
@@ -103,7 +103,6 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
-	info.RunSlot = s.runSlotOf(info.Ref)
 	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
 	info.Hold = holdOfInfo(info.Hold, info.State)
 	info.Goal = s.goalOf(context.Background(), info.Project, info.Name)

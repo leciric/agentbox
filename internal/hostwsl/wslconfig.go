@@ -13,8 +13,11 @@ import (
 // WSL runs every distro in one utility VM whose memory is .wslconfig's
 // memory under [wsl2] (%UserProfile%\.wslconfig), half of Windows' when it
 // isn't set. AgentBox's VM may never take more than the computer's memory less
-// the larger of 4 GiB and a quarter, as on Linux and the Mac
-// (chv.HostReserve): Setup lowers a memory= above that to it (fitMemory). One
+// the larger of 4 GiB and a quarter: Setup lowers a memory= above that to it
+// (fitMemory). Linux and the Mac keep only 4 GiB (chv.HostReserve, 24 Nov
+// 2026), as a memory loop of AgentBox's reads the host every few seconds and
+// gives memory back the moment it is short; nothing does that for WSL's VM
+// but autoMemoryReclaim and the daemon dropping its caches, slower. One
 // within it is the user's, and stays, and with none WSL's half always is. WSL reads the file when its VM starts, so
 // what Setup writes counts from the next `wsl --shutdown` or restart, which
 // Setup doesn't force: it would stop the user's other distros.

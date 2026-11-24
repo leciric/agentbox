@@ -1276,14 +1276,6 @@ function InstalledSettings({
               modified: changed((s) => !s.idleReclaim), // on by default
               render: () => <IdleReclaim />,
             },
-            {
-              id: "agent-freeze",
-              description: t("settings.agentFreeze.description"),
-              label: t("settings.entry.agent-freeze.label"),
-              keywords: t("settings.entry.agent-freeze.keywords"),
-              modified: changed((s) => s.agentFreeze),
-              render: () => <AgentFreezeSetting />,
-            },
           ],
         },
       ],
@@ -2704,36 +2696,6 @@ function EditorSetting() {
         </div>
       )}
     </SettingRow>
-  );
-}
-
-// AgentFreezeSetting is the experimental memory governor (internal/daemon/
-// agentfreeze.go): whole agents paused for memory, and new ones started on the
-// VM's real free memory. Off until turned on.
-function AgentFreezeSetting() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (agentFreeze: boolean) => api.updateSettings({ agentFreeze }),
-    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  return (
-    <SettingRow
-      label={t("settings.entry.agent-freeze.label")}
-      description={t("settings.agentFreeze.description")}
-      details={t("settings.agentFreeze.details")}
-      control={
-        <Switch
-          data-agent-freeze
-          aria-label={t("settings.entry.agent-freeze.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.agentFreeze ?? false}
-          onCheckedChange={(next) => save.mutate(next)}
-        />
-      }
-    />
   );
 }
 
