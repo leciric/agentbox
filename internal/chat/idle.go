@@ -1,10 +1,15 @@
 package chat
 
-import "time"
+import (
+	"time"
 
-// Putting an idle chat's AI tool to sleep. A project's lead keeps its adapter,
-// and the AI tool behind it, running for as long as the daemon does: some
-// 200–230 MB of the VM's memory each, for a chat that is idle most of the day.
+	"agentbox/internal/api"
+)
+
+// Putting an idle chat's AI tool to sleep. A chat keeps its adapter, and the
+// AI tool behind it, running for as long as the daemon (a lead) or its machine
+// (an agent) does: for Claude Code some 350–450 MB of the VM's memory each, for
+// a chat that is idle most of the day.
 // So once a chat has sat idle long enough (Manager.IdleStop) its adapter is
 // stopped, and the conversation is asleep: it still reads as ready, keeps its
 // settings, its context ring and its session id, and the next thing that
@@ -15,7 +20,8 @@ import "time"
 //
 // Only an idle chat sleeps: no turn, no permission waiting, no hidden prompt
 // or compaction, nothing waiting to be sent, no background command or monitor
-// that would wake it, no usage-limit wait, and an adapter that can resume.
+// that would wake it, no timer of the tool's own (sawTimer), no usage-limit
+// wait, and an adapter that can resume.
 // A schedule about to fire keeps it up too (Manager.StayUp).
 
 // idleLook is the longest the idle wait goes without reading the setting
@@ -98,7 +104,25 @@ func (c *conversation) sleepable() bool {
 	return ad != nil && ad.ready && ad.resumable && ad.err == nil &&
 		c.turn == nil && len(c.pending) == 0 && !c.rolling && c.compaction == nil &&
 		len(c.outbox) == 0 && !c.draining && len(c.queued) == 0 &&
-		len(ad.background()) == 0 && c.resumeTimer == nil && c.heldResume == nil
+		len(ad.background()) == 0 && c.resumeTimer == nil && c.heldResume == nil &&
+		!ad.timers
+}
+
+// inProcessTimers are Claude Code's tools that arm a timer inside its own
+// process: CronCreate's jobs (kept in its memory for the session), and /loop's
+// ScheduleWakeup. Neither is a background task the adapter reports, and
+// neither outlives the process, so a session resumed after sleeping would
+// never be woken by one. An adapter that has armed one stays up for as long
+// as it runs, which is rare enough to cost little: an agent is told to wait
+// on a background command or a Monitor instead.
+var inProcessTimers = map[string]bool{"CronCreate": true, "ScheduleWakeup": true}
+
+// sawTimer notes a tool call that arms one of inProcessTimers. The
+// conversation is locked.
+func (c *conversation) sawTimer(t *api.ChatTool) {
+	if c.adapter != nil && inProcessTimers[t.Name] {
+		c.adapter.timers = true
+	}
 }
 
 // wakeForPrompt starts an asleep chat's adapter again for a hidden prompt

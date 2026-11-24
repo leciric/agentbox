@@ -221,6 +221,10 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 	if out.Tunnel, err = s.lanTunnelStatus(ctx); err != nil {
 		return api.LANStatus{}, err
 	}
+	if !on || !out.Tunnel.Enabled {
+		// It runs for other apps (remotemcplocal.go), and turns phones away.
+		out.Tunnel.State, out.Tunnel.URL, out.Tunnel.Error = "off", "", ""
+	}
 	if out.Tunnel.URL != "" {
 		out.URLs = append(out.URLs, out.Tunnel.URL)
 	}

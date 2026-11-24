@@ -807,8 +807,8 @@ type Settings struct {
 	// agents.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
-	// LeadSleep is "stop idle chats": while on, a project's chat that sat
-	// idle LeadSleepMinutes has its AI tool stopped to give its memory back,
+	// LeadSleep is "stop idle chats": while on, a chat (a project's or an
+	// agent's) that sat idle LeadSleepMinutes has its AI tool stopped to give its memory back,
 	// and its next message, notice or schedule resumes the same session.
 	// Claude Code only. On unless it was turned off.
 	LeadSleep        bool `json:"leadSleep"`
@@ -4184,19 +4184,43 @@ const (
 )
 
 // The apps the wizard knows how to set up; anything else is MCPClientOther.
+// Claude, ChatGPT and Poke sign in through a hub; Claude Code, Claude Desktop
+// and Cursor are given a bearer token.
 const (
-	MCPClientClaude  = "claude"
-	MCPClientChatGPT = "chatgpt"
-	MCPClientPoke    = "poke"
-	MCPClientOther   = "other"
+	MCPClientClaude        = "claude"
+	MCPClientChatGPT       = "chatgpt"
+	MCPClientPoke          = "poke"
+	MCPClientClaudeCode    = "claude-code"
+	MCPClientClaudeDesktop = "claude-desktop"
+	MCPClientCursor        = "cursor"
+	MCPClientOther         = "other"
 )
 
-// MCPPairing lets another app — Claude, ChatGPT, Poke — use this machine's
-// AgentBox over remote MCP, through the hub. The machine keeps and enforces
-// Access and Projects; revoking it is deleting it.
+// The ways an app paired over remote MCP reaches this machine.
+const (
+	// MCPRouteLocal is an app on this computer, at a loopback address of
+	// it (MCPLocal), with a bearer token. No hub, nothing on the network.
+	MCPRouteLocal = "local"
+	// MCPRouteTunnel is an app anywhere, through the tunnel phones use
+	// (MCPTunnel), with a bearer token.
+	MCPRouteTunnel = "tunnel"
+	// MCPRouteHub is an app that signs in through the hub this machine is
+	// connected to, with OAuth or the hub's token.
+	MCPRouteHub = "hub"
+)
+
+// MCPLocalPath is where, on the daemon's socket, the computer AgentBox's VM
+// runs on passes on what apps on it send to the local MCP port
+// (internal/lan.Forward). Only a local pairing's bearer token gets through.
+const MCPLocalPath = "/v1/remote/mcp/local/serve"
+
+// MCPPairing lets another app — Claude, ChatGPT, Claude Code, Cursor — use
+// this machine's AgentBox over remote MCP, by one of the MCPRoute* ways. The
+// machine keeps and enforces Access and Projects; revoking it is deleting it.
 type MCPPairing struct {
 	ID     string `json:"id"`
 	Label  string `json:"label"`
+	Route  string `json:"route"`  // an MCPRoute* value
 	Client string `json:"client"` // an MCPClient* value: which instructions to show
 	Access string `json:"access"` // an MCPAccess* value
 	// Projects are the projects it covers, by name; none is all of them,
@@ -4209,40 +4233,94 @@ type MCPPairing struct {
 	Apps []string `json:"apps,omitempty"`
 }
 
-// MCPPairings is GET /v1/remote/mcp: whether other apps can be paired, and
-// those that are.
+// MCPPairings is GET /v1/remote/mcp: the ways other apps can reach this
+// machine, and those paired.
 type MCPPairings struct {
 	// Available is false when this machine has no hub to be reached
 	// through, or its hub is too old; Reason is "no-hub", "offline" (the
 	// hub can't be reached now) or "old-hub", and Error what the hub said.
+	// They're the hub's route only: Local and Tunnel need no hub.
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Hub       string `json:"hub,omitempty"`
-	// URL is the MCP endpoint apps are given: the hub's.
-	URL      string       `json:"url,omitempty"`
+	// URL is the MCP endpoint apps are given through the hub.
+	URL    string    `json:"url,omitempty"`
+	Local  MCPLocal  `json:"local"`
+	Tunnel MCPTunnel `json:"tunnel"`
+	// Pairings are the apps paired by every route, the oldest first.
 	Pairings []MCPPairing `json:"pairings"`
+}
+
+// MCPLocal is the route for apps on this computer: a port on its loopback
+// address, open while any app is paired for it.
+type MCPLocal struct {
+	Port int `json:"port"`
+	// URL is what such an app is given: http://127.0.0.1:<port>/mcp.
+	URL       string `json:"url"`
+	Listening bool   `json:"listening"`
+	// Error says why the port can't be opened, or what it waits for.
+	Error string `json:"error,omitempty"`
+}
+
+// MCPTunnel is the route through the tunnel phones use (LANTunnel), which
+// runs while either wants it. A quick tunnel's URL changes every time it
+// starts; a named tunnel's, or the hub's, doesn't.
+type MCPTunnel struct {
+	// Enabled is whether apps may reach this machine through it
+	// (PATCH /v1/remote/mcp).
+	Enabled   bool   `json:"enabled"`
+	Mode      string `json:"mode"`                // a LANTunnel* mode: quick, named or hub
+	State     string `json:"state"`               // as LANTunnel's
+	URL       string `json:"url,omitempty"`       // the MCP endpoint, while it runs
+	Error     string `json:"error,omitempty"`     // why it doesn't
+	Transport string `json:"transport,omitempty"` // as LANTunnel's: "tailscale" is reached only from the tailnet
+}
+
+// UpdateMCPRequest is PATCH /v1/remote/mcp: what's set is changed.
+type UpdateMCPRequest struct {
+	Tunnel *bool `json:"tunnel,omitempty"`
+	Port   *int  `json:"port,omitempty"` // the local route's; 0 is the default
+}
+
+// MCPLocalHost is GET /v1/remote/mcp/local/host, which the computer AgentBox's
+// VM runs on asks every lan.ReportEvery: whether to open the local MCP port,
+// and which.
+type MCPLocalHost struct {
+	Port int  `json:"port"`
+	Open bool `json:"open"`
+}
+
+// MCPLocalHostReport is PUT /v1/remote/mcp/local/host: how that port is.
+type MCPLocalHostReport struct {
+	Port      int    `json:"port"`
+	Listening bool   `json:"listening"`
+	Error     string `json:"error,omitempty"`
 }
 
 // MCPPairRequest is POST /v1/remote/mcp/pairings.
 type MCPPairRequest struct {
-	Label    string   `json:"label"`
+	Label string `json:"label"`
+	// Route is an MCPRoute* value; "" is the hub's when this machine is
+	// connected to one, and the local one otherwise.
+	Route    string   `json:"route,omitempty"`
 	Client   string   `json:"client,omitempty"`
 	Access   string   `json:"access"`
 	Projects []string `json:"projects,omitempty"`
-	// Token asks for a bearer token as well as a code, for an app that
-	// takes an API key instead of signing in with OAuth.
+	// Token asks the hub for a bearer token as well as a code, for an app
+	// that takes an API key instead of signing in with OAuth. Local and
+	// tunnel pairings always have one, and no code.
 	Token bool `json:"token,omitempty"`
 }
 
 // MCPPairingSecret is a pairing with what its app is given, shown once: the
-// URL, the code to type when the app signs in (which works once, until
-// CodeExpiresAt), and the bearer token when one was asked for.
+// URL, the code to type when the app signs in through the hub (which works
+// once, until CodeExpiresAt), and the bearer token when there is one.
 type MCPPairingSecret struct {
 	Pairing       MCPPairing `json:"pairing"`
 	URL           string     `json:"url"`
-	Code          string     `json:"code"`
-	CodeExpiresAt time.Time  `json:"codeExpiresAt"`
+	Code          string     `json:"code,omitempty"`
+	CodeExpiresAt time.Time  `json:"codeExpiresAt,omitzero,omitempty"`
 	Token         string     `json:"token,omitempty"`
 }
 

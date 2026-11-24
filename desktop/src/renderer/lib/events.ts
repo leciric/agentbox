@@ -251,7 +251,10 @@ export function connectEvents(queryClient: QueryClient): void {
         break;
       case T.EventLAN:
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
+        // Other apps without a hub too: their local port and the tunnel
+        // (Settings, Other apps).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });
+        void queryClient.invalidateQueries({ queryKey: ['mcp-apps'] });
         // Pairing another AgentBox needs the phone page's address.
         void queryClient.invalidateQueries({ queryKey: ['share'] });
         break;

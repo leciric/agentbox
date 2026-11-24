@@ -25,11 +25,13 @@ func usesDesktop(t *api.ChatTool) bool {
 	return desktopTool.MatchString(t.Name) || desktopTool.MatchString(t.Title) || desktopCommand.MatchString(t.Command)
 }
 
-// sawTool notes a tool call that uses the desktop. The conversation is locked.
+// sawTool notes a tool call that uses the desktop, or arms a timer that keeps
+// the chat from sleeping (sawTimer). The conversation is locked.
 func (c *conversation) sawTool(t *api.ChatTool) {
 	if usesDesktop(t) {
 		c.desktopAt = c.m.now()
 	}
+	c.sawTimer(t)
 }
 
 // DesktopAt is when an agent's AI tool last used its desktop, as far as this

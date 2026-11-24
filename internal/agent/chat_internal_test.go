@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,5 +67,42 @@ esac`)}
 		if !strings.Contains(ran, want) {
 			t.Errorf("didn't run %q:\n%s", want, ran)
 		}
+	}
+}
+
+// Claude Code's adapter runs with node's memory flags wherever mise put it,
+// with the NODE_PATH its bin would have set, and as its bin otherwise.
+func TestClaudesAdapterRunsWithNodesMemoryFlags(t *testing.T) {
+	t.Parallel()
+	const entry = "@agentclientprotocol/claude-agent-acp/dist/index.js"
+	flags := strings.Join(claudeAdapterNode, " ")
+	for _, tc := range []struct {
+		name, layout string
+		want         func(install string) string
+	}{
+		{"node_modules", "node_modules/", func(d string) string {
+			return "node " + flags + " " + d + "/node_modules/" + entry + " NODE_PATH=" + d + "/node_modules:" + d + "/node_modules/.mise/node_modules"
+		}},
+		{"lib/node_modules", "lib/node_modules/", func(d string) string {
+			return "node " + flags + " " + d + "/lib/node_modules/" + entry + " NODE_PATH="
+		}},
+		{"neither", "", func(string) string { return "the bin" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bin, install := t.TempDir(), t.TempDir()
+			writeExec(t, filepath.Join(bin, "mise"), "#!/bin/sh\n[ \"$1\" = where ] && echo "+install+"\n")
+			writeExec(t, filepath.Join(bin, "node"), "#!/bin/sh\necho node \"$@\" NODE_PATH=$NODE_PATH\n")
+			writeExec(t, filepath.Join(bin, ChatAdapters["claude"].Command), "#!/bin/sh\necho the bin\n")
+			if tc.layout != "" {
+				writeExec(t, filepath.Join(install, tc.layout, entry), "")
+			}
+			cmd := exec.Command("sh", "-c", claudeAdapterCommand("npm:@agentclientprotocol/claude-agent-acp@1.0.0"))
+			cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin"}
+			out, err := cmd.CombinedOutput()
+			if got := strings.TrimSpace(string(out)); err != nil || got != tc.want(install) {
+				t.Errorf("ran %q (%v), want %q", got, err, tc.want(install))
+			}
+		})
 	}
 }

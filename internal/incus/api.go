@@ -2,9 +2,11 @@ package incus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -88,6 +90,38 @@ func (c Client) do(ctx context.Context, args []string, call func(incusclient.Ins
 	err = c.fail(args, err)
 	span.End(err)
 	return err
+}
+
+// get reads path, under /1.0, from Incus' API into target, through do.
+//
+// It is for listings the daemon takes every few seconds: Instances is about
+// two thirds of everything the daemon allocates. The Go client's own getters
+// decode Incus' whole answer into its api types, then log it with
+// logger.Pretty, which indents all of it into a string whether or not
+// anything logs at debug level. Read raw, the answer decodes once, straight
+// into target, and what target doesn't name (snapshots, backups, counters) is
+// skipped rather than built. The live listing of 26 instances went from
+// 8.5 MB allocated per call to 1.9 MB (BenchmarkInstances).
+func (c Client) get(ctx context.Context, args []string, path string, target any) error {
+	return c.do(ctx, args, func(s incusclient.InstanceServer) error {
+		// RawQuery adds neither /1.0 nor the project, as the getters do.
+		info, err := s.GetConnectionInfo()
+		if err != nil {
+			return err
+		}
+		u, err := url.Parse("/1.0" + path)
+		if err != nil {
+			return err
+		}
+		q := u.Query()
+		q.Set("project", info.Project)
+		u.RawQuery = q.Encode()
+		resp, _, err := s.RawQuery(http.MethodGet, u.String(), nil, "")
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(resp.Metadata, target)
+	})
 }
 
 // fail wraps err the way run does a failed incus command: its own message,

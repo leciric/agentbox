@@ -10,8 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
+
+	"agentbox/internal/shim"
 )
 
 // The lead runs its AI tool on the host, so Claude Code and its ACP adapter
@@ -37,10 +40,11 @@ type hostTools struct {
 // path rather than left to its `#!/usr/bin/env node`, which picks whichever
 // node comes first on the PATH, and on a machine with mise that is a shim:
 // mise itself, which under the lead's private HOME can't see the user's
-// ~/.tool-versions or ~/.mise.toml and fails with "mise ERROR".
+// ~/.tool-versions or ~/.mise.toml and fails with "mise ERROR". Run by path,
+// node is given claudeAdapterNode too, as an agent's adapter is.
 func (t hostTools) command() (string, []string) {
 	if t.Node != "" && nodeScript(t.Adapter) {
-		return t.Node, []string{t.Adapter}
+		return t.Node, append(slices.Clone(claudeAdapterNode), t.Adapter)
 	}
 	return t.Adapter, nil
 }
@@ -105,68 +109,9 @@ func (m *Manager) hostTools(ctx context.Context, status func(detail string)) (ho
 	return out, nil
 }
 
-// withoutShims is a PATH with every version manager's shim directory taken
-// out. The lead inherits the daemon's PATH, and a shim there would be found
-// before the real tool by anything the adapter starts, then fail for want of
-// the user's HOME.
-func withoutShims(path string) string {
-	var keep []string
-	for _, dir := range filepath.SplitList(path) {
-		if dir != "" && !isShim(filepath.Join(dir, "x")) {
-			keep = append(keep, dir)
-		}
-	}
-	return strings.Join(keep, string(os.PathListSeparator))
-}
-
-// deshim turns a version manager's shim into the real executable. A shim is the
-// manager itself, deciding what to run from directories under HOME; the lead
-// has its own HOME, so a shim there finds nothing. mise answers `mise which`
-// with the real path, and that path needs no manager to run.
-func deshim(path string) string {
-	if !isShim(path) {
-		return path
-	}
-	mise := findMise(path)
-	if mise == "" {
-		return ""
-	}
-	out, err := exec.Command(mise, "which", filepath.Base(path)).Output()
-	real := strings.TrimSpace(string(out))
-	if err != nil || real == "" || isShim(real) {
-		// mise can't resolve it from here either, so this isn't a tool the lead
-		// can run. The caller installs AgentBox's own copy instead.
-		return ""
-	}
-	return real
-}
-
-// findMise is the mise that answers for a shim: the PATH's, else the one the
-// shim links to. A desktop launcher can start the daemon with the shims on its
-// PATH but not mise itself, and mise's shims are symlinks to it.
-func findMise(shim string) string {
-	if mise, err := exec.LookPath("mise"); err == nil {
-		return mise
-	}
-	if real, err := filepath.EvalSymlinks(shim); err == nil && strings.TrimSuffix(filepath.Base(real), ".exe") == "mise" && usable(real) {
-		return real
-	}
-	return ""
-}
-
-func isShim(path string) bool {
-	return path != "" && strings.Contains(path, string(os.PathSeparator)+"shims"+string(os.PathSeparator))
-}
-
 // onPath finds a command the lead can run: on the PATH, and resolved past any
 // shim, because a shim needs the HOME the lead doesn't have.
-func onPath(name string) string {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return ""
-	}
-	return deshim(path)
-}
+func onPath(name string) string { return shim.Look(name) }
 
 func unique(values []string) []string {
 	seen := map[string]bool{}
@@ -229,7 +174,7 @@ func (m *Manager) ensureNode(ctx context.Context, status func(string)) (string, 
 	// The machine's own, when node and npm are side by side, resolved past any
 	// shim: callers run <dir>/node and <dir>/npm.
 	if npm := onPath("npm"); npm != "" {
-		if dir := filepath.Dir(npm); usable(filepath.Join(dir, "node")) && !isShim(filepath.Join(dir, "node")) {
+		if dir := filepath.Dir(npm); usable(filepath.Join(dir, "node")) && !shim.Is(filepath.Join(dir, "node")) {
 			return dir, nil
 		}
 	}
@@ -318,7 +263,7 @@ func (m *Manager) ensureAdapter(ctx context.Context, status func(string)) (strin
 // the directory it is asked from, which the lead's chat doesn't share.
 func pathAdapter() string {
 	path, err := exec.LookPath(ChatAdapters["claude"].Command)
-	if err != nil || isShim(path) {
+	if err != nil || shim.Is(path) {
 		return ""
 	}
 	return path

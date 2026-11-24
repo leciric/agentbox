@@ -48,7 +48,7 @@ var tsTypes = []any{
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
 	IOSStatus{}, IOSDevice{}, IOSDeviceRequest{}, IOSInput{}, IOSInstallRequest{}, IOSLaunchRequest{}, IOSOpenURLRequest{}, IOSResult{},
 	HubUser{}, HubInfo{}, HubLoginRequest{}, HubSetupRequest{}, HubSession{}, HubPairRequest{}, HubPairing{}, HubPairTokenRequest{}, HubPairResult{}, HubPairingInfo{}, HubDevice{}, HubEnvironment{}, HubCreateEnvironmentRequest{}, HubEnvironmentToken{},
-	RemoteStatus{}, RemoteConnectRequest{}, RemotePairRequest{}, RemotePairing{}, MCPPairing{}, MCPPairings{}, MCPPairRequest{}, MCPPairingSecret{}, UsageStatsPending{},
+	RemoteStatus{}, RemoteConnectRequest{}, RemotePairRequest{}, RemotePairing{}, MCPPairing{}, MCPPairings{}, MCPLocal{}, MCPTunnel{}, UpdateMCPRequest{}, MCPLocalHost{}, MCPLocalHostReport{}, MCPPairRequest{}, MCPPairingSecret{}, UsageStatsPending{},
 	LANStatus{}, LANTunnel{}, LANPhone{}, PhonePush{}, PhonePushTest{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},
 	ShareStatus{}, SharePeer{}, UpdateShareRequest{}, UpdateSharePeerRequest{}, SharePairing{}, ShareRemote{}, AddShareRemoteRequest{}, ProjectRemote{},
 	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatBackgroundTask{}, ChatBackgroundDetail{}, ChatPage{}, ChatDiff{}, ChatPlanEntry{},

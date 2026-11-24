@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"agentbox/internal/paths"
+	"agentbox/internal/shim"
 )
 
 // A machine set up with mise, as the user whose Home chat failed with "mise
@@ -122,6 +123,11 @@ func nodeDist(t *testing.T) (url string, downloads *atomic.Int32) {
 	return srv.URL, downloads
 }
 
+// nodeArgs is what node is given to run the adapter at path.
+func nodeArgs(path string) string {
+	return strings.Join(append(slices.Clone(claudeAdapterNode), path), " ")
+}
+
 // runAsLead runs the adapter the way LeadChatCommand does: with the lead's
 // private HOME, and its PATH of the tools' directories then the daemon's.
 func runAsLead(t *testing.T, tools hostTools) (string, error) {
@@ -130,7 +136,7 @@ func runAsLead(t *testing.T, tools hostTools) (string, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Env = []string{
 		"HOME=" + t.TempDir(),
-		"PATH=" + tools.Bin + string(os.PathListSeparator) + withoutShims(os.Getenv("PATH")),
+		"PATH=" + tools.Bin + string(os.PathListSeparator) + shim.WithoutShims(os.Getenv("PATH")),
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -159,11 +165,11 @@ func TestTheLeadsAdapterNeverRunsThroughANodeShim(t *testing.T) {
 		t.Errorf("Adapter = %q, want the user's real one %q", tools.Adapter, adapter)
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "mise's real node ran "+adapter) {
+	if err != nil || !strings.Contains(out, "mise's real node ran "+nodeArgs(adapter)) {
 		t.Errorf("the adapter ran as %q (%v), want mise's real node running %s", out, err, adapter)
 	}
 	for _, dir := range filepath.SplitList(tools.Bin) {
-		if isShim(filepath.Join(dir, "x")) {
+		if shim.Is(filepath.Join(dir, "x")) {
 			t.Errorf("the lead's PATH additions %q include the shims %s", tools.Bin, dir)
 		}
 	}
@@ -189,7 +195,7 @@ func TestTheLeadGetsAgentBoxsNodeWhenMiseCantResolveOne(t *testing.T) {
 		t.Errorf("Node was downloaded %d times, want once", downloads.Load())
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "AgentBox's node ran "+adapter) {
+	if err != nil || !strings.Contains(out, "AgentBox's node ran "+nodeArgs(adapter)) {
 		t.Errorf("the adapter ran as %q (%v), want AgentBox's node running %s", out, err, adapter)
 	}
 	if strings.Contains(out, "mise ERROR") {
@@ -233,19 +239,8 @@ func TestAnAdapterBehindAShimIsReplacedByAgentBoxsOwn(t *testing.T) {
 		t.Errorf("Adapter = %q, want AgentBox's own %q", tools.Adapter, m.adapterPath())
 	}
 	out, err := runAsLead(t, tools)
-	if err != nil || !strings.Contains(out, "AgentBox's node ran "+m.adapterPath()) {
+	if err != nil || !strings.Contains(out, "AgentBox's node ran "+nodeArgs(m.adapterPath())) {
 		t.Errorf("the adapter ran as %q (%v), want AgentBox's node running AgentBox's adapter", out, err)
-	}
-}
-
-func TestWithoutShimsDropsOnlyShimDirectories(t *testing.T) {
-	t.Parallel()
-	sep := string(os.PathListSeparator)
-	path := strings.Join([]string{"/home/you/.local/share/mise/shims", "/usr/bin", "/opt/asdf/shims", "", "/home/you/.local/bin", "/home/you/shims-not"}, sep)
-	got := filepath.SplitList(withoutShims(path))
-	want := []string{"/usr/bin", "/home/you/.local/bin", "/home/you/shims-not"}
-	if !slices.Equal(got, want) {
-		t.Errorf("withoutShims() = %q, want %q", got, want)
 	}
 }
 
@@ -256,7 +251,7 @@ func TestHostToolsCommandRunsNodeScriptsWithItsNode(t *testing.T) {
 	script, binary := filepath.Join(dir, "script"), filepath.Join(dir, "binary")
 	writeExec(t, script, "#!/usr/bin/env node\n")
 	writeExec(t, binary, "#!/bin/sh\n")
-	if cmd, args := (hostTools{Adapter: script, Node: "/n/node"}).command(); cmd != "/n/node" || !slices.Equal(args, []string{script}) {
+	if cmd, args := (hostTools{Adapter: script, Node: "/n/node"}).command(); cmd != "/n/node" || !slices.Equal(args, append(slices.Clone(claudeAdapterNode), script)) {
 		t.Errorf("command() for a Node script = %q %q", cmd, args)
 	}
 	if cmd, args := (hostTools{Adapter: binary, Node: "/n/node"}).command(); cmd != binary || len(args) != 0 {

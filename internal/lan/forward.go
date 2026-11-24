@@ -30,6 +30,13 @@ import (
 // Hypervisor or vz VM (internal/hostvm/chv), `agentbox vm lan` beside a Lima
 // VM on a Mac (internal/hostvm), and the app's relay on Windows
 // (internal/hostwsl).
+//
+// The same process opens the port apps on this computer reach AgentBox's MCP
+// endpoint at, without a hub (internal/daemon/remotemcplocal.go), while the
+// daemon has an app paired for it: on the loopback address only, where only
+// this computer reaches it, and passing on /mcp alone, to api.MCPLocalPath,
+// where the daemon checks the app's token. It asks GET
+// /v1/remote/mcp/local/host and answers PUT, every ReportEvery too.
 
 // ReportEvery is how often a Forward looks at whether phones are on, and
 // reports on its port.
@@ -48,6 +55,9 @@ type Forward struct {
 	// Listen opens the port; Addresses are this computer's, as Addresses.
 	Listen    func(port int) (net.Listener, error)
 	Addresses func() []string
+	// ListenLocal opens the local MCP port, on this computer's loopback
+	// address.
+	ListenLocal func(port int) (net.Listener, error)
 	// Open is false while the VM is paused, when nothing is asked of the
 	// daemon and phones are told so.
 	Open func() bool
@@ -57,15 +67,22 @@ type Forward struct {
 	Firewall func(ctx context.Context, port int) string
 	Logf     func(format string, args ...any)
 
-	// daemon reaches the daemon's API; proxy passes phones' requests on.
-	daemon *http.Client
-	proxy  http.Handler
+	// daemon reaches the daemon's API; proxy passes phones' requests on,
+	// and mcpProxy apps'.
+	daemon   *http.Client
+	proxy    http.Handler
+	mcpProxy http.Handler
 
 	srv     *http.Server
 	port    int
 	err     string
 	warning string    // what Firewall said
 	asked   time.Time // when
+
+	// The local MCP port, while it's wanted.
+	mcpSrv  *http.Server
+	mcpPort int
+	mcpErr  string
 }
 
 // NewForward is a Forward to the daemon whose socket dial reaches.
@@ -86,13 +103,28 @@ func NewForward(dial func(ctx context.Context) (net.Conn, error), logf func(stri
 			http.Error(w, "AgentBox's daemon doesn't answer: "+err.Error(), http.StatusBadGateway)
 		},
 	}
+	mcpTarget := &url.URL{Scheme: "http", Host: "agentbox", Path: api.MCPLocalPath}
+	mcpProxy := &httputil.ReverseProxy{
+		Transport:     transport,
+		FlushInterval: -1,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(mcpTarget)
+			pr.Out.URL.Path, pr.Out.URL.RawPath, pr.Out.URL.RawQuery = mcpTarget.Path, "", ""
+			pr.SetXForwarded()
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			http.Error(w, "AgentBox's daemon doesn't answer: "+err.Error(), http.StatusBadGateway)
+		},
+	}
 	return &Forward{
-		daemon:    &http.Client{Transport: transport, Timeout: 5 * time.Second},
-		proxy:     proxy,
-		Listen:    func(port int) (net.Listener, error) { return net.Listen("tcp", fmt.Sprintf(":%d", port)) },
-		Addresses: Addresses,
-		Open:      func() bool { return true },
-		Logf:      logf,
+		daemon:      &http.Client{Transport: transport, Timeout: 5 * time.Second},
+		proxy:       proxy,
+		mcpProxy:    mcpProxy,
+		Listen:      func(port int) (net.Listener, error) { return net.Listen("tcp", fmt.Sprintf(":%d", port)) },
+		ListenLocal: func(port int) (net.Listener, error) { return net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port)) },
+		Addresses:   Addresses,
+		Open:        func() bool { return true },
+		Logf:        logf,
 	}
 }
 
@@ -114,20 +146,21 @@ func (f *Forward) tick(ctx context.Context) {
 	if !f.Open() {
 		return
 	}
+	f.tickMCP(ctx)
 	var st api.LANStatus
 	if err := f.call(ctx, http.MethodGet, "/v1/lan", nil, &st); err != nil {
 		return // the daemon isn't up, or is restarting: leave things as they are
 	}
 	if !st.Enabled {
 		if f.srv != nil {
-			f.close()
+			f.closePhones()
 			f.Logf("phones: port %d closed", f.port)
 			_ = f.call(ctx, http.MethodPut, "/v1/lan/host", api.LANHostReport{Port: f.port}, nil)
 		}
 		return
 	}
 	if f.srv != nil && f.port != st.Port {
-		f.close()
+		f.closePhones()
 	}
 	if f.srv == nil {
 		f.port, f.err, f.warning, f.asked = st.Port, "", "", time.Time{}
@@ -180,10 +213,75 @@ func (f *Forward) handler() http.Handler {
 }
 
 func (f *Forward) close() {
+	f.closePhones()
+	f.closeMCP()
+}
+
+func (f *Forward) closePhones() {
 	if f.srv != nil {
 		_ = f.srv.Close()
 		f.srv = nil
 	}
+}
+
+func (f *Forward) closeMCP() {
+	if f.mcpSrv != nil {
+		_ = f.mcpSrv.Close()
+		f.mcpSrv = nil
+	}
+}
+
+// tickMCP opens or closes the local MCP port to match what the daemon says,
+// and reports on it while it's wanted.
+func (f *Forward) tickMCP(ctx context.Context) {
+	var want api.MCPLocalHost
+	if err := f.call(ctx, http.MethodGet, "/v1/remote/mcp/local/host", nil, &want); err != nil {
+		return // a daemon from before it, or one that isn't up
+	}
+	was := f.mcpSrv != nil || f.mcpErr != ""
+	if f.mcpSrv != nil && (!want.Open || f.mcpPort != want.Port) {
+		f.closeMCP()
+		f.Logf("remote mcp: port %d closed", f.mcpPort)
+	}
+	if !want.Open {
+		f.mcpErr = ""
+		if was {
+			_ = f.call(ctx, http.MethodPut, "/v1/remote/mcp/local/host", api.MCPLocalHostReport{Port: f.mcpPort}, nil)
+		}
+		return
+	}
+	if f.mcpSrv == nil {
+		f.mcpPort = want.Port
+		ln, err := f.ListenLocal(want.Port)
+		if err != nil {
+			msg := fmt.Sprintf("port %d can't be opened on this computer: %v", want.Port, err)
+			if msg != f.mcpErr {
+				f.Logf("remote mcp: %s", msg)
+			}
+			f.mcpErr = msg
+		} else {
+			f.mcpErr = ""
+			f.mcpSrv = &http.Server{Handler: f.mcpHandler(), ReadHeaderTimeout: 10 * time.Second}
+			go func(srv *http.Server) { _ = srv.Serve(ln) }(f.mcpSrv)
+			f.Logf("remote mcp: port %d open on this computer's loopback address, passed on to the daemon", want.Port)
+		}
+	}
+	_ = f.call(ctx, http.MethodPut, "/v1/remote/mcp/local/host", api.MCPLocalHostReport{Port: f.mcpPort, Listening: f.mcpSrv != nil, Error: f.mcpErr}, nil)
+}
+
+// mcpHandler passes on what an app sends /mcp, and nothing else.
+func (f *Forward) mcpHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" {
+			http.NotFound(w, r)
+			return
+		}
+		if !f.Open() {
+			http.Error(w, "AgentBox's VM is paused.", http.StatusServiceUnavailable)
+			return
+		}
+		f.mcpProxy.ServeHTTP(w, r)
+	})
 }
 
 func (f *Forward) call(ctx context.Context, method, path string, body, out any) error {

@@ -238,6 +238,7 @@ export const api = {
   addShareRemote: (link: string) => call<T.ShareRemote>('POST', '/v1/share/remotes', { link } satisfies T.AddShareRemoteRequest),
   removeShareRemote: (id: string) => call<void>('DELETE', `/v1/share/remotes/${encodeURIComponent(id)}`),
   mcpApps: () => call<T.MCPPairings>('GET', '/v1/remote/mcp'),
+  updateMCPApps: (req: T.UpdateMCPRequest) => call<T.MCPPairings>('PATCH', '/v1/remote/mcp', req),
   pairMCPApp: (req: T.MCPPairRequest) => call<T.MCPPairingSecret>('POST', '/v1/remote/mcp/pairings', req),
   newMCPAppCode: (id: string) => call<T.MCPPairingSecret>('POST', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}/code`),
   revokeMCPApp: (id: string) => call<void>('DELETE', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}`),

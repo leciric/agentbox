@@ -1577,18 +1577,51 @@ function settingsBridge(): void {
   } else if (params.get('lan') === 'unreached') {
     lan = { ...lan, enabled: true, error: "phones can't reach AgentBox's VM on Windows yet: this works on Linux for now", webVersion: '0.17.0' };
   }
+  // Settings → Other apps: through a hub by default; `apps=nohub` with none,
+  // an app paired on this computer and one through a quick tunnel.
+  const mcpTunnelOn: T.MCPTunnel = { enabled: true, mode: 'quick', state: 'running', url: 'https://quiet-river-1234.trycloudflare.com/mcp' };
+  let mcpApps: T.MCPPairings =
+    params.get('apps') === 'nohub'
+      ? {
+          available: false,
+          reason: 'no-hub',
+          local: { port: 7782, url: 'http://127.0.0.1:7782/mcp', listening: true },
+          tunnel: mcpTunnelOn,
+          pairings: [
+            { id: 'm1', label: 'Claude Code', client: 'claude-code', access: 'full', projects: [], createdAt: '2026-11-21T10:00:00Z', lastUsedAt: '2026-11-23T09:12:00Z', route: 'local' },
+            { id: 'm2', label: 'Cursor on my laptop', client: 'cursor', access: 'read', projects: ['agentbox'], createdAt: '2026-11-22T15:00:00Z', route: 'tunnel' },
+          ],
+        }
+      : {
+          available: true,
+          hub: 'hub.example.com',
+          url: 'https://hub.example.com/mcp/abc',
+          local: { port: 7782, url: 'http://127.0.0.1:7782/mcp', listening: false },
+          tunnel: { enabled: false, mode: 'quick', state: 'off' },
+          pairings: [
+            { id: 'm1', label: 'Claude', client: 'claude', access: 'chat', projects: [], createdAt: '2026-11-01T10:00:00Z', lastUsedAt: '2026-11-09T18:30:00Z', apps: ['Claude'], route: 'hub' },
+            { id: 'm2', label: 'Poke on my phone', client: 'poke', access: 'read', projects: ['agentbox'], createdAt: '2026-11-05T10:00:00Z', route: 'hub' },
+          ],
+        };
   // The lists Skills, Connectors, Memory and a project's accounts and
   // credentials read, empty.
   const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
-    if (method === 'GET' && path === '/v1/remote/mcp') {
-      const pairings: T.MCPPairing[] = [
-        { id: 'm1', label: 'Claude', client: 'claude', access: 'chat', projects: [], createdAt: '2026-11-01T10:00:00Z', lastUsedAt: '2026-11-09T18:30:00Z', apps: ['Claude'] },
-        { id: 'm2', label: 'Poke on my phone', client: 'poke', access: 'read', projects: ['agentbox'], createdAt: '2026-11-05T10:00:00Z' },
-      ];
-      return answer({ available: true, hub: 'hub.example.com', url: 'https://hub.example.com/mcp/abc', pairings } satisfies T.MCPPairings);
+    if (method === 'GET' && path === '/v1/remote/mcp') return answer(mcpApps);
+    if (method === 'PATCH' && path === '/v1/remote/mcp') {
+      const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateMCPRequest;
+      if (req.tunnel !== undefined) mcpApps = { ...mcpApps, tunnel: req.tunnel ? mcpTunnelOn : { enabled: false, mode: 'quick', state: 'off' } };
+      return answer(mcpApps);
+    }
+    if (method === 'POST' && path === '/v1/remote/mcp/pairings') {
+      const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.MCPPairRequest;
+      const route = req.route || (mcpApps.available ? 'hub' : 'local');
+      const pairing: T.MCPPairing = { id: `m${Date.now()}`, label: req.label || 'Claude Code', client: req.client || 'other', access: req.access, projects: req.projects ?? [], createdAt: new Date().toISOString(), route };
+      mcpApps = { ...mcpApps, pairings: [...mcpApps.pairings, pairing], local: route === 'local' ? { ...mcpApps.local!, listening: true } : mcpApps.local };
+      const url = route === 'hub' ? mcpApps.url! : route === 'tunnel' ? mcpApps.tunnel!.url! : mcpApps.local!.url;
+      return answer({ pairing, url, ...(route === 'hub' ? { code: 'K7Q-2MX', expires: new Date(Date.now() + 10 * 60_000).toISOString() } : { token: 'abx_m_preview0123456789abcdef' }) } as T.MCPPairingSecret);
     }
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {

@@ -24,10 +24,12 @@ import (
 )
 
 // Remote MCP: another app — an assistant such as Claude, ChatGPT or Poke —
-// drives a project's lead from outside. The app speaks MCP's Streamable HTTP
-// to this machine's hub, which knows it by a token and passes its calls down
-// the tunnel the daemon already keeps open (internal/remote), naming the
-// pairing the token belongs to. Nothing listens on the machine for it.
+// drives a project's lead from outside. Through a hub, the app speaks MCP's
+// Streamable HTTP to this machine's hub, which knows it by a token and passes
+// its calls down the tunnel the daemon already keeps open (internal/remote),
+// naming the pairing the token belongs to. An app on this computer, or one
+// that comes through the tunnel phones use, needs no hub: it calls the daemon
+// with a bearer token of its pairing (remotemcplocal.go).
 //
 // A pairing is made here, on the machine, by its user (POST
 // /v1/remote/mcp/pairings, local socket only), and the machine is what
@@ -58,12 +60,14 @@ const (
 var mcpAccessRank = map[string]int{api.MCPAccessRead: 1, api.MCPAccessChat: 2, api.MCPAccessFull: 3}
 
 var mcpClients = map[string]string{
-	api.MCPClientClaude: "Claude", api.MCPClientChatGPT: "ChatGPT", api.MCPClientPoke: "Poke", api.MCPClientOther: "Another app",
+	api.MCPClientClaude: "Claude", api.MCPClientChatGPT: "ChatGPT", api.MCPClientPoke: "Poke",
+	api.MCPClientClaudeCode: "Claude Code", api.MCPClientClaudeDesktop: "Claude Desktop", api.MCPClientCursor: "Cursor",
+	api.MCPClientOther: "Another app",
 }
 
 func toAPIMCPPairing(p state.MCPPairing) api.MCPPairing {
 	return api.MCPPairing{
-		ID: p.ID, Label: p.Label, Client: cmp.Or(p.Client, api.MCPClientOther), Access: p.Access,
+		ID: p.ID, Label: p.Label, Route: cmp.Or(p.Route, api.MCPRouteHub), Client: cmp.Or(p.Client, api.MCPClientOther), Access: p.Access,
 		Projects: append([]string{}, p.Projects...), CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt,
 	}
 }
@@ -83,24 +87,47 @@ func oldHub(err error) bool {
 	return errors.As(err, &syntax)
 }
 
-// getRemoteMCP lists the paired apps. The machine's own list is the answer;
-// the hub is asked for what only it knows (which apps signed in, when one
-// last called), and the two are put right against each other on the way: a
-// pairing the hub has and the machine doesn't was revoked while the hub
-// couldn't be told, and one the hub lost is no use to anybody.
+// getRemoteMCP lists the paired apps, by every route, and how each route is.
 func (s *Server) getRemoteMCP(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
 	out := api.MCPPairings{Pairings: []api.MCPPairing{}}
-	cfg := s.readRemoteConfig()
-	if cfg == nil {
-		out.Reason = "no-hub"
-		return writeJSON(w, http.StatusOK, out)
+	var err error
+	if out.Local, err = s.mcpLocalStatus(ctx); err != nil {
+		return err
 	}
-	out.Hub, out.URL = cfg.Hub, cfg.Hub+hubapi.PathMCP
-	local, err := s.store.MCPPairings(r.Context(), cfg.Hub)
+	if out.Tunnel, err = s.mcpTunnelStatus(ctx); err != nil {
+		return err
+	}
+	direct, err := s.store.MCPPairings(ctx, "")
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	for _, p := range direct {
+		if p.Route != "" {
+			out.Pairings = append(out.Pairings, toAPIMCPPairing(p))
+		}
+	}
+	if cfg := s.readRemoteConfig(); cfg == nil {
+		out.Reason = "no-hub"
+	} else if err := s.hubMCPPairings(ctx, cfg, &out); err != nil {
+		return err
+	}
+	slices.SortStableFunc(out.Pairings, func(a, b api.MCPPairing) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// hubMCPPairings adds the apps paired through the hub to out. The machine's
+// own list is the answer; the hub is asked for what only it knows (which apps
+// signed in, when one last called), and the two are put right against each
+// other on the way: a pairing the hub has and the machine doesn't was revoked
+// while the hub couldn't be told, and one the hub lost is no use to anybody.
+func (s *Server) hubMCPPairings(rctx context.Context, cfg *remoteConfig, out *api.MCPPairings) error {
+	out.Hub, out.URL = cfg.Hub, cfg.Hub+hubapi.PathMCP
+	local, err := s.store.MCPPairings(rctx, cfg.Hub)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(rctx, 10*time.Second)
 	defer cancel()
 	hc := s.hubEnvironment(cfg)
 	remote, err := hc.MCPPairings(ctx)
@@ -124,7 +151,7 @@ func (s *Server) getRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 	for _, p := range local {
 		h, ok := known[p.ID]
 		if out.Available && !ok {
-			_ = s.store.RemoveMCPPairing(r.Context(), p.ID)
+			_ = s.store.RemoveMCPPairing(rctx, p.ID)
 			continue
 		}
 		item := toAPIMCPPairing(p)
@@ -134,7 +161,7 @@ func (s *Server) getRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 		}
 		out.Pairings = append(out.Pairings, item)
 	}
-	return writeJSON(w, http.StatusOK, out)
+	return nil
 }
 
 func (s *Server) pairRemoteMCP(w http.ResponseWriter, r *http.Request) error {
@@ -143,15 +170,29 @@ func (s *Server) pairRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	cfg := s.readRemoteConfig()
-	if cfg == nil {
-		return errors.New("connect this machine to a hub first: another app reaches it through the hub")
+	route := req.Route
+	if route == "" {
+		// What an app from before the other routes meant.
+		route = api.MCPRouteLocal
+		if cfg != nil {
+			route = api.MCPRouteHub
+		}
+	}
+	switch route {
+	case api.MCPRouteLocal, api.MCPRouteTunnel:
+	case api.MCPRouteHub:
+		if cfg == nil {
+			return errors.New("connect this machine to a hub first, or pair the app to reach it on this computer or through the tunnel (local or tunnel)")
+		}
+	default:
+		return fmt.Errorf("%q isn't a way to reach AgentBox: use local, tunnel or hub", route)
 	}
 	if mcpAccessRank[req.Access] == 0 {
 		return fmt.Errorf("%q isn't an access level: use read, chat or full", req.Access)
 	}
 	req.Client = cmp.Or(req.Client, api.MCPClientOther)
 	if mcpClients[req.Client] == "" {
-		return fmt.Errorf("%q isn't an app AgentBox knows: use claude, chatgpt, poke or other", req.Client)
+		return fmt.Errorf("%q isn't an app AgentBox knows: use claude-code, claude-desktop, cursor, claude, chatgpt, poke or other", req.Client)
 	}
 	label := cmp.Or(strings.TrimSpace(req.Label), mcpClients[req.Client])
 	projects := []string{}
@@ -165,6 +206,9 @@ func (s *Server) pairRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 		if !slices.Contains(projects, name) {
 			projects = append(projects, name)
 		}
+	}
+	if route != api.MCPRouteHub {
+		return s.pairDirectMCP(w, r, state.MCPPairing{Route: route, Label: label, Client: req.Client, Access: req.Access, Projects: projects})
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
@@ -186,14 +230,61 @@ func (s *Server) pairRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 	})
 }
 
-func (s *Server) renewRemoteMCPCode(w http.ResponseWriter, r *http.Request) error {
-	cfg := s.readRemoteConfig()
-	if cfg == nil {
-		return state.ErrNotFound
+// pairDirectMCP pairs an app that reaches this machine without a hub.
+func (s *Server) pairDirectMCP(w http.ResponseWriter, r *http.Request, p state.MCPPairing) error {
+	ctx := r.Context()
+	if p.Route == api.MCPRouteTunnel {
+		on, err := s.store.Flag(ctx, state.SettingRemoteMCPTunnel)
+		if err != nil {
+			return err
+		}
+		if !on {
+			return errors.New("let other apps reach AgentBox through its tunnel first: agentbox remote app tunnel on, or in Settings, under Other apps")
+		}
 	}
-	p, err := s.store.MCPPairing(r.Context(), cfg.Hub, r.PathValue("id"))
+	p, token, err := s.store.AddDirectMCPPairing(ctx, p)
 	if err != nil {
 		return err
+	}
+	s.applyMCPLocal(s.runCtx) // the port outlives this request
+	s.publishLAN(ctx)
+	s.logf("remote mcp: paired %q (%s, %s) to reach this machine %s", p.Label, p.Access,
+		cmp.Or(strings.Join(p.Projects, ", "), "all projects"), map[string]string{api.MCPRouteLocal: "from this computer", api.MCPRouteTunnel: "through the tunnel"}[p.Route])
+	return writeJSON(w, http.StatusCreated, api.MCPPairingSecret{Pairing: toAPIMCPPairing(p), URL: s.mcpRouteURL(ctx, p.Route), Token: token})
+}
+
+// mcpRouteURL is the endpoint an app paired for a route without a hub is
+// given: "" while the tunnel has none.
+func (s *Server) mcpRouteURL(ctx context.Context, route string) string {
+	if route == api.MCPRouteLocal {
+		port, _ := s.mcpPort(ctx)
+		return mcpLocalURL(port)
+	}
+	t, err := s.mcpTunnelStatus(ctx)
+	if err != nil {
+		return ""
+	}
+	return t.URL
+}
+
+// renewRemoteMCPCode gives an app paired through the hub a new code to sign
+// in with, and one paired without a hub a new token, the old one ending.
+func (s *Server) renewRemoteMCPCode(w http.ResponseWriter, r *http.Request) error {
+	p, err := s.store.MCPPairingByID(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	if p.Route != "" {
+		token, err := s.store.RenewMCPToken(r.Context(), p.ID)
+		if err != nil {
+			return err
+		}
+		s.logf("remote mcp: a new token for %q; its old one no longer works", p.Label)
+		return writeJSON(w, http.StatusOK, api.MCPPairingSecret{Pairing: toAPIMCPPairing(p), URL: s.mcpRouteURL(r.Context(), p.Route), Token: token})
+	}
+	cfg := s.readRemoteConfig()
+	if cfg == nil || p.Hub != cfg.Hub {
+		return state.ErrNotFound
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
@@ -209,11 +300,19 @@ func (s *Server) renewRemoteMCPCode(w http.ResponseWriter, r *http.Request) erro
 // can't be told now, getRemoteMCP tells it the next time it can.
 func (s *Server) revokeRemoteMCP(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
+	p, err := s.store.MCPPairingByID(r.Context(), id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.RemoveMCPPairing(r.Context(), id); err != nil {
 		return err
 	}
 	s.logf("remote mcp: revoked the pairing %s", id)
-	if cfg := s.readRemoteConfig(); cfg != nil {
+	if p.Route != "" {
+		// The local port closes with the last app paired for it.
+		s.applyMCPLocal(s.runCtx)
+		s.publishLAN(r.Context())
+	} else if cfg := s.readRemoteConfig(); cfg != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		if err := s.hubEnvironment(cfg).DeleteMCPPairing(ctx, id); err != nil && !api.IsNotFound(err) {
@@ -283,6 +382,12 @@ func (s *Server) serveRemoteMCP(w http.ResponseWriter, r *http.Request, routes h
 		refuse("this app's pairing with AgentBox was revoked")
 		return
 	}
+	s.serveMCPPairing(w, r, p, routes, touch)
+}
+
+// serveMCPPairing answers an app's call, by whichever route it came, once
+// its pairing is known.
+func (s *Server) serveMCPPairing(w http.ResponseWriter, r *http.Request, p state.MCPPairing, routes http.Handler, touch *remoteMCPTouch) {
 	if now := time.Now(); touch.due(p.ID, now) {
 		_ = s.store.TouchMCPPairing(r.Context(), p.ID, now)
 	}

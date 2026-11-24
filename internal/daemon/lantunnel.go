@@ -28,7 +28,8 @@ import (
 // Reaching the phone page from anywhere, not only the local network: the
 // daemon runs a Cloudflare Tunnel (internal/tunnel) that brings the page to
 // an https address on the internet. Off by default, and only while chatting
-// from a phone is on too.
+// from a phone is on too, or while other apps may reach this machine's MCP
+// endpoint through it (remotemcplocal.go), which it serves at /mcp.
 //
 // The tunnel reaches the daemon on a listener of its own, on the loopback
 // address of the machine the daemon runs on — AgentBox's VM, in VM mode, so
@@ -84,9 +85,20 @@ type lanTunnelSettings struct {
 	pending            string        // what it waits for before it can start: the hub's answer
 }
 
+// lanTunnelConfig is the tunnel as the settings want it: on while phones
+// may come through it (lanOn and SettingLANTunnel) or other apps may
+// (SettingRemoteMCPTunnel, remotemcplocal.go). Phones and apps share it, and
+// tunnelHandler lets in only those that are on.
 func (s *Server) lanTunnelConfig(ctx context.Context, lanOn bool) lanTunnelSettings {
-	on, err := s.store.Flag(ctx, state.SettingLANTunnel)
-	if err != nil || !on || !lanOn {
+	phones, err := s.store.Flag(ctx, state.SettingLANTunnel)
+	if err != nil {
+		return lanTunnelSettings{}
+	}
+	apps, err := s.store.Flag(ctx, state.SettingRemoteMCPTunnel)
+	if err != nil {
+		return lanTunnelSettings{}
+	}
+	if wanted := phones && lanOn || apps; !wanted {
 		return lanTunnelSettings{}
 	}
 	c := lanTunnelSettings{want: true}
@@ -367,7 +379,7 @@ func (s *Server) startTunnel(ctx context.Context, c lanTunnelSettings, key strin
 	}
 	lt.origin = "http://" + ln.Addr().String()
 	lt.srv = &http.Server{
-		Handler:           s.lanHandler(lanViaTunnel),
+		Handler:           s.tunnelHandler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}

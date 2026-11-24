@@ -647,10 +647,11 @@ export function ContinueAfterRestart() {
 // (state.DefaultLeadSleep).
 export const leadSleepFallback = 15;
 
-// LeadSleep stops a project's chat's AI tool once the chat has sat idle a
-// while, to give the VM its memory back; the next message, notice or schedule
-// resumes the same session (internal/chat/idle.go). On by default: nothing
-// changes for you but a few seconds on the first message after the wait.
+// LeadSleep stops a chat's AI tool, a project's or an agent's, once the chat
+// has sat idle a while, to give the VM its memory back; the next message,
+// notice or schedule resumes the same session (internal/chat/idle.go). On by
+// default: nothing changes for you but a few seconds on the first message
+// after the wait.
 export function LeadSleep() {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });

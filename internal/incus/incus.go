@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -207,17 +208,9 @@ func (c Client) Instances(ctx context.Context) ([]Instance, error) {
 		}
 		return instances, nil
 	}
-	var full []api.InstanceFull
-	err := c.do(ctx, args, func(s incusclient.InstanceServer) (err error) {
-		full, err = s.GetInstancesFull(api.InstanceTypeAny)
-		return err
-	})
-	if err != nil {
+	var instances []Instance
+	if err := c.get(ctx, args, "/instances?recursion=2", &instances); err != nil {
 		return nil, err
-	}
-	instances := make([]Instance, len(full))
-	for i := range full {
-		instances[i] = instanceOf(&full[i])
 	}
 	return instances, nil
 }
@@ -235,11 +228,11 @@ func (c Client) Statuses(ctx context.Context) (map[string]string, error) {
 		}
 		return out, err
 	}
-	var list []api.Instance
-	err := c.do(ctx, []string{"list", "--format", "json", "--fast"}, func(s incusclient.InstanceServer) (err error) {
-		list, err = s.GetInstances(api.InstanceTypeAny)
-		return err
-	})
+	var list []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	err := c.get(ctx, []string{"list", "--format", "json", "--fast"}, "/instances?recursion=1", &list)
 	for _, inst := range list {
 		out[inst.Name] = inst.Status
 	}
@@ -249,18 +242,12 @@ func (c Client) Statuses(ctx context.Context) (map[string]string, error) {
 // Instance returns one instance with its state, or ErrNotFound.
 func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
 	if !c.cli() {
-		var full *api.InstanceFull
-		s, err := c.server(ctx)
-		if err == nil {
-			full, _, err = s.GetInstanceFull(name)
+		var inst Instance
+		err := c.get(ctx, []string{"list", "--format", "json"}, "/instances/"+url.PathEscape(name)+"?recursion=1", &inst)
+		if isNotFound(err) {
+			return Instance{}, errNotFound(name, err)
 		}
-		if err != nil {
-			if isNotFound(err) {
-				return Instance{}, errNotFound(name, err)
-			}
-			return Instance{}, c.fail([]string{"list", "--format", "json"}, err)
-		}
-		return instanceOf(full), nil
+		return inst, err
 	}
 	instances, err := c.Instances(ctx)
 	if err != nil {
@@ -272,36 +259,6 @@ func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
 		}
 	}
 	return Instance{}, fmt.Errorf("%s: %w", name, ErrNotFound)
-}
-
-// instanceOf keeps what Instance holds of what Incus answers: the same fields
-// `incus list --format json` gave, read from the same JSON.
-func instanceOf(full *api.InstanceFull) Instance {
-	inst := Instance{
-		Name:           full.Name,
-		Status:         full.Status,
-		Config:         full.Config,
-		ExpandedConfig: full.ExpandedConfig,
-		Devices:        full.Devices,
-		LastUsedAt:     full.LastUsedAt,
-	}
-	if st := full.State; st != nil {
-		inst.State = &InstanceState{}
-		inst.State.CPU.Usage = st.CPU.Usage
-		inst.State.Memory.Usage = st.Memory.Usage
-		inst.State.Processes = st.Processes
-		if st.Network != nil {
-			inst.State.Network = make(map[string]Network, len(st.Network))
-			for name, network := range st.Network {
-				var n Network
-				for _, addr := range network.Addresses {
-					n.Addresses = append(n.Addresses, Address{Family: addr.Family, Address: addr.Address})
-				}
-				inst.State.Network[name] = n
-			}
-		}
-	}
-	return inst
 }
 
 // HasSnapshot reports whether an instance exists and has the named snapshot.

@@ -2834,6 +2834,7 @@ export interface RemotePairing {
 export interface MCPPairing {
   id: string;
   label: string;
+  route: string;
   client: string;
   access: string;
   projects: string[];
@@ -2848,11 +2849,46 @@ export interface MCPPairings {
   error?: string;
   hub?: string;
   url?: string;
+  local: MCPLocal;
+  tunnel: MCPTunnel;
   pairings: MCPPairing[];
+}
+
+export interface MCPLocal {
+  port: number;
+  url: string;
+  listening: boolean;
+  error?: string;
+}
+
+export interface MCPTunnel {
+  enabled: boolean;
+  mode: string;
+  state: string;
+  url?: string;
+  error?: string;
+  transport?: string;
+}
+
+export interface UpdateMCPRequest {
+  tunnel?: boolean;
+  port?: number;
+}
+
+export interface MCPLocalHost {
+  port: number;
+  open: boolean;
+}
+
+export interface MCPLocalHostReport {
+  port: number;
+  listening: boolean;
+  error?: string;
 }
 
 export interface MCPPairRequest {
   label: string;
+  route?: string;
   client?: string;
   access: string;
   projects?: string[];
@@ -2862,8 +2898,8 @@ export interface MCPPairRequest {
 export interface MCPPairingSecret {
   pairing: MCPPairing;
   url: string;
-  code: string;
-  codeExpiresAt: string;
+  code?: string;
+  codeExpiresAt?: string;
   token?: string;
 }
 

@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/json"
 	"io"
@@ -21,17 +22,18 @@ var DebugLog func(format string, args ...any)
 // with the same token.
 var flights singleflight.Group
 
-// etagCacheBytes bounds what is kept to answer 304s from, and
-// etagEntryBytes the largest single answer kept: a big pull request's page
-// of files with their diffs is a few hundred kilobytes.
+// etagCacheBytes bounds what is kept to answer 304s from, as kept
+// (deflated), and etagEntryBytes the largest single answer kept, as it came:
+// a big pull request's page of files with their diffs is a few hundred
+// kilobytes.
 const (
-	etagCacheBytes = 32 << 20
+	etagCacheBytes = 8 << 20
 	etagEntryBytes = 4 << 20
 )
 
 type etagEntry struct {
 	etag string
-	body []byte
+	body []byte // deflated
 	used time.Time
 }
 
@@ -53,8 +55,17 @@ func etagOf(key string) (*etagEntry, bool) {
 	return e, ok
 }
 
+// keepETag keeps body deflated. Kept as read, these answers were the
+// largest thing the daemon held: 11 MB of its 28 MB live heap on the VM of
+// 23 Nov 2026, and up to as much again in the spare capacity io.ReadAll
+// leaves. GitHub's JSON deflates 3–6 times, at about 2 ms a megabyte each
+// way: deflated when an answer changes, inflated for each 304.
 func keepETag(key, etag string, body []byte) {
 	if etag == "" || len(body) > etagEntryBytes {
+		return
+	}
+	body, err := deflate(body)
+	if err != nil {
 		return
 	}
 	etags.mu.Lock()
@@ -74,6 +85,25 @@ func keepETag(key, etag string, body []byte) {
 		etags.bytes -= len(etags.by[oldest].body)
 		delete(etags.by, oldest)
 	}
+}
+
+func deflate(b []byte) ([]byte, error) {
+	var out bytes.Buffer
+	w, err := flate.NewWriter(&out, flate.BestSpeed)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(b); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return bytes.Clone(out.Bytes()), nil
+}
+
+func inflate(b []byte) ([]byte, error) {
+	return io.ReadAll(flate.NewReader(bytes.NewReader(b)))
 }
 
 // send is every request this package makes: a GET shared with any the same
@@ -208,7 +238,8 @@ func (c Client) roundTrip(ctx context.Context, method, path string, body any) ([
 		return nil, res.Header, limited
 	}
 	if notModified {
-		return kept.body, res.Header, nil
+		body, err := inflate(kept.body)
+		return body, res.Header, err
 	}
 	if readErr != nil {
 		return nil, res.Header, readErr

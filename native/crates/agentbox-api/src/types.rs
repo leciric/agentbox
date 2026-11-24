@@ -4693,6 +4693,7 @@ pub struct RemotePairing {
 pub struct MCPPairing {
     pub id: String,
     pub label: String,
+    pub route: String,
     pub client: String,
     pub access: String,
     #[serde(deserialize_with = "nullable")]
@@ -4717,14 +4718,67 @@ pub struct MCPPairings {
     pub hub: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub url: String,
+    pub local: MCPLocal,
+    pub tunnel: MCPTunnel,
     #[serde(deserialize_with = "nullable")]
     pub pairings: Vec<MCPPairing>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct MCPLocal {
+    pub port: i64,
+    pub url: String,
+    pub listening: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPTunnel {
+    pub enabled: bool,
+    pub mode: String,
+    pub state: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub url: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub transport: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateMCPRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tunnel: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPLocalHost {
+    pub port: i64,
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPLocalHostReport {
+    pub port: i64,
+    pub listening: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MCPPairRequest {
     pub label: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub route: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub client: String,
     pub access: String,
@@ -4739,8 +4793,9 @@ pub struct MCPPairRequest {
 pub struct MCPPairingSecret {
     pub pairing: MCPPairing,
     pub url: String,
+    #[serde(skip_serializing_if = "is_empty")]
     pub code: String,
-    #[serde(rename = "codeExpiresAt")]
+    #[serde(rename = "codeExpiresAt", skip_serializing_if = "is_empty")]
     pub code_expires_at: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub token: String,

@@ -1,11 +1,13 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -226,5 +228,23 @@ func TestEndpointOf(t *testing.T) {
 		if got := endpointOf(path); got != want {
 			t.Errorf("endpointOf(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+// What is kept to answer a 304 from is kept deflated, and given back whole.
+func TestKeptAnswersAreDeflated(t *testing.T) {
+	body := []byte(`[` + strings.Repeat(`{"number":806,"title":"perf: new agents' worktrees are on the VM's own disk","state":"open","draft":false},`, 5000) + `{}]`)
+	key := "deflate-token https://api.github.com/repos/o/r/pulls"
+	keepETag(key, `"v1"`, body)
+	kept, ok := etagOf(key)
+	if !ok {
+		t.Fatal("not kept")
+	}
+	if len(kept.body)*3 > len(body) {
+		t.Errorf("kept %d bytes of a %d-byte answer", len(kept.body), len(body))
+	}
+	got, err := inflate(kept.body)
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("inflate() = %d bytes, %v; want the %d-byte answer", len(got), err, len(body))
 	}
 }

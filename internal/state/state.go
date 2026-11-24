@@ -1780,6 +1780,13 @@ var migrations = []string{
 		created_at INTEGER NOT NULL,
 		PRIMARY KEY (project, agent)
 	)`,
+	// An MCP pairing made for an app that reaches this machine without a
+	// hub (internal/daemon/remotemcplocal.go): route is "local" (a loopback
+	// address of the computer) or "tunnel" (the tunnel phones use), and
+	// token_hash its bearer token's hash. A hub's pairing has neither.
+	`ALTER TABLE mcp_pairings ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE mcp_pairings ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''`,
+	`CREATE INDEX mcp_pairings_by_token ON mcp_pairings (token_hash) WHERE token_hash != ''`,
 	// Other AgentBoxes paired to reach some of this machine's projects
 	// (share.go): only their token's hash is kept. projects is a
 	// comma-separated list of slugs, unless all_projects; slots is how many
