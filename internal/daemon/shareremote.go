@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -21,6 +22,8 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
+
+	"github.com/coder/websocket"
 )
 
 // The other side of sharing (sharepeers.go): this AgentBox paired with an
@@ -271,14 +274,11 @@ func errText(err error) string {
 }
 
 func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
-	resp, err := c.request(ctx, s.peering.remotes.client, http.MethodGet, "/v1/events", nil)
+	next, done, err := s.openRemoteEvents(ctx, c)
 	if err != nil {
-		return fmt.Errorf("%s can't be reached: %w", c.r.Name, err)
+		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return remoteStatusError(c, resp)
-	}
+	defer done()
 	c.mu.Lock()
 	hadErr := c.err != ""
 	c.err = ""
@@ -289,17 +289,13 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 		s.publishShare(ctx)
 	}
 	s.events.publish(api.EventProject, struct{}{})
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 64<<10), 32<<20)
-	for sc.Scan() {
-		line := sc.Bytes()
-		data, ok := bytes.CutPrefix(line, []byte("data: "))
-		if !ok {
-			continue
+	for {
+		ev, err := next()
+		if errors.Is(err, io.EOF) {
+			return errors.New(c.r.Name + "'s events stopped")
 		}
-		var ev api.Event
-		if json.Unmarshal(data, &ev) != nil || ev.Type == "" {
-			continue
+		if err != nil {
+			return fmt.Errorf("%s's events stopped: %w", c.r.Name, err)
 		}
 		if ev.Type == api.EventProject {
 			c.mu.Lock()
@@ -308,10 +304,67 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 		}
 		s.events.publish(ev.Type, json.RawMessage(renameJSON(ev.Data, c.r.ID)))
 	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("%s's events stopped: %w", c.r.Name, err)
+}
+
+// remoteSilence is how long a remote's WebSocket may say nothing, not even
+// its beat (shareBeat), before it is taken for lost and connected again.
+const remoteSilence = time.Minute
+
+// openRemoteEvents connects to a remote's event stream, whose events next
+// returns one by one, and done closes. It asks for a WebSocket, which a
+// Cloudflare quick tunnel passes on at once where it holds server-sent
+// events back (shareEvents); an AgentBox from before that answers with
+// server-sent events instead, read as they come.
+func (s *Server) openRemoteEvents(ctx context.Context, c *remoteConn) (next func() (api.Event, error), done func(), err error) {
+	conn, resp, err := websocket.Dial(ctx, c.base()+"/v1/events", &websocket.DialOptions{
+		HTTPClient: s.peering.remotes.client,
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + c.token}},
+	})
+	switch {
+	case err == nil:
+		conn.SetReadLimit(32 << 20)
+		return func() (api.Event, error) {
+			for {
+				rctx, cancel := context.WithTimeout(ctx, remoteSilence)
+				_, data, err := conn.Read(rctx)
+				cancel()
+				if err != nil {
+					return api.Event{}, err
+				}
+				var ev api.Event
+				if json.Unmarshal(data, &ev) == nil && ev.Type != "" && ev.Type != shareBeat {
+					return ev, nil
+				}
+			}
+		}, func() { _ = conn.CloseNow() }, nil
+	case resp == nil:
+		return nil, nil, fmt.Errorf("%s can't be reached: %w", c.r.Name, err)
+	case resp.StatusCode != http.StatusOK:
+		return nil, nil, remoteStatusError(c, resp)
 	}
-	return errors.New(c.r.Name + "'s events stopped")
+	resp, err = c.request(ctx, s.peering.remotes.client, http.MethodGet, "/v1/events", nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s can't be reached: %w", c.r.Name, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer func() { _ = resp.Body.Close() }()
+		return nil, nil, remoteStatusError(c, resp)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 32<<20)
+	return func() (api.Event, error) {
+		for sc.Scan() {
+			data, ok := bytes.CutPrefix(sc.Bytes(), []byte("data: "))
+			if !ok {
+				continue
+			}
+			var ev api.Event
+			if json.Unmarshal(data, &ev) == nil && ev.Type != "" {
+				return ev, nil
+			}
+		}
+		return api.Event{}, cmp.Or(sc.Err(), io.EOF)
+	}, func() { _ = resp.Body.Close() }, nil
 }
 
 func remoteStatusError(c *remoteConn, resp *http.Response) error {
