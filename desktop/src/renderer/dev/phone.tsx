@@ -122,7 +122,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     agentOf('agent-02', OTHER, { title: 'Dark mode for the calendar', state: 'stopped', chat: 'off' }),
   ];
   const lead = (project: string, chat: string): T.ProjectChat => ({ project, ref: `${project}/lead`, started: true, chat, baseRef: 'main' });
-  const leads: Record<string, T.ProjectChat> = { [PROJECT]: lead(PROJECT, 'running'), [OTHER]: lead(OTHER, 'ready') };
+  const leads: Record<string, T.ProjectChat> = { [PROJECT]: lead(PROJECT, 'running'), [OTHER]: lead(OTHER, 'ready'), _home: lead('_home', 'ready') };
 
   // The chats, as the daemon holds them.
   const rich = richChat();
@@ -134,6 +134,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     { id: 'lu2-t', turn: 'lu2', kind: 'tool', tool: { callId: 'x1', title: 'gh pr checks 302 --watch', kind: 'execute', command: 'gh pr checks 302 --watch', status: 'in_progress' }, createdAt: at(38_000), updatedAt: at(38_000) },
   ] as T.ChatItem[], session({ state: 'running', turnStartedAt: at(41_000) }));
   put(`${OTHER}/lead`, settled('ou1', 'What is left before the release?', 'Two things: the flaky upload test (agent-07 stopped on it) and the calendar’s dark mode.', 64_000, 3_000_000));
+  put('_home/lead', settled('uh1', 'Which of my projects needs me most?', 'AgentBox: agent-31 is asking about the login redirect. Reminders app: the flaky upload test failed.', 52_000, 120_000));
   put(`${PROJECT}/agent-09`, [
     { id: 'u9', turn: '', kind: 'user', text: 'Clean the build folder and rebuild.', createdAt: at(80_000), updatedAt: at(80_000) },
     { id: 'p9', turn: 'u9', kind: 'permission', permission: { callId: 'c9', title: 'rm -rf build', options: [{ id: 'allow', name: 'Allow', kind: 'allow_once' }, { id: 'reject', name: 'Reject', kind: 'reject_once' }] }, createdAt: at(20_000), updatedAt: at(20_000) },

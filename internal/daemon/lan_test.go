@@ -466,6 +466,10 @@ func TestLANRoute(t *testing.T) {
 		{"GET", "/v1/agents/p/a/media", "read"},
 		{"GET", "/v1/media/m1/file", "read"},
 		{"HEAD", "/v1/projects", "read"},
+		// The Home chat is a project named _home, sessions too.
+		{"GET", "/v1/projects/_home/sessions", "read"},
+		{"GET", "/v1/projects/_home/sessions/s/chat", "read"},
+		{"POST", "/v1/projects/_home/sessions/s/chat/messages", "chat"},
 		// Reads are listed too: whatever isn't is refused.
 		{"GET", "/v1/projects/p/files/read", ""},
 		{"GET", "/v1/projects/p/sessions/s/files/list", ""},

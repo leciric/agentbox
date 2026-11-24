@@ -22,3 +22,8 @@ test('a fragment that would break the page, or split a name, is the list', () =>
   assert.deepEqual(parseRoute('#/a/%E0%A4%A/x'), { kind: 'list' });
   assert.deepEqual(parseRoute('#/a/agent%20box/a%2Fb'), { kind: 'list' });
 });
+
+test('the Home chat is a project route like any other', () => {
+  const route = { kind: 'project', project: '_home' } as const;
+  assert.deepEqual(parseRoute(routeHash(route)), route);
+});
