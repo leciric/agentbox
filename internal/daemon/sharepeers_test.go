@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -17,6 +18,8 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
+
+	"github.com/coder/websocket"
 )
 
 // Two daemons: the owner shares one of its two projects with the other, which
@@ -89,6 +92,24 @@ func TestShareProjectsWithAnotherAgentBox(t *testing.T) {
 			t.Errorf("the remote project = %+v (remote %+v): want its owner and no root", pr, pr.Remote)
 		}
 	}
+
+	// What happens in it reaches the peer as it happens, renamed: a reply's
+	// words, each an event, over the owner's WebSocket (shareEvents).
+	peerEvents, unsubscribe := peer.srv.events.subscribe()
+	defer unsubscribe()
+	waitFor(t, "the owner's chat event on the peer", func() bool {
+		owner.srv.events.publish(api.EventChat, api.ChatEvent{Agent: "shared/lead", Append: &api.ChatAppend{ID: "reply", Text: " word"}})
+		for {
+			select {
+			case ev := <-peerEvents:
+				if ev.Type == api.EventChat && strings.Contains(string(ev.Data), `"agent":"`+local+`/lead"`) {
+					return true
+				}
+			case <-time.After(100 * time.Millisecond):
+				return false
+			}
+		}
+	})
 
 	// The peer's app reaches the shared project as it does a local one; the
 	// other one, and what isn't in a project, it doesn't.
@@ -732,5 +753,64 @@ func TestRemoteListsBackOff(t *testing.T) {
 	defer c.mu.Unlock()
 	if c.err != "" || c.backoff != 0 || c.listedAt.IsZero() {
 		t.Errorf("once it answers: error %q, backoff %v, listed %v", c.err, c.backoff, c.listedAt)
+	}
+}
+
+// A peer reads its owner's events from a WebSocket, which a Cloudflare quick
+// tunnel passes on at once, or from server-sent events when the owner is from
+// before that; either way it publishes them here renamed, the beats aside.
+func TestRemoteEventsOnce(t *testing.T) {
+	t.Parallel()
+	const event = `{"type":"chat","time":"2026-11-24T10:00:00Z","data":{"agent":"web/lead","seq":3}}`
+	for _, ws := range []bool{true, false} {
+		t.Run(fmt.Sprintf("websocket %v", ws), func(t *testing.T) {
+			t.Parallel()
+			var upgraded atomic.Bool
+			owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer tok" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if ws && strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+					conn, err := websocket.Accept(w, r, nil)
+					if err != nil {
+						return
+					}
+					upgraded.Store(true)
+					for _, m := range []string{`{"type":"ping","data":{}}`, event} {
+						_ = conn.Write(r.Context(), websocket.MessageText, []byte(m))
+					}
+					_ = conn.Close(websocket.StatusNormalClosure, "")
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, ": connected\n\nevent: chat\ndata: %s\n\n", event)
+			}))
+			defer owner.Close()
+			s := &Server{peering: newPeeringState(), events: newBroker()}
+			events, unsubscribe := s.events.subscribe()
+			defer unsubscribe()
+			c := &remoteConn{r: state.ShareRemote{ID: "r1", Name: "Alice", URL: owner.URL}, token: "tok"}
+			if err := s.remoteEventsOnce(context.Background(), c); err == nil || !strings.HasPrefix(err.Error(), "Alice's events stopped") {
+				t.Errorf("remoteEventsOnce() = %v; want its events stopped", err)
+			}
+			if upgraded.Load() != ws {
+				t.Errorf("upgraded to a WebSocket: %v", upgraded.Load())
+			}
+			var got []string
+			for len(events) > 0 {
+				ev := <-events
+				got = append(got, ev.Type+" "+string(ev.Data))
+			}
+			want := []string{api.EventProject + " {}", api.EventChat + ` {"agent":"r1~web/lead","seq":3}`}
+			if !slices.Equal(got, want) {
+				t.Errorf("published %q; want %q", got, want)
+			}
+
+			c.token = "revoked"
+			if err := s.remoteEventsOnce(context.Background(), c); err == nil || !strings.Contains(err.Error(), "unpaired") {
+				t.Errorf("remoteEventsOnce() unpaired = %v", err)
+			}
+		})
 	}
 }

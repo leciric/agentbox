@@ -24,6 +24,8 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
+
+	"github.com/coder/websocket"
 )
 
 // Sharing projects with another AgentBox. The owner's side is here; the
@@ -551,30 +553,69 @@ func eventProject(data json.RawMessage) string {
 }
 
 // shareEvents is the event stream as a peer sees it: only its projects'.
+//
+// A peer asks for it as a WebSocket (remoteEventsOnce), each event a message
+// sent the moment it happens. Server-sent events, which a peer from before
+// asks for, are held back by a Cloudflare quick tunnel until some 128 KB of
+// the stream are waiting ("Quick Tunnels do not support Server-Sent Events",
+// Cloudflare's docs say): a lead's reply, a few hundred bytes a word, reached
+// a peer seconds late, in bursts, while a WebSocket through the same tunnel
+// takes milliseconds.
 func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.SharePeer) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeLANError(w, http.StatusInternalServerError, "streaming isn't supported on this connection")
-		return
+	ctx := r.Context()
+	var send func(api.Event) error
+	var beat func() error
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return // Accept has answered
+		}
+		defer func() { _ = conn.CloseNow() }()
+		// The peer sends nothing: reading only answers its pings and sees
+		// it go, which ends ctx.
+		ctx = conn.CloseRead(ctx)
+		send = func(ev api.Event) error {
+			data, _ := json.Marshal(ev)
+			wctx, cancel := context.WithTimeout(ctx, shareWriteTimeout)
+			defer cancel()
+			return conn.Write(wctx, websocket.MessageText, data)
+		}
+		// A message, not a ping: what the peer reads, so it can tell a
+		// stream gone silent (remoteSilence) from one with nothing to say.
+		beat = func() error { return send(api.Event{Type: shareBeat, Time: time.Now(), Data: json.RawMessage(`{}`)}) }
+	} else {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeLANError(w, http.StatusInternalServerError, "streaming isn't supported on this connection")
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		send = func(ev api.Event) error {
+			data, _ := json.Marshal(ev)
+			_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
+			flusher.Flush()
+			return err
+		}
+		beat = func() error {
+			_, err := fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+			return err
+		}
+		_, _ = fmt.Fprint(w, ": connected\n\n")
+		flusher.Flush()
 	}
 	events, unsubscribe := s.events.subscribe()
 	defer unsubscribe()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-	send := func(ev api.Event) {
-		data, _ := json.Marshal(ev)
-		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
-		flusher.Flush()
-	}
-	_, _ = fmt.Fprint(w, ": connected\n\n")
 	for _, change := range s.agentStates() {
 		if project, _, _ := strings.Cut(change.Ref, "/"); p.Shares(project) {
 			data, _ := json.Marshal(change)
-			send(api.Event{Type: api.EventAgent, Time: time.Now(), Data: data})
+			if send(api.Event{Type: api.EventAgent, Time: time.Now(), Data: data}) != nil {
+				return
+			}
 		}
 	}
-	flusher.Flush()
 	keepalive := time.NewTicker(cmp.Or(s.keepalive, 15*time.Second))
 	defer keepalive.Stop()
 	// What it reaches is read again now and then, so a project unshared
@@ -583,25 +624,34 @@ func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.Sha
 	defer reread.Stop()
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-keepalive.C:
-			_, _ = fmt.Fprint(w, ": keepalive\n\n")
-			flusher.Flush()
+			if beat() != nil {
+				return
+			}
 		case <-reread.C:
-			if now, err := s.store.SharePeer(r.Context(), p.ID); err == nil {
+			if now, err := s.store.SharePeer(ctx, p.ID); err == nil {
 				p = now
 			}
 		case ev := <-events:
 			if ev.Type == api.EventLAN || ev.Type == api.EventShare {
 				continue
 			}
-			if p.Shares(eventProject(ev.Data)) {
-				send(ev)
+			if p.Shares(eventProject(ev.Data)) && send(ev) != nil {
+				return
 			}
 		}
 	}
 }
+
+// shareBeat is the type of the message a peer's event stream sends when it
+// has had nothing to say for a while, over a WebSocket.
+const shareBeat = "ping"
+
+// shareWriteTimeout is how long an event may take to reach a peer before its
+// stream is taken for lost and ended: the peer connects again.
+const shareWriteTimeout = 30 * time.Second
 
 // shareRoute is what a peer's request is: one no peer may make (never says
 // what it would reach), one in a project, which the peer must have been
