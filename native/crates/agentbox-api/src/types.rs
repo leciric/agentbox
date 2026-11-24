@@ -81,6 +81,8 @@ pub struct Project {
     pub created_at: String,
     #[serde(rename = "iconVersion")]
     pub icon_version: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote: Option<ProjectRemote>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4990,6 +4992,92 @@ pub struct LANAudit {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ShareStatus {
+    pub name: String,
+    pub slots: i64,
+    pub ready: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    #[serde(deserialize_with = "nullable")]
+    pub peers: Vec<SharePeer>,
+    #[serde(deserialize_with = "nullable")]
+    pub remotes: Vec<ShareRemote>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SharePeer {
+    pub id: String,
+    pub name: String,
+    pub paired: String,
+    #[serde(rename = "lastSeen")]
+    pub last_seen: String,
+    #[serde(rename = "lastAddr", skip_serializing_if = "is_empty")]
+    pub last_addr: String,
+    #[serde(rename = "allProjects")]
+    pub all_projects: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<String>,
+    pub slots: i64,
+    pub running: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateShareRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slots: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSharePeerRequest {
+    #[serde(rename = "allProjects", skip_serializing_if = "Option::is_none")]
+    pub all_projects: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slots: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SharePairing {
+    pub link: String,
+    #[serde(deserialize_with = "nullable")]
+    pub links: Vec<String>,
+    pub expires: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareRemote {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub paired: String,
+    pub projects: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AddShareRemoteRequest {
+    pub link: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectRemote {
+    pub id: String,
+    pub owner: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChatThread {
     pub agent: String,
     pub seq: i64,
@@ -7492,6 +7580,8 @@ pub const DISK_OK: &str = "ok";
 pub const DISK_LOW: &str = "low";
 pub const DISK_FULL: &str = "full";
 pub const EVENT_LAN: &str = "lan";
+pub const EVENT_SHARE: &str = "share";
+pub const ERROR_SHARE_SLOTS_FULL: &str = "share-slots-full";
 pub const EVENT_SNAP: &str = "snap";
 pub const EVENT_FILES: &str = "files";
 pub const PUSH_FINISHED: &str = "finished";

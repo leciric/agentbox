@@ -337,6 +337,7 @@ type Server struct {
 		start     func(context.Context) (api.Job, error)
 	}
 	share     shareState     // virtiofsd's open files, from the VM's supervisor (share.go)
+	peering   *peeringState  // projects shared with other AgentBoxes, and theirs here (sharepeers.go, shareremote.go)
 	health    healthStats    // what the next health event counts (healthevent.go)
 	phonePush phonePushState // push notifications to the phones' app (phonepush.go)
 	// connectorsGiven is whether each connector was last given to agents,
@@ -541,6 +542,7 @@ func New(cfg Config) (*Server, error) {
 		toolUpdates:      newToolUpdates(),
 		terminalActivity: map[string]time.Time{},
 		lan:              newLANState(),
+		peering:          newPeeringState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
 		slots:            newRunSlotState(),
@@ -709,6 +711,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.servePreview(ctx)
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
+	s.startShareRemotes(ctx)
 	defer s.closeLAN()
 	s.applyMCPLocal(ctx)
 	defer s.closeMCPLocal()
@@ -1339,6 +1342,15 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("GET /v1/doctor", s.doctor)
 	h("POST /v1/doctor/fix", s.doctorFix)
 	h("POST /v1/doctor/home", s.doctorHome)
+	// Sharing projects with other AgentBoxes, and theirs here
+	// (sharepeers.go, shareremote.go).
+	h("GET /v1/share", s.getShare)
+	h("PATCH /v1/share", s.updateShare)
+	h("POST /v1/share/pairings", s.addSharePairing)
+	h("PATCH /v1/share/peers/{id}", s.updateSharePeer)
+	h("DELETE /v1/share/peers/{id}", s.removeSharePeer)
+	h("POST /v1/share/remotes", s.addShareRemote)
+	h("DELETE /v1/share/remotes/{id}", s.removeShareRemote)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
@@ -1404,7 +1416,9 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusServiceUnavailable
 	case isDiskFull(err):
 		status = http.StatusInsufficientStorage
-	case errors.As(err, new(noRunSlot)):
+	case errors.As(err, new(shareRefused)):
+		status = http.StatusForbidden
+	case errors.As(err, new(noRunSlot)), errors.As(err, new(shareSlotsFull)):
 		status = http.StatusConflict
 	}
 	body := api.Error{Error: err.Error()}
@@ -1422,6 +1436,8 @@ func writeError(w http.ResponseWriter, err error) {
 		body.Code = api.ErrorBadRepoURL
 	case errors.As(err, new(noRunSlot)):
 		body.Code = api.ErrorNoRunSlot
+	case errors.As(err, new(shareSlotsFull)):
+		body.Code = api.ErrorShareSlotsFull
 	}
 	if skipping := (skippingError{}); errors.As(err, &skipping) {
 		body.Skipped = toAPISkipped(skipping.skipped)

@@ -185,6 +185,9 @@ type Project struct {
 	// /v1/projects/{project}/icon): when it was last changed, in unix ms, 0
 	// when it has never been looked for. The app keys its copy by it.
 	IconVersion int64 `json:"iconVersion"`
+	// Remote is set on a project another AgentBox shares with this one
+	// (share.go): whose it is.
+	Remote *ProjectRemote `json:"remote,omitempty"`
 }
 
 // ProjectActivity is when a project last did anything, and when the user
@@ -1290,6 +1293,13 @@ type CreateAgentRequest struct {
 	// whose notices it goes to: set by the daemon from the lead socket the
 	// request came in on, never sent. "" is Main.
 	LeadSession string `json:"-"`
+	// SharedBy is the paired AgentBox the agent counts against
+	// (internal/daemon/sharepeers.go), set by the daemon.
+	SharedBy string `json:"-"`
+	// ShareHold is the slot of SharedBy's held for the agent from when its
+	// create was accepted until its job ends (holdShareSlot), set by the
+	// daemon.
+	ShareHold string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent: its machine's boot, in

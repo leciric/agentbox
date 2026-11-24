@@ -64,6 +64,7 @@ import { startTour, welcomeTour } from '../lib/tours';
 import { errorMessage } from '../lib/utils';
 import { appsGroups } from './AppsSettings';
 import { phoneGroups } from './PhoneSettings';
+import { shareGroups } from './ShareSettings';
 import { projectSettingGroups } from './ProjectSettings';
 import { openSettingsSection } from './SettingsPage';
 
@@ -298,8 +299,9 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
       ),
     ...[
       ...(local ? appsGroups().map((g) => ({ g, section: 'apps', where: `${t('settings.section.apps.title')} · ${g.title}`, icon: Blocks })) : []),
-      ...(local ? phoneGroups().map((g) => ({ g, section: 'phone', where: `${t('settings.section.phone.title')} · ${g.title}`, icon: Smartphone })) : []),
-      ...(projects.data ?? []).flatMap((p) =>
+      ...(local ? [...phoneGroups(), ...shareGroups()].map((g) => ({ g, section: 'phone', where: `${t('settings.section.phone.title')} · ${g.title}`, icon: Smartphone })) : []),
+      // A project another AgentBox shares keeps its settings there.
+      ...(projects.data ?? []).filter((p) => !p.remote).flatMap((p) =>
         projectSettingGroups(p).map((g) => ({ g, section: `project:${p.name}`, where: `${projectLabel(p.name, projects.data)} · ${g.title}`, icon: FolderGit2 })),
       ),
     ].flatMap(({ g, section, where, icon }) =>

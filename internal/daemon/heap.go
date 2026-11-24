@@ -26,7 +26,7 @@ func (s *Server) socketHandler() http.Handler {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.HandleFunc("GET /debug/stats", s.debugStats)
-	mux.Handle("/", api)
+	mux.Handle("/", s.shareProxy(api))
 	return mux
 }
 
