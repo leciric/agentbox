@@ -54,7 +54,7 @@ if has '^(native/|desktop/src/shared/i18n/)'; then native=true; fi
 # and what packages it. Not the text catalogs alone, which change every day
 # and which the check on Linux compiles.
 native_windows=false
-if has '^(native/|scripts/native-(package|cli)\.sh$)'; then native_windows=true; fi
+if has '^(native/|scripts/(native-(package|cli)|find-makensis)\.sh$)'; then native_windows=true; fi
 
 # The hub's npm packages (npx agentbox-hub): its Go, the protocol it imports,
 # its launcher and build script, and the toolchain that builds them. Its Go

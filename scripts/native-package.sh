@@ -47,9 +47,10 @@
 # this user alone, in %LOCALAPPDATA%\Programs\AgentBox Native, with a Start
 # menu entry and an uninstaller, asking for no administrator. The app it
 # installs updates itself in place, as the .zip's does. It is made with
-# makensis ($MAKENSIS, PATH, or where NSIS installs itself, which GitHub's
-# Windows runners have), installed silently into a folder of this script's
-# and asked for its tool like every other file, then uninstalled.
+# makensis ($MAKENSIS, else scripts/find-makensis.sh: PATH, or where NSIS
+# installs itself; GitHub's Windows runners don't have it, so their jobs run
+# `find-makensis.sh --install` first), installed silently into a folder of this
+# script's and asked for its tool like every other file, then uninstalled.
 #
 # The .pacman (AgentBox-Native-experimental-<version>-x64.pacman) is the same
 # package for Arch, installed with `sudo pacman -U`.
@@ -302,13 +303,9 @@ DESK
     holds_cli "$name-windows-x64.zip" "$tmp/look/$name-windows-x64/agentbox-native.exe"
 
     # The installer.
-    makensis=${MAKENSIS:-$(command -v makensis || true)}
-    if [ -z "$makensis" ]; then
-      for d in "${PROGRAMFILES:-}" "${PROGRAMFILES_X86:-}" "/c/Program Files (x86)" "/c/Program Files"; do
-        [ -n "$d" ] && [ -x "$d/NSIS/makensis.exe" ] && makensis="$d/NSIS/makensis.exe" && break
-      done
-    fi
+    makensis=${MAKENSIS:-$("$root/scripts/find-makensis.sh" || true)}
     [ -n "$makensis" ] || { echo "no makensis: install NSIS (choco install nsis), or set MAKENSIS" >&2; exit 1; }
+    [ -x "$makensis" ] || { echo "makensis: $makensis isn't an executable" >&2; exit 1; }
     setup=$out/$name-windows-x64-setup.exe
     # Options with -, which makensis takes on every system and which MSYS
     # doesn't take for a path, as it would /D; the paths as Windows' own.

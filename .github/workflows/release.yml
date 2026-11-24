@@ -328,9 +328,11 @@ jobs:
         working-directory: native
         run: cargo build --release --locked -p agentbox-native --no-default-features
 
+      # The runners don't have NSIS; see nightly.yml's step.
       - name: NSIS, for the installer
         run: |
-          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+          makensis=$(scripts/find-makensis.sh --install)
+          echo "MAKENSIS=$makensis" >>"$GITHUB_ENV"
 
       - name: Package it
         run: scripts/native-package.sh windows "$VERSION" native-out

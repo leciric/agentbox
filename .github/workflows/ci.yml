@@ -399,10 +399,14 @@ jobs:
         working-directory: native
         run: cargo build --release --locked -p agentbox-native --no-default-features
 
-      # The runners have NSIS; one that doesn't gets it.
+      # NSIS makes the installer, and the runners don't have it: Chocolatey
+      # installs it, retried (its feed answers 503 now and then, and choco
+      # exits 0 when it does). This fails here, not in the next step, when
+      # makensis still isn't there; MAKENSIS tells that step where it is.
       - name: NSIS, for the installer
         run: |
-          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+          makensis=$(scripts/find-makensis.sh --install)
+          echo "MAKENSIS=$makensis" >>"$GITHUB_ENV"
 
       - name: Package it, and install it
         run: scripts/native-package.sh windows "$VERSION" native-out
