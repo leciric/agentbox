@@ -34,10 +34,6 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // (T.Agent.memory): paused mid-run, or not yet started.
   const held = memoryHold(agent);
   if (held) return { text: held.text, tone: 'warning' };
-  // Its run phase (the app, the desktop, recordings) waits its turn for a
-  // run slot, while it keeps coding (T.Agent.runSlot).
-  const slot = runSlotWait(agent);
-  if (slot) return { text: slot.text, tone: 'live' };
   if (agent.chat === 'running') return { text: t('agent.status.working'), tone: 'live' };
   // Its turn ended on work it left running — a background command, a
   // monitor, a watcher — whose end wakes it to carry on. Not idle, and not
@@ -78,15 +74,13 @@ function limitedText(agent: Pick<T.Agent, 'outcomeUntil'>): string {
 
 // statusTip is what chatLabel's words leave out, for a tooltip: what holds
 // its commands for memory, the question it asked, the error it stopped on.
-export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed' | 'hold' | 'runSlot'>): string | undefined {
+export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed' | 'hold'>): string | undefined {
   const machine = machineHold(agent);
   if (machine) return machine.tip;
   const hold = onHold(agent);
   if (hold) return hold.tip;
   const held = memoryHold(agent);
   if (held) return held.tip;
-  const slot = runSlotWait(agent);
-  if (slot) return slot.tip;
   if (agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.status.reclaimedFrozenTip');
   if (agent.reclaimed === 'stopped') return t('agent.status.reclaimedStoppedTip');
   if (agent.chat === 'running' || !agent.outcomeNote) return undefined;
@@ -111,15 +105,6 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
     return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
   }
   return undefined;
-}
-
-// runSlotWait is an agent waiting for a run slot, with how many are ahead of
-// it: "Waiting for a run slot (2 ahead)". undefined when it holds one or
-// doesn't need one.
-export function runSlotWait(agent: Pick<T.Agent, 'state' | 'runSlot'>): { text: string; tip: string } | undefined {
-  const slot = agent.runSlot;
-  if (agent.state !== 'running' || slot?.state !== 'waiting') return undefined;
-  return { text: t('agent.status.runSlotWaiting', { ahead: slot.ahead ?? 0 }), tip: t('agent.status.runSlotWaitingTip') };
 }
 
 // machineHold is what holds an agent's machine: "On hold: starting" for the

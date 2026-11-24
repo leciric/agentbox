@@ -142,7 +142,7 @@ func TestSupervisorResize(t *testing.T) {
 	for name, req := range map[string]api.VMResizeRequest{
 		"more CPUs than it has room for": {CPUs: 17},
 		"a cap over its room":            {MemoryCap: 33 * GiB},
-		"a cap into the host's reserve":  {MemoryCap: 26 * GiB}, // 32 GiB keeps 6.4
+		"a cap into the host's reserve":  {MemoryCap: 29 * GiB}, // 32 GiB keeps 4
 		"a cap under what it boots with": {MemoryCap: 2 * GiB},
 	} {
 		if err := s.resize(t.Context(), req); !errors.As(err, &conflict) {

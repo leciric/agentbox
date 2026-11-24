@@ -240,10 +240,6 @@ export function connectEvents(queryClient: QueryClient): void {
         // again, or it paused or resumed an agent.
         queryClient.setQueryData(['disk'], event.data as T.DiskGuard);
         break;
-      case T.EventRunSlots:
-        // Who holds a run slot or waits for one changed (RunSlotsPill).
-        queryClient.setQueryData(['runSlots'], event.data as T.RunSlots);
-        break;
       case T.EventRestartHold:
         // What waits for you after AgentBox stopped unexpectedly changed:
         // held as it started, or resumed (RestartHoldNotice).
@@ -324,7 +320,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
-            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory, runSlot: change.runSlot, reclaimed: change.reclaimed, waitingForImage: change.waitingForImage } : a)),
+            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory, reclaimed: change.reclaimed, waitingForImage: change.waitingForImage } : a)),
           );
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });

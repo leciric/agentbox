@@ -504,9 +504,9 @@ func TestAgentMemoryShare(t *testing.T) {
 	}
 }
 
-// A busy host holds no heavy command back: it starts with half the workers
-// (Why "host"), and the VM's caches are dropped when asked, at most once a
-// while.
+// A host short of memory holds no heavy command back, nor gives it fewer
+// workers (24 Nov 2026: it was halved while the host was busy), and the VM's
+// caches are dropped when asked, at most once a while.
 func TestHostLoadHoldsNoHeavyCommand(t *testing.T) {
 	t.Parallel()
 	var drops atomic.Int32
@@ -516,19 +516,19 @@ func TestHostLoadHoldsNoHeavyCommand(t *testing.T) {
 		t.Cleanup(func() { dropVMCaches = old })
 	})
 	ctx := context.Background()
-	busy := api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", Reclaim: true, At: time.Now()}
+	short := api.HostLoad{OS: "linux", Memory: 30, Why: "memory", Reclaim: true, At: time.Now()}
 	for range 2 {
-		if err := p.client.PutHostLoad(ctx, busy); err != nil {
+		if err := p.client.PutHostLoad(ctx, short); err != nil {
 			t.Fatal(err)
 		}
 	}
 	p.srv.stepPressure(ctx)
 	if got := p.ask(t, p.instance, "busy"); !got.Started {
-		t.Fatal("a command waited for a busy host")
-	} else if want := agent.HeavyWorkers(agent.HostCores(), 1, true); got.Workers != want {
-		t.Errorf("with the host busy: %d workers, want %d", got.Workers, want)
+		t.Fatal("a command waited for a host short of memory")
+	} else if want := agent.HeavyWorkers(agent.HostCores(), 1); got.Workers != want {
+		t.Errorf("with the host short of memory: %d workers, want %d", got.Workers, want)
 	}
-	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || !ps.Host.Busy || ps.Why != string(pressure.HostBusy) {
+	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || ps.Host.Why != "memory" || ps.Why != "" {
 		t.Fatalf("GET /v1/pressure = %+v, %v", ps, err)
 	}
 	deadline := time.Now().Add(2 * time.Second)

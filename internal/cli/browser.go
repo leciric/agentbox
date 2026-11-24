@@ -103,12 +103,6 @@ func newBrowserActionCmd(a *app, action, short string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Inside an agent, starting its browser is its run phase.
-			if action == "start" {
-				if err := inRunPhase(cmd.Context(), ref, cmd.ErrOrStderr()); err != nil {
-					return err
-				}
-			}
 			status, err := c.BrowserAction(cmd.Context(), ref, action)
 			if err != nil {
 				return err
@@ -130,9 +124,6 @@ func newBrowserOpenCmd(a *app) *cobra.Command {
 			}
 			c, err := a.scopedClient(cmd, ref)
 			if err != nil {
-				return err
-			}
-			if err := inRunPhase(cmd.Context(), ref, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			status, err := c.OpenInBrowser(cmd.Context(), ref, target)

@@ -3,8 +3,6 @@ package hostload
 import (
 	"testing"
 	"time"
-
-	"agentbox/internal/api"
 )
 
 var t0 = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
@@ -21,7 +19,9 @@ func TestJudgeThresholds(t *testing.T) {
 	}{
 		{"calm", func(*Reading) {}, ""},
 		{"memory stall", func(r *Reading) { r.Memory = 12 }, "memory"},
-		{"below the reserve", func(r *Reading) { r.Available = 7 << 30 }, "memory"},
+		{"below the reserve", func(r *Reading) { r.Available = 3 << 30 }, "memory"},
+		// 7.5 GiB of 32 is over the reserve: it was under a quarter's.
+		{"over the reserve", func(r *Reading) { r.Available = 15 << 29 }, ""},
 		{"cpu", func(r *Reading) { r.CPU = 60 }, "cpu"},
 		{"io", func(r *Reading) { r.IO = 45 }, "io"},
 		{"windows cpu", func(r *Reading) { r.CPU, r.CPUShare = -1, 95 }, "cpu"},
@@ -30,59 +30,32 @@ func TestJudgeThresholds(t *testing.T) {
 	} {
 		r := calm()
 		tc.edit(&r)
-		var j Judge
-		got := j.Judge(r, t0)
-		if got.Why != tc.why || got.Busy != (tc.why != "") || got.Reclaim != (tc.why == "memory") {
+		got := Judge(r, t0)
+		if got.Why != tc.why || got.Reclaim != (tc.why == "memory") {
 			t.Errorf("%s: %+v", tc.name, got)
 		}
 	}
 }
 
-func TestJudgeCalmsAfterAWhile(t *testing.T) {
-	var j Judge
-	busy := calm()
-	busy.IO = 80
-	if !j.Judge(busy, t0).Busy {
-		t.Fatal("not busy")
-	}
-	now := t0.Add(time.Second)
-	if l := j.Judge(calm(), now); !l.Busy || l.Why != "" {
-		t.Fatalf("calm at once: %+v", l)
-	}
-	if !j.Judge(calm(), now.Add(CalmAfter-time.Second)).Busy {
-		t.Fatal("calm before CalmAfter")
-	}
-	// Another burst starts the wait over.
-	j.Judge(busy, now.Add(CalmAfter-time.Second/2))
-	if !j.Judge(calm(), now.Add(CalmAfter+time.Second)).Busy {
-		t.Fatal("a burst didn't start the wait over")
-	}
-	if j.Judge(calm(), now.Add(3*CalmAfter)).Busy {
-		t.Fatal("still busy long after")
-	}
-}
-
+// The reserve is a small fixed 4 GiB, never under the host's hard floor,
+// however big the host.
 func TestReserve(t *testing.T) {
-	if Reserve(8<<30) != 4<<30 || Reserve(64<<30) != 16<<30 {
-		t.Fatalf("Reserve: %d %d", Reserve(8<<30), Reserve(64<<30))
-	}
-}
-
-func TestWordsSayWhatIsShort(t *testing.T) {
-	for _, tc := range []struct {
-		l    api.HostLoad
-		want string
-	}{
-		{api.HostLoad{Why: "memory", Memory: 0, MemoryTotal: 32 << 30, Available: 5 << 30}, "memory, 5.0 GiB available of the 8.0 GiB it keeps"},
-		{api.HostLoad{Why: "memory", Memory: 14, MemoryTotal: 32 << 30, Available: 2 << 30}, "memory, 14% stalled"},
-		{api.HostLoad{Why: "memory", Memory: -1, Level: "warn"}, "memory pressure warn"},
-		{api.HostLoad{Why: "cpu", CPU: 61}, "CPU, 61% stalled"},
-		{api.HostLoad{Why: "cpu", CPU: -1, CPUShare: 93}, "CPU, 93% busy"},
-		{api.HostLoad{Why: "io", IO: 45}, "disk, 45% stalled"},
-		{api.HostLoad{}, "calming down"},
+	share := func(total int64) int64 { return int64(float64(total) * FloorShare) }
+	for _, tc := range []struct{ total, reserve, floor int64 }{
+		{8 << 30, 4 << 30, 2 << 30},
+		{16 << 30, 4 << 30, 2 << 30},
+		{61 << 29, 4 << 30, 2 << 30}, // 30.5 GiB: was 7.6
+		{64 << 30, 4 << 30, share(64 << 30)},
+		{128 << 30, share(128 << 30), share(128 << 30)},
 	} {
-		if got := Words(tc.l); got != tc.want {
-			t.Errorf("Words(%+v) = %q, want %q", tc.l, got, tc.want)
+		if got := Reserve(tc.total); got != tc.reserve {
+			t.Errorf("Reserve(%d GiB) = %d, want %d", tc.total>>30, got, tc.reserve)
+		}
+		if got := Floor(tc.total); got != tc.floor {
+			t.Errorf("Floor(%d GiB) = %d, want %d", tc.total>>30, got, tc.floor)
+		}
+		if Reserve(tc.total) < Floor(tc.total) {
+			t.Errorf("Reserve(%d GiB) is under the floor", tc.total>>30)
 		}
 	}
 }

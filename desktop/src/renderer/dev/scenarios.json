@@ -1303,21 +1303,6 @@
     "height": 1080
   },
   {
-    "id": "window-wide-run-slots-dark",
-    "description": "At 1920×1080 with every run slot held and two agents waiting: the top bar's \"Run slots 0 of 2 free\" pill open on who holds one, who waits and the project's learned run peak, and agent-96's status saying it waits one ahead — dark",
-    "query": "app=project&theme=dark&runslots=full",
-    "width": 1920,
-    "height": 1080,
-    "click": "[data-run-slots]"
-  },
-  {
-    "id": "window-min-run-slots-light",
-    "description": "At 800×600 with one run slot of three free: the top bar's run slots pill shrinks to its count — light",
-    "query": "app=project&theme=light",
-    "width": 800,
-    "height": 600
-  },
-  {
     "id": "window-wide-v2-filters-dark",
     "description": "At 1920×1080, the filter popover open: state with counts, and the projects — dark",
     "query": "app=project&theme=dark",
@@ -3109,20 +3094,11 @@
   },
   {
     "id": "topbar-busy-dark",
-    "description": "The top bar while this computer is busy (its disk) and the daemon hasn't answered for a few seconds: two marks beside the machine's status, the views keeping what they had — dark",
-    "query": "app=project&busy=host,daemon&theme=dark",
+    "description": "The top bar while the daemon hasn't answered for a few seconds: a mark beside the machine's status, the views keeping what they had — dark",
+    "query": "app=project&busy=daemon&theme=dark",
     "width": 1440,
     "height": 900,
     "wait": 4500
-  },
-  {
-    "id": "topbar-busy-host-tip-dark",
-    "description": "The 'Computer busy' mark's tip: why, and that agents' builds and tests run fewer jobs meanwhile — dark",
-    "query": "app=project&busy=host&theme=dark",
-    "width": 1440,
-    "height": 900,
-    "wait": 1500,
-    "hover": "[data-busy=\"host\"]"
   },
   {
     "id": "window-cockpit-all-3440",

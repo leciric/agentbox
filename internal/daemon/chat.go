@@ -103,7 +103,6 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
-	info.RunSlot = s.runSlotOf(info.Ref)
 	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
 	info.Hold = holdOfInfo(info.Hold, info.State)
 	info.Goal = s.goalOf(context.Background(), info.Project, info.Name)

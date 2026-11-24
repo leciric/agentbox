@@ -232,7 +232,7 @@ func TestCheckConfig(t *testing.T) {
 		"more CPUs than cores":   func(c *chv.Config) { c.CPUs = 9 },
 		"a cap below the min":    func(c *chv.Config) { c.MemoryCap = 2 * chv.GiB },
 		"a cap over the host":    func(c *chv.Config) { c.MemoryCap = 40 * chv.GiB },
-		"a cap into its reserve": func(c *chv.Config) { c.MemoryCap = 26 * chv.GiB },
+		"a cap into its reserve": func(c *chv.Config) { c.MemoryCap = 29 * chv.GiB }, // 32 keeps 4
 		"a tiny min":             func(c *chv.Config) { c.MemoryMin = 512 << 20 },
 		"a tiny disk":            func(c *chv.Config) { c.Disk = 10 * chv.GiB },
 	} {
