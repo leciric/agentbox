@@ -223,9 +223,10 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		// The agents this session of the chat makes from here count against
 		// the paired AgentBox that wrote this, or no one's (sharepeers.go):
 		// keyed by the session it lands in, whatever the path named.
-		s.heardInChat(r.Context(), a)
+		undo := s.heardInChat(r.Context(), a)
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
+			undo()
 			return err
 		}
 		item := t.item

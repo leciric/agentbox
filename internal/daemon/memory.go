@@ -368,7 +368,8 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			// ResolveMemory finds a memory for every project by its id
 			// too: a paired AgentBox closes only its project's.
 			if who.project != memory.Global {
-				if _, err := m.Memory(ctx, memory.Global, req.ID); err == nil {
+				// Not knowing is no: only "no such memory" lets it by.
+				if _, err := m.Memory(ctx, memory.Global, req.ID); !errors.Is(err, memory.ErrNotFound) {
 					if err := refuseSharePeer(ctx, "close a memory for every project"); err != nil {
 						return err
 					}

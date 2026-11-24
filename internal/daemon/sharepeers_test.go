@@ -320,6 +320,23 @@ func TestShareSlots(t *testing.T) {
 			t.Errorf("shareCreator(the project's own chat, as %q) = %q", session, got)
 		}
 	}
+	// A message the chat refuses changes nothing: undo puts back who wrote
+	// before it, unless a message was heard since.
+	undo := d.srv.heardInChat(ctx, lead(state.MigratedSession))
+	if got := d.srv.shareCreator(ctx, "p", "", true); got != "" {
+		t.Errorf("shareCreator(while a message from here goes in) = %q", got)
+	}
+	undo()
+	if got := d.srv.shareCreator(ctx, "p", "", true); got != peer.ID {
+		t.Errorf("shareCreator(after the chat refused a message from here) = %q", got)
+	}
+	d.srv.heardInChat(ctx, lead("s2"))
+	refused := d.srv.heardInChat(pctx, lead("s2"))
+	d.srv.heardInChat(pctx, lead("s2")) // the peer's next, accepted
+	refused()
+	if got := d.srv.shareCreator(ctx, "p", "s2", true); got != peer.ID {
+		t.Errorf("shareCreator(a refused message undone after the peer's next) = %q", got)
+	}
 }
 
 // A create takes a peer's slot as it is accepted: creates at once can't all
@@ -423,6 +440,31 @@ func TestShareSlotHolds(t *testing.T) {
 	if _, err := d.srv.createAgentJob(pctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none"}, false); !errors.As(err, new(shareSlotsFull)) {
 		t.Errorf("a create over its two slots, both running = %v", err)
 	}
+
+	// Starting one of its stopped agents holds a slot for the request: two
+	// starts at once can't both take its last one.
+	mu.Lock()
+	running["hello-stack/agent-01"], running["hello-stack/agent-09"] = false, false
+	mu.Unlock()
+	if _, err := d.srv.store.SetSharePeer(ctx, peer.ID, false, []string{"hello-stack"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	first, err := d.srv.checkShareStart(ctx, peer, "hello-stack", "agent-01")
+	if err != nil || first == "" {
+		t.Fatalf("starting agent-01 = %q, %v; want a hold", first, err)
+	}
+	if again, err := d.srv.checkShareStart(ctx, peer, "hello-stack", "agent-01"); again != "" || err != nil {
+		t.Errorf("starting agent-01 while it starts = %q, %v; want nothing held, no refusal", again, err)
+	}
+	if _, err := d.srv.checkShareStart(ctx, peer, "hello-stack", "agent-09"); !errors.As(err, new(shareSlotsFull)) {
+		t.Errorf("starting agent-09 while agent-01 starts, of one slot = %v", err)
+	}
+	d.srv.releaseShareSlot(first)
+	second, err := d.srv.checkShareStart(ctx, peer, "hello-stack", "agent-09")
+	if err != nil || second == "" {
+		t.Errorf("starting agent-09 once agent-01's start ended = %q, %v", second, err)
+	}
+	d.srv.releaseShareSlot(second)
 }
 
 // A peer that is given less loses what it had open in the projects it no

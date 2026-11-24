@@ -59,6 +59,10 @@ type peeringState struct {
 	// speaker is, by "project/session", the peer that wrote last in that
 	// session of a project's chat, until someone here does (heardInChat).
 	speaker map[string]string
+	// heard is, by the same key, which of heardInChat's writes (heardN
+	// counts them) was the last, so undoing one never undoes a later one.
+	heard  map[string]uint64
+	heardN uint64
 	// holds are the slots of agents being made for peers, by id, from when
 	// their create is accepted until its job ends (holdShareSlot).
 	holds map[string]*shareHold
@@ -75,7 +79,7 @@ type peeringState struct {
 func newPeeringState() *peeringState {
 	return &peeringState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]shareOpen{},
-		seen: map[string]time.Time{}, speaker: map[string]string{}, holds: map[string]*shareHold{},
+		seen: map[string]time.Time{}, speaker: map[string]string{}, heard: map[string]uint64{}, holds: map[string]*shareHold{},
 		remotes: newShareRemotes(),
 	}
 }
@@ -438,10 +442,12 @@ func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
 		}
 	}
 	if route.agent != "" {
-		if err := s.checkShareStart(ctx, p, route.project, route.agent); err != nil {
+		hold, err := s.checkShareStart(ctx, p, route.project, route.agent)
+		if err != nil {
 			writeError(w, err)
 			return
 		}
+		defer s.releaseShareSlot(hold)
 	}
 
 	ctx, cancel := context.WithCancel(context.WithValue(ctx, sharePeerKey{}, p))
@@ -751,9 +757,13 @@ type shareHold struct {
 const shareHoldTTL = time.Hour
 
 // checkShareSlots refuses a peer an agent more than its slots allow: those
-// of its agents that run, and those being made for it (holds), each once.
-// Only under slotMu (holdShareSlot, checkShareStart) does what it says still
-// hold when the caller acts on it.
+// of its agents that run, and those being made or started for it (holds),
+// each once. Only under slotMu (holdShareSlot, checkShareStart) does what it
+// says still hold when the caller acts on it.
+//
+// The holds are read before the peer's agents: a create records its agent
+// before it names its hold's, and releases the hold after, so an agent whose
+// hold is gone by then is among the agents read next, and none is missed.
 func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 	p, err := s.store.SharePeer(ctx, peerID)
 	if err != nil {
@@ -762,10 +772,6 @@ func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 	slots := p.Slots
 	if slots < 0 {
 		slots = s.shareSlots(ctx)
-	}
-	refs, err := s.store.SharePeerAgents(ctx, p.ID)
-	if err != nil {
-		return err
 	}
 	held, heldRefs := 0, map[string]bool{}
 	sh := s.peering
@@ -780,6 +786,10 @@ func (s *Server) checkShareSlots(ctx context.Context, peerID string) error {
 		}
 	}
 	sh.mu.Unlock()
+	refs, err := s.store.SharePeerAgents(ctx, p.ID)
+	if err != nil {
+		return err
+	}
 	refs = slices.DeleteFunc(refs, func(ref string) bool { return heldRefs[ref] })
 	if running := s.shareRunningCount(ctx, refs) + held; running >= slots {
 		return shareSlotsFull{peer: p.Name, running: running, slots: slots}
@@ -797,14 +807,20 @@ func (s *Server) holdShareSlot(ctx context.Context, peerID string) (string, erro
 	if err := s.checkShareSlots(ctx, peerID); err != nil {
 		return "", err
 	}
+	return s.addShareHold(peerID, "")
+}
+
+// addShareHold records a hold for one of a peer's agents (ref, once known):
+// only under slotMu, once checkShareSlots let it through.
+func (s *Server) addShareHold(peerID, ref string) (string, error) {
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	id := hex.EncodeToString(raw)
-	sh.mu.Lock()
-	sh.holds[id] = &shareHold{peer: peerID, since: time.Now()}
-	sh.mu.Unlock()
+	s.peering.mu.Lock()
+	defer s.peering.mu.Unlock()
+	s.peering.holds[id] = &shareHold{peer: peerID, ref: ref, since: time.Now()}
 	return id, nil
 }
 
@@ -832,22 +848,33 @@ func (s *Server) releaseShareSlot(id string) {
 	delete(s.peering.holds, id)
 }
 
-// checkShareStart is checkShareSlots for starting one of the peer's own
-// agents again (project is its slug); starting the owner's agents counts
-// nothing.
-func (s *Server) checkShareStart(ctx context.Context, p state.SharePeer, project, name string) error {
+// checkShareStart is holdShareSlot for starting one of the peer's own agents
+// again (project is its slug): the hold lasts the start request, so two
+// starts at once can't both pass, and the agent counts by its machine after.
+// Starting the owner's agents, or one already running or being started,
+// holds nothing ("").
+func (s *Server) checkShareStart(ctx context.Context, p state.SharePeer, project, name string) (string, error) {
 	ref := project + "/" + name
 	refs, err := s.store.SharePeerAgents(ctx, p.ID)
 	if err != nil || !slices.Contains(refs, ref) {
-		return err
+		return "", err
 	}
 	sh := s.peering
 	sh.slotMu.Lock()
 	defer sh.slotMu.Unlock()
-	if s.shareRunningCount(ctx, []string{ref}) > 0 {
-		return nil // already running
+	starting := false
+	sh.mu.Lock()
+	for _, h := range sh.holds {
+		starting = starting || h.ref == ref
 	}
-	return s.checkShareSlots(ctx, p.ID)
+	sh.mu.Unlock()
+	if starting || s.shareRunningCount(ctx, []string{ref}) > 0 {
+		return "", nil
+	}
+	if err := s.checkShareSlots(ctx, p.ID); err != nil {
+		return "", err
+	}
+	return s.addShareHold(p.ID, ref)
 }
 
 // shareCreator is the peer an agent about to be made counts against: the one
@@ -871,17 +898,44 @@ func (s *Server) shareCreator(ctx context.Context, project, session string, byLe
 // heardInChat records who wrote last in the session of a project's chat that
 // lead is, as the message lands there: the peer the request came from, whose
 // the agents that session makes are then, or someone on this machine, whose
-// they are again.
-func (s *Server) heardInChat(ctx context.Context, lead state.Agent) {
+// they are again. It is set before the message goes in, so the turn it
+// starts can't make an agent first; undo puts back what was there when the
+// chat refuses the message, unless another message was heard since.
+func (s *Server) heardInChat(ctx context.Context, lead state.Agent) (undo func()) {
 	if s.peering == nil || !lead.IsLead() || lead.IsHome() {
-		return
+		return func() {}
 	}
 	key := lead.Project + "/" + lead.Session()
-	s.peering.mu.Lock()
-	defer s.peering.mu.Unlock()
+	who := ""
 	if p, ok := sharePeerFrom(ctx); ok {
-		s.peering.speaker[key] = p.ID
+		who = p.ID
+	}
+	sh := s.peering
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	was, had := sh.speaker[key]
+	setSpeaker(sh.speaker, key, who)
+	sh.heardN++
+	mine := sh.heardN
+	sh.heard[key] = mine
+	return func() {
+		sh.mu.Lock()
+		defer sh.mu.Unlock()
+		if sh.heard[key] == mine {
+			if had {
+				setSpeaker(sh.speaker, key, was)
+			} else {
+				delete(sh.speaker, key)
+			}
+		}
+	}
+}
+
+// setSpeaker is speaker[key] = who, where no one ("") is no entry.
+func setSpeaker(speaker map[string]string, key, who string) {
+	if who == "" {
+		delete(speaker, key)
 	} else {
-		delete(s.peering.speaker, key)
+		speaker[key] = who
 	}
 }
