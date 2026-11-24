@@ -14,6 +14,8 @@ import (
 
 // EventLAN is published, with no data, when anything in LANStatus changes:
 // turned on or off, a phone paired or revoked, the host's forward coming up.
+// And when the routes other apps reach AgentBox by without a hub do
+// (MCPPairings' Local and Tunnel): the local port, or the tunnel for apps.
 const EventLAN = "lan"
 
 // LANStatus is GET /v1/lan.

@@ -104,3 +104,88 @@ func TestForward(t *testing.T) {
 		t.Errorf("reports = %+v", reports)
 	}
 }
+
+// The local MCP port opens on the loopback address while the daemon has an
+// app paired for it, passes /mcp on to api.MCPLocalPath and nothing else,
+// stays open when phones are off, and closes when the daemon says so.
+func TestForwardMCP(t *testing.T) {
+	var mu sync.Mutex
+	want := api.MCPLocalHost{Port: 7782, Open: true}
+	var reports []api.MCPLocalHostReport
+	var got []string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/v1/lan":
+			_ = json.NewEncoder(w).Encode(api.LANStatus{})
+		case r.Method == "GET" && r.URL.Path == "/v1/remote/mcp/local/host":
+			_ = json.NewEncoder(w).Encode(want)
+		case r.Method == "PUT" && r.URL.Path == "/v1/remote/mcp/local/host":
+			var rep api.MCPLocalHostReport
+			_ = json.NewDecoder(r.Body).Decode(&rep)
+			reports = append(reports, rep)
+		default:
+			got = append(got, r.Method+" "+r.URL.RequestURI()+" "+r.Header.Get("Authorization"))
+			_, _ = io.WriteString(w, "ok")
+		}
+	}))
+	defer daemon.Close()
+	dial := func(ctx context.Context) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", daemon.Listener.Addr().String())
+	}
+	f := NewForward(dial, t.Logf)
+	f.Listen = func(int) (net.Listener, error) {
+		t.Error("phones' port was opened")
+		return nil, net.ErrClosed
+	}
+	var ln net.Listener
+	f.ListenLocal = func(port int) (net.Listener, error) {
+		if port != 7782 {
+			t.Errorf("listening on %d", port)
+		}
+		var err error
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		return ln, err
+	}
+	ctx := context.Background()
+	f.tick(ctx)
+	defer f.close()
+	if ln == nil {
+		t.Fatal("no port opened")
+	}
+	f.tick(ctx) // phones are off: the MCP port stays
+	for _, path := range []string{"/mcp", "/mcp?x=1", "/v1/agents", "/mcp/../v1/agents", "/"} {
+		req, _ := http.NewRequest("POST", "http://"+ln.Addr().String()+path, nil)
+		req.Header.Set("Authorization", "Bearer abx_m_x")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if wantOK := path == "/mcp" || path == "/mcp?x=1"; (resp.StatusCode == 200) != wantOK {
+			t.Errorf("POST %s: %d", path, resp.StatusCode)
+		}
+	}
+	mu.Lock()
+	if len(got) != 2 || got[0] != "POST "+api.MCPLocalPath+" Bearer abx_m_x" || got[1] != got[0] {
+		t.Errorf("the daemon got %q", got)
+	}
+	if len(reports) != 2 || !reports[0].Listening || reports[0].Port != 7782 || reports[0].Error != "" {
+		t.Errorf("reports = %+v", reports)
+	}
+	want.Open = false
+	mu.Unlock()
+
+	f.tick(ctx)
+	if _, err := http.Post("http://"+ln.Addr().String()+"/mcp", "application/json", nil); err == nil {
+		t.Error("the port is still open")
+	}
+	f.tick(ctx) // and nothing more is reported once it's closed
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reports) != 3 || reports[2].Listening {
+		t.Errorf("reports = %+v", reports)
+	}
+}

@@ -1533,7 +1533,15 @@ func (c *Client) PairMCP(ctx context.Context, req MCPPairRequest) (MCPPairingSec
 	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings", req, &out)
 }
 
-// RenewMCPCode gives a pairing a new code, for signing its app in again.
+// UpdateMCP changes how other apps reach this machine without a hub.
+func (c *Client) UpdateMCP(ctx context.Context, req UpdateMCPRequest) (MCPPairings, error) {
+	var out MCPPairings
+	return out, c.do(ctx, http.MethodPatch, "/v1/remote/mcp", req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code, for signing its app in again
+// through the hub, or a new bearer token (the old one stops working) for a
+// local or tunnel pairing.
 func (c *Client) RenewMCPCode(ctx context.Context, id string) (MCPPairingSecret, error) {
 	var out MCPPairingSecret
 	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings/"+url.PathEscape(id)+"/code", nil, &out)
