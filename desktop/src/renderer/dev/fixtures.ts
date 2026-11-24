@@ -368,17 +368,18 @@ export function buildFixtures(): FixtureData {
     // 22 minutes; and one whose AI tool exited mid-turn (exit status 143).
     agent({ ref: `${PROJECT}/agent-88`, title: 'Import the product catalogue', chat: 'running', stalledSince: new Date(Date.now() - 22 * 60_000).toISOString() }),
     agent({ ref: `${PROJECT}/agent-87`, title: 'Migrate the reminders table', ai: 'codex', chat: 'error' }),
-    // With pausing whole agents on, the VM short of memory: its test run is
-    // paused until there is room (memory.paused), and the rail says Paused
-    // for memory instead of Working. Its tooltip says why, as the fleet
-    // judged it: memory falling fast toward running out.
+    // What an older daemon sends with its experimental "Pause whole
+    // agents for memory" on, the VM short of memory: its test run is paused
+    // until there is room (memory.paused), and the rail says Paused for memory
+    // instead of Working. Its tooltip says why: memory falling fast toward
+    // running out. A daemon now never pauses one.
     agent({
       ref: `${PROJECT}/agent-86`,
       title: 'Run the full test suite',
       chat: 'running',
       memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
-    // Settings → Experimental's "Pause whole agents for memory": one frozen
+    // The same older daemon's whole agents paused for memory: one frozen
     // mid-turn, two machines thawing before it, and one waiting for the
     // memory to boot its machine.
     agent({
@@ -1889,7 +1890,6 @@ let defaultsSettings = {
   // without krunkit.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
-  agentFreeze: false,
   prWatch: true,
   // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
   mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
@@ -2560,14 +2560,12 @@ const usageHealthBody = {
         "front_end": "host",
         "idle_freezes": 0,
         "idle_stops": 0,
-        "machine_freezes": 0,
         "mem_anon_pct": 3,
         "mem_available_pct": 97,
         "mem_file_pct": 9,
         "mem_kernel_pct": 0,
         "oom_kills": 0,
         "period": "lt_1m",
-        "run_pauses": 2,
         "swap_size_pct": 108,
         "swap_used_pct": 1,
         "trigger": "daily",

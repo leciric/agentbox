@@ -457,8 +457,6 @@ pub struct Settings {
     pub pr_watch: bool,
     #[serde(rename = "mergeWhenGreen")]
     pub merge_when_green: bool,
-    #[serde(rename = "agentFreeze")]
-    pub agent_freeze: bool,
     #[serde(rename = "mediaRetention")]
     pub media_retention: String,
     pub language: String,
@@ -645,8 +643,6 @@ pub struct UpdateSettingsRequest {
     pub pr_watch: Option<bool>,
     #[serde(rename = "mergeWhenGreen", skip_serializing_if = "Option::is_none")]
     pub merge_when_green: Option<bool>,
-    #[serde(rename = "agentFreeze", skip_serializing_if = "Option::is_none")]
-    pub agent_freeze: Option<bool>,
     #[serde(rename = "mediaRetention", skip_serializing_if = "Option::is_none")]
     pub media_retention: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

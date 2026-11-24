@@ -1820,6 +1820,11 @@ var migrations = []string{
 		token      BLOB NOT NULL,
 		created_at INTEGER NOT NULL
 	)`,
+	// "Pause whole agents for memory" (Settings → Experimental) is gone: it
+	// could leave agents frozen and boots waiting until a restart. Its switch
+	// and the boots it measured go; the agents it had frozen
+	// (agent_freeze_frozen) are left for the daemon to thaw as it starts.
+	`DELETE FROM settings WHERE key IN ('agent_freeze', 'boot_costs')`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

@@ -248,7 +248,6 @@ export interface Settings {
   errorReports: boolean;
   prWatch: boolean;
   mergeWhenGreen: boolean;
-  agentFreeze: boolean;
   mediaRetention: string;
   language: string;
   timezone: string;
@@ -335,7 +334,6 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;
-  agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
   timezone?: string;

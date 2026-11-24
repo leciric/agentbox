@@ -470,72 +470,58 @@ func sudo(command, stdin string, args ...string) error {
 	return nil
 }
 
-// Whole machines, frozen for memory (the daemon's agentfreeze.go, behind
-// Settings → Experimental): the machine's own cgroup frozen and its memory
-// pushed out to swap. Incus sees it as Frozen, the way `agentbox pause`
-// leaves it, and its processes keep every pipe and socket they had: the
-// chat's ACP connection and its tmux carry on where they were once it thaws.
+// Machines left frozen for memory. The experimental "Pause whole agents for
+// memory" (gone, 24 Nov 2026) froze machines' cgroups whole and, swap full,
+// their heavy commands' (runs) instead, and a daemon from before it went may
+// have stopped with some still frozen. Nothing freezes either for memory now:
+// the daemon thaws what was left as it starts (daemon/leftfrozen.go).
 
-// FreezeMachine freezes (on) or thaws an agent's whole machine. One with no
-// cgroup (stopped) has nothing to freeze.
-func FreezeMachine(instance string, on bool) error {
-	return freezeMachine(cgroupRoot, instance, on, writeCgroup)
+// ThawMachine thaws an agent's whole machine's cgroup. One with no cgroup
+// (stopped) has nothing to thaw.
+func ThawMachine(instance string) error {
+	return thawMachine(cgroupRoot, instance, writeCgroup)
 }
 
-func freezeMachine(root, instance string, on bool, write func(path, value string) error) error {
+func thawMachine(root, instance string, write func(path, value string) error) error {
 	path := filepath.Join(agentCgroup(root, instance), "cgroup.freeze")
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	value := "0"
-	if on {
-		value = "1"
+	return write(path, "0")
+}
+
+// ThawRuns thaws every run of an agent's machine whose cgroup is frozen, and
+// reports how many it thawed. A machine with no cgroup has none.
+func ThawRuns(instance string) (int, error) {
+	return thawRuns(cgroupRoot, instance, writeCgroup)
+}
+
+func thawRuns(root, instance string, write func(path, value string) error) (int, error) {
+	dir := agentCgroup(root, instance)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
 	}
-	return write(path, value)
-}
-
-// MachineFrozen reports whether an agent's machine is frozen, by whoever.
-func MachineFrozen(instance string) bool { return machineFrozen(cgroupRoot, instance) }
-
-func machineFrozen(root, instance string) bool {
-	b, err := os.ReadFile(filepath.Join(agentCgroup(root, instance), "cgroup.events"))
-	return err == nil && strings.Contains(string(b), "frozen 1")
-}
-
-// ReclaimMachine pushes a frozen machine's memory out to swap (and drops its
-// page cache), so a frozen machine doesn't hold the VM's RAM; without swap
-// only the cache goes. It is bounded (reclaimCgroup): the kernel falling
-// short isn't an error here.
-func ReclaimMachine(ctx context.Context, instance string) error {
-	_, _, err := reclaimCgroup(ctx, agentCgroup(cgroupRoot, instance), writeReclaim)
-	return err
-}
-
-// MachineMemory is what an agent's machine uses, without its caches; 0 when
-// it can't be read.
-func MachineMemory(instance string) int64 { return agentMemory(cgroupRoot, instance, 0) }
-
-// OwnMachineFreezer hands an agent's machine's freezer and reclaim to the
-// daemon's user, so freezing it needs no sudo: starting sudo can take minutes
-// in a VM out of memory, which is when a machine is frozen. The cgroup is
-// made anew as the machine starts; this is cheap when it's done already.
-func OwnMachineFreezer(instance string) error {
-	dir := agentCgroup(cgroupRoot, instance)
-	freeze := filepath.Join(dir, "cgroup.freeze")
-	info, err := os.Stat(freeze)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+		return 0, err
+	}
+	n := 0
+	var errs []error
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), runCgroupPrefix) {
+			continue
 		}
-		return err
+		path := filepath.Join(dir, e.Name(), "cgroup.freeze")
+		if b, err := os.ReadFile(path); err != nil || strings.TrimSpace(string(b)) != "1" {
+			continue
+		}
+		if err := write(path, "0"); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		n++
 	}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) == os.Getuid() {
-		return nil
-	}
-	if !hostos.InVM() {
-		return nil
-	}
-	return sudo("chown", "", strconv.Itoa(os.Getuid()), freeze, filepath.Join(dir, "memory.reclaim"))
+	return n, errors.Join(errs...)
 }
 
 // MachineRunning reports whether an agent's machine has a cgroup with

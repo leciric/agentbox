@@ -34,7 +34,7 @@ func TestRunsStartAtOnceWhateverTheMemory(t *testing.T) {
 	for i, s := range []Sample{psi(80, 60), atCap(0.5, 4), {HostBusy: true}, {}} {
 		g.Observe(t0, s)
 		key := string(rune('a' + i))
-		if r := g.Ask("p/a", key, "go test ./...", time.Minute, t0); r.Started.IsZero() || r.Paused {
+		if r := g.Ask("p/a", key, "go test ./...", time.Minute, t0); r.Started.IsZero() {
 			t.Fatalf("%s didn't start under %s: %+v", key, s, r)
 		}
 	}
@@ -181,26 +181,6 @@ func trace20261012(sec int) Sample {
 		PSI: PSI{Some: Stall{Avg10: 0.3}, Full: Stall{Avg10: 0.2}},
 		Mem: Mem{Total: gibs(17.8), Cap: gibs(18), Available: gibs(6.2 - 0.05*float64(sec%3)),
 			SwapTotal: gibs(4.5), SwapFree: gibs(4.5 - 4.38), Refaulted: gibs(3) + int64(sec)<<20},
-	}
-}
-
-func TestTheFleetPausesAnAgentsRuns(t *testing.T) {
-	g := NewRuns(DefaultPolicy)
-	for _, key := range []string{"1", "2"} {
-		g.Ask("p/a", key, "vue-tsc", time.Minute, t0)
-	}
-	g.Ask("p/b", "1", "vitest", time.Minute, t0)
-	g.Place("p/a", "1")
-	g.Place("p/b", "1")
-	paused := g.PauseAgent("p/a", t0, Low)
-	if len(paused) != 1 || paused[0].ID() != "p/a/1" || !paused[0].ForFleet || paused[0].Why != Low {
-		t.Fatalf("paused %v, want p/a's placed run only", paused)
-	}
-	if got := g.ResumeAgent("p/a"); len(got) != 1 || got[0].Paused {
-		t.Fatalf("resumed %v", got)
-	}
-	if got := g.ResumeAgent(""); len(got) != 0 {
-		t.Fatalf("resumed %v again", got)
 	}
 }
 

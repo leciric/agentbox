@@ -20,12 +20,11 @@ import (
 	"agentbox/internal/state"
 )
 
-// fakeRunCgroups is the runs' cgroups, as a test sees them: what was placed,
-// frozen and removed, and whether each still has processes.
+// fakeRunCgroups is the runs' cgroups, as a test sees them: what was placed
+// and removed, and whether each still has processes.
 type fakeRunCgroups struct {
 	mu       sync.Mutex
-	placed   map[string]int  // instance/key: the pid placed
-	frozen   map[string]bool // instance/key
+	placed   map[string]int // instance/key: the pid placed
 	removed  []string
 	empty    map[string]bool // instance/key: its processes have all gone
 	placeErr error
@@ -46,16 +45,6 @@ func (f *fakeRunCgroups) Place(instance, key string, pid int) error {
 	return nil
 }
 
-func (f *fakeRunCgroups) Freeze(instance, key string, on bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.frozen == nil {
-		f.frozen = map[string]bool{}
-	}
-	f.frozen[runID(instance, key)] = on
-	return nil
-}
-
 func (f *fakeRunCgroups) Populated(instance, key string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -66,17 +55,8 @@ func (f *fakeRunCgroups) Populated(instance, key string) bool {
 func (f *fakeRunCgroups) Remove(instance, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.frozen != nil {
-		f.frozen[runID(instance, key)] = false
-	}
 	f.removed = append(f.removed, runID(instance, key))
 	return nil
-}
-
-func (f *fakeRunCgroups) isFrozen(instance, key string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.frozen[runID(instance, key)]
 }
 
 // pressureTest is a daemon with one agent whose memory pressure the test sets,
@@ -103,11 +83,6 @@ func newPressureTest(t *testing.T, also ...func(*Server)) *pressureTest {
 			defer p.mu.Unlock()
 			return p.sample, nil
 		}
-		// The default policy, with nothing to wait for between steps.
-		pol := pressure.DefaultPolicy
-		pol.FreezeAfter, pol.CalmAfter, pol.Step, pol.AdmitStep, pol.HeadroomStep = 0, 0, 0, 0, 0
-		pol.Grace = time.Minute
-		s.heavy.g.Policy = pol
 	}})
 	a := addTestAgent(t, p.testDaemon)
 	p.instance, p.ref = a.Instance, a.Ref()
@@ -154,8 +129,8 @@ func (p *pressureTest) ask(t *testing.T, instance, key string) api.HeavyStart {
 // A heavy command starts with the VM's cores split between the heavy
 // commands running as it starts, in every agent: alone it has every core,
 // however many agents sit idle; asking again doesn't count it twice; one
-// paused by pausing whole agents doesn't count; one that ended gives its
-// share back to the next; and memory, however short, changes nothing.
+// that ended gives its share back to the next; and memory, however short,
+// changes nothing.
 func TestHeavyCommandsSplitTheCores(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t, func(s *Server) { s.vmCores = func() int { return 12 } })
@@ -177,17 +152,14 @@ func TestHeavyCommandsSplitTheCores(t *testing.T) {
 	workers(p.instance, "first", 12) // renewed, still one
 	workers(other.Instance, "second", 6)
 	workers(p.instance, "third", 4)
-	p.srv.heavy.mu.Lock()
-	p.srv.heavy.g.Get(other.Ref(), "second").Paused = true
-	p.srv.heavy.mu.Unlock()
-	workers(p.instance, "fourth", 4) // three running, one paused
+	workers(p.instance, "fourth", 3)
 	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run {
 		return []*pressure.Run{g.End(p.ref, "first"), g.End(p.ref, "third"), g.End(p.ref, "fourth")}
 	})
 	p.set(62, 8)
 	p.setAvailable(0.5, 4)
 	p.srv.stepPressure(ctx)
-	workers(p.instance, "fifth", 12) // the paused one and this: one running
+	workers(p.instance, "fifth", 6) // the second and this
 }
 
 // A heavy command starts the moment it asks, whatever the VM's memory says
@@ -221,9 +193,10 @@ func TestHeavyStartsAtOnceWhateverTheMemory(t *testing.T) {
 	}
 }
 
-// Nothing pauses a run for memory, however long pressure stays high or
-// however little is left; a run that ends has its cgroup removed, and one
-// whose processes all went ends at the next step.
+// Nothing holds a run for memory, however long pressure stays high or
+// however little is left (the daemon has no way to freeze one: runCgroups);
+// a run that ends has its cgroup removed, and one whose processes all went
+// ends at the next step.
 func TestPressureNeverPausesARun(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
@@ -243,9 +216,6 @@ func TestPressureNeverPausesARun(t *testing.T) {
 	p.setAvailable(0.5, 4)
 	for range 5 {
 		p.srv.stepPressure(ctx)
-	}
-	if p.cg.isFrozen(p.instance, "new") || p.cg.isFrozen(p.instance, "old") {
-		t.Fatalf("frozen = %v, want none", p.cg.frozen)
 	}
 	if h := p.srv.memoryHold(p.ref); h != nil {
 		t.Fatalf("the agent's hold = %+v", h)
@@ -284,7 +254,7 @@ func TestHeavyDropEndsAnAgentsRuns(t *testing.T) {
 }
 
 // A run's shell joins it once it has started, and a join that fails leaves
-// it unplaced, which even pausing whole agents never pauses.
+// it unplaced.
 func TestHeavyJoin(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)

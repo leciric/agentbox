@@ -425,20 +425,16 @@ type Server struct {
 	// vmCores is how many cores the agents' machines see, all of the VM's,
 	// which heavy commands' worker counts split (agent.HeavyWorkers).
 	vmCores func() int
-	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
-	// with Settings → Experimental's switch, and machineCgroups what
-	// freezes them.
-	frozen *fleetState
 	// admit (admission.go) is when agents' machines boot, and those On hold.
 	admit *admitState
 	// resumes (restart.go) carries on, one at a time, what a restart cut
 	// short, and holds it for the user after AgentBox stopped unexpectedly.
 	resumes *resumeState
 	// view (viewing.go) is the agent the app shows.
-	view           viewingState
+	view viewingState
+	// machineCgroups is what the daemon reads and thaws of the agents'
+	// machines' cgroups (machines.go).
 	machineCgroups machineCgroups
-	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
-	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -546,7 +542,6 @@ func New(cfg Config) (*Server, error) {
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
 		slots:            newRunSlotState(),
-		frozen:           newFleetState(),
 		admit:            newAdmitState(),
 		resumes:          newResumeState(),
 		machineCgroups:   agentMachineCgroups{},
@@ -928,7 +923,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
-		Admit:            s.admitMachine,
+		Admit:            s.admitBoot,
 		NodeModules:      s.nodeModules,
 		NodeModulesOn:    s.nodeModulesOn,
 		ShareRoom:        s.shareRoom,

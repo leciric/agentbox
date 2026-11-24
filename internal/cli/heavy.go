@@ -27,9 +27,8 @@ import (
 // Heavy commands inside an agent: a test run or a build tells the daemon as
 // it starts, which is how the daemon knows the agent works, starts with as
 // many workers as the daemon answers (the VM's cores split between the heavy
-// commands running then, agent.HeavyWorkers), and joins a cgroup of its own,
-// which only the experimental "pause whole agents" pauses
-// (internal/daemon/pressure.go). Nothing waits for memory. The shims for go,
+// commands running then, agent.HeavyWorkers), and joins a cgroup of its own
+// (internal/daemon/pressure.go). Nothing waits or is paused for memory. The shims for go,
 // cargo, npm, make… do it by themselves (agent/heavyshims.go); `agentbox
 // heavy` does it around any other command.
 

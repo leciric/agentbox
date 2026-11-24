@@ -55,6 +55,16 @@ const (
 // DefaultBootStep is the daemon's.
 const DefaultBootStep = 5 * time.Second
 
+// BootSettle is how long a machine let boot counts as booting (Booted): its
+// asker, asking again within it, boots at once rather than in line again.
+const BootSettle = 45 * time.Second
+
+// booting is a machine let boot, until when it counts as booting.
+type booting struct {
+	agent string
+	until time.Time
+}
+
 // NewAdmission is an admission booting a machine every DefaultBootStep.
 func NewAdmission() *Admission {
 	return &Admission{BootStep: DefaultBootStep}
