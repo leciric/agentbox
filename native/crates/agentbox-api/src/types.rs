@@ -457,8 +457,6 @@ pub struct Settings {
     pub pr_watch: bool,
     #[serde(rename = "mergeWhenGreen")]
     pub merge_when_green: bool,
-    #[serde(rename = "agentFreeze")]
-    pub agent_freeze: bool,
     #[serde(rename = "mediaRetention")]
     pub media_retention: String,
     pub language: String,
@@ -645,8 +643,6 @@ pub struct UpdateSettingsRequest {
     pub pr_watch: Option<bool>,
     #[serde(rename = "mergeWhenGreen", skip_serializing_if = "Option::is_none")]
     pub merge_when_green: Option<bool>,
-    #[serde(rename = "agentFreeze", skip_serializing_if = "Option::is_none")]
-    pub agent_freeze: Option<bool>,
     #[serde(rename = "mediaRetention", skip_serializing_if = "Option::is_none")]
     pub media_retention: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -766,8 +762,6 @@ pub struct Agent {
     pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
-    #[serde(rename = "runSlot", skip_serializing_if = "Option::is_none")]
-    pub run_slot: Option<RunSlot>,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaimed: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -1261,7 +1255,6 @@ pub struct HostLoad {
     pub memory_total: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub available: i64,
-    pub busy: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub why: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -1283,112 +1276,6 @@ pub struct AgentsMemory {
     pub max: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub stalled: f64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunSlots {
-    pub total: i64,
-    pub free: i64,
-    #[serde(rename = "inUse")]
-    pub in_use: i64,
-    pub queued: i64,
-    #[serde(rename = "slotSize")]
-    pub slot_size: i64,
-    pub pool: i64,
-    #[serde(rename = "codeUse")]
-    pub code_use: i64,
-    #[serde(rename = "freeMemory")]
-    pub free_memory: i64,
-    #[serde(deserialize_with = "nullable")]
-    pub holders: Vec<RunSlotHolder>,
-    #[serde(deserialize_with = "nullable")]
-    pub queue: Vec<RunSlotWaiter>,
-    #[serde(deserialize_with = "nullable")]
-    pub projects: Vec<ProjectRunSlots>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunSlotHolder {
-    pub agent: String,
-    pub project: String,
-    pub since: String,
-    pub expires: String,
-    pub reserved: i64,
-    pub r#use: i64,
-    pub peak: i64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunSlotWaiter {
-    pub agent: String,
-    pub project: String,
-    pub ahead: i64,
-    pub since: String,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProjectRunSlots {
-    pub project: String,
-    pub peak: i64,
-    pub learned: bool,
-    pub runs: i64,
-    pub free: i64,
-    #[serde(rename = "inUse")]
-    pub in_use: i64,
-    pub queued: i64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunSlot {
-    pub state: String,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub ahead: i64,
-    pub since: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunUpRequest {
-    #[serde(rename = "waitSeconds", skip_serializing_if = "is_empty")]
-    pub wait_seconds: i64,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub r#try: bool,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub command: String,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub browser: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunPhase {
-    pub state: String,
-    pub ahead: i64,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub granted: bool,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-    pub free: i64,
-    pub total: i64,
-    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
-    pub stopped: Vec<String>,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub peak: i64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RunJoin {
-    pub pid: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2020,8 +1907,6 @@ pub struct AgentChange {
     pub removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
-    #[serde(rename = "runSlot", skip_serializing_if = "Option::is_none")]
-    pub run_slot: Option<RunSlot>,
     #[serde(rename = "waitingForImage", skip_serializing_if = "is_empty")]
     pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -4025,8 +3910,6 @@ pub struct FleetAgent {
     pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
-    #[serde(rename = "runSlot", skip_serializing_if = "Option::is_none")]
-    pub run_slot: Option<RunSlot>,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaimed: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -7672,10 +7555,6 @@ pub const EVENT_REMOTE_AGENTS: &str = "remote-agents";
 pub const EVENT_THEME: &str = "theme";
 pub const EVENT_UPDATE: &str = "update";
 pub const EVENT_DISK: &str = "disk";
-pub const EVENT_RUN_SLOTS: &str = "run-slots";
-pub const RUN_SLOT_HOLDING: &str = "holding";
-pub const RUN_SLOT_WAITING: &str = "waiting";
-pub const ERROR_NO_RUN_SLOT: &str = "no-run-slot";
 pub const EVENT_RESTART_HOLD: &str = "restart-hold";
 pub const DISK_OK: &str = "ok";
 pub const DISK_LOW: &str = "low";

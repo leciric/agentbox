@@ -271,8 +271,9 @@ type Manager struct {
 	Log     io.Writer // progress messages; may be nil
 
 	// Admit, when set, is asked before an agent's machine boots, and returns
-	// once it may: the daemon's memory admission (agentfreeze.go), which
-	// waits while the VM hasn't the memory to boot it.
+	// once it may: the daemon's admission (daemon/admission.go), which
+	// boots machines asked for at once a few seconds apart, and none while
+	// the user's computer is under its hard floor.
 	Admit func(ctx context.Context, a state.Agent) error
 
 	// AgentSocket, when set, returns the host path of an agent's in-agent API

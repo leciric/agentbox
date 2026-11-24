@@ -182,16 +182,12 @@ func TestOneLine(t *testing.T) {
 	}
 }
 
-func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
+func TestMemoryHeldSaysWhatABootWaitsFor(t *testing.T) {
 	for _, c := range []struct {
 		h    *api.MemoryHold
 		want string
 	}{
-		{&api.MemoryHold{Machine: "paused", Ahead: 1}, "paused, waiting for memory, 2nd in line"},
-		// Pausing whole agents on: it still boots only into memory there is.
-		{&api.MemoryHold{Machine: "waiting", Ahead: 10, Why: "low"}, "waiting for memory to boot, 11th in line"},
-		{&api.MemoryHold{Paused: 1}, "1 test/build command paused for memory"},
-		// Off, as it is by default: its turn, or the user's computer.
+		// Its turn, or the user's computer.
 		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyTurn}, "booting in turn, a few seconds after the machine before it"},
 		{&api.MemoryHold{Machine: "waiting", Why: api.HoldWhyHost}, "waiting to boot until the user's computer, nearly out of memory, has more to spare"},
 	} {
@@ -202,9 +198,6 @@ func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
 	// Commands no longer wait: a daemon before 19 Nov 2026 saying so is nothing.
 	if got := memoryHeld(&api.MemoryHold{Waiting: 2, Why: "host"}); got != "" {
 		t.Errorf("waiting commands: %q", got)
-	}
-	if got := ordinal(23); got != "23rd" {
-		t.Errorf("ordinal(23) = %q", got)
 	}
 }
 

@@ -308,6 +308,6 @@ func RunRelay(ctx context.Context, d *Distro, in io.Reader, out io.Writer) error
 	}
 	r := &Relay{Distro: d}
 	go r.runLAN(ctx)
-	go r.reportHostLoad(ctx, d.progress)
+	go r.reportHostLoad(ctx)
 	return r.Serve(ctx, ln)
 }

@@ -322,9 +322,8 @@ export interface FixtureData {
 // stay accurate across a long-running dev server rather than freezing at
 // module load.
 export function buildFixtures(): FixtureData {
-  // ?busy=host: this computer busy, holding agents' builds and boots back.
-  const hostBusy = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('busy') ?? '').includes('host');
-  const runSlotsFull = typeof location !== 'undefined' && new URLSearchParams(location.search).get('runslots') === 'full';
+  // ?hold=host: this computer below its hard floor, holding boots back.
+  const hostShort = typeof location !== 'undefined' && new URLSearchParams(location.search).get('hold') === 'host';
   const agents: T.Agent[] = [
     agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
@@ -332,11 +331,7 @@ export function buildFixtures(): FixtureData {
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
-    // ?runslots=full: it waits for a run slot, one ahead of it.
-    agent({
-      ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main',
-      runSlot: runSlotsFull ? { state: 'waiting', ahead: 1, since: new Date().toISOString() } : undefined,
-    }),
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', interface: 'chat', goal: agent99Goal() }),
@@ -368,17 +363,18 @@ export function buildFixtures(): FixtureData {
     // 22 minutes; and one whose AI tool exited mid-turn (exit status 143).
     agent({ ref: `${PROJECT}/agent-88`, title: 'Import the product catalogue', chat: 'running', stalledSince: new Date(Date.now() - 22 * 60_000).toISOString() }),
     agent({ ref: `${PROJECT}/agent-87`, title: 'Migrate the reminders table', ai: 'codex', chat: 'error' }),
-    // With pausing whole agents on, the VM short of memory: its test run is
-    // paused until there is room (memory.paused), and the rail says Paused
-    // for memory instead of Working. Its tooltip says why, as the fleet
-    // judged it: memory falling fast toward running out.
+    // What an older daemon sends with its experimental "Pause whole
+    // agents for memory" on, the VM short of memory: its test run is paused
+    // until there is room (memory.paused), and the rail says Paused for memory
+    // instead of Working. Its tooltip says why: memory falling fast toward
+    // running out. A daemon now never pauses one.
     agent({
       ref: `${PROJECT}/agent-86`,
       title: 'Run the full test suite',
       chat: 'running',
       memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
-    // Settings → Experimental's "Pause whole agents for memory": one frozen
+    // The same older daemon's whole agents paused for memory: one frozen
     // mid-turn, two machines thawing before it, and one waiting for the
     // memory to boot its machine.
     agent({
@@ -395,14 +391,14 @@ export function buildFixtures(): FixtureData {
       memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
     // On hold (daemon/admission.go): one whose boot waits its turn, a few
-    // seconds, machine stopped (with ?busy=host, for this computer to be
+    // seconds, machine stopped (with ?hold=host, for this computer to be
     // over its hard floor), and one stopped after it sat idle.
     agent({
       ref: `${PROJECT}/agent-83`,
       title: 'Migrate the billing tables',
       state: 'stopped',
       hold: 'memory',
-      memory: { machine: 'waiting', since: new Date(Date.now() - 4_000).toISOString(), why: hostBusy ? 'host' : 'turn' },
+      memory: { machine: 'waiting', since: new Date(Date.now() - 4_000).toISOString(), why: hostShort ? 'host' : 'turn' },
     }),
     agent({ ref: `${PROJECT}/agent-82`, title: 'Tidy the onboarding copy', state: 'stopped', outcome: 'done', hold: 'idle' }),
     // A name given to create by hand, as long as the title beside it: the
@@ -1889,7 +1885,6 @@ let defaultsSettings = {
   // without krunkit.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
-  agentFreeze: false,
   prWatch: true,
   // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
   mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
@@ -2560,14 +2555,12 @@ const usageHealthBody = {
         "front_end": "host",
         "idle_freezes": 0,
         "idle_stops": 0,
-        "machine_freezes": 0,
         "mem_anon_pct": 3,
         "mem_available_pct": 97,
         "mem_file_pct": 9,
         "mem_kernel_pct": 0,
         "oom_kills": 0,
         "period": "lt_1m",
-        "run_pauses": 2,
         "swap_size_pct": 108,
         "swap_used_pct": 1,
         "trigger": "daily",
@@ -2620,47 +2613,17 @@ const usageStatsPending: T.UsageStatsPending = {
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
 // throw outside Electron's preload.
-// fixtureRunSlots is GET /v1/run-slots: two holders and one slot free, or
-// with full, none free and two agents waiting.
-function fixtureRunSlots(full: boolean): T.RunSlots {
-  const gib = 1 << 30;
-  const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-  const holders: T.RunSlotHolder[] = [
-    { agent: `${PROJECT}/agent-12`, project: PROJECT, since: ago(4), expires: ago(-8), reserved: 2 * gib, use: 2.6 * gib, peak: 2.9 * gib },
-    { agent: `${PROJECT}/agent-94`, project: PROJECT, since: ago(1), expires: ago(-9), reserved: 2 * gib, use: 1.1 * gib, peak: 1.4 * gib },
-  ];
-  const queue: T.RunSlotWaiter[] = full
-    ? [
-        { agent: `${PROJECT}/agent-95`, project: PROJECT, ahead: 0, since: ago(3) },
-        { agent: `${PROJECT}/agent-96`, project: PROJECT, ahead: 1, since: ago(1) },
-      ]
-    : [];
-  const free = full ? 0 : 1;
-  return {
-    total: holders.length + free, free, inUse: holders.length, queued: queue.length, slotSize: 2.4 * gib,
-    pool: 13 * gib, codeUse: (full ? 5.8 : 3.1) * gib, freeMemory: (full ? 1.1 : 3.4) * gib,
-    holders, queue,
-    projects: [{ project: PROJECT, peak: 2.4 * gib, learned: true, runs: 7, free, inUse: holders.length, queued: queue.length }],
-  };
-}
-
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
-      // ?busy=host: this computer busy, as its front end reports it;
-      // ?busy=daemon: the daemon answers nothing for a minute, as one stuck
-      // behind a loaded VM (components/BusyMarks.tsx).
+      // ?busy=daemon: the daemon answers the top bar's disk check nothing
+      // for a minute, as one stuck behind a loaded VM
+      // (components/BusyMarks.tsx).
       const busy = new URLSearchParams(location.search).get('busy') ?? '';
-      if (busy.includes('daemon') && path === '/v1/pressure') await new Promise((r) => setTimeout(r, 60_000));
+      if (busy.includes('daemon') && path === '/v1/disk') await new Promise((r) => setTimeout(r, 60_000));
       if (method === 'GET' && path === '/v1/pressure') {
-        const host: T.HostLoad | undefined = busy.includes('host')
-          ? { os: 'linux', memory: 2, cpu: 12, io: 63, cpuShare: -1, busy: true, why: 'io', at: new Date().toISOString() }
-          : undefined;
-        return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [], host }), contentType: 'application/json' };
+        return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [] }), contentType: 'application/json' };
       }
-      // ?runslots=full: every run slot held and two agents waiting
-      // (components/RunSlotsPill.tsx); otherwise one of three free.
-      if (method === 'GET' && path === '/v1/run-slots') return { status: 200, body: JSON.stringify(fixtureRunSlots(new URLSearchParams(location.search).get('runslots') === 'full')), contentType: 'application/json' };
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };

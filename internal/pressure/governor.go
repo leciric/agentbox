@@ -19,10 +19,12 @@ import (
 // What is left is Runs, which runs go, for what knows whether an agent works
 // (idle reclaim, the VM's own idle shrink, the shared package cache) and how
 // many workers a build starts with (the cores split between the runs going);
-// how short the VM's memory is (Runs.Why: the headroom Judge works out, or
-// PSI stalling), which the app is shown and nothing acts on (builds ran fewer
-// jobs for it until 20 Nov 2026); and, with the experimental "pause whole
-// agents" on, the Fleet, which still pauses a machine's runs or the machine.
+// and how short the VM's memory is (Runs.Why: the headroom Judge works out,
+// or PSI stalling), which the app is shown and nothing acts on (builds ran
+// fewer jobs for it until 20 Nov 2026). The experimental "Pause whole agents
+// for memory", which froze machines and their runs on it, is gone too (24
+// Nov 2026): it could leave agents frozen, and no machine booting, until
+// AgentBox restarted.
 //
 // Pressure alone comes too late. PSI is an average over the last 10 seconds,
 // and it rises only once tasks already stall: on 2026-10-11, eight agents'
@@ -39,29 +41,17 @@ import (
 // stays full; that is the normal state of a VM that has been up a while, not
 // pressure.
 
-// Policy is when the Fleet freezes and thaws machines, and when the VM's
-// memory counts as short (Runs.Why). Pressures are PSI avg10 percentages;
-// shares of memory are 0 to 1, of MemTotal.
+// Policy is when the VM's memory counts as short (Runs.Why), and when it is
+// settled enough for a restart to carry on its next piece of work
+// (Unsettled). Pressures are PSI avg10 percentages; shares of memory are 0
+// to 1, of MemTotal.
 type Policy struct {
-	// Admit is the some pressure under which waiting runs start.
-	Admit float64
-	// Freeze is the full pressure at or over which, held for FreezeAfter,
-	// runs are paused, one every Step.
-	Freeze      float64
-	FreezeAfter time.Duration
-	// Calm is the full pressure under which, with some under Admit and held
-	// for CalmAfter, paused runs resume, one every Step.
-	Calm      float64
-	CalmAfter time.Duration
-	// Step is the least time between one pause or resume and the next, for
-	// the 10-second average to show what the last one did.
-	Step time.Duration
-	// AdmitStep is the least time between two runs starting, for the same
-	// reason, more briefly: a run's memory shows within a second or two.
-	AdmitStep time.Duration
-	// Grace is how long a waiter keeps its place once nobody is asking for
-	// it, so a command that asks again finds its place kept.
-	Grace time.Duration
+	// Admit is the some pressure, and Freeze the full, at or over which
+	// memory is Stalling; Calm the full pressure under which, with some
+	// under Admit, the VM is settled.
+	Admit  float64
+	Freeze float64
+	Calm   float64
 
 	// Floor is the memory, in bytes, the VM keeps available, or FloorShare
 	// of MemTotal when that is more: under it, at its cap with swap full,
@@ -84,13 +74,8 @@ type Policy struct {
 	// VM is Tight, and Short under Low.
 	Churn float64
 	// Low is, in Floors, the memory available under which, swap full, the
-	// VM is Tight; Roomy, in Floors too, what paused runs resume only over
-	// (so one resumed doesn't make it Tight again at once).
-	Low, Roomy float64
-	// HeadroomStep is the least time between two pauses for headroom.
-	// MemAvailable is now, not an average, so it shows a pause's effect at
-	// the next reading.
-	HeadroomStep time.Duration
+	// VM is Tight.
+	Low float64
 }
 
 // Trend is how the VM's memory is moving, from the readings of the last
@@ -117,18 +102,17 @@ const (
 	// nothing eating into it.
 	Room Headroom = iota
 	// Tight: at its cap, swap full, and either little available or it
-	// falling, or the working set churning through swap. Runs wait.
+	// falling, or the working set churning through swap.
 	Tight
 	// Short: at its cap, swap full, available falling to the floor within
-	// ShortWithin, or churning under Low. Runs pause one by one.
+	// ShortWithin, or churning under Low.
 	Short
-	// Out: at its cap, swap full, under the floor or about to be. Every run
-	// but the oldest pauses.
+	// Out: at its cap, swap full, under the floor or about to be.
 	Out
 )
 
-// Reason is why runs are held back, for the app and the agents to say: ""
-// when nothing holds them.
+// Reason is why the VM's memory is short, for the app to say: "" when it
+// isn't. Nothing is held back for it.
 type Reason string
 
 const (
@@ -140,10 +124,6 @@ const (
 	Churning Reason = "churning"
 	// Low: little is available, swap full.
 	Low Reason = "low"
-	// Easing: it eased; paused runs resume first, one at a time.
-	Easing Reason = "easing"
-	// HostBusy: the user's computer is loaded (Sample.HostBusy).
-	HostBusy Reason = "host"
 )
 
 // floor is the memory the VM keeps available, in bytes.
@@ -192,62 +172,40 @@ func (p Policy) Judge(m Mem, tr Trend) (Headroom, Reason) {
 	return Room, ""
 }
 
-// roomy reports whether m, going as tr says, has room enough for paused runs
-// to resume.
-func (p Policy) roomy(m Mem, tr Trend) bool {
-	return p.Headroom(m, tr) == Room && (!m.AtCap() || float64(m.Available) >= p.Roomy*p.floor(m) || m.SwapUsed() < p.SwapFull)
-}
-
 // DefaultPolicy is the daemon's.
 var DefaultPolicy = Policy{
-	Admit:       10,
-	Freeze:      20,
-	FreezeAfter: 5 * time.Second,
-	Calm:        5,
-	CalmAfter:   10 * time.Second,
-	Step:        10 * time.Second,
-	AdmitStep:   2 * time.Second,
-	Grace:       30 * time.Second,
-	// From the 2026-10-11 trace (TestTheStallOf20261011PausesBeforeIt): at
-	// its 18 GiB cap, zram full, the VM went from 7.8 GiB available to 5.9
-	// to 2.3, ten seconds a reading, and stalled four seconds after the
-	// last. 5.9 falling 1.9 in ten seconds reaches the 1.8 GiB floor in 22:
-	// Short pauses at that reading, and at the next, 0.5 over the floor
-	// falling 3.6, Out everything, seven minutes before the kernel killed.
-	// And from 2026-10-12's (TestAFullSwapWithMemoryToSpareHoldsNothing):
-	// 6.2 GiB available holding still, zram 97% full, is Room.
-	Floor:        3 << 29, // 1.5 GiB
-	FloorShare:   0.1,
-	SwapFull:     0.9,
-	SwapBusy:     0.5,
-	Span:         10 * time.Second,
-	Window:       30 * time.Second,
-	OutWithin:    10 * time.Second,
-	ShortWithin:  30 * time.Second,
-	TightWithin:  2 * time.Minute,
-	Churn:        64 << 20, // 64 MiB/s
-	Low:          2,
-	Roomy:        3,
-	HeadroomStep: 2 * time.Second,
+	Admit:  10,
+	Freeze: 20,
+	Calm:   5,
+	// From the 2026-10-11 trace: at its 18 GiB cap, zram full, the VM went
+	// from 7.8 GiB available to 5.9 to 2.3, ten seconds a reading, and
+	// stalled four seconds after the last. 5.9 falling 1.9 in ten seconds
+	// reaches the 1.8 GiB floor in 22: Short at that reading, and at the
+	// next, 0.5 over the floor falling 3.6, Out, seven minutes before the
+	// kernel killed. And from 2026-10-12's (trace20261012 in the tests): 6.2
+	// GiB available holding still, zram 97% full, is Room.
+	Floor:       3 << 29, // 1.5 GiB
+	FloorShare:  0.1,
+	SwapFull:    0.9,
+	SwapBusy:    0.5,
+	Span:        10 * time.Second,
+	Window:      30 * time.Second,
+	OutWithin:   10 * time.Second,
+	ShortWithin: 30 * time.Second,
+	TightWithin: 2 * time.Minute,
+	Churn:       64 << 20, // 64 MiB/s
+	Low:         2,
 }
 
 // Run is one heavy command of an agent's, from when it is asked for until it
-// ends. Only the Fleet pauses one.
+// ends. Nothing pauses one.
 type Run struct {
 	Agent   string // the agent's ref
 	Key     string // the run's key, unique within its agent
-	Command string // what it runs, for saying what was paused
+	Command string // what it runs
 	Started time.Time
-	Paused  bool
-	// PausedAt is when it was last paused.
-	PausedAt time.Time
-	// Why is why it was last paused.
-	Why Reason
-	// ForFleet: the fleet paused it (PauseAgent), and only the fleet resumes
-	// it.
-	ForFleet bool
-	// Placed says its processes are in a cgroup of its own, which is what
-	// pausing it freezes: a run that isn't is never paused.
+	// Placed says its processes are in a cgroup of its own, which lasts
+	// while they do.
 	Placed bool
 	// Until is when a run that isn't placed lapses unless asked for again
 	// (a placed run lasts while its cgroup has processes).
@@ -310,8 +268,7 @@ func (g *Runs) Get(agent, key string) *Run {
 	return nil
 }
 
-// End takes a run out and reports it, nil when there was none. A paused one
-// is the daemon's to resume.
+// End takes a run out and reports it, nil when there was none.
 func (g *Runs) End(agent, key string) *Run {
 	gone := g.remove(func(r *Run) bool { return r.Agent == agent && r.Key == key })
 	if len(gone) == 0 {
@@ -358,8 +315,6 @@ func (g *Runs) Observe(now time.Time, s Sample) {
 		g.why = why
 	case s.Full.Avg10 >= g.Policy.Freeze || s.Some.Avg10 >= g.Policy.Admit:
 		g.why = Stalling
-	case s.HostBusy:
-		g.why = HostBusy
 	default:
 		g.why = ""
 	}
@@ -372,40 +327,10 @@ func (g *Runs) Last() Sample { return g.last }
 func (g *Runs) Trend() Trend { return g.trend }
 
 // Why is how short the VM's memory was at the last observation, "" for not
-// at all: running out (Judge's Low, Falling or Churning), its tasks stalling
-// on it (Stalling), or the user's computer busy (HostBusy). Builds run fewer
-// jobs while it is anything; nothing waits or is paused for it.
+// at all: running out (Judge's Low, Falling or Churning), or its tasks
+// stalling on it (Stalling). The app shows it; nothing waits, is paused or
+// runs fewer jobs for it.
 func (g *Runs) Why() Reason { return g.why }
-
-// PauseAgent pauses, for the fleet, an agent's runs that go and are placed,
-// rather than its whole machine (Fleet.toHold): it reports them, for the
-// daemon to apply.
-func (g *Runs) PauseAgent(agent string, now time.Time, why Reason) []*Run {
-	var out []*Run
-	for _, r := range g.running {
-		if r.Agent == agent && r.Placed && !r.Paused {
-			r.Paused, r.PausedAt, r.Why, r.ForFleet = true, now, why, true
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// ResumeAgent resumes the runs the fleet paused of an agent, or of every
-// agent for "": it reports them, for the daemon to apply.
-func (g *Runs) ResumeAgent(agent string) []*Run {
-	var out []*Run
-	for _, r := range g.running {
-		if r.ForFleet && (agent == "" || r.Agent == agent) {
-			r.ForFleet = false
-			if r.Paused {
-				r.Paused = false
-				out = append(out, r)
-			}
-		}
-	}
-	return out
-}
 
 // trends keeps the readings of the last Policy.Window, at least a second
 // apart, oldest first, that a Trend is worked out from.

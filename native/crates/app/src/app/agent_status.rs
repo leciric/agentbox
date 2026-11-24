@@ -2,7 +2,7 @@
 //! (lib/agentStatus.ts chatLabel and rank, lib/leadFirst.ts agentSt,
 //! lib/agentCounts.ts groupRows, lib/agentActions.ts): pure, so the rail, the
 //! agent's header and its menu say the same thing.
-use agentbox_api::{Agent, FleetAgent, MemoryHold, RUN_SLOT_WAITING, RunSlot};
+use agentbox_api::{Agent, FleetAgent, MemoryHold};
 use agentbox_i18n::{t, tv};
 
 /// AgentLike is what these rules read of an agent: an Agent, or the fleet's
@@ -16,7 +16,6 @@ pub trait AgentLike {
     fn outcome_until(&self) -> Option<&str>;
     fn reclaimed(&self) -> &str;
     fn memory(&self) -> Option<&MemoryHold>;
-    fn run_slot(&self) -> Option<&RunSlot>;
     fn waiting_for_image(&self) -> bool;
     fn changes_requested(&self) -> bool;
     fn hold(&self) -> &str;
@@ -48,9 +47,6 @@ macro_rules! agent_like {
             }
             fn memory(&self) -> Option<&MemoryHold> {
                 self.memory.as_ref()
-            }
-            fn run_slot(&self) -> Option<&RunSlot> {
-                self.run_slot.as_ref()
             }
             fn waiting_for_image(&self) -> bool {
                 self.waiting_for_image
@@ -119,21 +115,6 @@ fn memory_hold(a: &impl AgentLike) -> Option<String> {
     None
 }
 
-/// run_slot_wait is the words for an agent whose run phase (the app, its
-/// desktop, recordings) waits its turn for a run slot while it keeps coding
-/// (runSlotWait): "Waiting for a run slot (2 ahead)". None while it holds one
-/// or needs none.
-pub fn run_slot_wait(a: &impl AgentLike) -> Option<String> {
-    let slot = a.run_slot()?;
-    if a.state() != "running" || slot.state != RUN_SLOT_WAITING {
-        return None;
-    }
-    Some(tv(
-        "agent.status.runSlotWaiting",
-        &[("ahead", slot.ahead.into())],
-    ))
-}
-
 /// awaiting is a turn that ended on work it left running, whose end wakes it.
 pub fn awaiting(a: &impl AgentLike) -> bool {
     a.state() == "running" && a.chat() == "ready" && a.background()
@@ -170,11 +151,6 @@ pub fn chat_label(a: &impl AgentLike) -> (String, Tone) {
     }
     if let Some(m) = memory_hold(a) {
         return (m, Tone::Warning);
-    }
-    // Its run phase waits for a run slot while it keeps coding: live, not a
-    // warning, as Electron reads it.
-    if let Some(w) = run_slot_wait(a) {
-        return (w, Tone::Live);
     }
     if chat == "running" {
         return (t("agent.status.working"), Tone::Live);
@@ -513,68 +489,6 @@ mod tests {
             memory_hold(&boot).as_deref(),
             Some("Waiting for memory, 1st in line")
         );
-    }
-
-    fn slot(state: &str, ahead: i64) -> Option<RunSlot> {
-        Some(RunSlot {
-            state: state.into(),
-            ahead,
-            since: "2026-11-20T12:00:00Z".into(),
-            ..Default::default()
-        })
-    }
-
-    #[test]
-    fn an_agent_waiting_for_a_run_slot_says_how_many_are_ahead() {
-        let mut a = agent("running", "running");
-        a.run_slot = slot("waiting", 2);
-        assert_eq!(
-            chat_label(&a),
-            ("Waiting for a run slot (2 ahead)".to_string(), Tone::Live)
-        );
-        a.run_slot = slot("waiting", 0);
-        assert_eq!(
-            chat_label(&a).0,
-            "Waiting for a run slot (next in line)".to_string()
-        );
-        // It keeps coding, or sits idle, while it waits: the wait reads either way.
-        let mut idle = agent("running", "ready");
-        idle.run_slot = slot("waiting", 1);
-        assert_eq!(chat_label(&idle).0, "Waiting for a run slot (1 ahead)");
-    }
-
-    #[test]
-    fn holding_a_run_slot_is_just_working_and_the_user_comes_first() {
-        let mut a = agent("running", "running");
-        a.run_slot = slot("holding", 0);
-        assert_eq!(chat_label(&a), (t("agent.status.working"), Tone::Live));
-        assert_eq!(run_slot_wait(&a), None);
-        // What needs the user, or has stopped, outranks the wait.
-        let mut asking = agent("running", "waiting");
-        asking.run_slot = slot("waiting", 1);
-        assert_eq!(
-            chat_label(&asking),
-            (t("agent.status.needsYou"), Tone::Urgent)
-        );
-        let mut stopped = agent("stopped", "");
-        stopped.run_slot = slot("waiting", 1);
-        assert_eq!(chat_label(&stopped).0, t("agent.status.stopped"));
-        // A paused machine's hold is the one said, as in Electron.
-        let mut held = agent("running", "running");
-        held.run_slot = slot("waiting", 1);
-        held.memory = Some(MemoryHold {
-            machine: "paused".into(),
-            ..Default::default()
-        });
-        assert_eq!(chat_label(&held).1, Tone::Warning);
-    }
-
-    #[test]
-    fn the_fleet_reads_a_wait_as_an_agent_does() {
-        let mut f = fleet_agent("p/agent-02", "running");
-        f.run_slot = slot("waiting", 3);
-        assert_eq!(chat_label(&f).0, "Waiting for a run slot (3 ahead)");
-        assert_eq!(agent_st(&f, false, false), St::Working);
     }
 
     #[test]

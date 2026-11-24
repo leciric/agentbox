@@ -17,32 +17,27 @@ func envMap(env []string) map[string]string {
 
 // A heavy command's workers are the cores split between the heavy commands
 // running, itself counted: one alone has every core, whatever else runs
-// idle; never fewer than two, nor more than the cores; halved while the
-// user's computer is busy.
+// idle; never fewer than two, nor more than the cores.
 func TestHeavyWorkers(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		cores, running int
-		busy           bool
 		want           int
 	}{
-		{10, 1, false, 10}, // one busy agent among idle ones: every core
-		{10, 0, false, 10}, // a count that missed itself is still one
-		{10, 2, false, 5},
-		{10, 3, false, 4}, // rounded up: no core left to nobody
-		{10, 5, false, 2},
-		{10, 9, false, 2}, // never fewer than two
-		{16, 4, false, 4},
-		{1, 3, false, 1}, // never more than the cores
-		{0, 1, false, 1}, // cores unread: one
-		{10, 1, true, 5}, // the user's computer is busy: half
-		{10, 3, true, 2}, // half of four
-		{10, 6, true, 2}, // and still at least two
-		{3, 1, true, 2},  // half of three, rounded up
-		{64, 2, false, 32},
+		{10, 1, 10}, // one busy agent among idle ones: every core
+		{10, 0, 10}, // a count that missed itself is still one
+		{10, 2, 5},
+		{10, 3, 4}, // rounded up: no core left to nobody
+		{10, 5, 2},
+		{10, 9, 2}, // never fewer than two
+		{16, 4, 4},
+		{1, 3, 1}, // never more than the cores
+		{0, 1, 1}, // cores unread: one
+		{3, 1, 3},
+		{64, 2, 32},
 	} {
-		if got := HeavyWorkers(c.cores, c.running, c.busy); got != c.want {
-			t.Errorf("HeavyWorkers(%d cores, %d running, busy %v) = %d, want %d", c.cores, c.running, c.busy, got, c.want)
+		if got := HeavyWorkers(c.cores, c.running); got != c.want {
+			t.Errorf("HeavyWorkers(%d cores, %d running) = %d, want %d", c.cores, c.running, got, c.want)
 		}
 	}
 }

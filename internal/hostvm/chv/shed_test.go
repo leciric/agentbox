@@ -2,7 +2,6 @@ package chv
 
 import (
 	"testing"
-	"time"
 
 	"agentbox/internal/api"
 )
@@ -24,38 +23,10 @@ func TestBiggestAgent(t *testing.T) {
 	}
 }
 
-// What hostload judged reaches the memory loop while fresh, for memory and
-// the disk only, through its calm-down; and the daemon hears the ceiling and
-// whether boots wait once the loop has a sample.
+// The daemon hears the ceiling and whether boots wait once the memory loop
+// has a sample.
 func TestSupervisorHostLoadForMemory(t *testing.T) {
 	var s supervisor
-	now := time.Now()
-	s.noteHostLoad(api.HostLoad{Busy: true, Why: "memory", At: now})
-	if got := s.hostBusyFor(now); got != "memory" {
-		t.Errorf("busy for memory: %q", got)
-	}
-	// Calming down: Why is "", the reason holds.
-	s.noteHostLoad(api.HostLoad{Busy: true, At: now})
-	if got := s.hostBusyFor(now); got != "memory" {
-		t.Errorf("calming down: %q", got)
-	}
-	if got := s.hostBusyFor(now.Add(time.Minute)); got != "" {
-		t.Errorf("a stale reading: %q", got)
-	}
-	s.noteHostLoad(api.HostLoad{Busy: true, Why: "cpu", At: now})
-	if got := s.hostBusyFor(now); got != "" {
-		t.Errorf("busy for the CPU: %q, want nothing", got)
-	}
-	// Nor its disk: a VM short of memory is what keeps it busy.
-	s.noteHostLoad(api.HostLoad{Busy: true, Why: "io", At: now})
-	if got := s.hostBusyFor(now); got != "" {
-		t.Errorf("busy for its disk: %q, want nothing", got)
-	}
-	s.noteHostLoad(api.HostLoad{Busy: false, At: now})
-	if got := s.hostBusyFor(now); got != "" {
-		t.Errorf("calm: %q", got)
-	}
-
 	if l := s.withMemory(api.HostLoad{}); l.VMCeiling != 0 || l.HoldBoots {
 		t.Errorf("before a sample: %+v", l)
 	}

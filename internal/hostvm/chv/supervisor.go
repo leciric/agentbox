@@ -69,10 +69,6 @@ type supervisor struct {
 	// (crashloop.go).
 	runs *runLog
 	boot api.VMBoot
-	// hostBusy is why hostload last judged the host busy ("" when calm) and
-	// hostBusyAt when (hostLoadLoop), for the memory loop.
-	hostBusy   string
-	hostBusyAt time.Time
 	// shedding says an agent is being stopped for the host (shedAgent).
 	shedding atomic.Bool
 	// runScript, when set, runs what ssh would in the VM: for tests.
@@ -494,7 +490,6 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
 		sample.Idle = s.idle
-		sample.HostBusy = s.hostBusyFor(time.Now())
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()

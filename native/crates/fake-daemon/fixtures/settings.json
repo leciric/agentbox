@@ -71,7 +71,6 @@
  "errorReports": true,
  "prWatch": true,
  "mergeWhenGreen": false,
- "agentFreeze": false,
  "mediaRetention": "1d",
  "language": "en-US",
  "timezone": "",

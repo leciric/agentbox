@@ -122,7 +122,7 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	defer s.mu.Unlock()
 	seen := map[string]bool{}
 	for _, st := range statuses {
-		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, Memory: s.memoryHold(st.Ref()), RunSlot: s.runSlotOf(st.Ref()), Reclaimed: s.reclaimedOf(st.Ref(), st.State), Hold: holdOf(st.Agent, st.State), WaitingForImage: s.agentsOnImage[st.Ref()]}
+		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, Memory: s.memoryHold(st.Ref()), Reclaimed: s.reclaimedOf(st.Ref(), st.State), Hold: holdOf(st.Agent, st.State), WaitingForImage: s.agentsOnImage[st.Ref()]}
 		seen[change.Ref] = true
 		if !sameChange(s.lastStates[change.Ref], change) {
 			s.lastStates[change.Ref] = change
@@ -209,21 +209,9 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 // sameChange reports whether two changes say the same.
 func sameChange(a, b api.AgentChange) bool {
 	am, bm := a.Memory, b.Memory
-	ar, br := a.RunSlot, b.RunSlot
-	a.Memory, b.Memory, a.RunSlot, b.RunSlot = nil, nil, nil, nil
-	if a != b || (am == nil) != (bm == nil) || !sameRunSlot(ar, br) {
+	a.Memory, b.Memory = nil, nil
+	if a != b || (am == nil) != (bm == nil) {
 		return false
 	}
 	return am == nil || *am == *bm
-}
-
-// sameRunSlot reports whether two agents' run slots read the same.
-func sameRunSlot(a, b *api.RunSlot) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	if (a.Expires == nil) != (b.Expires == nil) || (a.Expires != nil && !a.Expires.Equal(*b.Expires)) {
-		return false
-	}
-	return a.State == b.State && a.Ahead == b.Ahead && a.Since.Equal(b.Since)
 }

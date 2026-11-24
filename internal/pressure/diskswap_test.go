@@ -3,10 +3,8 @@ package pressure
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 const swapsFile = `Filename				Type		Size		Used		Priority
@@ -53,6 +51,8 @@ func TestSamplerReadsDiskSwap(t *testing.T) {
 	}
 }
 
+const gb = int64(1) << 30
+
 // zramVM is a VM at its cap with 4 GiB of zram, half used, and a 4 GiB
 // swapfile with diskUsed in use.
 func zramVM(avail, diskUsed int64) Mem {
@@ -98,23 +98,6 @@ func TestDiskSwapInUseIsOutWhereZramHasRoom(t *testing.T) {
 	roomy := zramVM(8*gb, 2*gb)
 	if h := p.Headroom(roomy, Trend{}); h != Room {
 		t.Errorf("8 GiB available with disk swap used is %v, want Room", h)
-	}
-}
-
-func TestAnAgentDoesntBootWhileTheVMPagesToDisk(t *testing.T) {
-	f := NewFleet(DefaultPolicy)
-	f.Sync(t0, machines("p/a"))
-	f.Ask("p/e", t0)
-	// 8 GiB available is plenty for a boot, but 2 GiB is on the disk swap.
-	if got := f.Step(t0, Sample{Mem: zramVM(8*gb, 2*gb)}); len(got.Start) != 0 {
-		t.Fatalf("started %v with the VM paging to disk", got.Start)
-	}
-	if !f.SwapFull() {
-		t.Error("swap not full with 2 GiB paged to disk")
-	}
-	// Once the swapfile is drained (below the tolerance) it boots.
-	if got := f.Step(t0.Add(5*time.Second), Sample{Mem: zramVM(8*gb, 0)}); !slices.Equal(got.Start, []string{"p/e"}) {
-		t.Fatalf("started %v with the swapfile empty", got.Start)
 	}
 }
 
