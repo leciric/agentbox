@@ -934,6 +934,8 @@ impl ChatView {
                         images,
                         files,
                         to: to.clone(),
+                        // The native app has no "On my PC" yet: the owner's PC.
+                        run_on: String::new(),
                     },
                 )
                 .await;

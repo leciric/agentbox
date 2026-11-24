@@ -70,6 +70,12 @@ type remoteConn struct {
 	retryAt time.Time
 	backoff time.Duration
 	listing bool
+	// machineUp says this computer is connected to it to take agents
+	// (remoteMachine), and machineErr why not; runOn is what remoteRunOn
+	// found for each project, a moment ago.
+	machineUp  bool
+	machineErr string
+	runOn      map[string]runOnHit
 }
 
 // remoteRetry is how long a remote that didn't answer is left alone, at first
@@ -80,6 +86,16 @@ const (
 )
 
 func (c *remoteConn) base() string { return strings.TrimRight(c.r.URL, "/") + "/share/api" }
+
+// requestAt is a request to the owner's own path, outside its API.
+func (c *remoteConn) requestAt(ctx context.Context, client *http.Client, method, path string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.r.URL, "/")+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	return client.Do(req)
+}
 
 func (c *remoteConn) request(ctx context.Context, client *http.Client, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.base()+path, body)
@@ -134,6 +150,7 @@ func (s *Server) runRemote(ctx context.Context, r state.ShareRemote) {
 	rs.conns[r.ID] = c
 	rs.mu.Unlock()
 	go s.remoteEvents(ctx, c)
+	go s.remoteMachine(ctx, c)
 }
 
 func (s *Server) shareRemoteInfo(r state.ShareRemote) api.ShareRemote {
@@ -141,6 +158,7 @@ func (s *Server) shareRemoteInfo(r state.ShareRemote) api.ShareRemote {
 	if c := s.remoteConn(r.ID); c != nil {
 		c.mu.Lock()
 		out.Projects, out.Error = len(c.projects), c.err
+		out.Machine, out.MachineError = c.machineUp, c.machineErr
 		c.mu.Unlock()
 	}
 	return out
@@ -538,6 +556,15 @@ func (s *Server) shareProxy(next http.Handler) http.Handler {
 		path := r.URL.Path
 		if m := shareProjectRoute.FindStringSubmatch(path); m != nil {
 			if id, project, ok := remoteOf(m[2]); ok {
+				if m[1] == "projects" && m[3] == "/run-on" && r.Method == http.MethodGet {
+					c := s.remoteConn(id)
+					if c == nil {
+						writeError(w, fmt.Errorf("project %s: this AgentBox isn't paired with the one that shared it any more: %w", m[2], state.ErrNotFound))
+						return
+					}
+					_ = writeJSON(w, http.StatusOK, s.remoteRunOn(r.Context(), c, project))
+					return
+				}
 				s.proxyRemote(w, r, id, "/v1/"+m[1]+"/"+project+m[3], nil)
 				return
 			}

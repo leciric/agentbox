@@ -56,6 +56,10 @@ type SharePeer struct {
 	// Access is what it may do in the projects it reaches: ShareAccessView,
 	// ShareAccessChat or ShareAccessFull.
 	Access string
+	// OwnMachine lets it run the agents a project's chat makes for it on its
+	// own computer, with its own AI accounts and GitHub access, instead of
+	// here (internal/daemon/sharemachines.go).
+	OwnMachine bool
 }
 
 // What a peer may do in the projects it reaches, each level all the one
@@ -100,14 +104,14 @@ func (p SharePeer) Shares(slug string) bool {
 	return p.AllProjects || slices.Contains(p.Projects, slug)
 }
 
-const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, access FROM share_peers`
+const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, own_machine, access FROM share_peers`
 
 func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 	var p SharePeer
 	var created, seen int64
-	var all int
+	var all, own int
 	var projects string
-	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &p.Access); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &own, &p.Access); err != nil {
 		return SharePeer{}, err
 	}
 	p.Created = time.Unix(created, 0)
@@ -115,6 +119,7 @@ func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 		p.LastSeen = time.Unix(seen, 0)
 	}
 	p.AllProjects = all != 0
+	p.OwnMachine = own != 0
 	p.Projects = []string{}
 	for _, s := range strings.Split(projects, ",") {
 		if s = strings.TrimSpace(s); s != "" {
@@ -142,7 +147,7 @@ func (s *Store) AddSharePeer(ctx context.Context, name string) (SharePeer, strin
 	if _, err := rand.Read(secret); err != nil {
 		return SharePeer{}, "", err
 	}
-	p := SharePeer{ID: "peer_" + hex.EncodeToString(id), Name: name, Created: time.Now(), Projects: []string{}, Slots: -1, Access: ShareAccessFull}
+	p := SharePeer{ID: "peer_" + hex.EncodeToString(id), Name: name, Created: time.Now(), Projects: []string{}, Slots: -1, OwnMachine: true, Access: ShareAccessFull}
 	token := "share_" + p.ID + "." + base64.RawURLEncoding.EncodeToString(secret)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO share_peers (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.Name, HashPhoneToken(token), p.Created.Unix())
@@ -227,6 +232,19 @@ func (s *Store) SetSharePeerAccess(ctx context.Context, id, access string) error
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetSharePeerOwnMachine says whether a peer may run agents on its own
+// computer, and returns it as it now is.
+func (s *Store) SetSharePeerOwnMachine(ctx context.Context, id string, on bool) (SharePeer, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE share_peers SET own_machine = ? WHERE id = ?`, boolInt(on), id)
+	if err != nil {
+		return SharePeer{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return SharePeer{}, ErrNotFound
+	}
+	return s.SharePeer(ctx, id)
 }
 
 // SawSharePeer records when and from where a peer last connected.

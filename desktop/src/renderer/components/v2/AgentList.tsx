@@ -14,7 +14,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, ChevronRight, ChevronsLeft, HardDrive, Plus, ShieldAlert } from 'lucide-react';
+import { Archive, ChevronRight, ChevronsLeft, HardDrive, Laptop, Plus, Server, ShieldAlert } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -217,7 +217,20 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
           )
         );
       })()}
-      {rail.loaded && rail.mine.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
+      {rail.remote.length > 0 && (
+        <section className="pt-1.5" data-list-group="remote">
+          <h3 className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-caption font-normal text-muted">
+            <span className="min-w-0 truncate">{t('panel.group.remote')}</span>
+            <span className="tabular-nums text-faint">{rail.remote.length}</span>
+          </h3>
+          <div className="flex flex-col gap-px">
+            {[...rail.remoteMoving, ...rail.remoteDone].map((a) => (
+              <RemoteLine key={`${a.machineId}/${a.name}`} agent={a} />
+            ))}
+          </div>
+        </section>
+      )}
+      {rail.loaded && rail.mine.length === 0 && rail.remote.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
 
       {(past.data?.length ?? 0) > 0 && (
         <button
@@ -398,6 +411,51 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
         </span>
       </div>
     </AgentContextMenu>
+  );
+}
+
+// RemoteLine is an agent the project's lead runs on another computer: one of
+// the hub account's, or a paired AgentBox's, which is yours when you are that
+// AgentBox (T.RemoteAgent.here). The daemon keeps what its notices last said,
+// not the agent, so the row opens nothing here: the project's chat directs
+// it, and its tooltip says what it last reported.
+function RemoteLine({ agent: a }: { agent: T.RemoteAgent }) {
+  const t = useT();
+  const status: Record<string, MessageKey> = {
+    creating: 'panel.remote.creating',
+    working: 'panel.remote.working',
+    asking: 'panel.remote.asking',
+    done: 'panel.remote.done',
+    failed: 'panel.remote.failed',
+    retired: 'panel.remote.retired',
+  };
+  const where = a.here ? t('panel.remote.mine') : t('panel.remote.on', { machine: a.machine });
+  const tone: AgentSt = a.status === 'asking' ? 'needs' : a.status === 'failed' ? 'error' : a.status === 'creating' || a.status === 'working' ? 'working' : 'done';
+  return (
+    <Tip side="left" className="max-w-72" label={[a.title || a.name, a.summary, a.prUrl].filter(Boolean).join('\n')}>
+      <div className="flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5" data-remote-agent={`${a.name}@${a.machine}`} data-remote-here={a.here || undefined}>
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line-faint bg-surface text-subtle">
+          {a.here ? <Laptop className="size-4" /> : <Server className="size-4" />}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
+            <span className="min-w-0 flex-1 truncate text-ui font-medium text-primary">{a.title || a.name}</span>
+            <span className="shrink-0 text-caption tabular-nums text-faint" title={timeAgo(a.updatedAt)}>
+              {shortAgo(t, a.updatedAt)}
+            </span>
+          </span>
+          <span className={cn('min-w-0 truncate text-caption leading-4', stTone(tone))} data-remote-status={a.status}>
+            {status[a.status] ? t(status[a.status]) : a.status}
+          </span>
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-micro leading-4 text-faint">
+            <span className={cn('min-w-0 truncate rounded px-1', a.here ? 'bg-brand-500/15 text-brand-200' : 'bg-surface-raised text-subtle')} data-remote-machine>
+              {where}
+            </span>
+            <span className="shrink-0 font-mono">{a.name}</span>
+          </span>
+        </span>
+      </div>
+    </Tip>
   );
 }
 

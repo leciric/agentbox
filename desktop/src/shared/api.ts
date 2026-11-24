@@ -2384,6 +2384,8 @@ export interface RemoteAgent {
   summary?: string;
   prUrl?: string;
   updatedAt: string;
+  shared?: boolean;
+  here?: boolean;
 }
 
 export interface Machine {
@@ -2394,6 +2396,7 @@ export interface Machine {
   hasProject: boolean;
   project?: string;
   error?: string;
+  shared?: boolean;
 }
 
 export interface RemoteAgentsChange {
@@ -2965,6 +2968,8 @@ export interface SharePeer {
   slots: number;
   running: number;
   access: string;
+  ownMachine: boolean;
+  machine: boolean;
   usage: SharePeerUsage;
 }
 
@@ -2978,6 +2983,7 @@ export interface UpdateSharePeerRequest {
   projects?: string[];
   slots?: number;
   access?: string;
+  ownMachine?: boolean;
 }
 
 export interface SharePairing {
@@ -2993,6 +2999,8 @@ export interface ShareRemote {
   paired: string;
   projects: number;
   error?: string;
+  machine: boolean;
+  machineError?: string;
 }
 
 export interface AddShareRemoteRequest {
@@ -3003,6 +3011,12 @@ export interface ProjectRemote {
   id: string;
   owner: string;
   access?: string;
+}
+
+export interface ShareRunOn {
+  owner: string;
+  here: boolean;
+  why?: string;
 }
 
 export interface SharePeerUsage {
@@ -3444,6 +3458,7 @@ export interface ChatMessageRequest {
   images?: ChatImageUpload[];
   files?: ChatFileUpload[];
   to?: string;
+  runOn?: string;
 }
 
 export interface ChatImage {

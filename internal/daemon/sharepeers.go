@@ -77,6 +77,14 @@ type peeringState struct {
 
 	remotes *shareRemotes // shareremote.go
 	here    *hereState    // sharepeople.go
+
+	// machines are the peers' computers connected to take agents, by peer
+	// (sharemachines.go); runOn is, by "project/session", the peer that chose
+	// its own computer for the agents that session makes, and runOnTold the
+	// last choice its lead was told, as "<peer>/<runOn>".
+	machines  map[string]*shareMachine
+	runOn     map[string]string
+	runOnTold map[string]string
 }
 
 func newPeeringState() *peeringState {
@@ -84,6 +92,7 @@ func newPeeringState() *peeringState {
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]shareOpen{},
 		seen: map[string]time.Time{}, speaker: map[string]string{}, heard: map[string]uint64{}, holds: map[string]*shareHold{},
 		remotes: newShareRemotes(), here: newHereState(),
+		machines: map[string]*shareMachine{}, runOn: map[string]string{}, runOnTold: map[string]string{},
 	}
 }
 
@@ -91,6 +100,7 @@ func newPeeringState() *peeringState {
 type shareOpen struct {
 	project string // "" for one in no project
 	events  bool   // its event stream
+	machine bool   // its computer's connection to take agents (sharemachines.go)
 }
 
 // track records a peer's request as open until untrack, and says whether its
@@ -200,8 +210,8 @@ func (s *Server) sharePeerInfo(ctx context.Context, p state.SharePeer) api.Share
 	return api.SharePeer{
 		ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr,
 		AllProjects: p.AllProjects, Projects: p.Projects, Slots: p.Slots, Running: s.shareRunningCount(ctx, refs),
-		Access: p.Access,
-		Usage:  api.SharePeerUsage{Tokens: usage.Tokens, CostUSD: usage.CostUSD, AgentMinutes: usage.RunSeconds / 60},
+		Access: p.Access, OwnMachine: p.OwnMachine, Machine: s.shareMachine(p.ID) != nil,
+		Usage: api.SharePeerUsage{Tokens: usage.Tokens, CostUSD: usage.CostUSD, AgentMinutes: usage.RunSeconds / 60},
 	}
 }
 
@@ -310,6 +320,11 @@ func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
 	if p, err = s.store.SetSharePeer(ctx, p.ID, all, projects, slots); err != nil {
 		return err
 	}
+	if req.OwnMachine != nil && *req.OwnMachine != p.OwnMachine {
+		if p, err = s.store.SetSharePeerOwnMachine(ctx, p.ID, *req.OwnMachine); err != nil {
+			return err
+		}
+	}
 	s.logf("share: %s (%s) reaches %s, slots %d, access %s", p.Name, p.ID, shareWhat(p), p.Slots, p.Access)
 	// What it had open in a project it no longer reaches ends. Its event
 	// stream ends when what it reaches changed at all: it connects again at
@@ -317,7 +332,7 @@ func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
 	// nothing.
 	reaches := was.AllProjects != p.AllProjects || !slices.Equal(was.Projects, p.Projects) || was.Access != p.Access
 	s.peering.end(p.ID, func(o shareOpen) bool {
-		return (o.events && reaches) || (o.project != "" && !p.Shares(o.project))
+		return (o.events && reaches) || (o.project != "" && !p.Shares(o.project)) || (o.machine && !p.OwnMachine)
 	})
 	s.publishShare(ctx)
 	return writeJSON(w, http.StatusOK, s.sharePeerInfo(ctx, p))
@@ -345,6 +360,11 @@ func (s *Server) removeSharePeer(w http.ResponseWriter, r *http.Request) error {
 	for k, v := range sh.speaker {
 		if v == id {
 			delete(sh.speaker, k)
+		}
+	}
+	for k, v := range sh.runOn {
+		if v == id {
+			delete(sh.runOn, k)
 		}
 	}
 	sh.mu.Unlock()
