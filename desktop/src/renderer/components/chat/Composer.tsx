@@ -242,7 +242,10 @@ export function Composer({
     enabled: agent.ai === 'claude',
     refetchInterval: (q) => (q.state.data && q.state.data.claudeAccounts.length === 0 ? 5_000 : false),
   });
-  const signedOut = agent.ai === 'claude' && auth.data !== undefined && auth.data.claudeAccounts.length === 0;
+  // A project another AgentBox shares runs its chat on that AgentBox's
+  // accounts, not this one's: being signed out here doesn't stop it.
+  const remote = agent.project.includes('~');
+  const signedOut = !remote && agent.ai === 'claude' && auth.data !== undefined && auth.data.claudeAccounts.length === 0;
 
   // Pictures go to the AI tool as ACP image blocks, which only an adapter that
   // said promptCapabilities.image takes; for one that didn't, they go as
