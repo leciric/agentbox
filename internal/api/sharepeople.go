@@ -50,10 +50,11 @@ type HereRequest struct {
 }
 
 // HereRenewSeconds is how often an app renews what it has open; what isn't
-// renewed for HereTTLSeconds is taken as closed.
+// renewed for HereTTLSeconds is taken as closed. The TTL is generous: a
+// window in the background may have its timers slowed to one a minute.
 const (
 	HereRenewSeconds = 15
-	HereTTLSeconds   = 45
+	HereTTLSeconds   = 90
 )
 
 // PersonHere is someone and what they have open.

@@ -118,7 +118,9 @@ export function startHere(): () => void {
   let stopTyping: ReturnType<typeof setTimeout> | undefined;
   const renew = (force: boolean) => {
     const typing = Date.now() < typingUntil;
-    const here: T.HereRequest = { client, ...place, project: document.hidden ? '' : place.project, ...(typing ? { typing } : {}) };
+    // A window behind another, or minimised, is still where its user is: a
+    // window that closes says so (leaveHere), one that crashes lapses.
+    const here: T.HereRequest = { client, ...place, ...(typing ? { typing } : {}) };
     const body = JSON.stringify(here);
     if (!force && body === last && Date.now() - lastAt < renewMs) return;
     last = body;
@@ -135,9 +137,7 @@ export function startHere(): () => void {
   };
   changed = soon;
   const tick = setInterval(() => renew(true), renewMs);
-  const onVisibility = () => soon();
   const onUnload = () => void api.leaveHere(client).catch(() => {});
-  document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('beforeunload', onUnload);
   soon();
   return () => {
@@ -145,7 +145,6 @@ export function startHere(): () => void {
     if (timer) clearTimeout(timer);
     if (stopTyping) clearTimeout(stopTyping);
     clearInterval(tick);
-    document.removeEventListener('visibilitychange', onVisibility);
     window.removeEventListener('beforeunload', onUnload);
     onUnload();
   };
