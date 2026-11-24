@@ -30,7 +30,8 @@ import { openAgentEvent } from '../components/chat/AgentPermissionCard';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Elapsed } from '../components/chat/Timeline';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ProjectChatPanel, useCurrentSession } from '../components/ProjectChatPanel';
+import { homeAgentFrom } from '../components/HomeChatPanel';
+import { ProjectChatPanel, SessionChatPanel, useCurrentSession } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
 import { prChecksText, rank, type StatusTone } from '../lib/agentStatus';
 import { api } from '../lib/api';
@@ -259,7 +260,8 @@ function ConnectionBar() {
 // project's pull requests.
 type ChatEntry = {
   route: Route;
-  project: T.Project;
+  // project is absent on the Home chat's row: it belongs to none.
+  project?: T.Project;
   icon: ReactNode;
   title: string;
   subtitle?: string;
@@ -276,6 +278,8 @@ type Chats = {
   // states: not what each is doing this second, or rows would move under
   // your finger.
   groups: { project: T.Project; rows: ChatEntry[] }[];
+  // The Home chat, above every project (the Expo app's list does the same).
+  home: ChatEntry;
   rows: ChatEntry[];
 };
 
@@ -290,7 +294,9 @@ function useChats(phone: T.LANPhone): Chats {
   });
   // Each chat's latest turn, for what it is doing and when it last answered.
   const queryClient = useQueryClient();
-  const refs = [...chats.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
+  const homeChat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
+  const homeRef = homeChat.data?.started ? homeChat.data.ref : undefined;
+  const refs = [...(homeRef ? [homeRef] : []), ...chats.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
   const threads = useQueries({
     queries: refs.map((ref) => ({ queryKey: chatKey(ref), queryFn: () => peekThread(queryClient, ref), staleTime: Infinity })),
   });
@@ -298,8 +304,20 @@ function useChats(phone: T.LANPhone): Chats {
   useSyncExternalStore(seen.subscribe, seen.version);
   const unread = (ref: string | undefined, status: ChatStatus) => !!ref && !status.live && seen.unread(ref, lastReply(threadOf(ref)));
   const merge = (phone.scopes ?? []).includes('merge');
-  const groups = (projects.data ?? []).map((p, i) => {
-    const lead = chats[i]?.data;
+  const homeStatus = leadChatStatus(homeChat.data?.chat, threadOf(homeRef));
+  const home: ChatEntry = {
+    route: { kind: 'project', project: T.HomeProject },
+    icon: (
+      <div className="flex size-9 items-center justify-center rounded-full bg-surface-raised">
+        <AIIcon ai="claude" className="size-4" />
+      </div>
+    ),
+    title: t('chat.home.title'),
+    status: homeStatus,
+    unread: unread(homeRef, homeStatus),
+  };
+  const groups = (projects.data ?? []).filter((p) => p.name !== T.HomeProject).map((p) => {
+    const lead = chats[(projects.data ?? []).indexOf(p)]?.data;
     const leadRef = lead?.started ? lead.ref : undefined;
     const leadStatus = leadChatStatus(lead?.chat, threadOf(leadRef));
     const rows: ChatEntry[] = [
@@ -349,7 +367,7 @@ function useChats(phone: T.LANPhone): Chats {
     }
     return { project: p, rows };
   });
-  return { projects, groups, rows: groups.flatMap((g) => g.rows) };
+  return { projects, groups, home, rows: [home, ...groups.flatMap((g) => g.rows)] };
 }
 
 // needsYou is the chats waiting on an answer or a permission, from every
@@ -382,7 +400,12 @@ function ChatSections({ chats, first, here, onOpen }: { chats: Chats; first?: st
       {urgent.length > 0 && (
         <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-needs-you>
           <h2 className="px-2 pb-1 text-caption font-medium text-amber-300">{t('web.phone.needsYou')}</h2>
-          {urgent.map((r) => row(r, projectLabel(r.project)))}
+          {urgent.map((r) => row(r, r.project ? projectLabel(r.project) : t('shell.nav.home')))}
+        </section>
+      )}
+      {!urgent.includes(chats.home) && (
+        <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-home>
+          {row(chats.home)}
         </section>
       )}
       {groups.map(({ project, rows }) => (
@@ -643,24 +666,31 @@ function ProjectChatScreen({ project, merge, header, onOpen }: { project: string
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
+  const isHome = project === T.HomeProject;
   // The session its tabs show (ProjectChatPanel), which the header says.
   const session = useCurrentSession(project);
   const chat = useQuery({ queryKey: ['projectChat', project, session?.id], queryFn: () => api.projectChat(project, session!.id), enabled: !!session });
   const ref = chat.data?.started ? chat.data.ref : undefined;
   const thread = useThread(ref);
   useMarkRead(ref, thread.data);
-  const pulls = useOpenPulls(project, merge);
+  const pulls = useOpenPulls(project, merge && !isHome);
   return (
     <>
       <ScreenHeader
-        title={session?.topic || t('web.phone.projectChat')}
-        subtitle={projectLabel(project, projects.data)}
+        title={session?.topic || (isHome ? t('chat.home.title') : t('web.phone.projectChat'))}
+        subtitle={isHome ? t('shell.nav.home') : projectLabel(project, projects.data)}
         status={chat.data ? leadChatStatus(chat.data.chat, thread.data) : undefined}
         header={header}
         action={merge && pulls.open.length > 0 && <PullChip label={t('web.phone.pulls')} text={String(pulls.open.length)} onClick={() => onOpen({ kind: 'pulls', project })} />}
       />
       <div className="flex min-h-0 flex-1 flex-col">
-        {p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} message={t('web.phone.missingProject', { name: projectLabel(project, projects.data) })} />}
+        {project === T.HomeProject ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SessionChatPanel project={T.HomeProject}>
+              {(info, s) => <ChatTab key={info.ref} agent={homeAgentFrom(info, s.topic)} starting={false} onStart={() => {}} />}
+            </SessionChatPanel>
+          </div>
+        ) : p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} message={t('web.phone.missingProject', { name: projectLabel(project, projects.data) })} />}
       </div>
     </>
   );
