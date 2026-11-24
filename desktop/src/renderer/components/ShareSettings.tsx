@@ -11,6 +11,7 @@ import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Field, Input } from './ui/input';
 import { Select, SelectOption } from './ui/select';
+import { Switch } from './ui/switch';
 import { SettingNote, SettingRow } from './ui/settings';
 
 // Sharing projects with another AgentBox (internal/daemon/sharepeers.go and
@@ -261,6 +262,23 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
           </Select>
         </div>
       </div>
+      {/* Agents its chat messages ask to run on its own computer
+          (internal/daemon/sharemachines.go): on its accounts, not your slots. */}
+      <div className="flex min-w-0 items-start gap-3 pl-7" data-share-own-machine>
+        <Switch
+          id={`share-own-machine-${p.id}`}
+          className="mt-0.5"
+          checked={p.ownMachine}
+          disabled={update.isPending}
+          onCheckedChange={(on) => update.mutate({ ownMachine: on })}
+        />
+        <label htmlFor={`share-own-machine-${p.id}`} className="grid min-w-0 gap-0.5">
+          <span className="text-caption text-secondary">{t('peers.ownMachine')}</span>
+          <span className="break-words text-caption text-subtle [overflow-wrap:anywhere]">
+            {p.ownMachine ? (p.machine ? t('peers.ownMachineOn', { name: p.name }) : t('peers.ownMachineAway', { name: p.name })) : t('peers.ownMachineOff')}
+          </span>
+        </label>
+      </div>
     </li>
   );
 }
@@ -317,6 +335,11 @@ function ShareJoin() {
                     {t('peers.remoteProjects', { count: r.projects })} · <span className="font-mono">{r.url}</span>
                   </p>
                   {r.error && <SettingNote tone="error">{r.error}</SettingNote>}
+                  {!r.error && (
+                    <p className="break-words text-caption text-subtle [overflow-wrap:anywhere]" data-share-remote-machine={r.machine || undefined}>
+                      {r.machine ? t('peers.machineOn', { name: r.name }) : t('peers.machineOff', { name: r.name, why: r.machineError || t('peers.machineConnecting') })}
+                    </p>
+                  )}
                 </div>
                 <Button size="sm" variant="ghost" className="shrink-0" disabled={forget.isPending} onClick={() => forget.mutate(r.id)}>
                   {t('peers.forget')}

@@ -237,6 +237,9 @@ export const api = {
   removeSharePeer: (id: string) => call<void>('DELETE', `/v1/share/peers/${encodeURIComponent(id)}`),
   addShareRemote: (link: string) => call<T.ShareRemote>('POST', '/v1/share/remotes', { link } satisfies T.AddShareRemoteRequest),
   removeShareRemote: (id: string) => call<void>('DELETE', `/v1/share/remotes/${encodeURIComponent(id)}`),
+  // Whether this computer can run the agents a remote project's chat makes
+  // for you ("On my PC" beside its composer), and why not.
+  shareRunOn: (project: string) => call<T.ShareRunOn>('GET', `/v1/projects/${encodeURIComponent(project)}/run-on`),
   mcpApps: () => call<T.MCPPairings>('GET', '/v1/remote/mcp'),
   updateMCPApps: (req: T.UpdateMCPRequest) => call<T.MCPPairings>('PATCH', '/v1/remote/mcp', req),
   pairMCPApp: (req: T.MCPPairRequest) => call<T.MCPPairingSecret>('POST', '/v1/remote/mcp/pairings', req),
@@ -393,8 +396,10 @@ export const api = {
   viewAgent: (ref: string) => call<void>('PUT', `${agent(ref)}/viewing`),
   // to sends a message written in a project's chat to one of its agents
   // instead (shared/messageTarget.ts).
-  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string }) =>
-    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined, ...to } satisfies T.ChatMessageRequest),
+  // extra is who it goes to (to) in a project's chat, or where the agents it
+  // asks for run (runOn) in a project another AgentBox shares.
+  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], extra?: { to?: string; runOn?: string }) =>
+    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined, ...extra } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
   // openChatFile opens a file sent in a chat with the system's default app:
   // the desktop downloads it first, a browser saves it.

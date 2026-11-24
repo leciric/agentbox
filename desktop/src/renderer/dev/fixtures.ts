@@ -2988,8 +2988,8 @@ export function richStreamText(which: 'open' | 'tall'): string {
 }
 
 // remoteAgents are agents the lead runs on the user's other machines, one of
-// each status the rail tells apart, and one with a long title on a machine
-// with a long name, for the rail's width.
+// each status the rail tells apart, one with a long title on a machine with a
+// long name, for the rail's width, and one on a paired AgentBox's computer.
 export function remoteAgents(): T.RemoteAgent[] {
   const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
   return [
@@ -2997,6 +2997,9 @@ export function remoteAgents(): T.RemoteAgent[] {
     { machine: 'vps', machineId: 'env_2', name: 'agent-04', title: 'Paginate the API', status: 'asking', summary: 'Should the reminders page paginate, or load them all?', updatedAt: at(5) },
     { machine: 'home-workstation-with-gpu', machineId: 'env_3', name: 'agent-01', title: 'Move every scheduled reminder to the new background queue without losing the ones already due', status: 'done', summary: 'Opened #412', prUrl: 'https://github.com/acme/hello/pull/412', updatedAt: at(40) },
     { machine: 'vps', machineId: 'env_2', name: 'agent-02', title: 'CSV export', status: 'failed', summary: 'create_agent failed: the disk is full', updatedAt: at(90) },
+    // A paired AgentBox's computer (sharemachines.go): Bob's, and in Bob's
+    // view of the project his own.
+    { machine: 'Bob', machineId: 'share:peer_1', name: 'agent-02', title: 'Dark mode', status: 'working', shared: true, here: true, updatedAt: at(1) },
   ];
 }
 
