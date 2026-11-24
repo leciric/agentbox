@@ -9,7 +9,7 @@ import (
 // `agentbox run`, left from run slots, waits for nothing: up with no command
 // and down return at once saying so, and up with one runs it.
 func TestRunWaitsForNothing(t *testing.T) {
-	for _, args := range [][]string{{"up"}, {"down"}, {"status"}} {
+	for _, args := range [][]string{{}, {"up"}, {"down"}, {"status"}} {
 		cmd := newRunCmd(nil)
 		var out bytes.Buffer
 		cmd.SetOut(&out)

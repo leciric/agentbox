@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,6 +57,9 @@ func newRunCmd(_ *app) *cobra.Command {
 		}
 	}
 	cmd.AddCommand(up, nothing("status"), nothing("down"))
-	cmd.RunE = func(*cobra.Command, []string) error { return errors.New(runGone) }
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), runGone)
+		return nil
+	}
 	return cmd
 }
