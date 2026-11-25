@@ -530,6 +530,11 @@ func find(th api.ChatThread, kind string, n int) api.ChatItem {
 func replay(t *testing.T, events []api.ChatEvent) api.ChatThread {
 	t.Helper()
 	var th api.ChatThread
+	// A conversation numbers on from where its daemon started (epoch): the
+	// app holds the empty thread at the number before the first event.
+	if len(events) > 0 {
+		th.Seq = events[0].Seq - 1
+	}
 	for _, ev := range events {
 		if ev.Seq != th.Seq+1 {
 			t.Fatalf("event %d came after %d", ev.Seq, th.Seq)
@@ -2913,5 +2918,23 @@ func TestAToolKilledForMemoryFailsTheTurnSayingSo(t *testing.T) {
 	th = waitThread(t, m, testAgent, "the second turn", turnsEnded(2))
 	if th.Session.State != api.ChatReady || th.Session.Error != "" {
 		t.Errorf("session %s %q", th.Session.State, th.Session.Error)
+	}
+}
+
+// A daemon started again numbers a chat's events on past the last one's,
+// with a gap, never from 1 again: the app of an AgentBox this one shares a
+// project with holds the chat from before and skips every event numbered at
+// or below what it has, so it would miss all the new ones.
+func TestChatEventsNumberOnAcrossDaemons(t *testing.T) {
+	t.Parallel()
+	before := (&Manager{}).firstSeq("p/lead")
+	time.Sleep(2 * time.Millisecond)
+	m := &Manager{forgot: map[string]int64{}}
+	if got := m.firstSeq("p/lead"); got <= before+1000 {
+		t.Errorf("the next daemon's chat starts at %d; want well past the last one's %d", got, before)
+	}
+	m.forgot["p/lead.s2"] = m.epoch + 42
+	if got := m.firstSeq("p/lead.s2"); got != m.epoch+42 {
+		t.Errorf("a forgotten conversation's ref starts at %d; want past the old one's last, %d", got, m.epoch+42)
 	}
 }
