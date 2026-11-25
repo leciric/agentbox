@@ -81,6 +81,13 @@ type remoteConn struct {
 	machineUp  bool
 	machineErr string
 	runOn      map[string]runOnHit
+	// away says its events can't reach it now, so what is written in its
+	// projects is kept for it (shareoutbox.go) rather than tried; outbox
+	// wakes what sends that (remoteOutbox), and sending is the kept write
+	// on its way this moment, which can't be taken back.
+	away    bool
+	outbox  chan struct{}
+	sending int64
 	// gone says the owner's address changed, as the user is told
 	// (findRemoteAgain), and findAt when to look for the owner again, which
 	// waits findWait longer each time it isn't found.
@@ -160,7 +167,7 @@ func (s *Server) runRemoteFrom(ctx context.Context, r state.ShareRemote, was *re
 	}
 	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
-	c := &remoteConn{r: r, token: token, cancel: cancel, parent: parent}
+	c := &remoteConn{r: r, token: token, cancel: cancel, parent: parent, outbox: make(chan struct{}, 1)}
 	if was != nil {
 		was.mu.Lock()
 		c.projects, c.agents = was.projects, was.agents
@@ -175,6 +182,7 @@ func (s *Server) runRemoteFrom(ctx context.Context, r state.ShareRemote, was *re
 	rs.mu.Unlock()
 	go s.remoteEvents(ctx, c)
 	go s.remoteMachine(ctx, c)
+	go s.remoteOutbox(ctx, c)
 }
 
 func (s *Server) shareRemoteInfo(r state.ShareRemote) api.ShareRemote {
@@ -286,6 +294,7 @@ func (s *Server) removeShareRemote(w http.ResponseWriter, r *http.Request) error
 	s.forgetRemoteHere(id)
 	s.publishShare(r.Context())
 	s.events.publish(api.EventProject, struct{}{})
+	s.publishOutbox(r.Context()) // what waited for it went with it
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -308,6 +317,9 @@ func (s *Server) remoteEvents(ctx context.Context, c *remoteConn) {
 		c.mu.Lock()
 		changed := c.err != errText(err)
 		c.err = errText(err)
+		// Unless it answered itself (it unpaired this AgentBox, say), what
+		// is written in its projects waits for it.
+		c.away = !errors.As(err, new(remoteRefusal))
 		c.mu.Unlock()
 		if changed {
 			s.publishShare(ctx)
@@ -343,9 +355,11 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 	c.err = ""
 	c.listedAt = time.Time{} // list again: what it shares may have changed while it was away
 	c.retryAt, c.backoff = time.Time{}, 0
+	c.away = false
 	hadErr = hadErr || c.gone != ""
 	c.gone, c.findAt, c.findWait = "", time.Time{}, 0
 	c.mu.Unlock()
+	c.kickOutbox() // what was kept for it goes now
 	if hadErr {
 		s.publishShare(ctx)
 	}
@@ -452,6 +466,9 @@ func (s *Server) openRemoteEvents(ctx context.Context, c *remoteConn) (next func
 	}, func() { _ = resp.Body.Close() }, nil
 }
 
+// remoteStatusError is why a remote didn't answer OK: a remoteRefusal when
+// the answer is its own, not what stands between saying it's away
+// (ownerAway).
 func remoteStatusError(c *remoteConn, resp *http.Response) error {
 	var e api.Error
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
@@ -462,8 +479,17 @@ func remoteStatusError(c *remoteConn, resp *http.Response) error {
 	case json.Unmarshal(raw, &e) == nil && e.Error != "":
 		out.msg = fmt.Sprintf("%s: %s", c.r.Name, e.Error)
 	}
-	return out
+	if ownerAway(resp.StatusCode, raw) {
+		return out
+	}
+	return remoteRefusal{out}
 }
+
+// remoteRefusal is an error a remote answered with itself: it can be
+// reached.
+type remoteRefusal struct{ error }
+
+func (e remoteRefusal) Unwrap() error { return e.error }
 
 // remoteStatus is an owner's answer that wasn't a success, by its HTTP
 // status: what findRemoteAgain tells an owner that moved by.
@@ -640,7 +666,16 @@ func (s *Server) shareProxy(next http.Handler) http.Handler {
 				if m[1] == "projects" && s.answerGuestQuestion(w, r, id, project, m[3]) {
 					return
 				}
-				s.proxyRemote(w, r, id, "/v1/"+m[1]+"/"+project+m[3], nil)
+				path := "/v1/" + m[1] + "/" + project + m[3]
+				// A message, a prompt or an answer is kept while its
+				// owner is away (shareoutbox.go).
+				if act, ok := shareActivityOf(r.Method, path); ok && shareQueueable(act.kind) {
+					if c := s.remoteConn(id); c != nil {
+						s.remoteWrite(w, r, c, m[2], path, act)
+						return
+					}
+				}
+				s.proxyRemote(w, r, id, path, nil)
 				return
 			}
 		}

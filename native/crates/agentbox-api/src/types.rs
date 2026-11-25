@@ -5087,6 +5087,29 @@ pub struct ShareActivityEvent {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ShareQueued {
+    pub id: i64,
+    pub remote: String,
+    pub owner: String,
+    pub kind: String,
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub chat: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub question: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub to: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub attachments: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChatThread {
     pub agent: String,
     pub seq: i64,
@@ -7598,6 +7621,9 @@ pub const SHARE_ACCESS_CHAT: &str = "chat";
 pub const SHARE_ACCESS_FULL: &str = "full";
 pub const EVENT_HERE: &str = "here";
 pub const EVENT_SHARE_ACTIVITY: &str = "share-activity";
+pub const EVENT_SHARE_OUTBOX: &str = "share-outbox";
+pub const CHAT_ASIDE_AWAY: &str = "away";
+pub const SHARE_QUEUED_PREFIX: &str = "outbox-";
 pub const SHARE_DID_CREATE_AGENT: &str = "create-agent";
 pub const SHARE_DID_START_AGENT: &str = "start-agent";
 pub const SHARE_DID_STOP_AGENT: &str = "stop-agent";

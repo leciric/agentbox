@@ -1,6 +1,7 @@
 // The desktop app's dark palette (desktop/src/renderer/styles.css, --ab-*),
 // which the phone shares. The phone is dark only for now.
 import type { StatusTone } from '../features/threads/activity.ts';
+import type { PersonColor } from '../shared/people.ts';
 
 export const colors = {
   bg: '#0b0b10',
@@ -28,6 +29,18 @@ export const colors = {
   emerald: '#6ee7b7',
   emeraldSoft: 'rgba(16,185,129,0.15)',
 };
+
+// A person of a shared project takes one of the session hues, by name (shared/people.ts):
+// the desktop's --ab-session-* (dark) that its [data-person-color] rules use, and --ab-on-bright
+// for the initials on them.
+export const personColors: Record<PersonColor, string> = {
+  rose: '#d58a9c',
+  sky: '#7fb0d9',
+  mint: '#84c4a0',
+  lilac: '#b7a0dc',
+  peach: '#dcaa86',
+};
+export const onBright = '#09090b';
 
 export const toneText: Record<StatusTone, string> = {
   urgent: colors.amber,

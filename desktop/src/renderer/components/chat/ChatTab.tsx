@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatPeople } from '../People';
-import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, Archive, CloudOff, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -9,6 +9,7 @@ import type { Wake } from '../v2/ReviewV2';
 import { asleep, chatKey, chatLoadRetry, loadErrorMessage, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, takesMessages, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { settleSending, useSending, withSending } from '../../lib/sending';
+import { isRemoteRef, useChatOutbox, withQueued } from '../../lib/outbox';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage, shortcut } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -35,6 +36,38 @@ import { ImageWait } from '../ImageWait';
 const findEvent = 'agentbox:chat-find';
 export function requestChatFind(ref: string): void {
   setTimeout(() => window.dispatchEvent(new CustomEvent(findEvent, { detail: ref })), 50);
+}
+
+// ownerAway says a chat is a shared project's whose owner can't be reached
+// now: reading it failed on the way there (shareremote.go answers 502).
+function ownerAway(ref: string, error: unknown): boolean {
+  const status = (error as { status?: number } | null | undefined)?.status ?? 0;
+  return isRemoteRef(ref) && status >= 500;
+}
+
+// emptyThread stands in for a shared project's chat never read before its
+// owner went away: nothing in it but what is kept for the owner.
+const emptyThreads = new Map<string, T.ChatThread>();
+function emptyThread(agent: T.Agent): T.ChatThread {
+  let th = emptyThreads.get(agent.ref);
+  if (!th) {
+    th = { agent: agent.ref, seq: 0, session: { state: 'off', tool: agent.ai, options: [], commands: [] }, items: [] };
+    emptyThreads.set(agent.ref, th);
+  }
+  return th;
+}
+
+// OwnerAway heads a shared project's chat while its owner is offline.
+function OwnerAway({ project }: { project: string }) {
+  const t = useT();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const owner = projects.data?.find((p) => p.name === project)?.remote?.owner ?? '';
+  return (
+    <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2.5 text-ui text-amber-100" role="status" data-chat-owner-away>
+      <CloudOff className="mt-0.5 size-4 shrink-0 text-amber-300" />
+      <p className="min-w-0 break-words leading-relaxed">{t('chat.outbox.away', { owner })}</p>
+    </div>
+  );
 }
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
@@ -71,7 +104,14 @@ export function ChatTab({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref), ...chatLoadRetry });
+  const thread = useQuery({
+    queryKey: chatKey(given.ref),
+    queryFn: () => fetchThread(queryClient, given.ref),
+    ...chatLoadRetry,
+    // A shared project's chat its owner couldn't answer is read again now
+    // and then, so it is all there again once the owner is back.
+    refetchInterval: (query) => (ownerAway(given.ref, query.state.error) ? 10_000 : false),
+  });
   const session = thread.data?.session;
   // A lead runs the tool and account its composer chose, which its session
   // says (RunnerPicker).
@@ -90,7 +130,15 @@ export function ChatTab({
   useEffect(() => {
     if (thread.data) settleSending(agent.ref, thread.data);
   }, [agent.ref, thread.data]);
-  const live = useMemo(() => thread.data && withSending(thread.data, sending), [thread.data, sending]);
+  // In a shared project whose owner was away, what this AgentBox keeps for
+  // it until it is back (lib/outbox.ts), before what is on its way.
+  const queued = useChatOutbox(agent.ref);
+  // Such an owner's chat can't be read while it's away: the chat as it was
+  // last read stays, or an empty one if it never was, with what is kept for
+  // the owner at its end and a note saying why (OwnerAway).
+  const away = ownerAway(agent.ref, thread.error);
+  const shown = thread.data ?? (away ? emptyThread(agent) : undefined);
+  const live = useMemo(() => shown && withSending(withQueued(shown, queued, agent.ref), sending), [shown, queued, sending, agent.ref]);
   const view = win && live ? { ...win, session: live.session } : live;
   useEffect(() => () => dropWindow(queryClient, agent.ref), [queryClient, agent.ref]);
   const start = useMutation({
@@ -330,12 +378,13 @@ export function ChatTab({
               <div className="skeleton h-4 w-3/4 rounded-md" />
               <div className="skeleton h-4 w-2/3 rounded-md" />
             </div>
-          ) : thread.error ? (
+          ) : thread.error && !away ? (
             <Notice>{loadErrorMessage(thread.error, errorMessage(thread.error))}</Notice>
-          ) : empty || !view ? (
+          ) : !view || (empty && !away) ? (
             <Hero agent={agent} />
           ) : (
             <>
+              {away && <OwnerAway project={agent.project} />}
               {view.older && (
                 <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-caption text-subtle" data-chat-older>
                   {loadingOlder && <LoaderCircle className="size-3.5 animate-spin" />}

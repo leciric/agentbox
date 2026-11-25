@@ -3078,6 +3078,21 @@ export interface ShareActivityEvent {
   peer: string;
 }
 
+export interface ShareQueued {
+  id: number;
+  remote: string;
+  owner: string;
+  kind: string;
+  project: string;
+  chat?: string;
+  question?: string;
+  to?: string;
+  text: string;
+  attachments?: number;
+  createdAt: string;
+  error?: string;
+}
+
 export interface ChatThread {
   agent: string;
   seq: number;
@@ -4624,6 +4639,9 @@ export const ShareAccessChat = "chat";
 export const ShareAccessFull = "full";
 export const EventHere = "here";
 export const EventShareActivity = "share-activity";
+export const EventShareOutbox = "share-outbox";
+export const ChatAsideAway = "away";
+export const ShareQueuedPrefix = "outbox-";
 export const ShareDidCreateAgent = "create-agent";
 export const ShareDidStartAgent = "start-agent";
 export const ShareDidStopAgent = "stop-agent";

@@ -238,6 +238,10 @@ export const api = {
   addShareRemote: (link: string) => call<T.ShareRemote>('POST', '/v1/share/remotes', { link } satisfies T.AddShareRemoteRequest),
   removeShareRemote: (id: string) => call<void>('DELETE', `/v1/share/remotes/${encodeURIComponent(id)}`),
   sharePeerActivity: (id: string, limit = 100) => call<T.ShareActivity[]>('GET', `/v1/share/peers/${encodeURIComponent(id)}/activity?limit=${limit}`),
+  // What was written in a shared project while its owner was away, waiting
+  // to be sent once it is back (lib/outbox.ts), and taking one back.
+  shareOutbox: () => call<T.ShareQueued[]>('GET', '/v1/share/outbox'),
+  cancelShareQueued: (id: number) => call<void>('DELETE', `/v1/share/outbox/${id}`),
   // What this window has open, for the people of a shared project
   // (lib/here.ts), and who is in each project.
   renewHere: (req: T.HereRequest) => call<void>('PUT', '/v1/here', req),

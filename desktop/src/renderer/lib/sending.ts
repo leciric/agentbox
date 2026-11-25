@@ -7,7 +7,7 @@
 // arrives; a message that doesn't go stays in the chat, marked, to send again
 // or take back into the composer.
 import { useSyncExternalStore } from 'react';
-import type * as T from '../../shared/api';
+import * as T from '../../shared/api.ts';
 import { isElement, isFile, type Pending } from './chatFiles.ts';
 import { previewUrl } from './chatImages.ts';
 
@@ -82,7 +82,10 @@ export function sendMessage(
 function deliver(entry: Sending): Promise<T.ChatItem | undefined> {
   const run = (queues.get(entry.ref) ?? Promise.resolve()).then(entry.send).then(
     (item) => {
-      update(entry.key, (s) => ({ ...s, item: item.id, error: undefined }));
+      // Kept for a shared project's owner that is away: the outbox shows
+      // it now, until it is sent (lib/outbox.ts).
+      if (item.delivery === T.ChatAsideAway) update(entry.key, () => undefined);
+      else update(entry.key, (s) => ({ ...s, item: item.id, error: undefined }));
       return item;
     },
     (err: unknown) => {
