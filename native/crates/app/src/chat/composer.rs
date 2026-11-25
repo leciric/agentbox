@@ -81,7 +81,7 @@ pub struct Composer {
     agents: Option<Vec<(String, String, String, String)>>,
     /// Who a project chat's message goes to: an agent of the project
     /// (ChatMessageRequest.to), or its lead (None) (shared/messageTarget.ts).
-    target: Option<String>,
+    pub(super) target: Option<String>,
     /// Messages that didn't reach the daemon, to send again or edit
     /// (lib/sending.ts): their text, files, target and why.
     pub(super) failed: Vec<Failed>,
@@ -289,6 +289,11 @@ impl Composer {
             |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, .. } => this.submit(window, cx),
                 InputEvent::Change => {
+                    // Someone else in a shared project sees you typing here
+                    // (app/here.rs tells the daemon).
+                    if !this.people.is_empty() && !this.text(cx).trim().is_empty() {
+                        crate::people::note_typing();
+                    }
                     this.composer.menu_ix = 0;
                     this.want_mentions(cx);
                     this.want_skills(cx);
@@ -925,6 +930,14 @@ impl ChatView {
         let client = self.client.clone();
         let path = format!("{}/chat/messages", self.prefix);
         let back = text.clone();
+        // In a project another AgentBox shares: where the agents the lead
+        // makes for you run (run_on.rs), with each message to the lead.
+        let run_on = if to.is_empty() {
+            self.run_on_sent()
+        } else {
+            String::new()
+        };
+        crate::people::stop_typing();
         cx.spawn_in(window, async move |this, cx| {
             let res = client
                 .post::<_, serde_json::Value>(
@@ -934,8 +947,7 @@ impl ChatView {
                         images,
                         files,
                         to: to.clone(),
-                        // The native app has no "On my PC" yet: the owner's PC.
-                        run_on: String::new(),
+                        run_on,
                     },
                 )
                 .await;
@@ -2298,6 +2310,10 @@ impl ChatView {
             self.load_mentions(cx);
         }
         let target = self.render_target(cx);
+        let run_on = self.render_run_on(cx);
+        // Who else is in a shared project: typing here, and where the rest
+        // are (ChatPeople, over the composer).
+        let people = crate::people::chat_people(&self.agent, &self.people);
         let tasks = self.render_tasks(cx);
         let meter = self.context_meter();
         let menu_el = (!menu.is_empty()).then(|| {
@@ -2532,6 +2548,7 @@ impl ChatView {
                     )
                     .children(menu_el)
                     .children(review)
+                    .children(people)
                     .children(tasks)
                     .children(self.requests.clone().filter(|r| !r.read(cx).is_empty()))
                     // Attached's slide-up, on whichever banner waits.
@@ -2614,6 +2631,7 @@ impl ChatView {
                                     .pb_2()
                                     .gap_1()
                                     .children(target)
+                                    .children(run_on)
                                     .child(
                                         div()
                                             .id("attach")
