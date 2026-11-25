@@ -17,6 +17,7 @@ import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
 import { AgentAvatar, LeadAvatar } from '../../ui/icons.tsx';
 import { Button, Dot, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
+import { AuthorName, ChatPeople, HerePeople, personHue } from '../people/People.tsx';
 import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, liveStatus, workLabel } from './activity.ts';
 import { AgentPermissionCard, PermissionCard, QuestionCard } from './cards.tsx';
 import { Composer } from './Composer.tsx';
@@ -95,6 +96,8 @@ export function ChatScreen() {
         subtitle={subtitle}
         status={status}
         icon={lead ? <LeadAvatar mood={leadMood(info.data?.chat, waiting.length > 0)} size={32} /> : agent ? <AgentAvatar ai={agent.ai} mood={avatarMood(agent, waiting.length > 0)} size={32} /> : undefined}
+        // Who else is in the project, or on this agent (a shared project's).
+        right={home ? undefined : <HerePeople project={project} agent={lead ? undefined : parts[1]} />}
       />
       {lead && sessions.data && (
         <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={() => openSession.mutate()} />
@@ -141,6 +144,7 @@ export function ChatScreen() {
           ListEmptyComponent={!thread.isPending ? <Text style={[styles.empty, styles.flip]}>{lead && !info.data?.started ? t('mobile.chat.notStarted') : t('mobile.chat.empty')}</Text> : null}
         />
       )}
+      {!home && !missing && (!lead || shown) && <ChatPeople project={project} on={{ session: lead ? shown?.id : undefined, agent: lead ? undefined : parts[1] }} />}
       {asleep && (
         <View style={styles.asleep}>
           <Text style={styles.asleepText}>{t('mobile.chat.asleep', { name: agent?.name ?? '', state: asleep })}</Text>
@@ -162,11 +166,15 @@ export function ChatScreen() {
 
 function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools: Map<string, T.ChatTool> }) {
   switch (row.kind) {
-    case 'user':
+    case 'user': {
+      // Someone else's message (from another AgentBox sharing the project) sits
+      // on the other side, under their avatar and name, in their colour.
+      const author = row.item.author;
       return (
-        <View style={styles.userRow}>
-          {row.item.to ? <Text style={styles.toldTag}>→ {row.item.to}</Text> : null}
-          <View style={styles.userBubble}>
+        <View style={[styles.userRow, author && styles.authorRow]}>
+          {author && <AuthorName person={author} />}
+          {row.item.to ? <Text style={[styles.toldTag, author && styles.toldTagAuthor]}>→ {row.item.to}</Text> : null}
+          <View style={[styles.userBubble, author && [styles.authorBubble, { borderLeftColor: `${personHue(author)}b3` }]]}>
             {row.item.images?.map((img) => (
               <Image key={img.id} source={mediaSource(chatImagePath(chatRef, img.id))} style={styles.image} contentFit="cover" />
             ))}
@@ -178,6 +186,7 @@ function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools
           </View>
         </View>
       );
+    }
     case 'assistant':
       return (
         <View style={styles.assistant}>
@@ -261,8 +270,12 @@ const styles = StyleSheet.create({
   flip: { transform: [{ scaleY: -1 }] },
   empty: { color: colors.subtle, fontSize: 14, textAlign: 'center', padding: 24 },
   userRow: { alignItems: 'flex-end', marginVertical: 8 },
+  authorRow: { alignItems: 'flex-start' },
   toldTag: { color: colors.brand300, fontSize: 11.5, fontWeight: '600', marginBottom: 3, marginRight: 4 },
+  toldTagAuthor: { marginRight: 0, marginLeft: 4 },
   userBubble: { maxWidth: '85%', backgroundColor: colors.brandSoft, borderRadius: 18, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 9, gap: 6 },
+  // Another person's message: a plain surface with their colour down its edge.
+  authorBubble: { backgroundColor: colors.surface, borderLeftWidth: 2, borderTopLeftRadius: 6, borderBottomLeftRadius: 6, borderBottomRightRadius: 18 },
   userText: { color: colors.title, fontSize: 15, lineHeight: 21 },
   image: { width: 180, height: 120, borderRadius: 10 },
   assistant: { marginVertical: 6 },

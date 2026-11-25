@@ -48,6 +48,7 @@ mod remote;
 mod resources;
 mod review;
 mod setup;
+mod share;
 
 type Body = BoxBody<Bytes, Infallible>;
 
@@ -1119,6 +1120,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
+    let req = match share::route(&fake, req).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
     let req = match remote::route(&fake, req).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
@@ -1247,6 +1252,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             for (name, _) in &fake.opts.neighbours {
                 all.push(Project { name: name.clone(), display_name: name.clone(), ..Default::default() });
             }
+            // Those another AgentBox shares with this one (FAKE_SHARE=1, share.rs).
+            all.extend(share::projects(&fake));
             for p in &mut all {
                 if fake.icon(&p.name).is_some() {
                     p.icon_version = 1;
@@ -1738,6 +1745,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             let fleet = Fleet {
                 project: p.to_string(),
                 agents: fake.fleet_with_pulls(),
+                remote: share::remote_agents(&fake, p),
                 ..Default::default()
             };
             json(StatusCode::OK, &fleet)
@@ -1833,8 +1841,13 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 Vec::new()
             } else if fake.neighbour(p) {
                 neighbour_lead(p)
+            } else if *p == share::REMOTE && share::on(&fake) {
+                share::remote_lead()
             } else {
-                (0..4).map(|i| history_item("lead", i)).collect()
+                let mut items: Vec<ChatItem> = (0..4).map(|i| history_item("lead", i)).collect();
+                // A guest's message, from a paired AgentBox (FAKE_SHARE=1).
+                items.extend(share::guest_message(&fake).filter(|_| fake.is_fake(p)));
+                items
             };
             // The agents' permission cards it was given (asks.rs), as the
             // daemon keeps them in the lead's conversation.

@@ -60,6 +60,10 @@ type SharePeer struct {
 	// own computer, with its own AI accounts and GitHub access, instead of
 	// here (internal/daemon/sharemachines.go).
 	OwnMachine bool
+	// URLs are where it said it can be reached, its likeliest first: where
+	// this machine tells it its own new address (internal/daemon/shareaddress.go).
+	// None when it has no address of its own, or paired before it could say.
+	URLs []string
 }
 
 // What a peer may do in the projects it reaches, each level all the one
@@ -104,14 +108,14 @@ func (p SharePeer) Shares(slug string) bool {
 	return p.AllProjects || slices.Contains(p.Projects, slug)
 }
 
-const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, own_machine, access FROM share_peers`
+const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, own_machine, access, urls FROM share_peers`
 
 func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 	var p SharePeer
 	var created, seen int64
 	var all, own int
-	var projects string
-	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &own, &p.Access); err != nil {
+	var projects, urls string
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &own, &p.Access, &urls); err != nil {
 		return SharePeer{}, err
 	}
 	p.Created = time.Unix(created, 0)
@@ -126,6 +130,7 @@ func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 			p.Projects = append(p.Projects, s)
 		}
 	}
+	p.URLs = strings.Fields(urls)
 	return p, nil
 }
 
@@ -253,6 +258,30 @@ func (s *Store) SawSharePeer(ctx context.Context, id, addr string, at time.Time)
 	return err
 }
 
+// SetSharePeerURLs keeps where a peer said it can be reached.
+func (s *Store) SetSharePeerURLs(ctx context.Context, id string, urls []string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE share_peers SET urls = ? WHERE id = ?`, strings.Join(urls, " "), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SharePeerKey is the hash of a peer's token (HashPhoneToken), or
+// ErrNotFound: what a message between the owner and the peer is signed with,
+// which the peer works out from the token it keeps.
+func (s *Store) SharePeerKey(ctx context.Context, id string) (string, error) {
+	var key string
+	err := s.db.QueryRowContext(ctx, `SELECT token_hash FROM share_peers WHERE id = ?`, id).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return key, err
+}
+
 // RemoveSharePeer revokes a peer: its token stops working at once.
 func (s *Store) RemoveSharePeer(ctx context.Context, id string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM share_peer_agents WHERE peer_id = ?`, id); err != nil {
@@ -336,6 +365,19 @@ func (s *Store) ShareRemotes(ctx context.Context) ([]ShareRemote, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetShareRemoteURL moves a pairing with an owner to the owner's new
+// address, keeping its token.
+func (s *Store) SetShareRemoteURL(ctx context.Context, id, url string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE share_remotes SET url = ? WHERE id = ?`, url, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // RemoveShareRemote forgets a pairing with an owner.

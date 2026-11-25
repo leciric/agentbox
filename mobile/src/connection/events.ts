@@ -15,6 +15,7 @@ import * as Network from 'expo-network';
 import { AppState } from 'react-native';
 import EventSource from 'react-native-sse';
 import * as T from '../shared/api.ts';
+import { applyHere, hereKey } from '../features/people/here.ts';
 import { applyChatEvent } from '../features/threads/thread.ts';
 import * as P from './parse.ts';
 import { reconnector, type Reconnector } from './reconnect.ts';
@@ -22,7 +23,7 @@ import { forget, session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
-const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventLeadSessions, T.EventLeadSessionStatus, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
+const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventLeadSessions, T.EventLeadSessionStatus, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventHere, T.EventLAN, 'ping'] as const;
 type Type = (typeof types)[number];
 
 let state: Connection = 'connecting';
@@ -102,6 +103,12 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
     case T.EventMedia:
       void queryClient.invalidateQueries({ queryKey: ['media'] });
       break;
+    case T.EventHere: {
+      // Who is in one project now: its people replace what was held.
+      const ph = P.hereEvent(data);
+      if (ph) queryClient.setQueryData<T.ProjectHere[]>(hereKey, (held) => applyHere(held, ph));
+      break;
+    }
   }
 }
 

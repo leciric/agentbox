@@ -488,6 +488,10 @@ gpui_kit_assets::icon_assets!(
         Split,
         Undo2,
         Workflow,
+        // Shared projects (#813, #821): the pairing link, and where a remote
+        // agent runs (the owner's computer, or yours).
+        Link2,
+        Server,
     ]
 );
 

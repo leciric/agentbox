@@ -47,6 +47,10 @@ type shareRemotes struct {
 	conns map[string]*remoteConn // by the remote's id
 	// client is what reaches the owners; a field for tests.
 	client *http.Client
+	// quick says a host is a Cloudflare quick tunnel's, whose address
+	// changes (shareaddress.go); nil is trycloudflare.com's. A field for
+	// tests.
+	quick func(host string) bool
 }
 
 func newShareRemotes() *shareRemotes {
@@ -58,6 +62,7 @@ type remoteConn struct {
 	r      state.ShareRemote
 	token  string
 	cancel context.CancelFunc
+	parent context.Context // what runRemote ran it in, which a move runs the new one in
 
 	mu       sync.Mutex
 	projects []json.RawMessage // its shared projects, renamed, the last time it answered
@@ -83,6 +88,12 @@ type remoteConn struct {
 	away    bool
 	outbox  chan struct{}
 	sending int64
+	// gone says the owner's address changed, as the user is told
+	// (findRemoteAgain), and findAt when to look for the owner again, which
+	// waits findWait longer each time it isn't found.
+	gone     string
+	findAt   time.Time
+	findWait time.Duration
 }
 
 // remoteRetry is how long a remote that didn't answer is left alone, at first
@@ -142,13 +153,26 @@ func (s *Server) startShareRemotes(ctx context.Context) {
 }
 
 func (s *Server) runRemote(ctx context.Context, r state.ShareRemote) {
+	s.runRemoteFrom(ctx, r, nil)
+}
+
+// runRemoteFrom is runRemote for a remote that moved from was, whose projects
+// and agents show until the owner lists them again at its new address
+// (moveRemote): the same, but the app has nothing to show meanwhile without.
+func (s *Server) runRemoteFrom(ctx context.Context, r state.ShareRemote, was *remoteConn) {
 	token, err := s.secrets().Open(r.Token)
 	if err != nil {
 		s.logf("share: %s's token can't be read: %v", r.Name, err)
 		return
 	}
+	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
-	c := &remoteConn{r: r, token: token, cancel: cancel, outbox: make(chan struct{}, 1)}
+	c := &remoteConn{r: r, token: token, cancel: cancel, parent: parent, outbox: make(chan struct{}, 1)}
+	if was != nil {
+		was.mu.Lock()
+		c.projects, c.agents = was.projects, was.agents
+		was.mu.Unlock()
+	}
 	rs := s.peering.remotes
 	rs.mu.Lock()
 	if old := rs.conns[r.ID]; old != nil {
@@ -165,7 +189,7 @@ func (s *Server) shareRemoteInfo(r state.ShareRemote) api.ShareRemote {
 	out := api.ShareRemote{ID: r.ID, Name: r.Name, URL: r.URL, Paired: r.Created}
 	if c := s.remoteConn(r.ID); c != nil {
 		c.mu.Lock()
-		out.Projects, out.Error = len(c.projects), c.err
+		out.Projects, out.Error = len(c.projects), cmp.Or(c.gone, c.err)
 		out.Machine, out.MachineError = c.machineUp, c.machineErr
 		c.mu.Unlock()
 	}
@@ -197,7 +221,11 @@ func (s *Server) addShareRemote(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
-	body, _ := json.Marshal(api.SharePairRequest{Secret: secret, Name: s.shareName(ctx)})
+	// Where the owner tells this machine its new address, and the pairings
+	// this machine has already, in case the link is from one of their owners
+	// at a new address (shareaddress.go).
+	urls, _ := s.shareURLs(ctx)
+	body, _ := json.Marshal(api.SharePairRequest{Secret: secret, Name: s.shareName(ctx), URLs: urls, Again: s.shareAgain(secret)})
 	pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	preq, err := http.NewRequestWithContext(pctx, http.MethodPost, base+"/share/pair", bytes.NewReader(body))
@@ -219,8 +247,15 @@ func (s *Server) addShareRemote(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("the other AgentBox answered %s", resp.Status)
 	}
 	var out api.SharePairResponse
-	if err := json.Unmarshal(raw, &out); err != nil || out.Token == "" {
+	if err := json.Unmarshal(raw, &out); err != nil || (out.Token == "" && out.Peer == "") {
 		return errors.New("the other AgentBox answered with no token: is it AgentBox?")
+	}
+	if out.Token == "" {
+		rem, err := s.pairedAgain(ctx, base, secret, out)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, s.shareRemoteInfo(rem))
 	}
 	sealed, err := s.secrets().Seal(out.Token)
 	if err != nil {
@@ -276,6 +311,9 @@ func (s *Server) remoteEvents(ctx context.Context, c *remoteConn) {
 		if ctx.Err() != nil {
 			return
 		}
+		if s.findRemoteAgain(ctx, c, err) {
+			return // at its new address, on a connection of its own
+		}
 		c.mu.Lock()
 		changed := c.err != errText(err)
 		c.err = errText(err)
@@ -318,19 +356,23 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 	c.listedAt = time.Time{} // list again: what it shares may have changed while it was away
 	c.retryAt, c.backoff = time.Time{}, 0
 	c.away = false
+	hadErr = hadErr || c.gone != ""
+	c.gone, c.findAt, c.findWait = "", time.Time{}, 0
 	c.mu.Unlock()
 	c.kickOutbox() // what was kept for it goes now
 	if hadErr {
 		s.publishShare(ctx)
 	}
+	// Reached: it is told where this machine is, if it wasn't yet.
+	s.peering.addrs.soon("remote/" + c.r.ID)
 	s.events.publish(api.EventProject, struct{}{})
 	for {
 		ev, err := next()
 		if errors.Is(err, io.EOF) {
-			return errors.New(c.r.Name + "'s events stopped")
+			return eventsStopped{errors.New(c.r.Name + "'s events stopped")}
 		}
 		if err != nil {
-			return fmt.Errorf("%s's events stopped: %w", c.r.Name, err)
+			return eventsStopped{fmt.Errorf("%s's events stopped: %w", c.r.Name, err)}
 		}
 		if ev.Type == api.EventProject {
 			c.mu.Lock()
@@ -344,6 +386,11 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 		s.events.publish(ev.Type, json.RawMessage(data))
 	}
 }
+
+// eventsStopped is a remote's event stream ending after it connected.
+type eventsStopped struct{ error }
+
+func (e eventsStopped) Unwrap() error { return e.error }
 
 // remoteSilence is how long a remote's WebSocket may say nothing, not even
 // its beat (shareBeat), before it is taken for lost and connected again.
@@ -412,19 +459,17 @@ func (s *Server) openRemoteEvents(ctx context.Context, c *remoteConn) (next func
 func remoteStatusError(c *remoteConn, resp *http.Response) error {
 	var e api.Error
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	var err error
+	out := remoteStatus{code: resp.StatusCode, msg: fmt.Sprintf("%s answered %s", c.r.Name, resp.Status)}
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		err = fmt.Errorf("%s unpaired this AgentBox: pair again with a new link from it", c.r.Name)
+		out.msg = fmt.Sprintf("%s unpaired this AgentBox: pair again with a new link from it", c.r.Name)
 	case json.Unmarshal(raw, &e) == nil && e.Error != "":
-		err = fmt.Errorf("%s: %s", c.r.Name, e.Error)
-	default:
-		err = fmt.Errorf("%s answered %s", c.r.Name, resp.Status)
+		out.msg = fmt.Sprintf("%s: %s", c.r.Name, e.Error)
 	}
 	if ownerAway(resp.StatusCode, raw) {
-		return err
+		return out
 	}
-	return remoteRefusal{err}
+	return remoteRefusal{out}
 }
 
 // remoteRefusal is an error a remote answered with itself: it can be
@@ -432,6 +477,15 @@ func remoteStatusError(c *remoteConn, resp *http.Response) error {
 type remoteRefusal struct{ error }
 
 func (e remoteRefusal) Unwrap() error { return e.error }
+
+// remoteStatus is an owner's answer that wasn't a success, by its HTTP
+// status: what findRemoteAgain tells an owner that moved by.
+type remoteStatus struct {
+	code int
+	msg  string
+}
+
+func (e remoteStatus) Error() string { return e.msg }
 
 // remoteLists are a remote's shared projects and their agents, renamed, read
 // again when older than a few seconds or when its events said a project

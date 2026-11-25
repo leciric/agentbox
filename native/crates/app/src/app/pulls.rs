@@ -3007,7 +3007,14 @@ impl AppView {
                         theme::title()
                     })
                     .child(then),
-            );
+            )
+            // Who else is in the project, or on this agent, and the access
+            // the AgentBox that shares it gives this one (HerePeople).
+            .children(crate::people::here_people(
+                &project,
+                self.people_in(&name),
+                (!lead).then_some(self.open.as_str()),
+            ));
         // TopEndSlot: the project's ⋯ (icon-sm) and the panel's button.
         let end = h_flex()
             .flex_none()

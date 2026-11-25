@@ -624,14 +624,32 @@ impl ChatView {
             "lost" => Some(("chat.delivery.lost".to_string(), theme::error())),
             _ => None,
         };
+        // Someone else's message (from another AgentBox sharing the project)
+        // sits on the other side, under their avatar and name, in their
+        // colour (Timeline's AuthorName); yours stays on the right.
+        let author = it.author.as_ref().filter(|a| !a.name.is_empty());
+        let tint = author.map(|a| crate::people::color(&a.name));
         let el = v_flex()
             .id(SharedString::from(format!("user-{}", it.id)))
             .group("chat-msg")
             .w_full()
-            .items_end()
+            .when(author.is_none(), |el| el.items_end())
+            .when(author.is_some(), |el| el.items_start())
             .gap_1()
             .pt_1()
             .pb_4()
+            .when_some(author.zip(tint), |el, (a, tint)| {
+                el.child(
+                    h_flex()
+                        .pl_1()
+                        .gap_1p5()
+                        .text_size(theme::text::CAPTION)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(tint)
+                        .child(crate::people::avatar(&a.name, 16.))
+                        .child(a.name.clone()),
+                )
+            })
             .when(!it.to.is_empty(), |el| {
                 el.child(
                     div()
@@ -646,7 +664,7 @@ impl ChatView {
                     h_flex()
                         .gap_1p5()
                         .flex_wrap()
-                        .justify_end()
+                        .when(author.is_none(), |el| el.justify_end())
                         .children(it.images.iter().map(|im| self.thumb(&it.id, im))),
                 )
             })
@@ -655,7 +673,7 @@ impl ChatView {
                     h_flex()
                         .gap_1p5()
                         .flex_wrap()
-                        .justify_end()
+                        .when(author.is_none(), |el| el.justify_end())
                         .children(it.files.iter().map(|f| self.file_chip(f, view))),
                 )
             })
@@ -663,7 +681,7 @@ impl ChatView {
                 // Chromium sizes the bubble to the text's exact width, GPUI
                 // to the next whole pixel: a line that fits is set against
                 // the right edge, so it starts where Electron's does.
-                let one_line = !it.text.contains('\n') && {
+                let one_line = author.is_none() && !it.text.contains('\n') && {
                     let w = theme::text_width(window, &it.text, theme::text::BODY);
                     w + 28. <= self.row_width.get() * 0.85
                 };
@@ -672,7 +690,15 @@ impl ChatView {
                         .max_w(relative(0.85))
                         .when(one_line, |el| el.text_right())
                         .rounded(theme::radius::XXL)
-                        .bg(theme::surface_raised())
+                        .when(tint.is_none(), |el| el.bg(theme::surface_raised()))
+                        // Theirs: on the chat's surface, its left edge in
+                        // their colour (.person-line).
+                        .when_some(tint, |el, tint| {
+                            el.bg(theme::surface())
+                                .rounded_l(theme::radius::MD)
+                                .border_l_2()
+                                .border_color(tint.opacity(0.7))
+                        })
                         .px_3p5()
                         .py_2p5()
                         .text_sm()
@@ -701,7 +727,11 @@ impl ChatView {
                     el.child(label)
                 }
             })
-            .child(self.meta(it, true))
+            .child(
+                div()
+                    .when(author.is_some(), |el| el.pl_1())
+                    .child(self.meta(it, author.is_none())),
+            )
             .child({
                 let (cell, v) = (self.row_width.clone(), view.downgrade());
                 canvas(

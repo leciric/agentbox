@@ -26,6 +26,13 @@ type FanOutRequest struct {
 	// LeadSession is the chat session that asked, set by the daemon (see
 	// CreateAgentRequest.LeadSession).
 	LeadSession string `json:"-"`
+	// OriginID, OriginName and OriginProject are, for a group another
+	// AgentBox's lead made on this computer, who that is and what the project
+	// is called there: every agent of the group is that lead's, as an agent it
+	// made here is (CreateAgentRequest.OriginID). Set by the daemon.
+	OriginID      string `json:"-"`
+	OriginName    string `json:"-"`
+	OriginProject string `json:"-"`
 }
 
 // FanOutVariant is what one agent of a group runs: CreateAgentRequest's
