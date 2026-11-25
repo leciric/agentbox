@@ -42,6 +42,25 @@ export async function keptAway(queryClient: QueryClient, item: T.ChatItem): Prom
   return item;
 }
 
+// applyOutbox takes the outbox as the daemon's event says it is now. A kept
+// message that left it because it was sent (not taken back, not refused)
+// stays shown, as on its way, until its chat's own copy arrives over the
+// owner's events a moment later (withQueued), or for a minute at most: the
+// chat doesn't go without it in between.
+const sent = new Map<number, { q: T.ShareQueued; at: number }>();
+const cancelled = new Set<number>();
+const sentFor = 60_000;
+
+export function applyOutbox(queryClient: QueryClient, list: T.ShareQueued[]): void {
+  const now = Date.now();
+  for (const [id, s] of sent) if (now - s.at > sentFor) sent.delete(id);
+  const still = new Set(list.map((q) => q.id));
+  for (const q of queryClient.getQueryData<T.ShareQueued[]>(outboxKey) ?? []) {
+    if (!still.has(q.id) && !q.error && q.chat && !cancelled.has(q.id)) sent.set(q.id, { q, at: now });
+  }
+  queryClient.setQueryData(outboxKey, list);
+}
+
 export const isQueued = (it: Pick<T.ChatItem, 'id'>) => it.id.startsWith(T.ShareQueuedPrefix);
 
 const queuedID = (q: T.ShareQueued) => `${T.ShareQueuedPrefix}${q.id}`;
@@ -51,16 +70,18 @@ const queuedID = (q: T.ShareQueued) => `${T.ShareQueuedPrefix}${q.id}`;
 const standIns = new WeakMap<T.ShareQueued, T.ChatItem>();
 const byItem = new Map<string, T.ShareQueued>();
 
-// withQueued is thread with what waits for its owner at the end, after what
-// the chat holds: each a message of its own that starts no turn here (the
-// owner starts it once it has it), or, refused, one that failed.
-export function withQueued(thread: T.ChatThread, queued: T.ShareQueued[]): T.ChatThread {
-  if (queued.length === 0) return thread;
+// withQueued is ref's thread with what waits for its owner at the end, after
+// what the chat holds: each a message of its own that starts no turn here
+// (the owner starts it once it has it), or, refused, one that failed. One
+// just sent shows as on its way until the chat holds it.
+export function withQueued(thread: T.ChatThread, queued: T.ShareQueued[], ref: string): T.ChatThread {
+  const arriving = [...sent.values()].filter((s) => s.q.chat === ref && Date.now() - s.at < sentFor && !echoed(thread, s.q)).map((s) => s.q);
+  if (queued.length === 0 && arriving.length === 0) return thread;
   const items = [...thread.items];
-  for (const q of queued) {
+  for (const q of [...arriving, ...queued]) {
     let item = standIns.get(q);
-    if (!item) {
-      item = standIn(q);
+    if (!item || (item.delivery === T.ChatAsideAway) !== queued.includes(q)) {
+      item = standIn(q, !queued.includes(q));
       standIns.set(q, item);
     }
     byItem.set(item.id, q);
@@ -69,9 +90,15 @@ export function withQueued(thread: T.ChatThread, queued: T.ShareQueued[]): T.Cha
   return { ...thread, items };
 }
 
-function standIn(q: T.ShareQueued): T.ChatItem {
+// echoed says the chat holds a message sent from the outbox: the same words,
+// near its end.
+function echoed(thread: T.ChatThread, q: T.ShareQueued): boolean {
+  return thread.items.slice(-20).some((it) => (q.to ? it.kind === 'notice' && it.to === q.to : it.kind === 'user' || it.kind === 'aside') && (it.text ?? '').trim() === q.text.trim());
+}
+
+function standIn(q: T.ShareQueued, sending = false): T.ChatItem {
   const id = queuedID(q);
-  const delivery = q.error ? failed : T.ChatAsideAway;
+  const delivery = q.error ? failed : sending ? 'waiting' : T.ChatAsideAway;
   const base = { id, turn: id, text: q.text, createdAt: q.createdAt, updatedAt: q.createdAt, delivery };
   if (q.to) return { ...base, kind: 'notice', to: q.to };
   return { ...base, kind: 'user', result: { state: q.error ? 'failed' : 'waiting', endedAt: q.createdAt } };
@@ -82,8 +109,18 @@ export const queuedOf = (item: Pick<T.ChatItem, 'id'>): T.ShareQueued | undefine
 
 // cancelQueued takes a kept message back: it is never sent. Refused, it is
 // forgotten.
-export const cancelQueued = (queryClient: QueryClient, q: T.ShareQueued) =>
-  api.cancelShareQueued(q.id).then(() => queryClient.setQueryData<T.ShareQueued[]>(outboxKey, (list) => list?.filter((it) => it.id !== q.id)));
+export function cancelQueued(queryClient: QueryClient, q: T.ShareQueued): Promise<void> {
+  // Its leaving the outbox, which the daemon's event may say first, isn't
+  // its being sent.
+  cancelled.add(q.id);
+  return api.cancelShareQueued(q.id).then(
+    () => void queryClient.setQueryData<T.ShareQueued[]>(outboxKey, (list) => list?.filter((it) => it.id !== q.id)),
+    (err: unknown) => {
+      cancelled.delete(q.id);
+      throw err;
+    },
+  );
+}
 
 // editQueued takes a kept message back into its chat's composer, to change
 // and send again. Its pictures and files stay with the daemon, which drops

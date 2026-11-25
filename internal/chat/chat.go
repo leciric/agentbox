@@ -188,6 +188,16 @@ type Manager struct {
 	// counting from 1 again lost the new session's first message and answer
 	// to it. Numbering on from here, with a gap, has the app read it again.
 	forgot map[string]int64
+	// epoch is where every conversation this Manager makes numbers its
+	// events from, unless forgot says further: the microseconds since 1970
+	// when it made its first. A daemon before it can't have numbered past
+	// that (it would have taken more than an event a microsecond), so a
+	// daemon started again numbers on, with a gap, rather than from 1. The
+	// app of this one reconnects and reads everything again anyway; the
+	// app of an AgentBox this one shares a project with doesn't see it go
+	// (shareremote.go), and would skip every event numbered at or below
+	// what it holds from before the restart, so the chat stopped changing.
+	epoch int64
 	// closing is set once Close has begun: the turns ending from then on
 	// were cut short by AgentBox stopping.
 	closing  atomic.Bool
@@ -254,7 +264,7 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 		c = m.convs[a.Ref()]
 		if c == nil {
 			c = &conversation{
-				m: m, agent: a, seq: m.forgot[a.Ref()],
+				m: m, agent: a, seq: m.firstSeq(a.Ref()),
 				byID: map[string]*api.ChatItem{}, dirty: map[string]bool{}, unsaved: map[string]bool{},
 				tools: map[string]*api.ChatItem{}, pending: map[string]func(any, error){},
 				session: api.ChatSession{State: api.ChatOff, Tool: a.AI, Options: []api.ChatOption{}, Commands: []api.ChatCommand{}},
@@ -1436,6 +1446,16 @@ func (m *Manager) Forget(ref string) {
 	}
 	m.forgot[ref] = c.seq + 1
 	m.mu.Unlock()
+}
+
+// firstSeq is where a new conversation of ref numbers its events from: past
+// the one Forget dropped, and past every daemon's before this one (epoch).
+// m.mu is held.
+func (m *Manager) firstSeq(ref string) int64 {
+	if m.epoch == 0 {
+		m.epoch = time.Now().UnixMicro()
+	}
+	return max(m.forgot[ref], m.epoch)
 }
 
 // State is the state of an agent's chat session, or "" if it hasn't chatted

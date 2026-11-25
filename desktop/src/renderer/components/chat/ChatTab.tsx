@@ -104,7 +104,14 @@ export function ChatTab({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref), ...chatLoadRetry });
+  const thread = useQuery({
+    queryKey: chatKey(given.ref),
+    queryFn: () => fetchThread(queryClient, given.ref),
+    ...chatLoadRetry,
+    // A shared project's chat its owner couldn't answer is read again now
+    // and then, so it is all there again once the owner is back.
+    refetchInterval: (query) => (ownerAway(given.ref, query.state.error) ? 10_000 : false),
+  });
   const session = thread.data?.session;
   // A lead runs the tool and account its composer chose, which its session
   // says (RunnerPicker).
@@ -131,7 +138,7 @@ export function ChatTab({
   // the owner at its end and a note saying why (OwnerAway).
   const away = ownerAway(agent.ref, thread.error);
   const shown = thread.data ?? (away ? emptyThread(agent) : undefined);
-  const live = useMemo(() => shown && withSending(withQueued(shown, queued), sending), [shown, queued, sending]);
+  const live = useMemo(() => shown && withSending(withQueued(shown, queued, agent.ref), sending), [shown, queued, sending, agent.ref]);
   const view = win && live ? { ...win, session: live.session } : live;
   useEffect(() => () => dropWindow(queryClient, agent.ref), [queryClient, agent.ref]);
   const start = useMutation({

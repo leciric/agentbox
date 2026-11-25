@@ -15,7 +15,7 @@ import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
 import { changesFiles, refreshFiles } from './files.ts';
 import { applyHere, loadHere } from './here.ts';
-import { outboxKey } from './outbox.ts';
+import { applyOutbox } from './outbox.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
@@ -264,7 +264,7 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventShareOutbox:
         // What waits for a shared project's owner to be back changed
         // (lib/outbox.ts): kept, sent, refused or taken back.
-        queryClient.setQueryData(outboxKey, (event.data as T.ShareQueued[] | null) ?? []);
+        applyOutbox(queryClient, (event.data as T.ShareQueued[] | null) ?? []);
         break;
       case T.EventHere:
         // Who is in a project, and what they have open (lib/here.ts).

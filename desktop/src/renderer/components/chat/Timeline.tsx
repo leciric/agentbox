@@ -3,7 +3,7 @@ import { personColor } from '../../lib/people';
 import { PersonAvatar } from '../People';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type * as T from '../../../shared/api';
+import * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { editSending, failed, findSending, isSending, retrySending } from '../../lib/sending';
@@ -380,6 +380,8 @@ function Away({ item }: { item: T.ChatItem }) {
   const q = queuedOf(item);
   const cancel = useMutation({ mutationFn: () => cancelQueued(queryClient, q!) });
   if (!q) return null;
+  // Sent now that the owner is back: on its way into the chat.
+  if (item.delivery !== T.ChatAsideAway) return <Delivered item={item} />;
   return (
     <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-away>
       <Clock className="size-3.5 shrink-0 text-amber-300/80" />
