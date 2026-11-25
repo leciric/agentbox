@@ -235,7 +235,8 @@ func TestShareNoticesReachWhoAskedOnTheOwner(t *testing.T) {
 	// kept, and refused only when it is back (shareoutbox.go).
 	waitFor(t, "Ana's AgentBox to know she may only look", func() bool {
 		c := sp.peer.srv.remoteConn(sp.remote.ID)
-		return c != nil && sp.peer.srv.remoteAccess(ctx, c, sp.local) == state.ShareAccessView
+		_, _ = sp.peer.client.Projects(ctx) // lists them again
+		return c != nil && remoteAccess(c, sp.local) == state.ShareAccessView
 	})
 	if _, err := sp.peer.client.AnswerQuestion(ctx, sp.local, id, "Yes."); err == nil || !strings.Contains(err.Error(), "Settings → Share") {
 		t.Errorf("answering with view access: %v; want it refused", err)
@@ -339,7 +340,8 @@ func TestShareNoticesReachWhoAskedOnTheirComputer(t *testing.T) {
 	}
 	waitFor(t, "Bob to see he may only look", func() bool {
 		c := m.bob.srv.remoteConn(m.remote.ID)
-		return c != nil && m.bob.srv.remoteAccess(ctx, c, m.local) == state.ShareAccessView
+		_, _ = m.bob.client.Projects(ctx) // lists them again
+		return c != nil && remoteAccess(c, m.local) == state.ShareAccessView
 	})
 	go func() { _, _ = m.bob.srv.askForTest(qctx, a, "Weekly or daily?", "") }()
 	var second string

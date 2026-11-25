@@ -203,7 +203,8 @@ func (s *Server) answerGuest(w http.ResponseWriter, r *http.Request, q state.Que
 	// The owner's rule for its own agents, for those it made here too: it
 	// lets this AgentBox write in the project's chats, or only look.
 	if c := s.remoteConn(strings.TrimPrefix(origin.OriginID, shareOriginPrefix)); c != nil {
-		if access := s.remoteAccess(ctx, c, c.r.ID+remoteSep+origin.OriginProject); access != "" && state.ShareAccessRank(access) < state.ShareAccessRank(state.ShareAccessChat) {
+		s.remoteLists(ctx, c) // listed again if it's been a while
+		if access := remoteAccess(c, c.r.ID+remoteSep+origin.OriginProject); access != "" && state.ShareAccessRank(access) < state.ShareAccessRank(state.ShareAccessChat) {
 			return shareOnlyLooks{owner: c.r.Name, project: origin.OriginProject, agent: q.Agent}
 		}
 	}
@@ -230,22 +231,6 @@ type shareOnlyLooks struct{ owner, project, agent string }
 func (e shareOnlyLooks) Error() string {
 	return fmt.Sprintf("%s lets this AgentBox only look in %s, so it can't answer %s's question; %s chooses what it may do, in Settings → Share",
 		e.owner, e.project, e.agent, e.owner)
-}
-
-// remoteAccess is what a remote lets this AgentBox do in one of its projects,
-// as it last listed them: "" when it doesn't say.
-func (s *Server) remoteAccess(ctx context.Context, c *remoteConn, name string) string {
-	projects, _ := s.remoteLists(ctx, c)
-	for _, raw := range projects {
-		var p struct {
-			Name   string             `json:"name"`
-			Remote *api.ProjectRemote `json:"remote"`
-		}
-		if json.Unmarshal(raw, &p) == nil && p.Name == name && p.Remote != nil {
-			return p.Remote.Access
-		}
-	}
-	return ""
 }
 
 // tellAnswered tells the session whose lead made a, and heard its question,
