@@ -131,6 +131,10 @@ export function tool(o: Obj): T.ChatTool {
   return { ...(o as unknown as T.ChatTool), callId: str(o.callId), title: str(o.title), kind: str(o.kind), status: str(o.status), name: optStr(o.name), command: optStr(o.command), paths: strs(o.paths) };
 }
 
+// person is who wrote a message: another person of a shared project. This
+// AgentBox's own user has no author on their messages.
+const person = (o: Obj): T.Person => ({ ...(o as unknown as T.Person), id: str(o.id), name: str(o.name) });
+
 export function chatItem(o: Obj): T.ChatItem | undefined {
   if (!keyed(o, 'id')) return undefined;
   const ap = opt(o.agentPermission, (p) =>
@@ -151,6 +155,7 @@ export function chatItem(o: Obj): T.ChatItem | undefined {
     compaction: opt(o.compaction, (c) => ({ ...(c as unknown as T.ChatCompaction), state: str(c.state) })),
     result: opt(o.result, (r) => r as unknown as T.ChatTurnResult),
     agentPermission: ap,
+    author: opt(o.author, person),
     createdAt: str(o.createdAt),
     updatedAt: str(o.updatedAt),
   };
@@ -224,6 +229,28 @@ export function settings(v: unknown): T.Settings {
   const o = isObj(v) ? v : {};
   return { ...(o as unknown as T.Settings), language: str(o.language) };
 }
+
+// personHere is somebody in a shared project and what they have open. Their id
+// is "" for this AgentBox's own user, which the screens leave out.
+const personHere = (o: Obj): T.PersonHere => ({
+  ...(o as unknown as T.PersonHere),
+  id: str(o.id),
+  name: str(o.name),
+  project: str(o.project),
+  session: optStr(o.session),
+  agent: optStr(o.agent),
+  tab: optStr(o.tab),
+  typing: o.typing === true,
+  since: str(o.since),
+});
+
+// projectHere is the people in one project (EventHere's data, and an entry of
+// GET /v1/here); undefined for one that names no project.
+const projectHere = (o: Obj): T.ProjectHere | undefined => (keyed(o, 'project') ? { project: str(o.project), people: list(o.people, personHere) } : undefined);
+
+export const hereEvent = (v: unknown): T.ProjectHere | undefined => (isObj(v) ? projectHere(v) : undefined);
+
+export const projectsHere = (v: unknown) => list(v, projectHere);
 
 export const agents = (v: unknown) => list(v, agent);
 export const projects = (v: unknown) => list(v, project);

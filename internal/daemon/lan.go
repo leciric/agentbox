@@ -941,6 +941,11 @@ var lanReads = []*regexp.Regexp{
 	// phone looks and reads as the app does (Settings.language).
 	regexp.MustCompile(`^/v1/(version|theme|settings)$`),
 	regexp.MustCompile(`^/v1/(projects|agents|groups|review)$`),
+	// Who else is in each shared project and where: the people's avatars on
+	// the phone app's project, agent and chat screens. This is what the event
+	// stream's EventHere, which a phone already follows, then keeps current;
+	// saying what the phone has open is not allowed (lanRefused).
+	regexp.MustCompile(`^/v1/here$`),
 	// A project: its chat's sessions, what its agents are doing, their
 	// questions and finished work, its pull requests, its pages, its skills
 	// (the composer's slash menu) and its icon.
@@ -992,8 +997,7 @@ var lanRefused = []struct {
 	why    string
 	routes []string
 }{
-	{"Who has what open in a shared project, which the phone's app neither says nor shows (lib/here.ts): its requests are each audited, and a renewal every few seconds would bury the log", []string{
-		"GET /v1/here",
+	{"Saying what is open in a shared project, which the phone's app shows of others (GET /v1/here, a read) but doesn't say of itself: its requests are each audited, and a renewal every few seconds would bury the log", []string{
 		"PUT /v1/here",
 		"DELETE /v1/here/{client}",
 	}},

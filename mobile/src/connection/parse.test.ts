@@ -141,3 +141,46 @@ test('a session status event carries the project and its sessions as they stand'
   assert.equal(change?.sessions[0].unread, false, 'only true is unread');
   assert.equal(P.leadSessionStatus({ sessions: [] }), undefined);
 });
+
+test('a message from another person of a shared project keeps who wrote it', () => {
+  const thread = P.chatThread({
+    agent: 'shared/lead',
+    seq: 3,
+    items: [
+      { id: 'u1', kind: 'user', text: 'mine' },
+      { id: 'u2', kind: 'user', text: 'hers', author: { id: 'peer-ana', name: 'Ana' } },
+      { id: 'n3', kind: 'notice', to: 'agent-12', text: 'told', author: { id: 'peer-ana', name: 'Ana', extra: 1 } },
+      { id: 'u4', kind: 'user', text: 'odd', author: { id: 7, name: null } },
+      { id: 'u5', kind: 'user', text: 'not a person', author: 'Ana' },
+    ],
+  });
+  const author = (id: string) => thread.items.find((it) => it.id === id)?.author;
+  assert.equal(author('u1'), undefined, 'this AgentBox’s own messages carry no author: they stay on the right');
+  assert.deepEqual(author('u2'), { id: 'peer-ana', name: 'Ana' });
+  assert.equal(author('n3')?.name, 'Ana');
+  assert.deepEqual(author('u4'), { id: '', name: '' }, 'wrong types are zero values');
+  assert.equal(author('u5'), undefined, 'an author that is no object is none');
+  // The same through an event.
+  const ev = P.chatEvent({ agent: 'shared/lead', seq: 4, item: { id: 'u6', kind: 'user', author: { id: 'peer-bruno', name: 'Bruno' } } });
+  assert.equal(ev?.item?.author?.name, 'Bruno');
+});
+
+test('who is in the projects, as GET /v1/here and EventHere say it', () => {
+  const at = '2026-11-25T09:00:00Z';
+  const all = P.projectsHere([
+    { project: 'shared', people: [{ id: 'peer-ana', name: 'Ana', project: 'shared', agent: 'agent-12', tab: 'desktop', since: at }, { id: '', name: 'Leo', project: 'shared', since: at }] },
+    // Go writes a nil slice as null.
+    { project: 'web', people: null },
+    { people: [] },
+    null,
+  ]);
+  assert.deepEqual(all.map((h) => h.project), ['shared', 'web']);
+  assert.deepEqual(all[0].people.map((p) => [p.id, p.name, p.agent, p.tab, p.typing]), [['peer-ana', 'Ana', 'agent-12', 'desktop', false], ['', 'Leo', undefined, undefined, false]]);
+  assert.deepEqual(all[1].people, []);
+  assert.deepEqual(P.projectsHere({ error: 'nope' }), []);
+  assert.deepEqual(P.projectsHere(null), []);
+  // An event is one project's people; one that names none says nothing.
+  assert.deepEqual(P.hereEvent({ project: 'shared', people: [{ id: 'peer-bruno', name: 'Bruno', project: 'shared', session: 'main', typing: true }, { name: 'no id' }, 7] })?.people.map((p) => [p.name, p.session, p.typing]), [['Bruno', 'main', true], ['no id', undefined, false]]);
+  assert.equal(P.hereEvent({ people: [] }), undefined);
+  assert.equal(P.hereEvent('here'), undefined);
+});
