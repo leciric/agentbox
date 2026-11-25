@@ -13,7 +13,7 @@ import { machineStatus, memoryFull, type MachineStatus as Status } from '../lib/
 import { openRunning } from '../lib/running';
 import { setTopBarDetailed, useTopBarDetailed } from '../lib/topBarLayout';
 import { cn, humanBytes } from '../lib/utils';
-import { FreeButton, useFreeResources, HostFootprint, HostLimit, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
+import { FreeButton, useFreeResources, HostFootprint, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
 import { RunningDialogHost } from './RunningProcesses';
 import { Notice } from './ui/card';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -216,7 +216,6 @@ function Bubble({
             <span className="text-caption leading-relaxed text-rose-300">{connection.error}</span>
           )}
           {free.vm?.error && <Notice className="text-caption">{free.vm.error}</Notice>}
-          {free.vm && <HostLimit vm={free.vm} />}
           {status.kind === 'memory' && <span className="text-caption leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
           {connection.state === 'connected' && <RunningButton project={project} />}
           <VMActions free={free} style="freeMemory" />
@@ -440,7 +439,6 @@ function MemoryPanel({ vm, status, project, onSelect }: { vm: VMPower | null; st
       </div>
       {vm && <VMMemory vm={vm} />}
       {vm && <HostFootprint vm={vm} />}
-      {vm && <HostLimit vm={vm} />}
       {vm && memory.cap > memory.total && (
         <span className="text-caption leading-relaxed text-muted">{t('shell.machine.memoryGranted', { granted: humanBytes(memory.total), cap: humanBytes(memory.cap) })}</span>
       )}
