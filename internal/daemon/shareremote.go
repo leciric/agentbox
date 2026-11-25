@@ -146,6 +146,13 @@ func (s *Server) startShareRemotes(ctx context.Context) {
 }
 
 func (s *Server) runRemote(ctx context.Context, r state.ShareRemote) {
+	s.runRemoteFrom(ctx, r, nil)
+}
+
+// runRemoteFrom is runRemote for a remote that moved from was, whose projects
+// and agents show until the owner lists them again at its new address
+// (moveRemote): the same, but the app has nothing to show meanwhile without.
+func (s *Server) runRemoteFrom(ctx context.Context, r state.ShareRemote, was *remoteConn) {
 	token, err := s.secrets().Open(r.Token)
 	if err != nil {
 		s.logf("share: %s's token can't be read: %v", r.Name, err)
@@ -154,6 +161,11 @@ func (s *Server) runRemote(ctx context.Context, r state.ShareRemote) {
 	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	c := &remoteConn{r: r, token: token, cancel: cancel, parent: parent}
+	if was != nil {
+		was.mu.Lock()
+		c.projects, c.agents = was.projects, was.agents
+		was.mu.Unlock()
+	}
 	rs := s.peering.remotes
 	rs.mu.Lock()
 	if old := rs.conns[r.ID]; old != nil {

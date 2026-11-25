@@ -561,7 +561,7 @@ func (s *Server) moveRemote(ctx context.Context, c *remoteConn, base, how string
 	r := c.r
 	r.URL = base
 	s.logf("share: %s is at %s now, no longer %s (%s)", r.Name, base, c.r.URL, how)
-	s.runRemote(c.parent, r)
+	s.runRemoteFrom(c.parent, r, c)
 	s.publishShare(ctx)
 	s.events.publish(api.EventProject, struct{}{})
 	return nil

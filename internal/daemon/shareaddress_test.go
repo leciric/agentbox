@@ -296,8 +296,13 @@ func TestShareNewLinkMovesThePairing(t *testing.T) {
 	}
 	u, _ := url.Parse(pairing.Link)
 	got, err := m.peer.client.AddShareRemote(ctx, second.URL+"/#"+u.Fragment)
-	if err != nil || got.ID != m.remote.ID || got.URL != second.URL {
-		t.Fatalf("AddShareRemote(the owner's new link) = %+v, %v; want %s moved to %s", got, err, m.remote.ID, second.URL)
+	if err != nil || got.ID != m.remote.ID || got.URL != second.URL || got.Projects != 1 {
+		t.Fatalf("AddShareRemote(the owner's new link) = %+v, %v; want %s moved to %s, with its project", got, err, m.remote.ID, second.URL)
+	}
+	// The app lists the projects again as the pairing moves: the shared one
+	// is there at once, not once the owner has been asked at its new address.
+	if names := remoteNames(t, m.peer); !slices.Equal(names, []string{m.remote.ID + "~shared"}) {
+		t.Errorf("the peer's remote projects right after the move = %v", names)
 	}
 	m.stillPaired(t, second.URL)
 
