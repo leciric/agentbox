@@ -30,11 +30,11 @@ func sshStub(t *testing.T, hosts map[string]string) func() []string {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "asked")
-	script := "#!/bin/sh\necho \"$2\" >> " + log + "\ncase \"$2\" in\n"
+	script := "#!/bin/sh\nfor a; do h=$a; done\necho \"$h\" >> " + log + "\ncase \"$h\" in\n"
 	for alias, host := range hosts {
 		script += fmt.Sprintf("%s) echo 'hostname %s';;\n", alias, host)
 	}
-	script += "*) echo \"hostname $2\";;\nesac\n"
+	script += "*) echo \"hostname $h\";;\nesac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +56,7 @@ func TestParseRemote(t *testing.T) {
 		"github.com-work": "github.com",
 		"gh-personal":     "github.com",
 		"work.github":     "codeberg.org",
+		"gh-443":          "ssh.github.com",
 	})
 
 	for _, tc := range []struct {
@@ -74,6 +75,9 @@ func TestParseRemote(t *testing.T) {
 		{"an alias resolving to github.com", "git@github.com-work:acme-work/widget.git", "acme-work/widget"},
 		{"an alias that doesn't look like github.com at all", "gh-personal:acme/pawly.git", "acme/pawly"},
 		{"an alias resolving elsewhere", "git@work.github:acme/pawly.git", ""},
+		{"an alias to GitHub's ssh on port 443", "gh-443:acme/pawly.git", "acme/pawly"},
+		{"GitHub's ssh on port 443 itself", "ssh://git@ssh.github.com:443/acme/pawly.git", "acme/pawly"},
+		{"an https host, which ssh's aliases don't reach", "https://github.com-work/acme/pawly.git", ""},
 		{"another forge", "git@gitlab.com:acme/pawly.git", ""},
 		{"a local path", "/srv/git/pawly.git", ""},
 		{"no remote at all", "", ""},
@@ -151,6 +155,7 @@ func TestAnAliasIsResolvedOnce(t *testing.T) {
 // before it resolved aliases at all — rather than an error.
 func TestAnAliasWithoutSSHFallsBack(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir()) // no ~/.ssh/config to read in ssh's place
 	if _, err := github.ParseRemote("git@github.com-nossh:acme/pawly.git"); !errors.Is(err, github.ErrNoRepo) {
 		t.Errorf("ParseRemote() = %v, want ErrNoRepo", err)
 	}

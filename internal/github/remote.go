@@ -1,14 +1,10 @@
 package github
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
-	"time"
 
 	"agentbox/internal/gitrepo"
 )
@@ -68,11 +64,13 @@ func splitRemote(remote string) (host string, repo Repo, ok bool) {
 
 // ParseRemote reads owner and name out of a git remote URL.
 //
-// A host that isn't github.com is resolved through SSH configuration first,
-// the way git's own ssh does: `git@github.com-work:acme/pawly.git` is a
-// GitHub remote when `Host github.com-work` in ~/.ssh/config points at
-// github.com, which is the standard way to keep two GitHub accounts on two
-// keys. A host that resolves anywhere else is genuinely not GitHub.
+// The host of an SSH remote that isn't github.com is resolved through SSH
+// configuration first, the way git's own ssh does
+// (gitrepo.SSHHostName): `git@github.com-work:acme/pawly.git` is a GitHub
+// remote when `Host github.com-work` in ~/.ssh/config points at github.com,
+// which is the standard way to keep two GitHub accounts on two keys. A host
+// that resolves anywhere else is genuinely not GitHub. An https remote's host
+// is its own: ssh configuration doesn't reach it.
 func ParseRemote(remote string) (Repo, error) {
 	remote = strings.TrimSpace(remote)
 	if remote == "" {
@@ -82,10 +80,23 @@ func ParseRemote(remote string) (Repo, error) {
 	if !ok {
 		return Repo{}, &NotGitHubError{Remote: Redact(remote)}
 	}
-	if !strings.EqualFold(host, githubHost) && !strings.EqualFold(resolvedHost(host), githubHost) {
+	if !isGitHubHost(host) && (!overSSH(remote) || !isGitHubHost(gitrepo.SSHHostName(host))) {
 		return Repo{}, &NotGitHubError{Remote: Redact(remote)}
 	}
 	return repo, nil
+}
+
+// isGitHubHost is github.com, or ssh.github.com, where GitHub takes SSH on
+// port 443 for networks that block 22.
+func isGitHubHost(host string) bool {
+	return strings.EqualFold(host, githubHost) || strings.EqualFold(host, "ssh."+githubHost)
+}
+
+// overSSH is whether git reaches a remote over ssh, where a host may be an
+// alias: the scp-like form, or ssh://.
+func overSSH(remote string) bool {
+	i := strings.Index(remote, "://")
+	return i < 0 || strings.EqualFold(remote[:i], "ssh")
 }
 
 // RepoOf finds the GitHub repository a checkout pushes to, from its origin.
@@ -113,40 +124,4 @@ var credentialsPattern = regexp.MustCompile(`([^:/@]+):[^@/]*@`)
 // `https://x-access-token:<token>@github.com/owner/repo.git`.
 func Redact(remote string) string {
 	return credentialsPattern.ReplaceAllString(remote, "$1:***@")
-}
-
-// resolvedHosts remembers what `ssh -G` said each host resolves to, for the
-// daemon's lifetime. `ssh -G` is cheap, but the fleet and the Pull requests
-// tab both poll, so this runs often. SSH configuration doesn't change under a
-// running daemon often enough to be worth expiring.
-var resolvedHosts sync.Map // host -> hostname ssh -G reported
-
-// resolvedHost is the real hostname an SSH host name points at, reading SSH
-// configuration the way git does rather than parsing ~/.ssh/config here: the
-// file has Include, Match and per-user and system-wide copies, and `ssh -G`
-// is the only thing that gets all of that right. A host that is not an alias
-// resolves to itself, which is also what a missing or failing ssh gives, so
-// the old behaviour is what AgentBox falls back to.
-func resolvedHost(host string) string {
-	if cached, ok := resolvedHosts.Load(host); ok {
-		return cached.(string)
-	}
-	real := askSSH(host)
-	resolvedHosts.Store(host, real)
-	return real
-}
-
-func askSSH(host string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ssh", "-G", host).Output()
-	if err != nil {
-		return host
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if key, value, ok := strings.Cut(strings.TrimSpace(line), " "); ok && key == "hostname" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return host
 }

@@ -736,6 +736,9 @@ func (s *Server) shareGuestCreate(w http.ResponseWriter, r *http.Request, origin
 	req.Connectors = &none
 	data, _ := json.Marshal(req)
 	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(data)), int64(len(data))
+	if err := s.guestCanClone(r.Context(), repo); err != nil {
+		return err
+	}
 	return s.peerCreateAgent(w, r, origin, repo)
 }
 
@@ -759,6 +762,9 @@ func (s *Server) shareGuestFanOut(w http.ResponseWriter, r *http.Request, origin
 		v.OpenCodeAccounts = nil
 	}
 	ctx := r.Context()
+	if err := s.guestCanClone(ctx, repo); err != nil {
+		return err
+	}
 	p, err := s.claimPeerProject(ctx, repo)
 	if err != nil {
 		return err
@@ -906,28 +912,93 @@ func prefixed(prefix, s string) string {
 // and push to it, "" when it can or when only GitHub could say and the
 // repository isn't on GitHub.
 func (s *Server) pushWhy(ctx context.Context, repoURL string) string {
+	access, err := s.gitHubAccess(ctx, repoURL, "your")
+	switch {
+	case errors.Is(err, github.ErrNoRepo):
+		return "" // not GitHub: cloning it says
+	case err != nil:
+		return err.Error()
+	case access.info.CanPushKnown && !access.info.CanPush:
+		return fmt.Sprintf("your GitHub account %s can't push to %s: ask its owner for write access", access.account, access.repo)
+	}
+	return ""
+}
+
+// gitHubAccess is this computer's GitHub account, the one a project cloned
+// for an owner is cloned with (cloneRequest leaves it to the default), and
+// what GitHub says it may do with the repository at repoURL. The error wraps
+// github.ErrNoRepo when repoURL isn't on GitHub, and is an errCantSeeRepo,
+// naming the account (whose, as "your" or "Bob's") and the repository, when
+// there is no account or it can't see it.
+func (s *Server) gitHubAccess(ctx context.Context, repoURL, whose string) (gitHubAccess, error) {
 	repo, err := github.ParseRemote(repoURL)
 	if err != nil {
-		return "" // not GitHub: cloning it says
+		return gitHubAccess{}, err
 	}
 	m := s.manager(nil)
 	account, err := m.GitHubAccountFor(state.Project{}, "")
-	if err != nil {
-		if errors.As(err, new(*fs.PathError)) {
-			return "reading this computer's GitHub accounts: " + err.Error()
-		}
-		return fmt.Sprintf("this computer has no GitHub account to clone %s/%s and push to it with: add one under Settings → Accounts", repo.Owner, repo.Name)
+	if err != nil && errors.As(err, new(*fs.PathError)) {
+		return gitHubAccess{}, fmt.Errorf("reading this computer's GitHub accounts: %w", err)
 	}
-	token, err := m.Creds.GitHubToken(account)
+	var token string
+	if err == nil && account != "" {
+		token, err = m.Creds.GitHubToken(account)
+	}
 	if err != nil || token == "" {
-		return fmt.Sprintf("this computer has no GitHub account to clone %s/%s and push to it with: add one under Settings → Accounts", repo.Owner, repo.Name)
+		return gitHubAccess{}, errCantSeeRepo{whose: whose, repo: repo}
 	}
 	info, err := s.gitHub(token).Info(ctx, repo)
+	if errors.Is(err, github.ErrNoAccess) || errors.Is(err, github.ErrBadToken) {
+		return gitHubAccess{}, errCantSeeRepo{whose: whose, account: account, repo: repo, cause: err}
+	}
 	if err != nil {
-		return fmt.Sprintf("your GitHub account (%s) can't reach %s/%s: ask its owner for access (%v)", account, repo.Owner, repo.Name, err)
+		return gitHubAccess{}, fmt.Errorf("asking GitHub whether %s GitHub account %s can see %s: %w", whose, account, repo, err)
 	}
-	if info.CanPushKnown && !info.CanPush {
-		return fmt.Sprintf("your GitHub account (%s) can't push to %s/%s: ask its owner for write access", account, repo.Owner, repo.Name)
+	return gitHubAccess{repo: repo, account: account, info: info}, nil
+}
+
+type gitHubAccess struct {
+	repo    github.Repo
+	account string
+	info    github.RepoInfo
+}
+
+// errCantSeeRepo is this computer's GitHub account, or its having none, in
+// the way of cloning a shared project: what greys out "On my PC" (pushWhy)
+// and refuses a create before anything is cloned (guestCanClone).
+type errCantSeeRepo struct {
+	whose   string // "your", or the computer's share name with 's
+	account string // "" for none
+	repo    github.Repo
+	cause   error
+}
+
+func (e errCantSeeRepo) Error() string {
+	if e.account == "" {
+		return fmt.Sprintf("%s computer has no GitHub account to clone %s with: add one that can see it in Settings → Accounts", e.whose, e.repo)
 	}
-	return ""
+	if errors.Is(e.cause, github.ErrBadToken) {
+		return fmt.Sprintf("GitHub refuses the token of %s GitHub account %s, so it can't clone %s: sign in to it again, or add a GitHub account with access to %s, in Settings → Accounts", e.whose, e.account, e.repo, e.repo)
+	}
+	return fmt.Sprintf("%s GitHub account %s can't see %s, so it can't be cloned: add a GitHub account with access to %s in Settings → Accounts, or ask the repository's owner to give %s access", e.whose, e.account, e.repo, e.repo, e.account)
+}
+
+func (e errCantSeeRepo) Unwrap() error { return e.cause }
+
+// guestCanClone refuses, before anything is cloned, an owner's create in a
+// project this computer hasn't cloned yet and whose GitHub repository its
+// GitHub account can't see: the clone would fail on it, saying less. When
+// GitHub can't be asked, or the repository isn't on GitHub, the clone goes
+// ahead and says what it finds.
+func (s *Server) guestCanClone(ctx context.Context, repo string) error {
+	if _, _, err := s.peerProjectFor(ctx, repo, false); err == nil {
+		return nil // cloned already
+	} else if !errors.Is(err, state.ErrNotFound) {
+		return err
+	}
+	_, err := s.gitHubAccess(ctx, repo, s.shareName(ctx)+"'s")
+	if errors.As(err, new(errCantSeeRepo)) {
+		return err
+	}
+	return nil
 }

@@ -117,9 +117,10 @@ func TestCloneFailureSaysWhatWentWrong(t *testing.T) {
 		{"remote: Repository not found.\nfatal: repository 'https://github.com/acme/x/' not found", "work", "the GitHub account work and this machine's git credentials have no access"},
 		{"git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository.", "", "this machine's git credentials have no access"},
 		{"fatal: unable to access 'https://nowhere.invalid/x/': Could not resolve host: nowhere.invalid", "", "can't reach the host"},
-		{"fatal: something else", "", "cloning u: something else"},
+		{"ssh: Could not resolve hostname github-stefanini: Name or service not known\r\nfatal: Could not read from remote repository.", "work", "no host is called github-stefanini here. If it is a Host alias"},
+		{"fatal: something else", "", "cloning git@github-stefanini:acme/x.git: something else"},
 	} {
-		if err := cloneFailure("u", c.account, c.out, fail); !strings.Contains(err.Error(), c.want) {
+		if err := cloneFailure("git@github-stefanini:acme/x.git", c.account, c.out, fail); !strings.Contains(err.Error(), c.want) {
 			t.Errorf("for %q: %v, want %q", c.out, err, c.want)
 		}
 	}
