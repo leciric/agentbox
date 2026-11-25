@@ -770,6 +770,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	loops.Go(func() { s.dropMovedData(ctx, moved) })
 	loops.Go(func() { s.sendCrashes(ctx) })
+	loops.Go(func() { s.tellShareAddresses(ctx) })
 	s.runCtx = ctx
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
