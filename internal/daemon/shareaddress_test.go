@@ -250,6 +250,62 @@ func TestSharePeerTriesAddressesItWasTold(t *testing.T) {
 	m.stillPaired(t, tunnel.URL)
 }
 
+// push sends the peer the owner's addresses, at the peer's address, as the
+// owner does, and says how it answered.
+func (m movingPair) push(t *testing.T, urls ...string) int {
+	t.Helper()
+	peers, err := m.owner.srv.store.SharePeers(context.Background())
+	if err != nil || len(peers) != 1 || len(peers[0].URLs) == 0 {
+		t.Fatalf("the owner's peers = %+v, %v; want one with an address", peers, err)
+	}
+	body, _ := json.Marshal(api.ShareAddress{Peer: m.peerID, URLs: urls, At: time.Now()})
+	req, _ := http.NewRequest(http.MethodPost, peers[0].URLs[0]+"/share/owner-address", bytes.NewReader(body))
+	req.Header.Set(headerShareProof, shareMAC(state.HashPhoneToken(m.token), "address", string(body)))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// A peer stays at the address it paired at while that works, whatever else
+// the owner has; one that took another address only because the owner's
+// first didn't answer yet (a new quick tunnel's name not in DNS) moves up to
+// the first once it does.
+func TestSharePeerMovesUpToTheOwnersFirstAddress(t *testing.T) {
+	t.Parallel()
+	m := pairMoving(t, movingOpts{peerLAN: true})
+	paired := "http://127.0.0.1:" + strconv.Itoa(m.ownerPort)
+	var down atomic.Bool
+	down.Store(true)
+	tunnel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			http.Error(w, "error code: 1033", 530)
+			return
+		}
+		httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(m.ownerPort)}).ServeHTTP(w, r)
+	}))
+	defer tunnel.Close()
+
+	if code := m.push(t, tunnel.URL, paired); code != http.StatusNoContent || m.remoteNow(t).URL != paired {
+		t.Fatalf("telling a peer an address before the one it paired at = %d, at %s; want 204, staying at %s", code, m.remoteNow(t).URL, paired)
+	}
+	// Its address is gone: it takes the owner's other one, for now.
+	other := "http://localhost:" + strconv.Itoa(m.ownerPort)
+	if code := m.push(t, tunnel.URL, other); code != http.StatusAccepted || m.remoteNow(t).URL != other {
+		t.Fatalf("an owner whose first address doesn't answer = %d, at %s; want 202, at %s", code, m.remoteNow(t).URL, other)
+	}
+	if code := m.push(t, tunnel.URL, other); code != http.StatusAccepted || m.remoteNow(t).URL != other {
+		t.Fatalf("the same while it still doesn't = %d, at %s", code, m.remoteNow(t).URL)
+	}
+	down.Store(false)
+	if code := m.push(t, tunnel.URL, other); code != http.StatusNoContent {
+		t.Fatalf("once the owner's first address answers = %d, want 204", code)
+	}
+	m.stillPaired(t, tunnel.URL)
+}
+
 // askHubForOwner asks owner, through the hub, where it is for pairing id,
 // signing with token, and says how it answered.
 func askHubForOwner(t *testing.T, peer, owner testDaemon, id, token string) int {

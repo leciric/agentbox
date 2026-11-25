@@ -131,6 +131,10 @@ type shareAddrs struct {
 	// peer that took its LAN address while its tunnel was off is back on
 	// the tunnel once it leaves that network.
 	known map[string][]string
+	// fallback is, by remote, that its address isn't the first its owner
+	// gave, which didn't answer when it moved: it moves up to that one once
+	// it does (findRemoteAt).
+	fallback map[string]bool
 	// moving makes moving a remote to a new address one step at a time.
 	moving sync.Mutex
 }
@@ -138,7 +142,7 @@ type shareAddrs struct {
 func newShareAddrs() *shareAddrs {
 	return &shareAddrs{wake: make(chan struct{}, 1), told: map[string]string{}, trying: map[string]string{},
 		next: map[string]time.Time{}, wait: map[string]time.Duration{}, heard: map[string]time.Time{}, hint: map[string]string{},
-		known: map[string][]string{}}
+		known: map[string][]string{}, fallback: map[string]bool{}}
 }
 
 // poke has tellShareAddresses look again.
@@ -215,7 +219,9 @@ func (a *shareAddrs) keep(who map[string]bool) time.Time {
 
 // shareURLs are this machine's addresses another AgentBox reaches it at, the
 // likeliest first (its phone page's: GET /v1/lan), and whether they are
-// settled: not while its tunnel starts, its address about to change.
+// settled: not while its tunnel starts, its address about to change. A
+// tunnel that never gets going leaves them unsettled for good, and paired
+// AgentBoxes go on with what they were told before.
 func (s *Server) shareURLs(ctx context.Context) ([]string, bool) {
 	st, err := s.lanStatus(ctx)
 	if err != nil {
@@ -227,7 +233,9 @@ func (s *Server) shareURLs(ctx context.Context) ([]string, bool) {
 			urls = append(urls, strings.TrimRight(u, "/"))
 		}
 	}
-	return urls, !st.Enabled || !st.Tunnel.Enabled || st.Tunnel.State != tunnel.StateStarting
+	// A tunnel that is on but not running is starting, or starting again
+	// after cloudflared stopped: its address is about to change.
+	return urls, !st.Enabled || !st.Tunnel.Enabled || st.Tunnel.State == tunnel.StateRunning
 }
 
 // shareURLList is a list of addresses one side of a pairing said it is at:
@@ -319,6 +327,11 @@ func (s *Server) pushShareAddress(ctx context.Context, p state.SharePeer, urls [
 		switch {
 		case err != nil:
 			errs = append(errs, err)
+		case code == http.StatusAccepted:
+			// It reached this machine, though not at its first address:
+			// told again later, it moves up to it once that answers.
+			s.logf("share: %s (%s) reaches this machine, though not at %s yet", p.Name, p.ID, urls[0])
+			return errors.New("it doesn't reach " + urls[0] + " yet")
 		case code/100 == 2:
 			s.logf("share: told %s (%s) at %s that this machine is at %s", p.Name, p.ID, u, strings.Join(urls, ", "))
 			return nil
@@ -525,22 +538,41 @@ func (s *Server) shareOwnerAddressIn(w http.ResponseWriter, r *http.Request, add
 	a.mu.Lock()
 	a.known[c.r.ID] = urls
 	a.mu.Unlock()
-	if err := s.findRemoteAt(r.Context(), c, urls, false, "it said so"); err != nil {
+	first, err := s.findRemoteAt(r.Context(), c, urls, false, "it said so")
+	switch {
+	case err != nil:
 		writeLANError(w, http.StatusBadGateway, err.Error())
-		return
+	case !first:
+		// Reached at another of its addresses than its first, which may
+		// not answer yet (a new quick tunnel's name not in DNS): the owner
+		// says it again later, and this machine moves up to it then.
+		w.WriteHeader(http.StatusAccepted)
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
-// findRemoteAt moves c to the first of urls its owner answers at, unless it
-// is at one of them already and still reaches it (failing says it doesn't).
-func (s *Server) findRemoteAt(ctx context.Context, c *remoteConn, urls []string, failing bool, how string) error {
+// findRemoteAt moves c to the first of urls its owner answers at, and says
+// whether that is the first of them. One already at one of urls stays, unless
+// failing says it doesn't reach it there, or it took that address only for
+// want of a better one (shareAddrs.fallback): it moves up to one before it
+// that answers. An address the user chose, with a link, is never left for
+// another the owner has while it works.
+func (s *Server) findRemoteAt(ctx context.Context, c *remoteConn, urls []string, failing bool, how string) (first bool, err error) {
+	a := s.peering.addrs
 	current := strings.TrimRight(c.r.URL, "/")
-	if !failing && slices.Contains(urls, current) {
-		return nil
+	a.mu.Lock()
+	fallback := a.fallback[c.r.ID]
+	a.mu.Unlock()
+	try := urls
+	if i := slices.Index(urls, current); i >= 0 && !failing {
+		if i == 0 || !fallback {
+			return true, nil
+		}
+		try = urls[:i]
 	}
 	var errs []error
-	for _, u := range urls {
+	for i, u := range try {
 		if u == current {
 			continue
 		}
@@ -548,16 +580,20 @@ func (s *Server) findRemoteAt(ctx context.Context, c *remoteConn, urls []string,
 			errs = append(errs, err)
 			continue
 		}
-		return s.moveRemote(ctx, c, u, how)
+		return i == 0, s.moveRemote(ctx, c, u, i > 0, how)
 	}
-	if len(errs) == 0 {
-		return fmt.Errorf("%s has no other address", c.r.Name)
+	switch {
+	case len(try) < len(urls):
+		return false, nil // stays where it is, which works
+	case len(errs) == 0:
+		return false, fmt.Errorf("%s has no other address", c.r.Name)
 	}
-	return fmt.Errorf("%s can't be reached at its new address: %w", c.r.Name, errors.Join(errs...))
+	return false, fmt.Errorf("%s can't be reached at its new address: %w", c.r.Name, errors.Join(errs...))
 }
 
 // moveRemote has c reach its owner at base from now on, with the same token.
-func (s *Server) moveRemote(ctx context.Context, c *remoteConn, base, how string) error {
+// fallback says base isn't the owner's first address, which didn't answer.
+func (s *Server) moveRemote(ctx context.Context, c *remoteConn, base string, fallback bool, how string) error {
 	a := s.peering.addrs
 	a.moving.Lock()
 	defer a.moving.Unlock()
@@ -567,6 +603,9 @@ func (s *Server) moveRemote(ctx context.Context, c *remoteConn, base, how string
 	if err := s.store.SetShareRemoteURL(ctx, c.r.ID, base); err != nil {
 		return err
 	}
+	a.mu.Lock()
+	a.fallback[c.r.ID] = fallback
+	a.mu.Unlock()
 	r := c.r
 	r.URL = base
 	s.logf("share: %s is at %s now, no longer %s (%s)", r.Name, base, c.r.URL, how)
@@ -684,12 +723,14 @@ func (s *Server) findRemoteAgain(ctx context.Context, c *remoteConn, err error) 
 	a.mu.Lock()
 	known := a.known[c.r.ID]
 	a.mu.Unlock()
-	if due && len(known) > 0 && s.findRemoteAt(ctx, c, known, true, "an address it gave before") == nil && s.remoteConn(c.r.ID) != c {
-		return true
+	if due && len(known) > 0 {
+		if _, err := s.findRemoteAt(ctx, c, known, true, "an address it gave before"); err == nil && s.remoteConn(c.r.ID) != c {
+			return true
+		}
 	}
 	if due && s.readRemoteConfig() != nil {
 		if urls, err := s.ownerOnHub(ctx, c); err == nil {
-			if s.findRemoteAt(ctx, c, urls, true, "its hub account said so") == nil && s.remoteConn(c.r.ID) != c {
+			if _, err := s.findRemoteAt(ctx, c, urls, true, "its hub account said so"); err == nil && s.remoteConn(c.r.ID) != c {
 				return true
 			}
 		}
@@ -766,9 +807,13 @@ func (s *Server) pairedAgain(ctx context.Context, base, secret string, out api.S
 	}
 	r := c.r
 	if strings.TrimRight(r.URL, "/") == base {
+		a := s.peering.addrs
+		a.mu.Lock()
+		delete(a.fallback, r.ID) // the user's choice now
+		a.mu.Unlock()
 		return r, nil
 	}
-	if err := s.moveRemote(ctx, c, base, "a new link from it"); err != nil {
+	if err := s.moveRemote(ctx, c, base, false, "a new link from it"); err != nil {
 		return state.ShareRemote{}, err
 	}
 	r.URL = base
