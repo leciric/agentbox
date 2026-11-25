@@ -35,7 +35,7 @@ import {
 import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentType, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { ChatOptionPlan } from '../../../shared/api';
+import { ChatAsideAway, ChatOptionPlan } from '../../../shared/api';
 import { api, isHomeChat, isProjectChat, sessionOfRef } from '../../lib/api';
 import { chooseSession, topicFrom } from '../../lib/sessions';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
@@ -55,6 +55,7 @@ import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, pastedFiles, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
 import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
+import { keptAway } from '../../lib/outbox';
 import { atTarget, cycleTarget, liveTarget, targetOrder, targetsOf } from '../../../shared/messageTarget';
 import { chooseTarget, useChosenTarget } from '../../lib/messageTarget';
 import { targetShortcut } from '../../lib/shortcuts';
@@ -198,7 +199,7 @@ export function Composer({
     onSent();
     if (to) {
       // The agent's chat takes it; the lead's keeps a notice, and no turn.
-      void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id, to: to.to }, () => api.sendChat(agent.ref, text, images, files, to));
+      void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id, to: to.to }, () => api.sendChat(agent.ref, text, images, files, to).then((item) => keptAway(queryClient, item)));
       return;
     }
     // The rail and the sidebar show it working now too; the session's own
@@ -207,8 +208,11 @@ export function Composer({
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat !== 'running' ? { ...a, chat: 'running' } : a)));
     queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref ? { ...info, chat: 'running' } : info));
     const runOn = sharedBy ? { runOn: sentRunOn(chosenRunOn, runOnInfo.data?.here) } : undefined;
-    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () => api.sendChat(agent.ref, text, images, files, runOn)).then((sent) => {
-      if (sent) return;
+    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () =>
+      api.sendChat(agent.ref, text, images, files, runOn).then((item) => keptAway(queryClient, item)),
+    ).then((sent) => {
+      // Kept for a shared project's owner that is away, it starts nothing yet.
+      if (sent && sent.delivery !== ChatAsideAway) return;
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       void queryClient.invalidateQueries({ queryKey: ['projectChat', project] });
     });

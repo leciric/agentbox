@@ -1343,6 +1343,8 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("DELETE /v1/share/peers/{id}", s.removeSharePeer)
 	h("POST /v1/share/remotes", s.addShareRemote)
 	h("DELETE /v1/share/remotes/{id}", s.removeShareRemote)
+	h("GET /v1/share/outbox", s.getShareOutbox)
+	h("DELETE /v1/share/outbox/{id}", s.cancelShareQueued)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)

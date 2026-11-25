@@ -85,6 +85,10 @@ type peeringState struct {
 	machines  map[string]*shareMachine
 	runOn     map[string]string
 	runOnTold map[string]string
+
+	// once answers a peer's kept write once however often it arrives
+	// (shareoutbox.go).
+	once shareOnce
 }
 
 func newPeeringState() *peeringState {
@@ -533,13 +537,22 @@ func (s *Server) shareAPI(w http.ResponseWriter, r *http.Request, addr string) {
 		_, _ = w.Write(out)
 		return
 	}
-	if act, ok := shareActivityOf(r.Method, path); ok {
-		sw := &statusWriter{ResponseWriter: w}
-		routes.ServeHTTP(sw, r2)
-		s.recordShareRequest(ctx, p, act, sw.status)
+	serve := func(w http.ResponseWriter) {
+		if act, ok := shareActivityOf(r.Method, path); ok {
+			sw := &statusWriter{ResponseWriter: w}
+			routes.ServeHTTP(sw, r2)
+			s.recordShareRequest(ctx, p, act, sw.status)
+			return
+		}
+		routes.ServeHTTP(w, r2)
+	}
+	// A write the peer kept while this AgentBox was away, or may send
+	// again because it never heard back, is done once (shareoutbox.go).
+	if key := r.Header.Get(shareKeyHeader); key != "" && r.Method == http.MethodPost {
+		s.answerOnce(w, r, p.ID+" "+key, serve)
 		return
 	}
-	routes.ServeHTTP(w, r2)
+	serve(w)
 }
 
 // shareFilterList cuts GET /v1/projects or /v1/agents down to the projects

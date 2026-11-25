@@ -1,12 +1,13 @@
-import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
+import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Clock, Copy, Info, LoaderCircle } from 'lucide-react';
 import { personColor } from '../../lib/people';
 import { PersonAvatar } from '../People';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { editSending, failed, findSending, isSending, retrySending } from '../../lib/sending';
+import { cancelQueued, editQueued, isQueued, queuedOf } from '../../lib/outbox';
 import { chooseTarget } from '../../lib/messageTarget';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -109,12 +110,12 @@ const TimelineRow = memo(
           <div className={cn('group flex flex-col gap-1 pb-4 pt-1', author ? 'items-start' : 'items-end')} data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id} data-chat-author={author?.id}>
             {author && <AuthorName person={author} />}
             <UserMessage item={row.item} chatRef={chatRef} author={author} />
-            {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
-            {!isSending(row.item) && <Meta item={row.item} className={author ? 'pl-1' : 'justify-end pr-1'} />}
+            {row.item.delivery === failed ? <NotSent item={row.item} /> : isQueued(row.item) ? <Away item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
+            {!isSending(row.item) && !isQueued(row.item) && <Meta item={row.item} className={author ? 'pl-1' : 'justify-end pr-1'} />}
           </div>
         );
         // Not yet sent, it has no id the daemon knows to fork at.
-        return isSending(row.item) || row.item.delivery === failed ? (
+        return isSending(row.item) || isQueued(row.item) || row.item.delivery === failed ? (
           message
         ) : (
           <MessageMenu chatRef={chatRef} item={row.item}>
@@ -370,10 +371,53 @@ function Delivered({ item }: { item: T.ChatItem }) {
   );
 }
 
+// Away is a message written in a shared project while its owner couldn't be
+// reached, which this AgentBox keeps and sends once the owner is back
+// (lib/outbox.ts): it says so, and takes it back.
+function Away({ item }: { item: T.ChatItem }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const q = queuedOf(item);
+  const cancel = useMutation({ mutationFn: () => cancelQueued(queryClient, q!) });
+  if (!q) return null;
+  return (
+    <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-away>
+      <Clock className="size-3.5 shrink-0 text-amber-300/80" />
+      <span className="min-w-0 break-words text-amber-200/80">{t('chat.outbox.waiting', { owner: q.owner, count: q.attachments ?? 0 })}</span>
+      <button className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised disabled:opacity-50" disabled={cancel.isPending} onClick={() => cancel.mutate()} data-chat-away-cancel>
+        {t('chat.outbox.cancel')}
+      </button>
+      {cancel.error && <span className="w-full text-right text-rose-300/90">{cancel.error.message}</span>}
+    </div>
+  );
+}
+
 // NotSent is a message that didn't reach the daemon (lib/sending.ts): why,
-// with the ways to send it again as it was or after changing it.
+// with the ways to send it again as it was or after changing it. One kept
+// for a shared project's owner that refused it once back (lib/outbox.ts)
+// says why, to take back into the composer or dismiss.
 function NotSent({ item }: { item: T.ChatItem }) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const refused = queuedOf(item);
+  if (isQueued(item)) {
+    return (
+      <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-not-sent data-chat-refused>
+        <CircleAlert className="size-3.5 shrink-0 text-rose-300" />
+        <span className="min-w-0 break-words text-rose-300/90">{t('chat.composer.notSent', { error: refused?.error ?? '' })}</span>
+        {refused && (
+          <>
+            <button className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised" onClick={() => void editQueued(queryClient, refused)}>
+              {t('chat.sending.edit')}
+            </button>
+            <button className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised" onClick={() => void cancelQueued(queryClient, refused)}>
+              {t('chat.outbox.dismiss')}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
   const error = findSending(item.id)?.error ?? '';
   return (
     <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-not-sent>
@@ -470,8 +514,8 @@ function ToldMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
         </button>
       </Tip>
       <UserMessage item={item} chatRef={chatRef} author={item.author} />
-      {item.delivery === failed ? <NotSent item={item} /> : isSending(item) && <Delivered item={item} />}
-      {!isSending(item) && <Meta item={item} className={item.author ? 'pl-1' : 'justify-end pr-1'} />}
+      {item.delivery === failed ? <NotSent item={item} /> : isQueued(item) ? <Away item={item} /> : isSending(item) && <Delivered item={item} />}
+      {!isSending(item) && !isQueued(item) && <Meta item={item} className={item.author ? 'pl-1' : 'justify-end pr-1'} />}
     </div>
   );
 }

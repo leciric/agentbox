@@ -1859,6 +1859,28 @@ var migrations = []string{
 		detail  TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX share_activity_by_peer ON share_activity (peer_id, id)`,
+	// What was written in a shared project while its owner couldn't be
+	// reached (shareoutbox.go), waiting to be sent to it in order (by id):
+	// the owner's path and the body as it gets them, the key that makes
+	// sending one twice do it once, and what the app shows of it. error is
+	// why the owner refused it once back; the row then stays to be read.
+	`CREATE TABLE share_outbox (
+		id          INTEGER PRIMARY KEY,
+		remote_id   TEXT NOT NULL REFERENCES share_remotes(id) ON DELETE CASCADE,
+		send_key    TEXT NOT NULL,
+		kind        TEXT NOT NULL,
+		local_name  TEXT NOT NULL,
+		chat        TEXT NOT NULL DEFAULT '',
+		question    TEXT NOT NULL DEFAULT '',
+		to_agent    TEXT NOT NULL DEFAULT '',
+		path        TEXT NOT NULL,
+		body        BLOB NOT NULL,
+		text        TEXT NOT NULL DEFAULT '',
+		attachments INTEGER NOT NULL DEFAULT 0,
+		created_at  INTEGER NOT NULL,
+		error       TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX share_outbox_by_remote ON share_outbox (remote_id, id)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

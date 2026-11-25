@@ -14,7 +14,8 @@ import (
 	"agentbox/internal/state"
 )
 
-// sharedPair is an owner and a peer paired, with project "shared" shared.
+// sharedPair is an owner and a peer paired, with project "shared" shared,
+// or the one add made on the owner.
 type sharedPair struct {
 	owner, peer testDaemon
 	remote      api.ShareRemote
@@ -22,19 +23,23 @@ type sharedPair struct {
 	local       string // the shared project's name on the peer
 	gw          *phoneClient
 	bearer      []string
+	port        int // the owner's phone page, its share gateway
 }
 
-func pairShared(t *testing.T) sharedPair {
+func pairShared(t *testing.T, add ...func(owner testDaemon) string) sharedPair {
 	t.Helper()
 	ctx := context.Background()
 	owner := startTestDaemon(t, t.TempDir(), fakeIncus)
 	peer := startTestDaemon(t, t.TempDir(), fakeIncus)
+	project := "shared"
 	owner.srv.peering.running = func(context.Context, []string) int { return 0 }
 	owner.srv.lan.mu.Lock()
 	owner.srv.lan.own = true
 	owner.srv.lan.addresses = func() []string { return []string{"127.0.0.1"} }
 	owner.srv.lan.mu.Unlock()
-	if err := owner.srv.store.AddProject(ctx, state.Project{Name: "shared", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+	if len(add) > 0 {
+		project = add[0](owner)
+	} else if err := owner.srv.store.AddProject(ctx, state.Project{Name: project, Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	port, on := freePort(t), true
@@ -60,10 +65,10 @@ func pairShared(t *testing.T) sharedPair {
 	if err != nil || len(st.Peers) != 1 {
 		t.Fatalf("Share() = %+v, %v", st, err)
 	}
-	if _, err := owner.client.UpdateSharePeer(ctx, st.Peers[0].ID, api.UpdateSharePeerRequest{Projects: &[]string{"shared"}}); err != nil {
+	if _, err := owner.client.UpdateSharePeer(ctx, st.Peers[0].ID, api.UpdateSharePeerRequest{Projects: &[]string{project}}); err != nil {
 		t.Fatal(err)
 	}
-	local := remote.ID + "~shared"
+	local := remote.ID + "~" + project
 	waitFor(t, "the shared project on the peer", func() bool { return slices.Equal(remoteNames(t, peer), []string{local}) })
 	sealed, _ := peer.srv.store.ShareRemotes(ctx)
 	token, err := peer.srv.secrets().Open(sealed[0].Token)
@@ -72,7 +77,7 @@ func pairShared(t *testing.T) sharedPair {
 	}
 	return sharedPair{
 		owner: owner, peer: peer, remote: remote, peerID: st.Peers[0].ID, local: local,
-		gw: newPhone(t, "http://127.0.0.1:"+strconv.Itoa(port), nil), bearer: []string{"Authorization", "Bearer " + token},
+		gw: newPhone(t, "http://127.0.0.1:"+strconv.Itoa(port), nil), bearer: []string{"Authorization", "Bearer " + token}, port: port,
 	}
 }
 
