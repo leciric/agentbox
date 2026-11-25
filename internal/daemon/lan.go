@@ -280,8 +280,15 @@ func lanPhone(p state.Phone) api.LANPhone {
 // publishLAN says something in GET /v1/lan changed, without saying what: the
 // event stream reaches phones too, which have no business with the list of
 // phones.
+//
+// This machine's addresses may have changed with it: a quick tunnel's is new
+// each time cloudflared starts. Paired AgentBoxes are told the new ones
+// (tellShareAddresses).
 func (s *Server) publishLAN(context.Context) {
 	s.events.publish(api.EventLAN, struct{}{})
+	if s.peering != nil {
+		s.peering.addrs.poke()
+	}
 }
 
 func (s *Server) getLAN(w http.ResponseWriter, r *http.Request) error {
@@ -630,6 +637,14 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			s.shareRunOn(w, r, addr)
 		case r.URL.Path == "/share/agent-events" && r.Method == http.MethodPost:
 			s.shareAgentEventIn(w, r, addr)
+		// The two finding each other when an address changes
+		// (shareaddress.go).
+		case r.URL.Path == "/share/hello" && r.Method == http.MethodGet:
+			s.shareHelloIn(w, r, addr)
+		case r.URL.Path == "/share/owner-address" && r.Method == http.MethodPost:
+			s.shareOwnerAddressIn(w, r, addr)
+		case r.URL.Path == "/share/peer-address" && r.Method == http.MethodPost:
+			s.sharePeerAddressIn(w, r, addr)
 		default:
 			s.serveLANWeb(w, r)
 		}

@@ -528,6 +528,10 @@ func (s *Server) servePeer(w http.ResponseWriter, r *http.Request) error {
 		return writeJSON(w, http.StatusOK, peerProjectAnswer{Has: true, Project: p.Name})
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/peer/events":
 		return s.peerEventIn(w, r, peer)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/peer/share-address":
+		// Whether this machine shares projects with one the other has
+		// paired, and where it is now (shareaddress.go).
+		return s.peerShareAddress(w, r)
 	case !peerLeadRoute(r.Method, r.URL.Path):
 		return writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("another machine can't send %s %s here", r.Method, r.URL.Path)})
 	}
