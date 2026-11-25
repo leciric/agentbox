@@ -36,8 +36,8 @@ test('the lead and a past agent have files and evidence, but no machine views, a
   }
   assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android', 'resources']);
   assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'running', 'settings']);
-  // Every view is on the switch but Pull requests, Issues and Settings, the lead's tabs and header's.
-  assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
+  // Every view is on the switch but Pull requests, Issues, Running and Settings, the lead's tabs and header's.
+  assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'running', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');

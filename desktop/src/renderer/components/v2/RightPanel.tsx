@@ -340,11 +340,10 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   if (view === 'ios' && whose && info.isSuccess && projects.isSuccess && (!mac || iosStatus.isFetched) && !ios) view = defaultView(whose);
   // Beside the lead's chat, the list, the pull requests, the repository and
   // the schedules are its tabs: no back arrow, title or ✕ for them, the switch instead.
-  // Issues, beside it, is named by the switch the same way.
-  const pulls = lead && (panel.wide === 'pulls' || panel.wide === 'issues');
-  // Schedules, picked on an agent's switch, keeps the agent's header; Running
-  // is only the lead's tab (an agent's own list is in its Resources).
-  const home = lead && !preview && (pulls || ((panel.wide === 'schedules' || panel.wide === 'running') && (!whose || whose.kind === 'lead')) || (!over && (!whose || whose.kind === 'lead')));
+  // Issues and Running, beside it, are named by the switch the same way.
+  const pulls = lead && (panel.wide === 'pulls' || panel.wide === 'issues' || panel.wide === 'running');
+  // Schedules, picked on an agent's switch, keeps the agent's header.
+  const home = lead && !preview && (pulls || (panel.wide === 'schedules' && (!whose || whose.kind === 'lead')) || (!over && (!whose || whose.kind === 'lead')));
   // An agent's header, or whoever else's the panel shows but the lead's home.
   const switcher = !!whose && !home && !preview;
   const fit = useNamedFit(`${ref}:${view}:${android}:${ios}`);
@@ -1219,7 +1218,7 @@ function ProjectView({ project, chat, view, section, titled, onSelect }: { proje
   if (view === 'running') {
     return (
       <>
-        <ViewTitle view={view} after={title} />
+        {titled && <ViewTitle view={view} after={title} />}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-running>
           <RunningPanel project={project} onSelect={onSelect} />
         </div>

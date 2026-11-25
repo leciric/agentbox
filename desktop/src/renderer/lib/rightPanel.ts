@@ -24,8 +24,9 @@ export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser
 export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'resources', 'pulls', 'issues', 'schedules', 'running', 'settings'];
 // The switch's views, in this order: the machine's first, then what the
 // work left, ending as the lead's does, Files, Evidence, then Schedules. The
-// project's Pull requests, Issues and Settings are off it: tabs of the
-// lead's panel, and on its header.
+// project's Pull requests, Issues, Running and Settings are off it: tabs of
+// the lead's panel, and on its header (an agent's own Running list is a
+// section of its Resources).
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules'];
 // The agent's machine bar under its chat's header (AgentMachineBar): four.
 export const machineBarViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
