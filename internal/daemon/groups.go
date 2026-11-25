@@ -90,6 +90,12 @@ func (s *Server) leadFanOut(w http.ResponseWriter, r *http.Request) error {
 	}
 	req.Project = r.PathValue("project")
 	req.LeadSession = sessionFrom(r)
+	// A paired AgentBox that wrote last in this session chose its own
+	// computer for the agents it makes, and a group is those agents too
+	// (sharemachines.go).
+	if peer := s.runsOnPeer(req.Project, req.LeadSession); peer != "" {
+		return s.leadFanOutOnPeer(w, r, peer, req)
+	}
 	out, err := s.fanOut(r.Context(), req, true)
 	if err != nil {
 		return err
@@ -138,6 +144,13 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 			AI:   v.AI, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
 			ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, OpenCodeAccounts: v.OpenCodeAccounts, CursorAccount: v.CursorAccount, GeminiAccount: v.GeminiAccount, CopilotAccount: v.CopilotAccount,
 			LeadSession: req.LeadSession,
+			OriginID:    req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject,
+		}
+		if req.OriginID != "" {
+			// What the other AgentBox's lead says of connectors names its
+			// own, which aren't here (shareGuestCreate).
+			none := []string{}
+			one.Connectors = &none
 		}
 		checked, err := s.checkCreate(ctx, one, byLead)
 		if err != nil {
@@ -149,6 +162,14 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	g, err := s.store.AddGroup(ctx, state.Group{Project: reqs[0].Project, Title: req.Title, Task: req.Task, ByLead: byLead, Judge: req.Judge, Members: members})
 	if err != nil {
 		return api.FanOutResult{}, err
+	}
+	if req.OriginID != "" {
+		s.mu.Lock()
+		if s.groupFor == nil {
+			s.groupFor = map[string]state.PeerAgent{}
+		}
+		s.groupFor[g.ID] = state.PeerAgent{OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject}
+		s.mu.Unlock()
 	}
 	out := api.FanOutResult{Jobs: []api.Job{}}
 	for i, one := range reqs {
@@ -166,6 +187,11 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 		launched[i] = true
 		_ = s.store.SetGroupMember(ctx, g.ID, position, j.ID, "", "")
 		out.Jobs = append(out.Jobs, j)
+		if one.OriginID != "" {
+			// A clone made for another AgentBox's lead stays while any of
+			// the group's agents is being made in it, and goes if none is.
+			s.trackPeerCreate(j.ID, one.Project)
+		}
 	}
 	s.countFeature(api.FeatureGroupFanOut)
 	if g, err = s.store.GroupByID(ctx, g.ID); err != nil {
@@ -179,13 +205,18 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	// The project's chat shows the group from the start, as a card, whoever
 	// made it; a group the user made is news to the lead too, so it knows
 	// these agents are being compared rather than each one's to follow up.
-	who := "You ran"
-	if !byLead {
-		who = "The user ran"
+	// A group another AgentBox's lead made here has no chat on this computer
+	// to tell: a notice would open the project's lead, and that lead is not
+	// the one waiting on it.
+	if req.OriginID == "" {
+		who := "You ran"
+		if !byLead {
+			who = "The user ran"
+		}
+		s.tellSessionOf(ctx, g.Project, req.LeadSession, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
+			"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
+			who, len(g.Members), g.ID, g.Title, memberList(g), g.Task), chat.NoticeOptions{Group: g.ID})
 	}
-	s.tellSessionOf(ctx, g.Project, req.LeadSession, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
-		"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
-		who, len(g.Members), g.ID, g.Title, memberList(g), g.Task), chat.NoticeOptions{Group: g.ID})
 	return out, nil
 }
 
@@ -300,6 +331,26 @@ func (s *Server) groupMaybeDone(ctx context.Context, g state.Group) {
 	text := fmt.Sprintf("All %d agents of group %s (%q) have finished: %s. The user compares them in the app and keeps one.",
 		len(g.Members), g.ID, g.Title, memberList(g))
 	act := g.ByLead
+	// A group another AgentBox's lead made here: that lead is the one waiting
+	// on it, so it hears as it does of any agent of its, and the chat here is
+	// not told (fanOut). compare_group can't reach a group on another
+	// computer, so the lead reads the agents. With none of them made, each
+	// failing told the lead as it happened (createJob), and there is nothing
+	// to read or compare.
+	if origin, member, ok := s.groupOrigin(ctx, g); ok {
+		if member != "" {
+			s.sendPeerEvent(origin.OriginID, origin.OriginName, peerEvent{
+				Project: origin.OriginProject, Agent: member,
+				Notice: text + " They are compared where they ran, by that computer's user: compare_group can't reach them, so read their work " +
+					"with read_agent. Tell the user they are ready to compare, in a line; don't keep one yourself.",
+				Act: act,
+			})
+		}
+		s.mu.Lock()
+		delete(s.groupFor, g.ID)
+		s.mu.Unlock()
+		return
+	}
 	if g.Judge {
 		_ = s.store.SetGroupJudging(ctx, g.ID, true)
 		text += " " + judgeAsk(g)
@@ -311,6 +362,25 @@ func (s *Server) groupMaybeDone(ctx context.Context, g state.Group) {
 	if g.Judge {
 		s.publishGroup(g)
 	}
+}
+
+// groupOrigin is, for a group another AgentBox's lead made on this computer,
+// who that is and one of the agents it made here, "" when none was made; ok is
+// false for any other group. It is found from the agents, which outlast the
+// daemon, else from what fanOut kept of a group none of whose agents was made.
+func (s *Server) groupOrigin(ctx context.Context, g state.Group) (origin state.PeerAgent, member string, ok bool) {
+	for _, m := range g.Members {
+		if m.Agent == "" {
+			continue
+		}
+		if o, err := s.store.PeerAgent(ctx, g.Project, m.Agent); err == nil {
+			return o, m.Agent, true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	origin, ok = s.groupFor[g.ID]
+	return origin, "", ok
 }
 
 func memberList(g state.Group) string {

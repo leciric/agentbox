@@ -34,9 +34,16 @@ type shareMachines struct {
 
 func startShareMachines(t *testing.T) shareMachines {
 	t.Helper()
+	return startShareMachinesOn(t, readyOneAgentIncus)
+}
+
+// startShareMachinesOn is startShareMachines with the fake Incus bob's
+// computer runs on, and how it is set up.
+func startShareMachinesOn(t *testing.T, bobIncus string, bobConfig ...testConfig) shareMachines {
+	t.Helper()
 	ctx := context.Background()
 	alice := startTestDaemon(t, t.TempDir(), fakeIncus)
-	bob := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	bob := startTestDaemon(t, t.TempDir(), bobIncus, bobConfig...)
 	bob.srv.chat.Launch = (&hangTool{}).launch
 	creds := credentials.Store{Dir: bob.paths.Credentials()}
 	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-bob"); err != nil {
