@@ -50,31 +50,43 @@ import (
 // VM that's merely idle between builds isn't made to read everything again
 // from the host's disk each time.
 //
-// The guest's file cache is not headroom to be taken back on a timer: with
-// its disks opened direct=on, every page it drops and needs again is read
-// from the host's disk. Taking cache back every couple of minutes from a VM
-// whose builds keep reading the same toolchains and node_modules read the
-// host's NVMe at tens of MB/s, hundreds of GB a day, and froze its desktop.
-// So the VM keeps a floor of file cache (cacheFloor) as part of what it should
-// have, beside use and headroom: the larger of an allowance for a build
-// (cacheAllowance), the guest's active file pages, which it has read more than
-// once lately, and what the guest's refaults have shown it needs. A refault
-// is a page read again soon after it was dropped (workingset_refault_file):
-// while they run above memRefaultHigh the floor is too low, so it's raised to
-// the cache it has plus what it is reading again, and no trim is asked for
-// memTrimBackoff, doubling while it keeps happening. Calm for memFloorCalm,
-// the floor comes down by an eighth and the backoff resets.
+// The guest's file cache is not headroom to be taken back on a fixed timer:
+// with its disks opened direct=on, every page it drops and needs again is read
+// from the host's disk. Taking cache back every couple of minutes, down to a
+// small allowance, from a VM whose builds keep reading the same toolchains and
+// node_modules read the host's NVMe at tens of MB/s, hundreds of GB a day, and
+// froze its desktop. So the VM keeps a floor of file cache (cacheFloor) as part
+// of what it should have, beside use and headroom: the larger of an allowance
+// for a build (cacheAllowance), the guest's active file pages, which it has
+// read more than once lately, and what the guest's refaults have shown it
+// needs. A refault is a page read again soon after it was dropped
+// (workingset_refault_file): while they run above memRefaultHigh the floor is
+// too low, so it's raised to the cache it has plus what it is reading again,
+// and no trim is asked for memTrimBackoff, doubling while it keeps happening.
+// Calm for memFloorCalm, the floor comes down by an eighth and the backoff
+// resets.
 //
-// The cache beyond the floor is trimmed only when the host is short of
-// memory — stalling on it (its own PSI above memHostPressure) or with less
-// than it keeps (HostKeep) available — never on a timer while it isn't:
-// the guest reclaims up to memTrimMax of its inactive file pages, never past
-// the floor (memory.reclaim on its root cgroup, which takes the coldest first,
-// killed after trimWriteTimeout), then compacts, and free page
-// reporting returns it. At most every memTrimEvery. A shrink trims only the
-// cache beyond the floor too, rather than dropping all of it: the guest
-// migrates what's left out of the blocks it unplugs, into the floor the
-// target kept room for.
+// The cache beyond the floor is trimmed in two cases: the guest reclaims up to
+// memTrimMax of its inactive file pages, never past the floor (memory.reclaim
+// on its root cgroup, which takes the coldest first, killed after
+// trimWriteTimeout), then compacts, and free page reporting returns it.
+//   - The host is short of memory — stalling on it (its own PSI above
+//     memHostPressure) or with less than it keeps (HostKeep) available — at
+//     most every memTrimEvery.
+//   - The VM is settled (25 Nov 2026), whether or not the host is short: it
+//     has not been resized for memSettleAfter, and its refaults have stayed
+//     under memRefaultLow that long (a guest that doesn't report them is
+//     never settled), at most every memSettledTrimEvery. A VM of 16 GiB with
+//     5.7 GiB in use held 11 GiB of file cache, 8.9 GiB of it inactive, on a
+//     host 80% used, and gave none of it back, as free page reporting only
+//     returns what's free. What keeps this from being the trim on a timer that
+//     froze that desktop is what it never takes: the floor, with every active
+//     page in it, and anything a refault has shown the guest reads again,
+//     which holds it off for memTrimBackoff.
+//
+// A shrink trims only the cache beyond the floor too, rather than dropping all
+// of it: the guest migrates what's left out of the blocks it unplugs, into the
+// floor the target kept room for.
 //
 // The cap is never more than the host's memory less HostReserve (MaxCap, a
 // small fixed 4 GiB), but it is only a ceiling, and the host's own reading
@@ -203,6 +215,16 @@ const (
 	memTrimMin             = 256 << 20
 	memTrimMax             = 2 * GiB
 	memTrimEvery           = 10 * time.Second
+	// memSettleAfter is how long the VM must have held still — not resized,
+	// its guest not reading dropped pages again (memRefaultLow) — before its
+	// cache beyond the floor is trimmed with the host not short, and
+	// memSettledTrimEvery the least time between two such trims. The first
+	// is the time a build takes to show whether it re-reads what was dropped;
+	// the second is what a bad trim costs to find out, a refault storm of up
+	// to memTrimMax read from the host's disk, before memTrimBackoff holds
+	// the next one off (until #683 it was every 2 minutes, with no floor).
+	memSettleAfter      = 3 * time.Minute
+	memSettledTrimEvery = 5 * time.Minute
 
 	// memRefaultHigh is the rate of refaults, in bytes a second, past which
 	// the guest's cache floor is too low: 2 MiB/s, 30k pages a minute. A VM
@@ -429,6 +451,9 @@ type memState struct {
 	calmSince     time.Time     // since when refaults have been under memRefaultLow
 	trimBackoff   time.Duration // the wait after the next too-low floor
 	noTrimUntil   time.Time     // no trim before this: the floor was too low
+	// movedAt is when the VM last stopped being settled: the first sample, a
+	// resize, or refaults at memRefaultLow or more (settled).
+	movedAt time.Time
 
 	allIdleSince time.Time // since when every agent has been idle, by the daemon
 	floorSince   time.Time // since when the host has been under its floor
@@ -568,6 +593,9 @@ func (st *memState) observeRefaults(s memSample, p memPolicy, now time.Time) {
 		}
 	}
 	st.prevRefaults, st.refaultsAt = s.Refaults, now
+	if st.refaultRate >= memRefaultLow {
+		st.movedAt = now
+	}
 	switch {
 	case st.refaultRate > memRefaultHigh:
 		st.calmSince = time.Time{}
@@ -592,9 +620,19 @@ func (st *memState) observeRefaults(s memSample, p memPolicy, now time.Time) {
 	}
 }
 
+// settled reports whether the VM has held still for memSettleAfter: not
+// resized, and its guest not reading dropped pages again. Only a guest that
+// reports its refaults can show that, so one that doesn't is never settled.
+func (st *memState) settled(s memSample, now time.Time) bool {
+	return s.RefaultsKnown && !st.movedAt.IsZero() && now.Sub(st.movedAt) >= memSettleAfter
+}
+
 // observe keeps what decide needs from one sample to the next: how fast use
 // is rising, how busy the guest is, and since when no agent has run.
 func (st *memState) observe(s memSample, now time.Time) {
+	if st.movedAt.IsZero() {
+		st.movedAt = now
+	}
 	if !st.prevAt.IsZero() {
 		if dt := now.Sub(st.prevAt).Seconds(); dt > 0 {
 			r := max(float64(s.Used()-st.prevUsed)/dt, 0)
@@ -749,6 +787,9 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 	default:
 		st.lowSince, st.lowMax = time.Time{}, 0
 	}
+	if d.Target != 0 {
+		st.movedAt = now
+	}
 	switch {
 	case critical && (d.Shrink || d.Target == 0 && s.Resident-s.Used() > memReclaimMin) && now.Sub(st.lastReclaim) >= memTrimEvery:
 		// Down to half its reserve: every page of cache goes, so the
@@ -809,25 +850,39 @@ func (s memSample) hostHolds(need int64) bool {
 }
 
 // trim is how much of the guest's inactive file cache to reclaim while it's
-// busy, and why: 0 unless the host is short of memory, never past the floor
+// busy, and why, and whether the host was short: never past the floor
 // (floorFor), never while refaults have held trims off, and never more than
-// memTrimMax at once. With the host below its reserve, the shrink to lean
-// gives back what refaults keep trims off.
+// memTrimMax at once. With the host short of memory, every memTrimEvery; with
+// the host below its reserve, the shrink to lean gives back what refaults keep
+// trims off. With the host not short, only once the VM has settled (settled),
+// and then at most every memSettledTrimEvery.
 func (st *memState) trim(s memSample, p memPolicy, now time.Time) (int64, bool, string) {
-	if !s.hostShort() || now.Before(st.noTrimUntil) {
+	short := s.hostShort()
+	every := memTrimEvery
+	if !short {
+		every = memSettledTrimEvery
+		if !st.settled(s, now) {
+			return 0, false, ""
+		}
+	}
+	if now.Before(st.noTrimUntil) {
 		return 0, false, ""
 	}
 	floor := st.floorFor(s, p, now)
 	n := min(s.InactiveFile, s.FileCache-floor, memTrimMax)
-	if n < memTrimMin || now.Sub(st.lastTrim) < memTrimEvery || now.Sub(st.lastReclaim) < memTrimEvery {
+	if n < memTrimMin || now.Sub(st.lastTrim) < every || now.Sub(st.lastReclaim) < memTrimEvery {
 		return 0, false, ""
 	}
 	st.lastTrim = now
-	reason := fmt.Sprintf("this machine has %s available, and the VM caches %s of files, keeping %s", gib(s.HostAvailable), gib(s.FileCache), gib(floor))
-	if s.HostPressure > memHostPressure {
+	reason := fmt.Sprintf("the VM has been settled for %s, and caches %s of files, keeping %s", now.Sub(st.movedAt).Round(time.Minute), gib(s.FileCache), gib(floor))
+	switch {
+	case !short:
+	case s.HostPressure > memHostPressure:
 		reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s, and the VM caches %s of files, keeping %s", s.HostPressure, gib(s.FileCache), gib(floor))
+	default:
+		reason = fmt.Sprintf("this machine has %s available, and the VM caches %s of files, keeping %s", gib(s.HostAvailable), gib(s.FileCache), gib(floor))
 	}
-	return n, true, reason
+	return n, short, reason
 }
 
 func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB)) }

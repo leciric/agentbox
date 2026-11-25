@@ -269,8 +269,10 @@ func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
 }
 
 // A busy VM's file cache is trimmed, a bounded amount of its inactive part at
-// a time, only when the host is short of memory, and never below its floor;
-// with the host fine, never, however much it caches.
+// a time, every memTrimEvery while the host is short of memory, and never
+// below its floor. With the host fine it's only trimmed once the VM has
+// settled (TestMemPolicyTrimsSettledCache), which a guest that doesn't report
+// its refaults never is: none of these do.
 func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
 	start := time.Now()
@@ -310,11 +312,12 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	if len(trims) != 1 || trims[0].Trim != GiB || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "keeping 2.0 GiB") {
 		t.Errorf("host short: %+v", trims)
 	}
-	// None of these: the host fine however big the cache (the trim on a
-	// timer that read the host's disk all day), the cache within its floor,
-	// all of it active, or the host unknown.
+	// None of these: the host fine with a guest that reports no refaults, so
+	// there's nothing to say a trim isn't re-read (the trim on a timer that read
+	// the host's disk all day), the cache within its floor, all of it active, or
+	// the host unknown.
 	for name, s := range map[string]*memSample{
-		"host fine, big cache": busy(7*GiB, 5*GiB, 20*GiB, 0),
+		"no refaults reported": busy(7*GiB, 5*GiB, 20*GiB, 0), // the host is fine
 		"within the floor":     busy(2*GiB, GiB, 6*GiB, 30),
 		"all active":           busy(7*GiB, 100<<20, 6*GiB, 30),
 		"host unknown":         busy(7*GiB, 5*GiB, 0, 0),
@@ -328,11 +331,223 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	}
 }
 
+// idleCache is the guest of 25 Nov 2026: 16 GiB with 5.7 GiB in use and 11 of
+// file cache, 8.9 of it inactive, on a host with 80% of its memory used and
+// nothing given back, as free page reporting only returns what's free. Eight
+// busy agents' headroom puts the VM at its cap, so there's nothing to resize.
+func idleCache() (memPolicy, *memState, *memSample) {
+	p := memPolicy{Min: 4 * GiB, Cap: 16 * GiB}
+	x := sample(GiB*57/10, 16*GiB, 8, 0)
+	x.FileCache, x.InactiveFile = 11*GiB, GiB*89/10
+	x.Resident = 15 * GiB
+	x.HostTotal, x.HostAvailable = 32*GiB, 32*GiB/5 // more than the 4 GiB it keeps
+	x.RefaultsKnown = true
+	return p, &memState{Requested: 16 * GiB}, x
+}
+
+// replayBase is when replayTrims starts.
+var replayBase = time.Unix(1_763_466_000, 0)
+
+// trimStep is a trim the policy asked for, when, the floor it was to leave,
+// and the cache it left.
+type trimStep struct {
+	at          time.Duration
+	floor, left int64
+	memDecision
+}
+
+// replayTrims steps the policy a tick at a time over [from, from+d) with the
+// guest in x doing what it's told: a trim drops that much of its cache, all of
+// it inactive, and a resize is followed. Its refaults run at refault(at) bytes
+// a second (none when nil). It returns the trims, and when the VM was resized.
+func replayTrims(t *testing.T, p memPolicy, st *memState, x *memSample, from, d time.Duration, refault func(at time.Duration) int64) (trims []trimStep, resizes []time.Duration) {
+	t.Helper()
+	for at := from; at < from+d; at += memTick {
+		x.CPUTotal, x.CPUBusy = uint64(at/memTick)*100, uint64(at/memTick)*60
+		if refault != nil {
+			x.Refaults += uint64(float64(refault(at)) * memTick.Seconds() / pageSize)
+		}
+		now := replayBase.Add(at)
+		dec := p.decide(st, x, now)
+		if dec.Reclaim || dec.Shrink {
+			t.Fatalf("at %s: %+v, want nothing dropped but the cache beyond the floor", at, dec)
+		}
+		if dec.Trim > 0 {
+			// The floor the trim was made against: decide has moved nothing
+			// that floorFor reads since.
+			trims = append(trims, trimStep{at, st.floorFor(*x, p, now), x.FileCache - dec.Trim, dec})
+			x.FileCache -= dec.Trim
+			x.InactiveFile -= dec.Trim
+		}
+		if dec.Target > 0 {
+			resizes = append(resizes, at)
+			x.Available += dec.Target - x.Total
+			x.Total = dec.Target
+		}
+	}
+	return trims, resizes
+}
+
+// A VM that has settled — not resized, its guest not reading dropped pages
+// again — gives back the inactive file cache beyond its floor, whether or not
+// the host is short: up to memTrimMax every memSettledTrimEvery, the floor (its
+// 2.1 GiB of active pages) never touched, a normal trim and not a reclaim.
+func TestMemPolicyTrimsSettledCache(t *testing.T) {
+	p, st, x := idleCache()
+	if x.hostShort() {
+		t.Fatal("the host should have room: that's the point")
+	}
+	active := x.FileCache - x.InactiveFile
+	trims, resizes := replayTrims(t, p, st, x, 0, time.Hour, nil)
+	if len(resizes) > 0 {
+		t.Errorf("resized at %v, want a VM that's settled", resizes)
+	}
+	// 11 GiB cached, 2.1 kept: 2 GiB at a time while there's that much.
+	var got []int64
+	for _, tr := range trims {
+		got = append(got, tr.Trim)
+		if tr.HostShort || tr.Reclaim || tr.Shrink || !strings.Contains(tr.Reason, "settled") {
+			t.Errorf("trim at %s: %+v, want one for a settled VM with the host fine", tr.at, tr.memDecision)
+		}
+	}
+	if want := []int64{2 * GiB, 2 * GiB, 2 * GiB, 2 * GiB, 11*GiB - 8*GiB - active}; !slices.Equal(got, want) {
+		t.Fatalf("trimmed %v, want %v", got, want)
+	}
+	if trims[0].at != memSettleAfter {
+		t.Errorf("first trim at %s, want once settled for %s", trims[0].at, memSettleAfter)
+	}
+	for i := 1; i < len(trims); i++ {
+		if d := trims[i].at - trims[i-1].at; d < memSettledTrimEvery {
+			t.Errorf("trims %s apart, want at least %s", d, memSettledTrimEvery)
+		}
+	}
+	// All of it beyond the floor and none of what's under it.
+	if x.FileCache != active || x.InactiveFile != 0 {
+		t.Errorf("%s cached, %s of it inactive afterwards, want just the %s active", gib(x.FileCache), gib(x.InactiveFile), gib(active))
+	}
+	for _, tr := range trims {
+		if tr.left < tr.floor || tr.left < active {
+			t.Errorf("trim at %s left %s, under the %s floor and the %s of active pages", tr.at, gib(tr.left), gib(tr.floor), gib(active))
+		}
+	}
+}
+
+// What it trims is only what's beyond the floor, the larger of the active
+// pages and the allowance; and not what isn't worth the compaction.
+func TestMemPolicySettledTrimKeepsTheFloor(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		cache, inactive int64
+		trim            int64 // 0: none; else the cache is left at the floor
+	}{
+		{"more active than the allowance", 3*GiB + GiB/2, GiB * 14 / 10, GiB * 14 / 10}, // floor 2.1
+		{"more allowance than active", 3 * GiB, 5 * GiB / 2, GiB*3 - GiB*57/40},         // floor 1.425, the allowance
+		{"within the floor", 2 * GiB, GiB / 10, 0},
+		{"all active", 8 * GiB, 0, 0},
+		{"too little beyond the floor to be worth it", GiB*21/10 + memTrimMin - 1, memTrimMin - 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, st, x := idleCache()
+			x.FileCache, x.InactiveFile = tc.cache, tc.inactive
+			st.Requested = p.target(*x, 0, st.keep(*x, p, replayBase))
+			trims, _ := replayTrims(t, p, st, x, 0, 12*time.Minute, nil)
+			if tc.trim == 0 {
+				if len(trims) > 0 {
+					t.Errorf("trimmed %+v", trims)
+				}
+				return
+			}
+			if len(trims) != 1 || trims[0].Trim != tc.trim {
+				t.Fatalf("trims %+v, want one of %s", trims, gib(tc.trim))
+			}
+			if floor := max(x.cacheAllowance(), tc.cache-tc.inactive); x.FileCache != floor {
+				t.Errorf("%s cached afterwards, want the %s floor", gib(x.FileCache), gib(floor))
+			}
+		})
+	}
+}
+
+// Never while the guest reads dropped pages again, whatever the rate, nor
+// before memSettleAfter of calm; and not at all when it can't say.
+func TestMemPolicySettledTrimWaitsOutRefaults(t *testing.T) {
+	const refaulting = 30 * time.Minute
+	for _, tc := range []struct {
+		name string
+		rate int64 // bytes a second
+	}{
+		// Under memRefaultHigh, so the floor isn't raised, but past memRefaultLow.
+		{"reading a little again", 2 * memRefaultLow},
+		// The 6 MiB/s measured: the floor rises, and the backoff grows.
+		{"reading a lot again", 6 << 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, st, x := idleCache()
+			trims, _ := replayTrims(t, p, st, x, 0, refaulting, func(time.Duration) int64 { return tc.rate })
+			if len(trims) > 0 {
+				t.Fatalf("trimmed while refaulting at %s/s: %+v", gib(tc.rate), trims)
+			}
+			// Calm again: settled memSettleAfter later, and the floor and the
+			// backoff it left are kept.
+			holdUntil := st.noTrimUntil
+			trims, _ = replayTrims(t, p, st, x, refaulting, 3*time.Hour, nil)
+			if len(trims) == 0 {
+				t.Fatalf("never trimmed again, floor %s, backoff %s", gib(st.floor), st.trimBackoff)
+			}
+			if at := replayBase.Add(trims[0].at); at.Before(holdUntil) {
+				t.Errorf("trimmed at %s, within the backoff that ran to %s", trims[0].at, holdUntil.Sub(replayBase))
+			}
+			if first := trims[0].at - refaulting; first < memSettleAfter {
+				t.Errorf("trimmed %s after the refaults stopped, want %s of calm first", first, memSettleAfter)
+			} else if tc.rate < memRefaultHigh && first > memSettleAfter+time.Minute {
+				t.Errorf("trimmed %s after the refaults stopped, want about %s", first, memSettleAfter)
+			}
+			for _, tr := range trims {
+				if tr.left < tr.floor {
+					t.Errorf("trim at %s left %s, under the %s floor", tr.at, gib(tr.left), gib(tr.floor))
+				}
+			}
+		})
+	}
+
+	t.Run("refaults unreported", func(t *testing.T) {
+		p, st, x := idleCache()
+		x.RefaultsKnown = false
+		if trims, _ := replayTrims(t, p, st, x, 0, time.Hour, nil); len(trims) > 0 {
+			t.Errorf("trimmed with nothing to say it isn't re-read: %+v", trims)
+		}
+	})
+}
+
+// Resizing the VM, up or down, starts the wait over.
+func TestMemPolicySettledTrimWaitsAfterAResize(t *testing.T) {
+	p, st, x := idleCache()
+	p.Cap = 24 * GiB
+	trims, _ := replayTrims(t, p, st, x, 0, 2*time.Minute, nil)
+	if len(trims) > 0 {
+		t.Fatalf("trimmed before it had settled: %+v", trims)
+	}
+	// Two more agents start: 2 GiB more headroom, and the VM grows to it.
+	x.Agents += 2
+	trims, resizes := replayTrims(t, p, st, x, 2*time.Minute, 10*time.Minute, nil)
+	if len(resizes) == 0 {
+		t.Fatal("never resized")
+	}
+	if len(trims) == 0 {
+		t.Fatal("never trimmed")
+	}
+	if first, last := trims[0].at, resizes[len(resizes)-1]; first < last+memSettleAfter {
+		t.Errorf("first trim at %s, after a resize at %s: want %s of calm first", first, last, memSettleAfter)
+	}
+}
+
 // The numbers the freezes were measured with: the guest at 7 GiB, 5 in use
 // and 2 cached, the host fine. Before, the cache beyond 1.25 GiB was trimmed
 // every 2 minutes and the target, 5 + 2 GiB of headroom, left the cache no
 // room but the headroom: the guest refaulted ~400 MiB a minute, all read from
-// the host's NVMe. Now the VM grows to keep its cache and nothing is trimmed.
+// the host's NVMe. Now the VM grows to keep its cache, and a settled trim of
+// pages the build turns out to need is a probe, not a rhythm: here every page
+// trimmed is read again, the worst case. The floor rises past the cache, the
+// VM holds all of it, and the hour reads back a GiB or so, not the 24 it did.
 func TestMemPolicyKeepsTheWorkingSet(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
 	start := time.Now()
@@ -342,12 +557,28 @@ func TestMemPolicyKeepsTheWorkingSet(t *testing.T) {
 	x.HostTotal, x.HostAvailable = 64*GiB, 30*GiB
 	x.RefaultsKnown = true
 	st := memState{Requested: 7 * GiB}
-	var grew int64
+	var grew, trimmed, left, perTick int64
+	var trims int
 	for i := range 7200 { // an hour
 		x.CPUTotal, x.CPUBusy = uint64(i)*100, uint64(i)*60
+		// A trim's pages are read again over the next minute.
+		if n := min(left, perTick); n > 0 {
+			left -= n
+			x.Refaults += uint64(n / pageSize)
+			x.FileCache += n
+			x.InactiveFile += n
+		}
 		d := p.decide(&st, x, start.Add(time.Duration(i)*memTick))
-		if d.Trim > 0 || d.Reclaim || d.Shrink {
-			t.Fatalf("sample %d: %+v, want nothing taken from the cache", i, d)
+		if d.Reclaim || d.Shrink {
+			t.Fatalf("sample %d: %+v, want nothing dropped but the cache beyond the floor", i, d)
+		}
+		if d.Trim > 0 {
+			trims++
+			trimmed += d.Trim
+			left += d.Trim
+			perTick = max(perTick, d.Trim/int64(time.Minute/memTick))
+			x.FileCache -= d.Trim
+			x.InactiveFile -= d.Trim
 		}
 		if d.Target > 0 {
 			grew = d.Target
@@ -355,9 +586,18 @@ func TestMemPolicyKeepsTheWorkingSet(t *testing.T) {
 			x.Total = d.Target
 		}
 	}
-	// 5 in use, 2 cached (its floor is 1.25), and 2 of headroom.
-	if grew != 8*GiB+GiB/2 {
-		t.Errorf("grew to %s, want 8.5 GiB", gib(grew))
+	// 24 GiB an hour is what the timer read. It probes once, and again after
+	// each memFloorCalm that lowers the floor, trimming a few hundred MiB each
+	// time; the target has room for the whole cache (5 in use, 2 cached, 2 of
+	// headroom).
+	if trims == 0 || trims > 4 || trimmed > 2*GiB {
+		t.Errorf("%d trims of %s in an hour, want a few small probes", trims, gib(trimmed))
+	}
+	if grew != 9*GiB {
+		t.Errorf("grew to %s, want 9 GiB: use, the whole cache, and headroom", gib(grew))
+	}
+	if x.FileCache < 2*GiB {
+		t.Errorf("caches %s at the end, want the 2 GiB it reads", gib(x.FileCache))
 	}
 }
 
