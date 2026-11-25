@@ -120,7 +120,10 @@ of your memory by default), and gives it back as they stop. The cap can't go pas
 memory less 4 GiB, or less 6% of it on a computer with more than 66 GiB (a cap set higher by hand
 is lowered to it). While it runs, the VM grows only into what your computer has free beyond the larger
 of 3 GiB and an eighth of its memory, and gives back what it can spare within seconds when your
-computer has less than that free or stalls for memory. When your computer is what keeps the VM
+computer has less than that free or stalls for memory. It also lets go of files its agents read
+once and haven't touched since: after a few minutes without growing or shrinking, up to 2 GiB of
+them every 5 minutes, even when your computer isn't short. It keeps what the agents read again
+and again, and waits while they are reading back files it let go. When your computer is what keeps the VM
 from growing, the top bar's machine status says so, with how much the agents need. The top bar's **Free resources** stops
 every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap (in GiB,
 or as a share of your computer's memory), as does `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
