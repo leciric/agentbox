@@ -719,7 +719,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             <ListTree className={cn('size-4', runningOpen ? 'text-brand-300' : 'text-subtle')} />
             {running > 0 && (
               <span
-                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-micro font-medium leading-none tabular-nums text-white"
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-micro font-medium leading-none tabular-nums text-on-brand"
                 data-running-count={running}
               >
                 {running > 99 ? '99+' : running}

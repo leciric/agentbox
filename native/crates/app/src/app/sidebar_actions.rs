@@ -1500,7 +1500,7 @@ impl AppView {
                                 .text_size(theme::text::MICRO)
                                 .line_height(px(16.))
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(gpui::white())
+                                .text_color(theme::on_brand())
                                 .child(if running > 99 {
                                     "99+".to_string()
                                 } else {
