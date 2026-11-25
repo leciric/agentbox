@@ -3,9 +3,10 @@
 // terminal started is the root of a tree with everything it started, so a dev
 // server is one row, whatever it forked. Each tree the daemon doesn't protect
 // has a Kill, confirmed in place; the AI tool's own and the machine's are
-// shown, locked, so an agent's figures add up. The dialog opens from the top
-// bar's machine popovers (lib/running.ts) on the open project, and each
-// agent's Resources panel shows its own list.
+// shown, locked, so an agent's figures add up. It is a tab of the project's
+// panel (RunningPanel, with its count on the tab: useRunningCount), a dialog
+// the top bar's machine popovers open (lib/running.ts) on the open project,
+// and each agent's Resources panel shows its own list.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, Lock, Skull } from 'lucide-react';
 import { useState } from 'react';
@@ -14,14 +15,16 @@ import type { View } from '../App';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatNumber, useT } from '../lib/i18n';
-import { agentWithoutTree, closeRunning, span, splitTrees, upFor, useRunningRequest, withoutTree } from '../lib/running';
+import { agentWithoutTree, closeRunning, runningCount, span, splitTrees, upFor, useRunningRequest, withoutTree } from '../lib/running';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Tip } from './ui/tooltip';
 
-// refreshEvery is how often an open list is read again.
+// refreshEvery is how often an open list is read again, and countEvery how
+// often the badge on a project's tab is, with no list open.
 const refreshEvery = 4000;
+const countEvery = 30_000;
 
 // RunningDialogHost is the Running dialog wherever the top bar is: it opens
 // when lib/running.ts asks it to.
@@ -44,11 +47,6 @@ export function RunningDialog({
   const t = useT();
   // On the project it opened on, unless the user widens it.
   const [all, setAll] = useState(false);
-  const scope = project && !all ? project : undefined;
-  const key = ['processes', scope ?? ''];
-  const query = useQuery({ queryKey: key, queryFn: () => api.processes(scope), enabled: open, refetchInterval: open ? refreshEvery : false });
-  const agents = query.data?.agents ?? [];
-  const biggest = Math.max(1, ...agents.flatMap((a) => a.trees.map((tr) => tr.memory)));
   return (
     <Dialog
       open={open}
@@ -59,55 +57,101 @@ export function RunningDialog({
     >
       {/* Nothing focused as it opens: its first control is the scope's
           tab, and a ring on it says nothing. Tab still walks it. */}
-      <DialogContent className="max-w-2xl gap-4" data-running-dialog={scope ?? 'all'} onOpenAutoFocus={(event) => event.preventDefault()}>
+      <DialogContent className="max-w-2xl gap-4" data-running-dialog={project && !all ? project : 'all'} onOpenAutoFocus={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{t('running.title')}</DialogTitle>
           <DialogDescription>{t('running.description')}</DialogDescription>
         </DialogHeader>
-        {project && (
-          <div className="flex w-fit items-center gap-0.5 rounded-lg bg-surface-raised p-0.5 text-caption" role="tablist">
-            {[
-              { on: !all, label: t('running.scopeProject'), set: false },
-              { on: all, label: t('running.scopeAll'), set: true },
-            ].map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                role="tab"
-                aria-selected={s.on}
-                className={cn('rounded-md px-2.5 py-1 transition', s.on ? 'bg-surface-strong font-medium text-primary' : 'text-muted hover:text-primary')}
-                onClick={() => setAll(s.set)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {query.isPending ? (
-          <span className="flex items-center gap-2 py-6 text-ui text-muted">
-            <LoaderCircle className="size-4 animate-spin" />
-            {t('running.loading')}
-          </span>
-        ) : query.isError ? (
-          <span className="py-2 text-ui text-rose-300">{errorMessage(query.error)}</span>
-        ) : agents.length === 0 ? (
-          <span className="py-6 text-ui text-muted">{scope ? t('running.noneProject') : t('running.none')}</span>
-        ) : (
-          <div className="grid min-w-0 gap-4">
-            {agents.map((a) => (
-              <section key={a.ref} className="grid min-w-0 gap-1.5" data-running-agent={a.ref}>
-                <AgentHeading agent={a} showProject={!scope} onOpen={() => {
-                    onOpenChange(false);
-                    onSelect({ kind: 'agent', ref: a.ref });
-                  }} />
-                <TreeList agent={a} biggest={biggest} queryKey={key} />
-              </section>
-            ))}
-          </div>
-        )}
-        <p className="text-caption text-subtle">{t('running.note')}</p>
+        <RunningBody
+          project={project}
+          all={all}
+          onAll={setAll}
+          enabled={open}
+          onOpenAgent={(ref) => {
+            onOpenChange(false);
+            onSelect({ kind: 'agent', ref });
+          }}
+        />
       </DialogContent>
     </Dialog>
+  );
+}
+
+// RunningPanel is the Running tab of a project's panel: the same list as the
+// dialog, on the project's agents, or on every project's with a click.
+export function RunningPanel({ project, onSelect }: { project: string; onSelect: (view: View) => void }) {
+  const [all, setAll] = useState(false);
+  return (
+    <div className="grid content-start gap-4" data-running-panel={project && !all ? project : 'all'}>
+      <RunningBody project={project} all={all} onAll={setAll} enabled onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
+    </div>
+  );
+}
+
+// runningKey is the cache key of what a scope's list is read into, which the
+// badge on the project's tab shares with the list itself.
+const runningKey = (scope: string | undefined) => ['processes', scope ?? ''];
+
+// useRunningCount is the count on a project's Running tab: what its agents'
+// machines have running that can be killed (lib/running.ts runningCount). It
+// reads the daemon's list now and then, a read of each machine's /proc and no
+// command inside it, and the open list refreshes it sooner.
+export function useRunningCount(project: string): number {
+  const query = useQuery({ queryKey: runningKey(project), queryFn: () => api.processes(project), refetchInterval: countEvery });
+  return query.data ? runningCount(query.data) : 0;
+}
+
+// RunningBody is the list under the Running view's heading, wherever it shows:
+// the scope's tabs when it has a project, then each agent's trees.
+function RunningBody({ project, all, onAll, enabled, onOpenAgent }: { project?: string; all: boolean; onAll: (all: boolean) => void; enabled: boolean; onOpenAgent: (ref: string) => void }) {
+  const t = useT();
+  const scope = project && !all ? project : undefined;
+  const key = runningKey(scope);
+  const query = useQuery({ queryKey: key, queryFn: () => api.processes(scope), enabled, refetchInterval: enabled ? refreshEvery : false });
+  const agents = query.data?.agents ?? [];
+  const biggest = Math.max(1, ...agents.flatMap((a) => a.trees.map((tr) => tr.memory)));
+  return (
+    <>
+      {project && (
+        <div className="flex w-fit items-center gap-0.5 rounded-lg bg-surface-raised p-0.5 text-caption" role="tablist">
+          {[
+            { on: !all, label: t('running.scopeProject'), set: false },
+            { on: all, label: t('running.scopeAll'), set: true },
+          ].map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              role="tab"
+              aria-selected={s.on}
+              className={cn('rounded-md px-2.5 py-1 transition', s.on ? 'bg-surface-strong font-medium text-primary' : 'text-muted hover:text-primary')}
+              onClick={() => onAll(s.set)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {query.isPending ? (
+        <span className="flex items-center gap-2 py-6 text-ui text-muted">
+          <LoaderCircle className="size-4 animate-spin" />
+          {t('running.loading')}
+        </span>
+      ) : query.isError ? (
+        <span className="py-2 text-ui text-rose-300">{errorMessage(query.error)}</span>
+      ) : agents.length === 0 ? (
+        <span className="py-6 text-ui text-muted">{scope ? t('running.noneProject') : t('running.none')}</span>
+      ) : (
+        <div className="grid min-w-0 gap-4">
+          {agents.map((a) => (
+            <section key={a.ref} className="grid min-w-0 gap-1.5" data-running-agent={a.ref}>
+              <AgentHeading agent={a} showProject={!scope} onOpen={() => onOpenAgent(a.ref)} />
+              <TreeList agent={a} biggest={biggest} queryKey={key} />
+            </section>
+          ))}
+        </div>
+      )}
+      <p className="text-caption text-subtle">{t('running.note')}</p>
+    </>
   );
 }
 

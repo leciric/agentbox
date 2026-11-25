@@ -3,9 +3,10 @@
 // avatars (») and back from the chat header's button (PanelButton) or ⌘D;
 // it never closes. Where the list doesn't fit beside the chat, the strip
 // stays there and the rest opens over the chat as a drawer.
-// Beside the lead's chat its top is a switch of five tabs, Agents (the list),
+// Beside the lead's chat its top is a switch of tabs, Agents (the list),
 // Pull requests (the project's), Files (the repository's tree, the lead's
-// checkout), Evidence and Schedules, the middle ones kept per project
+// checkout), Evidence, Schedules and Running (what its agents' machines still
+// have running, with the count), the middle ones kept per project
 // (LeadSwitch). An agent, or the project's Settings (opened from the panel's
 // header), show in it with ✕ back to where it was; for an agent, the header
 // is, left to right: a back arrow, whose it is (a click opens its chat), and
@@ -18,7 +19,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, MessagesSquare, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Cpu, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, MessagesSquare, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -112,6 +113,7 @@ import { RichBeside } from '../chat/RichBlock';
 import { titleOf } from '../../lib/rich';
 import { IssuesPanel } from '../IssuesPanel';
 import { AgentResources } from './AgentResources';
+import { RunningPanel, useRunningCount } from '../RunningProcesses';
 
 const viewIcon: Record<PanelView, LucideIcon> = {
   desktop: Monitor,
@@ -126,6 +128,7 @@ const viewIcon: Record<PanelView, LucideIcon> = {
   pulls: GitPullRequest,
   issues: CircleDot,
   schedules: AlarmClock,
+  running: Cpu,
   settings: SlidersHorizontal,
 };
 const viewLabel: Record<PanelView, MessageKey> = {
@@ -141,6 +144,7 @@ const viewLabel: Record<PanelView, MessageKey> = {
   pulls: 'panel.view.pulls',
   issues: 'panel.view.issues',
   schedules: 'panel.view.schedules',
+  running: 'panel.view.running',
   settings: 'panel.view.settings',
 };
 
@@ -338,8 +342,9 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   // the schedules are its tabs: no back arrow, title or ✕ for them, the switch instead.
   // Issues, beside it, is named by the switch the same way.
   const pulls = lead && (panel.wide === 'pulls' || panel.wide === 'issues');
-  // Schedules, picked on an agent's switch, keeps the agent's header.
-  const home = lead && !preview && (pulls || (panel.wide === 'schedules' && (!whose || whose.kind === 'lead')) || (!over && (!whose || whose.kind === 'lead')));
+  // Schedules, picked on an agent's switch, keeps the agent's header; Running
+  // is only the lead's tab (an agent's own list is in its Resources).
+  const home = lead && !preview && (pulls || ((panel.wide === 'schedules' || panel.wide === 'running') && (!whose || whose.kind === 'lead')) || (!over && (!whose || whose.kind === 'lead')));
   // An agent's header, or whoever else's the panel shows but the lead's home.
   const switcher = !!whose && !home && !preview;
   const fit = useNamedFit(`${ref}:${view}:${android}:${ios}`);
@@ -477,6 +482,7 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
   const ready = useAgentCounts().of(project).review;
   // Evidence is a tab once the project has some, or while open (lib/agentTabs.ts).
   const hidden = hiddenTabs<PanelView>(['evidence'], { evidence: useHasEvidence(project) } as Record<PanelView, boolean>, tab);
+  const running = useRunningCount(project);
   const dots: Partial<Record<LeadTab, FeatureDotState>> = { issues: useFeatureDot('lead-tab:issues'), schedules: useFeatureDot('lead-tab:schedules') };
   // A new tab's dot goes once it's been open, by a click or from elsewhere.
   const lit = dots[tab];
@@ -495,6 +501,12 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
     files: { icon: FolderTree, label: t('panel.view.files'), on: tab === 'files' && files },
     evidence: { icon: Images, label: t('panel.view.evidence'), on: tab === 'evidence' },
     schedules: { icon: AlarmClock, label: t('panel.view.schedules'), on: tab === 'schedules' },
+    running: {
+      icon: Cpu,
+      label: t('panel.view.running'),
+      on: tab === 'running',
+      tip: [t('panel.view.running'), running > 0 && t('running.countTip', { count: running })].filter(Boolean).join(' · '),
+    },
   };
   return (
     <>
@@ -519,6 +531,11 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
             {named && <span className="truncate">{label}</span>}
             {v === 'agents' && count > 0 && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-micro tabular-nums text-subtle">{count}</span>}
             {v === 'pulls' && open > 0 && (named || !ready) && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-micro tabular-nums text-subtle" data-panel-pulls-open={open}>{open}</span>}
+            {v === 'running' && running > 0 && (
+              <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-micro tabular-nums text-subtle" data-panel-running-count={running}>
+                {running}
+              </span>
+            )}
             {v === 'pulls' && ready > 0 && (
               <span className="shrink-0 rounded-full bg-brand-500/15 px-1.5 text-micro font-medium tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-panel-pulls-ready={ready}>
                 {named ? t('v2.header.ready', { count: ready }) : ready}
@@ -1195,6 +1212,16 @@ function ProjectView({ project, chat, view, section, titled, onSelect }: { proje
         <ViewTitle view={view} after={title} />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-schedules>
           <SchedulesPanel project={project} onSelect={onSelect} />
+        </div>
+      </>
+    );
+  }
+  if (view === 'running') {
+    return (
+      <>
+        <ViewTitle view={view} after={title} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-running>
+          <RunningPanel project={project} onSelect={onSelect} />
         </div>
       </>
     );

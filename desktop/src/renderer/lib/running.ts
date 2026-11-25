@@ -93,3 +93,11 @@ export function agentWithoutTree(a: T.AgentProcesses, pid: number): T.AgentProce
     processes: a.processes - tree.processes,
   };
 }
+
+// runningCount is how many things a list shows that can be killed: the trees
+// worth a row (splitTrees) the daemon doesn't protect, across its agents. It's
+// the badge on the project's Running tab, so it counts what the tab lists
+// above its "small ones", and never the AI tool's own or the machine's.
+export function runningCount(list: T.ProcessList): number {
+  return list.agents.reduce((n, a) => n + (a.running && !a.error ? splitTrees(a.trees).shown.filter((tr) => !tr.protected).length : 0), 0);
+}
