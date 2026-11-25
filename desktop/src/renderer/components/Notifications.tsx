@@ -1,15 +1,22 @@
-import { CircleAlert, MessageCircleQuestion } from 'lucide-react';
+import { CircleAlert, CircleCheck, MessageCircleQuestion } from 'lucide-react';
 import type * as T from '../../shared/api';
 import { noticeVerb } from '../lib/notifications';
 import { useT } from '../lib/i18n';
 import { cn } from '../lib/utils';
 
-// NoticeArt is a notification's picture: a question, or an error.
+// NoticeArt is a notification's picture: a question, an error or failure,
+// or a finish.
 function NoticeArt({ notice }: { notice: T.Notification }) {
-  const error = notice.kind === 'error';
-  const Icon = error ? CircleAlert : MessageCircleQuestion;
+  const error = notice.kind === 'error' || notice.kind === 'failed';
+  const finished = notice.kind === 'finished';
+  const Icon = error ? CircleAlert : finished ? CircleCheck : MessageCircleQuestion;
   return (
-    <span className={cn('flex h-9 w-14 shrink-0 items-center justify-center rounded-md', error ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300')}>
+    <span
+      className={cn(
+        'flex h-9 w-14 shrink-0 items-center justify-center rounded-md',
+        error ? 'bg-rose-400/10 text-rose-300' : finished ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-400/10 text-amber-300',
+      )}
+    >
       <Icon className="size-4" />
     </span>
   );

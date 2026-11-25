@@ -98,7 +98,7 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 		s.wakeSessionOf(r.Context(), a, "asks something")
 		// Put it in front of the lead, and wake it: an agent waits on an answer,
 		// so a question always starts a turn whatever finishNotices says.
-		s.tellLeadAbout(r.Context(), a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
+		s.tellLeadAbout(r.Context(), a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text, Question: q.ID})
 
 		select {
 		case answered := <-ch:
@@ -129,7 +129,7 @@ func (s *Server) askForTest(ctx context.Context, a state.Agent, question, about 
 	}, "")
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 	s.wakeSessionOf(ctx, a, "asks something")
-	s.tellLeadAbout(ctx, a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
+	s.tellLeadAbout(ctx, a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text, Question: q.ID})
 	select {
 	case answered := <-ch:
 		return toAPIQuestion(answered), nil
@@ -284,6 +284,11 @@ func (s *Server) answerAsUser(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.countFeature(api.FeatureQuestionAnswer)
+	if who := shareAuthor(r.Context()); who != nil {
+		// A paired AgentBox answered from its side: the lead that heard the
+		// question would answer it again (sharenotices.go).
+		s.tellAnswered(r.Context(), answered, who)
+	}
 	return writeJSON(w, http.StatusOK, toAPIQuestion(answered))
 }
 
@@ -499,8 +504,10 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 			s.tellLeadAbout(ctx, a, failedNotice(a, headWords(note, 300)), chat.NoticeOptions{Act: s.leadIsWaiting(a)}, failed)
 		case s.leadIsWaiting(a):
 			s.stallTell(ctx, a, failedNotice(a, headWords(note, 300)))
+			s.tellAsker(ctx, a, failed)
 		default:
 			s.tellOwner(ctx, a, failedNotice(a, headWords(note, 300)), false)
+			s.tellAsker(ctx, a, failed)
 		}
 		return
 	case verdictBackground:

@@ -278,6 +278,18 @@ func (s *Store) AddSharePeerAgent(ctx context.Context, peer, project, agent stri
 	return err
 }
 
+// SharePeerOfAgent is the paired AgentBox that asked for one of this
+// machine's agents (AddSharePeerAgent): ErrNotFound when none did.
+func (s *Store) SharePeerOfAgent(ctx context.Context, project, agent string) (string, error) {
+	var peer string
+	err := s.db.QueryRowContext(ctx, `SELECT peer_id FROM share_peer_agents WHERE project = ? AND agent = ? ORDER BY created_at DESC LIMIT 1`,
+		project, agent).Scan(&peer)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return peer, err
+}
+
 // SharePeerAgents are the refs ("project/agent") of the agents a peer made
 // that this machine still has.
 func (s *Store) SharePeerAgents(ctx context.Context, peer string) ([]string, error) {

@@ -691,7 +691,7 @@ func (s *Server) shareEvents(w http.ResponseWriter, r *http.Request, p state.Sha
 				p = now
 			}
 		case ev := <-events:
-			if ev.Type == api.EventLAN || ev.Type == api.EventShare {
+			if ev.Type == api.EventLAN || ev.Type == api.EventShare || !shareNoticeFor(ev.Type, ev.Data, p.ID) {
 				continue
 			}
 			if p.Shares(eventProject(ev.Data)) && send(ev) != nil {

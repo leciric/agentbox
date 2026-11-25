@@ -1276,6 +1276,9 @@ type CreateAgentRequest struct {
 	OriginID      string `json:"-"`
 	OriginName    string `json:"-"`
 	OriginProject string `json:"-"`
+	// OriginSession is the session of that project's chat whose lead asked
+	// for it, which its notices go to there.
+	OriginSession string `json:"-"`
 	// LeadSession is the session of the project's chat that asked for it,
 	// whose notices it goes to: set by the daemon from the lead socket the
 	// request came in on, never sent. "" is Main.
@@ -3720,15 +3723,27 @@ type Notification struct {
 	Text  string     `json:"text,omitempty"`
 	Media *MediaItem `json:"media,omitempty"` // on NotifyMedia
 	// Question is the question's ID, on NotifyQuestion.
-	Question string    `json:"question,omitempty"`
-	At       time.Time `json:"at"`
-	Seen     bool      `json:"seen,omitempty"`
+	Question string `json:"question,omitempty"`
+	// Session is the session of the project's chat whose lead made the
+	// agent and was told the same: opening the notification goes there. Set
+	// on a shared project's notices to the paired AgentBox that asked for
+	// the agent.
+	Session string `json:"session,omitempty"`
+	// PRURL is the pull request a NotifyFinished agent opened, if any.
+	PRURL string    `json:"prUrl,omitempty"`
+	At    time.Time `json:"at"`
+	Seen  bool      `json:"seen,omitempty"`
 }
 
-// The kinds of Notification.
+// The kinds of Notification. NotifyFinished and NotifyFailed reach only the
+// paired AgentBox that asked for an agent in a shared project, which hears
+// what its lead hears (internal/daemon/sharenotices.go); the inbox lists
+// questions alone.
 const (
 	NotifyQuestion = "question"
 	NotifyMedia    = "media"
+	NotifyFinished = "finished"
+	NotifyFailed   = "failed"
 )
 
 // NotificationPage is GET /v1/notifications with ?limit=, and ?cursor= for

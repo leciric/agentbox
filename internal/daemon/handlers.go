@@ -1525,12 +1525,13 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			// Before its task is sent, so that its first notice already
 			// goes back to the lead that asked for it.
 			if err := s.store.AddPeerAgent(ctx, state.PeerAgent{
-				Project: a.Project, Agent: a.Name, OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject, CreatedAt: time.Now(),
+				Project: a.Project, Agent: a.Name, OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject,
+				OriginSession: req.OriginSession, CreatedAt: time.Now(),
 			}); err != nil {
 				s.logf("peers: remembering that %s's lead made %s: %v", req.OriginName, a.Ref(), err)
 			}
 			s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
-				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking,
+				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking, Session: req.OriginSession,
 			})
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor, api.FeatureAgentCreateGemini, api.FeatureAgentCreateCopilot))

@@ -15,12 +15,15 @@ type PeerAgent struct {
 	// OriginID and OriginName are the other machine's environment on the
 	// hub, and OriginProject the project there whose lead made it.
 	OriginID, OriginName, OriginProject string
-	CreatedAt                           time.Time
+	// OriginSession is the session of that project's chat whose lead made
+	// it, which its notices go to there; "" for none known.
+	OriginSession string
+	CreatedAt     time.Time
 }
 
 func (s *Store) AddPeerAgent(ctx context.Context, p PeerAgent) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO peer_agents (project, agent, origin_id, origin_name, origin_project, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, p.Project, p.Agent, p.OriginID, p.OriginName, p.OriginProject, p.CreatedAt.UnixMilli())
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO peer_agents (project, agent, origin_id, origin_name, origin_project, origin_session, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, p.Project, p.Agent, p.OriginID, p.OriginName, p.OriginProject, p.OriginSession, p.CreatedAt.UnixMilli())
 	return err
 }
 
@@ -29,8 +32,8 @@ func (s *Store) AddPeerAgent(ctx context.Context, p PeerAgent) error {
 func (s *Store) PeerAgent(ctx context.Context, project, agent string) (PeerAgent, error) {
 	p := PeerAgent{Project: project, Agent: agent}
 	var created int64
-	err := s.db.QueryRowContext(ctx, `SELECT origin_id, origin_name, origin_project, created_at FROM peer_agents WHERE project = ? AND agent = ?`,
-		project, agent).Scan(&p.OriginID, &p.OriginName, &p.OriginProject, &created)
+	err := s.db.QueryRowContext(ctx, `SELECT origin_id, origin_name, origin_project, origin_session, created_at FROM peer_agents WHERE project = ? AND agent = ?`,
+		project, agent).Scan(&p.OriginID, &p.OriginName, &p.OriginProject, &p.OriginSession, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PeerAgent{}, ErrNotFound
 	}

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { byDay, dayLabel, noticeText, noticeView } from './notifications.ts';
+import { byDay, dayLabel, noticeKind, noticeText, noticeView } from './notifications.ts';
 
 const notice = (n: Partial<T.Notification>): T.Notification =>
   ({ id: 'n1', kind: 'question', project: 'shop', agent: 'agent-3', ref: 'shop/agent-3', at: '2026-10-05T10:00:00Z', seen: false, ...n }) as T.Notification;
@@ -12,6 +12,17 @@ test('an OS notification names the agent, the project and the task', () => {
     title: 'agent-3 asks you',
     body: 'Which payment provider?\nShop · Checkout page',
   });
+});
+
+test('an agent you asked for in a shared project says it finished, with its pull request, or failed', () => {
+  const shared = { project: 'r1~shop', ref: 'r1~shop/agent-3', session: 's2', title: 'Checkout page' };
+  assert.equal(noticeText(notice({ ...shared, kind: 'finished', text: 'Added Stripe' }), 'Shop').title, 'agent-3 finished');
+  assert.equal(noticeText(notice({ ...shared, kind: 'finished', prUrl: 'https://github.com/a/b/pull/7' }), 'Shop').title, 'agent-3 finished, with a pull request');
+  assert.equal(noticeText(notice({ ...shared, kind: 'failed', text: 'out of credit' }), 'Shop').title, 'agent-3 failed');
+  assert.deepEqual(
+    (['question', 'finished', 'failed', 'error'] as const).map((kind) => noticeKind({ kind })),
+    ['question', 'review', 'error', 'error'],
+  );
 });
 
 test('clicking a question goes to the project chat that answers it', () => {

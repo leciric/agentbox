@@ -388,7 +388,9 @@ export function connectEvents(queryClient: QueryClient): void {
           }
           break;
         }
-        if (!n.seen) queryClient.setQueryData<InfiniteData<T.NotificationPage, string>>(questionsKey, (data) => withQuestion(data, n));
+        // The inbox is questions; a finish or failure of an agent you asked
+        // for in a shared project is only a toast.
+        if (!n.seen && n.kind === T.NotifyQuestion) queryClient.setQueryData<InfiniteData<T.NotificationPage, string>>(questionsKey, (data) => withQuestion(data, n));
         for (const fn of notificationListeners) fn(n);
         break;
       }

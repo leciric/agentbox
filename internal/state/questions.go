@@ -144,6 +144,28 @@ func (s *Store) seeQuestionNotice(ctx context.Context, id string) error {
 	return err
 }
 
+// SeeQuestionNotices marks the notifications about a question seen, and
+// says which: one answered on the AgentBox that shares its project, whose
+// notice reached this one, is no longer something its user is asked.
+func (s *Store) SeeQuestionNotices(ctx context.Context, question string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`UPDATE notifications SET seen_at = ? WHERE seen_at = 0 AND kind = 'question' AND json_extract(data, '$.question') = ? RETURNING id`,
+		time.Now().UnixMilli(), question)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // EscalateQuestion passes a question to the user, with why the lead couldn't
 // answer it.
 func (s *Store) EscalateQuestion(ctx context.Context, id, why string) (Question, error) {

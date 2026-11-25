@@ -324,8 +324,21 @@ func (s *Server) remoteEventsOnce(ctx context.Context, c *remoteConn) error {
 			c.mu.Unlock()
 		}
 		data := fromRemote(ev.Data, c)
-		if ev.Type == api.EventHere {
+		switch ev.Type {
+		case api.EventHere:
 			s.remoteHere(c.r.ID, data)
+		case shareNoticeEvent:
+			// A notification for this AgentBox's user (sharenotices.go).
+			s.remoteNoticeIn(ctx, data)
+			continue
+		case api.EventNotification:
+			// The owner's user's, from an owner from before it kept them:
+			// only a media item's unseen mark is this AgentBox's too.
+			if !shareNoticeFor(ev.Type, data, "") {
+				continue
+			}
+		case api.EventQuestion:
+			s.remoteQuestionMoved(ctx, data)
 		}
 		s.events.publish(ev.Type, json.RawMessage(data))
 	}
@@ -563,6 +576,11 @@ func (s *Server) shareProxy(next http.Handler) http.Handler {
 						return
 					}
 					_ = writeJSON(w, http.StatusOK, s.remoteRunOn(r.Context(), c, project))
+					return
+				}
+				// A question one of this computer's agents asked, which the
+				// owner's lead made for this AgentBox (sharenotices.go).
+				if m[1] == "projects" && s.answerGuestQuestion(w, r, id, project, m[3]) {
 					return
 				}
 				s.proxyRemote(w, r, id, "/v1/"+m[1]+"/"+project+m[3], nil)

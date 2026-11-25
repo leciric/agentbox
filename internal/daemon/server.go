@@ -1408,7 +1408,7 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusServiceUnavailable
 	case isDiskFull(err):
 		status = http.StatusInsufficientStorage
-	case errors.As(err, new(shareRefused)), errors.As(err, new(shareNoAgents)):
+	case errors.As(err, new(shareRefused)), errors.As(err, new(shareNoAgents)), errors.As(err, new(shareOnlyLooks)):
 		status = http.StatusForbidden
 	case errors.As(err, new(shareSlotsFull)):
 		status = http.StatusConflict
