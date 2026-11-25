@@ -2250,6 +2250,10 @@ pub struct Notification {
     pub media: Option<MediaItem>,
     #[serde(skip_serializing_if = "is_empty")]
     pub question: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
+    #[serde(rename = "prUrl", skip_serializing_if = "is_empty")]
+    pub pr_url: String,
     pub at: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub seen: bool,
@@ -7575,6 +7579,8 @@ pub const EVENT_NOTIFICATION: &str = "notification";
 pub const EVENT_NOTIFICATIONS_SEEN: &str = "notification.seen";
 pub const NOTIFY_QUESTION: &str = "question";
 pub const NOTIFY_MEDIA: &str = "media";
+pub const NOTIFY_FINISHED: &str = "finished";
+pub const NOTIFY_FAILED: &str = "failed";
 pub const EVENT_PULLS: &str = "pulls";
 pub const EVENT_REMOTE_AGENTS: &str = "remote-agents";
 pub const EVENT_THEME: &str = "theme";
