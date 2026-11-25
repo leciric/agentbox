@@ -205,14 +205,24 @@ export function Composer({
     // The rail and the sidebar show it working now too; the session's own
     // state replaces this as it arrives, or a send that failed reads it again.
     const project = agent.ref.split('/')[0];
+    const was = {
+      agent: queryClient.getQueryData<T.Agent[]>(['agents'])?.find((a) => a.ref === agent.ref)?.chat,
+      chat: queryClient.getQueryData<T.ProjectChat>(['projectChat', project])?.chat,
+    };
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat !== 'running' ? { ...a, chat: 'running' } : a)));
     queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref ? { ...info, chat: 'running' } : info));
     const runOn = sharedBy ? { runOn: sentRunOn(chosenRunOn, runOnInfo.data?.here) } : undefined;
     void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () =>
       api.sendChat(agent.ref, text, images, files, runOn).then((item) => keptAway(queryClient, item)),
     ).then((sent) => {
-      // Kept for a shared project's owner that is away, it starts nothing yet.
       if (sent && sent.delivery !== ChatAsideAway) return;
+      // Kept for a shared project's owner that is away, it starts nothing
+      // yet: back to what they said, which the owner can't be asked now.
+      if (sent) {
+        queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat === 'running' && was.agent ? { ...a, chat: was.agent } : a)));
+        queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref && info.chat === 'running' && was.chat ? { ...info, chat: was.chat } : info));
+        return;
+      }
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       void queryClient.invalidateQueries({ queryKey: ['projectChat', project] });
     });
