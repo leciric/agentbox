@@ -26,6 +26,46 @@ pub(super) const FILTER_ST: &str = "v2.filters.st";
 pub(super) const FILTER_PROJECTS: &str = "v2.filters.projects";
 const HIDDEN_OPEN: &str = "v2.hiddenOpen";
 pub(super) const DRAFTS: &str = "drafts";
+const WHERE: &str = "sidebar.where";
+
+/// Where is which projects the sidebar lists (SidebarV2.tsx's WhereFilter):
+/// every one, only this AgentBox's, or only those other AgentBoxes share
+/// with it (Project.remote).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Where {
+    All,
+    Local,
+    Remote,
+}
+
+impl Where {
+    const ALL: [Where; 3] = [Where::All, Where::Local, Where::Remote];
+
+    fn key(self) -> &'static str {
+        match self {
+            Where::All => "all",
+            Where::Local => "local",
+            Where::Remote => "remote",
+        }
+    }
+
+    fn kept() -> Self {
+        match crate::prefs::get(WHERE).as_ref().and_then(|v| v.as_str()) {
+            Some("local") => Where::Local,
+            Some("remote") => Where::Remote,
+            _ => Where::All,
+        }
+    }
+
+    /// keeps is whether a project is listed.
+    pub(super) fn keeps(self, p: &Project) -> bool {
+        match self {
+            Where::All => true,
+            Where::Local => p.remote.is_none(),
+            Where::Remote => p.remote.is_some(),
+        }
+    }
+}
 
 /// The states the filter offers, in the order they read (leadFirst.ts liveOrder).
 pub(super) const STATES: [(&str, &str); 4] = [
@@ -92,6 +132,8 @@ pub struct Sidebar {
     pub(super) search: Entity<InputState>,
     idle_open: bool,
     hidden_open: bool,
+    /// Which projects it lists: all, this AgentBox's, or the shared ones.
+    pub(super) where_: Where,
     /// The pinned projects, in the user's order: this computer's, as the
     /// Electron app keeps them in localStorage (v2Projects.ts).
     pub(super) pins: Vec<String>,
@@ -181,6 +223,7 @@ impl Sidebar {
             search,
             idle_open: false,
             hidden_open: crate::prefs::get_bool(HIDDEN_OPEN, false),
+            where_: Where::kept(),
             pins: strings(PINS),
             st: strings(FILTER_ST),
             only: strings(FILTER_PROJECTS),
@@ -514,11 +557,16 @@ impl AppView {
     pub(super) fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let query = self.side.search.read(cx).value().trim().to_string();
         let filtering = !query.is_empty() || !self.side.st.is_empty() || !self.side.only.is_empty();
-        let shown: Vec<&Project> = self
+        // This AgentBox's projects go in the lists below; those another
+        // AgentBox shares with it in a Remote list of their own, after them,
+        // with the switch to show only one or the other.
+        let where_ = self.side.where_;
+        let (remote, shown): (Vec<&Project>, Vec<&Project>) = self
             .projects
             .iter()
-            .filter(|p| self.matches(p, &query) && self.passes(p))
-            .collect();
+            .filter(|p| self.matches(p, &query) && self.passes(p) && where_.keeps(p))
+            .partition(|p| p.remote.is_some());
+        let switch = where_ != Where::All || self.projects.iter().any(|p| p.remote.is_some());
         let hidden = &self.side.hidden;
         // The pins first, in the user's order; a pin is never hidden.
         let pinned: Vec<&Project> = self
@@ -593,7 +641,9 @@ impl AppView {
             rest.is_empty() && pinned.is_empty() && sections.iter().all(|(_, ps)| ps.is_empty());
         let idle_open = self.side.idle_open || nothing_else || !query.is_empty();
         let hidden_open = self.side.hidden_open || !query.is_empty();
-        let nothing = !self.projects.is_empty() && shown.is_empty();
+        let nothing = !self.projects.is_empty() && shown.is_empty() && remote.is_empty();
+        let mut remote = remote;
+        remote.sort_by(|a, b| by_name(a, b));
         let list_state = projects_load::shown(&self.projects_load, !self.projects.is_empty());
         let load_error = match &list_state {
             projects_load::Shown::Error(e) => Some(e.clone()),
@@ -654,6 +704,7 @@ impl AppView {
                             .child(self.home_row(cx))
                             .children(self.office_row(cx))
                             .child(self.filter_bar(cx))
+                            .when(switch, |el| el.child(self.where_switch(cx)))
                             .when(list_state == projects_load::Shown::Starting, |el| {
                                 el.child(
                                     div()
@@ -743,6 +794,23 @@ impl AppView {
                                 rest.into_iter()
                                     .map(|p| self.project_row(p, Place::Rest, cx)),
                             )
+                            .when(!remote.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .id("head-remote")
+                                        .h_7()
+                                        .px(px(10.))
+                                        .pt_2()
+                                        .text_size(theme::text::CAPTION)
+                                        .text_color(theme::muted())
+                                        .child(t("shell.sidebar.remote")),
+                                )
+                                .children(
+                                    remote
+                                        .into_iter()
+                                        .map(|p| self.project_row(p, Place::Rest, cx)),
+                                )
+                            })
                             .when(!idle.is_empty(), |el| {
                                 let n = idle.len();
                                 el.child(self.dock(
@@ -801,6 +869,49 @@ impl AppView {
                     ),
             )
             .child(self.sidebar_foot(cx))
+    }
+
+    /// where_switch shows every project, only this AgentBox's, or only those
+    /// other AgentBoxes share with it (WhereFilter), kept on this computer.
+    fn where_switch(&self, cx: &mut Context<Self>) -> AnyElement {
+        let now = self.side.where_;
+        h_flex()
+            .id("sidebar-where")
+            .mx_1()
+            .mt_1p5()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded_lg()
+            .bg(theme::surface())
+            .children(Where::ALL.into_iter().map(|w| {
+                let on = w == now;
+                div()
+                    .id(SharedString::from(format!("where-{}", w.key())))
+                    .flex_1()
+                    .flex()
+                    .justify_center()
+                    .rounded_md()
+                    .px_2()
+                    .py(px(2.))
+                    .text_size(theme::text::CAPTION)
+                    .cursor_pointer()
+                    .when(on, |el| {
+                        el.bg(theme::surface_raised())
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::title())
+                    })
+                    .when(!on, |el| {
+                        el.text_color(theme::subtle())
+                            .hover(|s| s.text_color(theme::secondary()))
+                    })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.side.where_ = w;
+                        crate::prefs::set(WHERE, serde_json::Value::from(w.key()));
+                        cx.notify();
+                    }))
+                    .child(t(&format!("shell.sidebar.{}", w.key())))
+            }))
+            .into_any_element()
     }
 
     /// review_all is "Review N": the Work page on what waits, every project's.
@@ -1189,6 +1300,33 @@ impl AppView {
                                     .text_color(theme::title())
                                     .child(display.clone()),
                             )
+                            // Shared by another AgentBox: whose it is.
+                            .when_some(p.remote.as_ref(), |el, r| {
+                                let owner = tv(
+                                    "shell.sidebar.remoteOwner",
+                                    &[("owner", (&r.owner).into())],
+                                );
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .max_w(px(110.))
+                                        .truncate()
+                                        .text_size(theme::text::MICRO)
+                                        .text_color(theme::subtle())
+                                        .child(owner),
+                                )
+                            })
+                            // Who else is in it now (here.rs). The open
+                            // project's row makes room for its buttons
+                            // instead: the header beside it shows them.
+                            .when(!selected, |el| {
+                                el.children(crate::people::avatars(
+                                    SharedString::from(format!("people-{}", p.name)),
+                                    self.people_in(&p.name),
+                                    2,
+                                    16.,
+                                ))
+                            })
                             .when(lead_running, |el| {
                                 el.child(div().flex_none().child(crate::motion::spin(
                                     crate::icons::ic("loader-circle").size(px(12.)).text_color(

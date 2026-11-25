@@ -455,6 +455,28 @@ pub fn on_bright() -> Hsla {
     c(worn().on_bright)
 }
 
+/// SESSION_HUES are the colours a session, or a person of a shared project,
+/// can have (state.SessionColors, lib/sessions.ts SESSION_COLORS).
+pub const SESSION_HUES: [&str; 5] = ["rose", "sky", "mint", "lilac", "peach"];
+
+/// session_hue is one of SESSION_HUES as styles.css's --ab-session-* paints
+/// it: deeper in the light look, softer in the dark ones.
+pub fn session_hue(name: &str) -> Hsla {
+    let light = look() == Look::Light;
+    c(match (name, light) {
+        ("rose", false) => 0xd58a9cff,
+        ("rose", true) => 0xcc7189ff,
+        ("sky", false) => 0x7fb0d9ff,
+        ("sky", true) => 0x5b97cbff,
+        ("mint", false) => 0x84c4a0ff,
+        ("mint", true) => 0x50a47bff,
+        ("lilac", false) => 0xb7a0dcff,
+        ("lilac", true) => 0x9a7ccbff,
+        (_, false) => 0xdcaa86ff,
+        (_, true) => 0xcf8c58ff,
+    })
+}
+
 /// hex is a colour as #rrggbb, for what takes colours as strings (an SVG).
 pub fn hex(color: Hsla) -> String {
     let c = color.to_rgb();

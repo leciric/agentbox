@@ -20,6 +20,7 @@ pub(crate) mod agent_status;
 mod connection;
 pub(crate) mod controls;
 mod foot;
+mod here;
 mod home_status;
 mod issues;
 mod kept;
@@ -83,6 +84,10 @@ pub struct AppView {
     fleet: Vec<FleetAgent>,
     /// The fleets of the projects not shown, as last read (kept.rs).
     kept_fleets: kept::Kept<Vec<FleetAgent>>,
+    /// The agents each project's lead runs on other computers, as their
+    /// notices last described them (Fleet.remote): the panel's "On other
+    /// computers".
+    remote_agents: std::collections::HashMap<String, Vec<agentbox_api::RemoteAgent>>,
     fleet_error: Option<SharedString>,
     /// The Settings page's banner for a field it could not save; the projects
     /// read has its own state in `projects_load`.
@@ -136,6 +141,8 @@ pub struct AppView {
     home_status: home_status::HomeStatus,
     /// The window's presence lease (presence.rs).
     presence: presence::Presence,
+    /// Who is in the shared projects, and what this window has open (here.rs).
+    here: here::Here,
     /// The panel's widths, and its drawer (width.rs).
     widths: width::Widths,
     side: sidebar::Sidebar,
@@ -230,6 +237,7 @@ impl AppView {
             project: None,
             fleet: Vec::new(),
             kept_fleets: Default::default(),
+            remote_agents: Default::default(),
             fleet_error: None,
             error: None,
             projects_load: Default::default(),
@@ -259,6 +267,7 @@ impl AppView {
             running: Default::default(),
             home_status: Default::default(),
             presence: Default::default(),
+            here: Default::default(),
             widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
@@ -339,6 +348,8 @@ impl AppView {
                 self.load_settings_page(cx);
             }
             self.load_projects(window, cx);
+            self.here.forget();
+            self.load_here(cx);
             self.reload_review(cx);
             let names: Vec<String> = self.sessions.lists.keys().cloned().collect();
             for p in names {
@@ -525,6 +536,30 @@ impl AppView {
                     self.load_questions(p.to_string(), cx);
                 }
             }
+            agentbox_api::EVENT_HERE => {
+                if let Ok(ph) = serde_json::from_value::<agentbox_api::ProjectHere>(ev.data) {
+                    self.here.apply(ph);
+                    cx.notify();
+                }
+            }
+            // Another AgentBox paired, unpaired or was given projects, or one
+            // this one paired with came or went; or a paired one did
+            // something here (Settings → Share).
+            agentbox_api::EVENT_SHARE | agentbox_api::EVENT_LAN => self.on_share_event(None, cx),
+            agentbox_api::EVENT_SHARE_ACTIVITY => {
+                let peer = serde_json::from_value::<agentbox_api::ShareActivityEvent>(ev.data)
+                    .map(|e| e.peer)
+                    .ok();
+                self.on_share_event(peer, cx)
+            }
+            // The agents the lead runs on other computers (the fleet's remote).
+            agentbox_api::EVENT_REMOTE_AGENTS => {
+                if let Ok(c) = serde_json::from_value::<agentbox_api::RemoteAgentsChange>(ev.data)
+                    && self.project.as_deref() == Some(c.project.as_str())
+                {
+                    self.load_fleet(window, cx);
+                }
+            }
             agentbox_api::EVENT_TODO => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
                     self.on_todo_event(p, cx);
@@ -695,6 +730,14 @@ impl AppView {
             this.update_in(cx, |this, window, cx| {
                 match res {
                     Ok(f) => {
+                        // The agents its lead runs on other computers (a
+                        // paired AgentBox's, or the hub account's): kept by
+                        // project, so a project's next visit shows them too.
+                        if f.remote.is_empty() {
+                            this.remote_agents.remove(&project);
+                        } else {
+                            this.remote_agents.insert(project.clone(), f.remote);
+                        }
                         // A project no longer shown keeps what was read for its
                         // next visit, and never lands over the one that is.
                         let Some(agents) =
@@ -866,6 +909,35 @@ impl AppView {
                 cx.notify();
             });
         }
+    }
+
+    /// sync_chat_people hands the open chat who else is in its project
+    /// (here.rs), and, in a project another AgentBox shares with this one,
+    /// its owner, for the chip that says where the lead's agents run.
+    fn sync_chat_people(&mut self, cx: &mut Context<Self>) {
+        let Some(chat) = self.chat.clone() else {
+            return;
+        };
+        let (owner, people) = {
+            let c = chat.read(cx);
+            let project = c.agent.split_once('/').map_or("", |(p, _)| p);
+            let owner = self
+                .projects
+                .iter()
+                .find(|p| p.name == project)
+                .and_then(|p| p.remote.as_ref())
+                .map(|r| r.owner.clone());
+            let people = self.people_in(project);
+            if c.shared_by == owner && c.people.as_slice() == people {
+                return;
+            }
+            (owner, people.to_vec())
+        };
+        chat.update(cx, |c, cx| {
+            c.shared_by = owner;
+            c.people = people;
+            cx.notify();
+        });
     }
 
     /// sync_chat_review hands a project's lead chat how many of its agents
@@ -1404,9 +1476,14 @@ impl Render for AppView {
         agent::modal_frame(window, cx);
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
+        self.sync_chat_people(cx);
         self.sync_chat_requests(window, cx);
         self.pulls_gone();
         self.presence_check(window, cx);
+        self.here_check(window, cx);
+        if self.settings {
+            self.share_sync(window, cx);
+        }
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         controls::set_scale(window.scale_factor());

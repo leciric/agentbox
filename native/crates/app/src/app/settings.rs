@@ -23,6 +23,7 @@ mod phone;
 mod project;
 mod sent;
 mod setup;
+mod share;
 mod skills;
 mod tokens;
 mod transfer;
@@ -77,6 +78,9 @@ const MORE_FIELDS: &[(&str, &str, bool)] = &[
     ),
     ("transfer-import-pass", "transfer.passphrase.label", true),
     ("tunnel-hostname", "chat.example.com", false),
+    ("share-name", "peers.namePlaceholder", false),
+    ("share-slots", "0", false),
+    ("share-link", "peers.linkPlaceholder", false),
     ("tunnel-token", "eyJhIjoi…", true),
     (apps::NAME, "settings.apps.wizard.namePlaceholder", false),
     ("project-name", "", false),
@@ -112,6 +116,8 @@ pub struct SettingsPage {
     tokens: tokens::Tokens,
     transfer: transfer::Transfer,
     phone: phone::Phone,
+    /// Settings → Share's paired AgentBoxes (share.rs).
+    share: share::Share,
     apps: apps::Apps,
     project: project::ProjectPage,
     /// skill_draft is the SKILL.md being written or edited.
@@ -181,6 +187,11 @@ impl SettingsPage {
                         cx.notify()
                     }
                     InputEvent::Change if more => cx.notify(),
+                    // Settings → Share's name and default slots save as
+                    // they're left (share.rs).
+                    InputEvent::Blur if name == "share-name" || name == "share-slots" => {
+                        this.share_commit(name, cx)
+                    }
                     InputEvent::PressEnter { .. } if more => this.more_enter(name, window, cx),
                     InputEvent::PressEnter { .. } if number => this.commit_field(name, window, cx),
                     InputEvent::Blur if number && !name.ends_with("model-name") => {
@@ -213,6 +224,7 @@ impl SettingsPage {
             tokens: Default::default(),
             transfer: Default::default(),
             phone: Default::default(),
+            share: Default::default(),
             apps: Default::default(),
             project: Default::default(),
             skill_draft: cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
@@ -876,7 +888,13 @@ impl AppView {
             // Notifications are the app's own (lib/notifyPrefs.ts): kept here,
             // given once this app notifies.
             section("notifications", None, self.notify_groups()),
-            section("phone", None, self.phone_groups()),
+            // Phones, then the AgentBoxes this one shares projects with
+            // (SettingsView.tsx: [...phoneGroups(), ...shareGroups()]).
+            section("phone", None, {
+                let mut groups = self.phone_groups();
+                groups.extend(self.share_groups());
+                groups
+            }),
             section("apps", None, self.apps_groups()),
             section("experimental", None, experimental),
             section("accounts", ai, self.accounts_groups()),
@@ -913,7 +931,20 @@ impl AppView {
     /// group's, the setting's id, label and keywords).
     pub(super) fn palette_settings(&self, cx: &App) -> Vec<PaletteSetting> {
         let mut out = Vec::new();
-        for s in self.settings_sections(cx).into_iter().filter(|s| !s.later) {
+        // A project another AgentBox shares keeps its settings there
+        // (paletteCommands.tsx).
+        let remote = |id: &str| {
+            id.strip_prefix("project:").is_some_and(|n| {
+                self.projects
+                    .iter()
+                    .any(|p| p.name == n && p.remote.is_some())
+            })
+        };
+        for s in self
+            .settings_sections(cx)
+            .into_iter()
+            .filter(|s| !s.later && !remote(&s.id))
+        {
             for g in &s.groups {
                 for e in &g.entries {
                     out.push(PaletteSetting {
@@ -1841,7 +1872,10 @@ impl AppView {
             "diagnostics" => self.load_diagnostics(cx),
             "setup" => self.load_setup(cx),
             "transfer" => self.load_transfer_preview(cx),
-            "phone" => self.load_lan(cx),
+            "phone" => {
+                self.load_lan(cx);
+                self.load_share(cx);
+            }
             "apps" => self.load_apps(cx),
             _ => {}
         }
@@ -1854,6 +1888,8 @@ impl AppView {
             n if n.starts_with("connector-") => self.add_connector(cx),
             "transfer-import-path" | "transfer-import-pass" => self.inspect_import(cx),
             "tunnel-hostname" | "tunnel-token" => self.save_tunnel(cx),
+            "share-name" | "share-slots" => self.share_commit(name, cx),
+            "share-link" => self.join_share(window, cx),
             apps::NAME => self.apps_pair(cx),
             "project-name" | "project-prefix" | "secret-name" | "secret-value" => {
                 if let Some(p) = self.open_project_name() {
@@ -1874,6 +1910,7 @@ impl AppView {
             .or_else(|| self.setup_entry(e, cx))
             .or_else(|| self.transfer_entry(e, cx))
             .or_else(|| self.phone_entry(e, cx))
+            .or_else(|| self.share_entry(e, cx))
             .or_else(|| self.apps_entry(e, cx))
             .or_else(|| self.project_entry(e, cx))
         {

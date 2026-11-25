@@ -22,6 +22,7 @@ mod find;
 mod items;
 pub mod requests;
 pub mod rows;
+mod run_on;
 mod select;
 mod stream;
 
@@ -194,6 +195,17 @@ pub struct ChatView {
     /// A project's lead: how many of its agents wait for review, the banner
     /// over its composer (ReviewCount's banner).
     pub review_count: usize,
+    /// A project another AgentBox shares with this one: its owner's name
+    /// (Project.remote.owner), handed in by the app, for the chip beside To:
+    /// that says where the agents its lead makes for you run.
+    pub shared_by: Option<String>,
+    /// Who else is in its project now (app/here.rs), for the line over the
+    /// composer: who is typing here and where everyone else is.
+    pub people: Vec<agentbox_api::PersonHere>,
+    /// Whether this computer can take those agents, and why not (GET
+    /// /v1/projects/<p>/run-on), and when it was last asked.
+    pub(crate) run_on: Option<agentbox_api::ShareRunOn>,
+    pub(crate) run_on_asked: Option<Instant>,
     /// The timeline's row width at the last paint, for a user bubble's
     /// one-line test (render_user).
     row_width: std::rc::Rc<std::cell::Cell<f32>>,
@@ -353,6 +365,10 @@ impl ChatView {
             agent_name: String::new(),
             asleep: None,
             review_count: 0,
+            shared_by: None,
+            people: Vec::new(),
+            run_on: None,
+            run_on_asked: None,
             review_card: None,
             requests: None,
             media_kinds: Default::default(),
