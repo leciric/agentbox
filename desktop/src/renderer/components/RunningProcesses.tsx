@@ -3,9 +3,10 @@
 // terminal started is the root of a tree with everything it started, so a dev
 // server is one row, whatever it forked. Each tree the daemon doesn't protect
 // has a Kill, confirmed in place; the AI tool's own and the machine's are
-// shown, locked, so an agent's figures add up. The dialog opens from the top
-// bar's machine popovers (lib/running.ts) on the open project, and each
-// agent's Resources panel shows its own list.
+// shown, locked, so an agent's figures add up. The dialog opens from the
+// sidebar's Running button, with its count (useRunningCount), and from the top
+// bar's machine popovers (lib/running.ts), on the open project; each agent's
+// Resources panel shows its own list.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, Lock, Skull } from 'lucide-react';
 import { useState } from 'react';
@@ -14,14 +15,27 @@ import type { View } from '../App';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatNumber, useT } from '../lib/i18n';
-import { agentWithoutTree, closeRunning, span, splitTrees, upFor, useRunningRequest, withoutTree } from '../lib/running';
+import { agentWithoutTree, closeRunning, runningCount, span, splitTrees, upFor, useRunningRequest, withoutTree } from '../lib/running';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Tip } from './ui/tooltip';
 
-// refreshEvery is how often an open list is read again.
+// refreshEvery is how often an open list is read again, and countEvery how
+// often the sidebar's count is, with no list open.
 const refreshEvery = 4000;
+const countEvery = 30_000;
+
+// useRunningCount is the count on the sidebar's Running button: what the
+// agents' machines have running that can be killed (lib/running.ts
+// runningCount), on a project's agents or, with none, on every project's, as
+// the dialog opens. It reads the daemon's list now and then, a read of each
+// machine's /proc and no command inside it, into the key the open dialog
+// refreshes sooner.
+export function useRunningCount(project?: string): number {
+  const query = useQuery({ queryKey: ['processes', project ?? ''], queryFn: () => api.processes(project), refetchInterval: countEvery });
+  return query.data ? runningCount(query.data) : 0;
+}
 
 // RunningDialogHost is the Running dialog wherever the top bar is: it opens
 // when lib/running.ts asks it to.

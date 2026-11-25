@@ -68,8 +68,10 @@ time is part of the tools' time. Timings are kept for 30 days and go when their 
 
 An agent can leave a dev server, a watcher or a database running after it's done with it, and those
 hold memory until something stops them. The app's **Running** view lists what each agent's machine
-still runs. Open it from the top bar: click the machine's status, or the memory meter in the
-detailed top bar, then **What's running**. Each agent's **Resources** panel shows its own list.
+still runs. Open it from the **Running** button at the foot of the sidebar, whose badge counts what
+you can kill, or from the top bar: click the machine's status, or the memory meter in the detailed
+top bar, then **What's running**. It opens on the project you're in, with a switch to every
+project's. Each agent's **Resources** panel shows its own list.
 
 - Processes are grouped in trees. A dev server and everything it started count as one tree, shown
   by the command that started it (for a Claude Code Bash tool, the command, not its shell).

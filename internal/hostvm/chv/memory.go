@@ -443,8 +443,7 @@ type memState struct {
 	// Wanted is what the VM would grow to now if the host could spare it,
 	// when the host's memory is what holds it back (its ceiling, its
 	// pressure, or less than it keeps available), by the last sample; 0
-	// otherwise. The app says so: the user's computer is the limit, not the
-	// VM's cap.
+	// otherwise.
 	Wanted int64
 }
 

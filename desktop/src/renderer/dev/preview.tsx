@@ -156,7 +156,6 @@
 //   ?conn=connecting|disconnected
 //                           the connection to the daemon (default: connected)
 //   ?mem=tight              with ?power: the VM's memory, or the host's, past 85%
-//   ?mem=host               with ?power: the host's memory holds the VM back from growing
 //   ?claude=near            with ?power: the Claude account's 5-hour window at 92%
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
@@ -185,7 +184,9 @@
 //                           dev/running.ts, agent-99 with a forgotten `nest start
 //                           --watch`; =all on every project. Kill answers as the
 //                           daemon would. With &app=agent-99&panel=resources:agent-99,
-//                           (=agent) the agent's own list in its Resources panel
+//                           (=agent) the agent's own list in its Resources panel;
+//                           =agent with &app=project is the page with no dialog
+//                           open, the sidebar's Running button showing its count
 //   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
@@ -1016,7 +1017,7 @@ if (meters) {
 }
 
 if (settingsPage || appView) settingsBridge();
-if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near', hostLimited: params.get('mem') === 'host' });
+if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
 // Settings → Storage and machine shows what AgentBox takes on disk.
 if (params.get('settings') === 'resources' && !power && !meters) seedMeterUsage(queryClient);

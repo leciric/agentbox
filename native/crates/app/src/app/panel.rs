@@ -624,6 +624,9 @@ impl AppView {
         if self.panel.recording.as_ref().is_some_and(|r| r.recording) {
             cx.notify();
         }
+        // The sidebar's Running count, on any page: every half minute, and
+        // as soon as there is a project (or Home) with no list yet.
+        self.read_running_count(n.is_multiple_of(30), cx);
         if self.is_home() || self.project.is_none() {
             return;
         }

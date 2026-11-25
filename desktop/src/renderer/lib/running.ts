@@ -4,8 +4,9 @@ import type * as T from '../../shared/api';
 // The Running view (components/RunningProcesses.tsx): what each agent's
 // machine still has running, as the daemon groups it in trees (a dev server
 // with what it started is one), with a Kill on each the daemon doesn't
-// protect. It opens from the top bar's machine popovers, on whichever project
-// was open, and each agent's Resources panel shows its own.
+// protect. It opens from the sidebar's Running button and the top bar's
+// machine popovers, on whichever project was open, and each agent's Resources
+// panel shows its own.
 
 type Request = { open: boolean; project?: string };
 
@@ -92,4 +93,12 @@ export function agentWithoutTree(a: T.AgentProcesses, pid: number): T.AgentProce
     cpu: a.cpu - tree.cpu,
     processes: a.processes - tree.processes,
   };
+}
+
+// runningCount is how many things a list shows that can be killed: the trees
+// worth a row (splitTrees) the daemon doesn't protect, across its agents. It's
+// the badge on the project's Running tab, so it counts what the tab lists
+// above its "small ones", and never the AI tool's own or the machine's.
+export function runningCount(list: T.ProcessList): number {
+  return list.agents.reduce((n, a) => n + (a.running && !a.error ? splitTrees(a.trees).shown.filter((tr) => !tr.protected).length : 0), 0);
 }
