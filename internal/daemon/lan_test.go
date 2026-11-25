@@ -466,6 +466,11 @@ func TestLANRoute(t *testing.T) {
 		{"GET", "/v1/agents/p/a/media", "read"},
 		{"GET", "/v1/media/m1/file", "read"},
 		{"HEAD", "/v1/projects", "read"},
+		// Who else is in a shared project is read; saying what a phone has
+		// open is not.
+		{"GET", "/v1/here", "read"},
+		{"PUT", "/v1/here", ""},
+		{"DELETE", "/v1/here/c1", ""},
 		// The Home chat is a project named _home, sessions too.
 		{"GET", "/v1/projects/_home/sessions", "read"},
 		{"GET", "/v1/projects/_home/sessions/s/chat", "read"},

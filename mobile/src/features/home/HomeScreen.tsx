@@ -22,6 +22,7 @@ import { AgentMonitor, LeadAvatar, PrChip, ProjectIcon } from '../../ui/icons.ts
 import { Note, StatusLine, useTopInset } from '../../ui/parts.tsx';
 import { colors } from '../../ui/theme.ts';
 import { monitorScreen, moodSt } from '../../shared/monitor.ts';
+import { Avatars, usePeopleIn } from '../people/People.tsx';
 import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
 import { peekThread } from '../threads/useThread.ts';
@@ -172,6 +173,7 @@ function ProjectSection({
   const t = useT();
   const router = useRouter();
   const leadRef = lead?.started ? lead.ref : undefined;
+  const people = usePeopleIn(p.name);
   const own = agents
     .filter((a) => a.project === p.name)
     .map((a) => ({ a, status: safeStatus(a, threadOf(a.ref)) }))
@@ -196,6 +198,8 @@ function ProjectSection({
         icon={<LeadAvatar mood={leadMood(lead?.chat, waiting > 0)} />}
         title={t('web.phone.projectChat')}
         status={leadStatus(lead?.chat, threadOf(leadRef))}
+        // Who else is in it now, from another AgentBox sharing the project.
+        extra={<Avatars people={people} size="xs" max={2} />}
         badge={waiting > 0 ? t('mobile.home.questions', { count: waiting }) : undefined}
         onPress={() => router.push(chatPath(p.name))}
       />

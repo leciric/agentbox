@@ -86,6 +86,9 @@ export const api = {
   settings: () => call<unknown>('GET', '/v1/settings').then(P.settings),
   projects: () => call<unknown>('GET', '/v1/projects').then(P.projects),
   agents: () => call<unknown>('GET', '/v1/agents').then(P.agents),
+  // Who is in each shared project and where (api.ProjectHere): read only. What
+  // a phone has open is not told (lanRefused in internal/daemon/lan.go).
+  whoIsHere: () => call<unknown>('GET', '/v1/here').then(P.projectsHere),
   projectChat: (name: string, session?: string) =>
     call<unknown>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`).then(P.projectChat),
   leadSessions: (name: string) => call<unknown>('GET', `${project(name)}/sessions`).then(P.leadSessions),
