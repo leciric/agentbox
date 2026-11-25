@@ -173,6 +173,9 @@ type ShareAgentEvent struct {
 	PRURL   string `json:"prUrl,omitempty"`
 	Notice  string `json:"notice,omitempty"`
 	Act     bool   `json:"act,omitempty"`
+	// Session is the session of the project's chat whose lead made the
+	// agent, which the notice goes to; "" for the one most recently active.
+	Session string `json:"session,omitempty"`
 }
 
 // AddShareRemoteRequest is POST /v1/share/remotes: the link the owner made.

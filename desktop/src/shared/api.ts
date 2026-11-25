@@ -1330,6 +1330,8 @@ export interface Notification {
   text?: string;
   media?: MediaItem;
   question?: string;
+  session?: string;
+  prUrl?: string;
   at: string;
   seen?: boolean;
 }
@@ -4618,6 +4620,8 @@ export const EventNotification = "notification";
 export const EventNotificationsSeen = "notification.seen";
 export const NotifyQuestion = "question";
 export const NotifyMedia = "media";
+export const NotifyFinished = "finished";
+export const NotifyFailed = "failed";
 export const EventPulls = "pulls";
 export const EventRemoteAgents = "remote-agents";
 export const EventTheme = "theme";

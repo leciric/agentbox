@@ -48,7 +48,7 @@ func (s *Store) AddNotification(ctx context.Context, n Notification) error {
 func (s *Store) Notifications(ctx context.Context, now time.Time) ([]Notification, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT n.id, n.project, n.agent, n.kind, n.media_id, n.created_at, n.seen_at, n.data FROM notifications n
-		WHERE n.created_at >= ? AND EXISTS (SELECT 1 FROM projects p WHERE p.name = n.project)
+		WHERE n.created_at >= ? AND `+notificationKnown+`
 		ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?`, now.Add(-KeepNotifications).UnixMilli(), keepNotificationRows)
 	if err != nil {
 		return nil, err
@@ -71,6 +71,13 @@ func (s *Store) Notifications(ctx context.Context, now time.Time) ([]Notificatio
 	return out, rows.Err()
 }
 
+// notificationKnown keeps the notifications whose project is still there:
+// one of this machine's, or one a paired AgentBox still shares with it
+// ("<remote>~<project>"), whose notices about the agents this AgentBox asked
+// for come here.
+const notificationKnown = `(EXISTS (SELECT 1 FROM projects p WHERE p.name = n.project)
+		OR EXISTS (SELECT 1 FROM share_remotes r WHERE substr(n.project, 1, length(r.id) + 1) = r.id || '` + RemoteProjectSep + `'))`
+
 // NotificationFilter narrows NotificationPage: only one kind, only those not
 // seen yet.
 type NotificationFilter struct {
@@ -83,7 +90,7 @@ type NotificationFilter struct {
 // start), with the cursor of the next page when there is one and how many the
 // filter keeps in all. limit 0 is no limit.
 func (s *Store) NotificationPage(ctx context.Context, now time.Time, f NotificationFilter, cursor string, limit int) (out []Notification, next string, total int, err error) {
-	where := `n.created_at >= ? AND EXISTS (SELECT 1 FROM projects p WHERE p.name = n.project)`
+	where := `n.created_at >= ? AND ` + notificationKnown
 	args := []any{now.Add(-KeepNotifications).UnixMilli()}
 	if f.Kind != "" {
 		where += ` AND n.kind = ?`

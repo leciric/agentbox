@@ -60,7 +60,9 @@ import (
 //   - Their notices go back to the owner (sendShareEvent, /share/agent-events),
 //     which keeps them as remote agents (state.RemoteAgent, MachineID
 //     "share:<peer>") that both sides see in the project's fleet, and tells
-//     the lead, whose chat both sides read.
+//     the lead of the session that made them (headerPeerSession), whose chat
+//     both sides read. The peer's own app hears them as notifications, and
+//     its user answers their questions from there (sharenotices.go).
 
 // shareOriginPrefix marks a machine that is a share peer's computer, in a
 // remote agent's MachineID on the owner ("share:<peer id>") and in a peer
@@ -197,7 +199,9 @@ func (s *Server) shareAgentEventIn(w http.ResponseWriter, r *http.Request, addr 
 	}
 	s.events.publish(api.EventRemoteAgents, api.RemoteAgentsChange{Project: ev.Project})
 	if ev.Notice != "" {
-		s.tellLeadOf(ctx, ev.Project, remoteNotice(p.Name, ev.Agent, ev.Notice), chat.NoticeOptions{Act: ev.Act})
+		// To the session whose lead made it, which the peer was told when it
+		// made it; one it can't name, or closed since, is leadOf's.
+		s.tellSessionOf(ctx, ev.Project, ev.Session, remoteNotice(p.Name, ev.Agent, ev.Notice), chat.NoticeOptions{Act: ev.Act})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -252,6 +256,7 @@ func (s *Server) leadOnShareMachine(w http.ResponseWriter, r *http.Request, p st
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Set(headerPeerProject, project)
 			pr.Out.Header.Set(headerPeerRepo, repo)
+			pr.Out.Header.Set(headerPeerSession, sessionFrom(r))
 		},
 		Transport: m.client.Transport,
 		ModifyResponse: func(resp *http.Response) error {
@@ -779,7 +784,7 @@ func (s *Server) sendShareEvent(remoteID string, ev peerEvent) {
 	}
 	body, _ := json.Marshal(api.ShareAgentEvent{
 		Project: ev.Project, Agent: ev.Agent, Title: ev.Title, Branch: ev.Branch, Status: ev.Status,
-		Summary: ev.Summary, PRURL: ev.PRURL, Notice: ev.Notice, Act: ev.Act,
+		Summary: ev.Summary, PRURL: ev.PRURL, Notice: ev.Notice, Act: ev.Act, Session: ev.Session,
 	})
 	go func() {
 		var err error

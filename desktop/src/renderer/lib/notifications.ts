@@ -1,9 +1,13 @@
 // What the app tells you needs you, across projects: a question that reached
 // you, which the daemon keeps (GET /v1/notifications) and sends as it happens
 // (EventNotification). Finished work isn't one: it's in the review list. The
-// toasts, the OS notifications and the inbox all use these. The Media views'
-// unseen marks ride on the same seen state (a kept screenshot or recording is
-// a notification the daemon doesn't list).
+// one exception is an agent you asked for in a project another AgentBox
+// shares with you: its finish or failure is a notification too, a toast and
+// an OS notification that opens the chat session that made it, but not in
+// the inbox, which lists questions. The toasts, the OS notifications and the
+// inbox all use these. The Media views' unseen marks ride on the same seen
+// state (a kept screenshot or recording is a notification the daemon doesn't
+// list).
 import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import type { View } from '../App.tsx';
@@ -11,12 +15,33 @@ import { api } from './api.ts';
 import { formatDate, t } from '../../shared/i18n/index.ts';
 import { questionsKey, refreshInbox, withoutSeen } from './inboxPages.ts';
 import { isMediaUnseen, setMediaUnseen } from './mediaPages.ts';
+import type { Kind } from './notifyPrefs.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-// noticeVerb is what the agent did, after its name: it asks you, or stopped
-// on an error (a notice the app makes itself, from the agent's state).
-export const noticeVerb = (n: Pick<T.Notification, 'kind'>): string => t(n.kind === 'error' ? 'shell.notice.verb.error' : 'shell.notice.verb.question');
+// noticeVerb is what the agent did, after its name: it asks you, stopped on
+// an error (a notice the app makes itself, from the agent's state), or, for
+// one you asked for in a shared project, finished or failed.
+export function noticeVerb(n: Pick<T.Notification, 'kind' | 'prUrl'>): string {
+  switch (n.kind) {
+    case 'error':
+      return t('shell.notice.verb.error');
+    case 'finished':
+      return t(n.prUrl ? 'shell.notice.verb.finishedPR' : 'shell.notice.verb.finished');
+    case 'failed':
+      return t('shell.notice.verb.failed');
+  }
+  return t('shell.notice.verb.question');
+}
+
+// noticeKind is which of the notification settings a notification sounds
+// and shows in the OS by: a question's, an error's, or a finish's, which is
+// what landing in Ready to review is for work of your own.
+export function noticeKind(n: Pick<T.Notification, 'kind'>): Kind {
+  if (n.kind === 'error' || n.kind === 'failed') return 'error';
+  if (n.kind === 'finished') return 'review';
+  return 'question';
+}
 
 // noticeText is an OS notification's: its title names the agent, and its body
 // the text and where it's from, since the OS shows neither the project nor
@@ -28,7 +53,8 @@ export function noticeText(n: T.Notification, projectName: string): { title: str
 }
 
 // noticeView is the page a notification opens: its project's chat, where
-// a question is answered.
+// a question is answered (on the session n.session names, which the caller
+// chooses).
 export function noticeView(n: T.Notification): View {
   return { kind: 'project', project: n.project, tab: 'chat' };
 }

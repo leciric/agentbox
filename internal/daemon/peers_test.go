@@ -149,7 +149,8 @@ func TestLeadDirectsAgentsOnAnotherMachine(t *testing.T) {
 		t.Fatalf("vps's projects = %+v, %v", projects, err)
 	}
 	origin, err := m.vps.srv.store.PeerAgent(ctx, "hello-stack", "agent-01")
-	if err != nil || origin.OriginID != m.laptopEnvID || origin.OriginName != "laptop" || origin.OriginProject != "hello-stack" {
+	// The session of laptop's chat that made it, whose lead its notices go to.
+	if err != nil || origin.OriginID != m.laptopEnvID || origin.OriginName != "laptop" || origin.OriginProject != "hello-stack" || origin.OriginSession != state.MigratedSession {
 		t.Errorf("vps's record of who made agent-01 = %+v, %v", origin, err)
 	}
 

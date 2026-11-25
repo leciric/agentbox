@@ -23,7 +23,7 @@ import { MediaViewer } from "./components/media/MediaParts";
 import { NoticeToast } from "./components/Notifications";
 import { PageArrivals } from "./components/pages/PageArrivals";
 import { PagePreviewHost } from "./components/pages/PagePreview";
-import { markSeen as markNoticesSeen, noticeText, noticeView } from "./lib/notifications";
+import { markSeen as markNoticesSeen, noticeKind, noticeText, noticeView } from "./lib/notifications";
 import { projectLabel } from "./lib/projectName";
 import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
@@ -393,6 +393,9 @@ export function App({ initial }: { initial?: View } = {}) {
   // notification or the inbox, and marks it seen.
   const openNotice = (n: T.Notification) => {
     void markNoticesSeen(queryClient, { ids: [n.id] });
+    // One about an agent asked for in a shared project opens the session
+    // whose lead made it, which was told the same.
+    if (n.session) chooseSession(n.project, n.session);
     select(noticeView(n));
   };
   const openNoticeRef = useRef(openNotice);
@@ -496,12 +499,19 @@ export function App({ initial }: { initial?: View } = {}) {
   };
   const waiting = useRef(new Map<string, () => void>());
 
-  // Tell you when something asks you a question, in any project.
+  // Tell you when something asks you a question, in any project, or an agent
+  // you asked for in a shared project finishes or fails. Only questions are
+  // in the inbox, where a click on their OS notification finds them.
   useEffect(
     () =>
-      onNotification((n) =>
-        toastNotice(n, () => openNoticeRef.current(n)),
-      ),
+      onNotification((n) => {
+        const open = () => {
+          waiting.current.delete(n.id);
+          openNoticeRef.current(n);
+        };
+        if (n.kind !== "question") waiting.current.set(n.id, open);
+        toastNotice(n, open, noticeKind(n));
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );

@@ -1885,6 +1885,10 @@ var migrations = []string{
 		error       TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX share_outbox_by_remote ON share_outbox (remote_id, id)`,
+	// The session of the other machine's project chat whose lead made a peer
+	// agent, which its notices go back to; '' for one made before, whose
+	// notices go to the session most recently active there.
+	`ALTER TABLE peer_agents ADD COLUMN origin_session TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

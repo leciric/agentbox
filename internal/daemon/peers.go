@@ -45,17 +45,19 @@ import (
 //     project's lead routes, as if its own lead had sent it (servePeer).
 //   - An agent made that way remembers where it came from (state.PeerAgent),
 //     and its notices — finished, a question, failing — go back to the lead
-//     that made it (tellLeadAbout, sendPeerEvent) instead of to the project's
-//     lead there. This machine keeps what they said (state.RemoteAgent), which
+//     that made it (tellLeadAbout, sendPeerEvent), in the session of its chat
+//     that did (headerPeerSession), instead of to the project's lead there. This machine keeps what they said (state.RemoteAgent), which
 //     the app shows beside the lead and list_agents lists.
 
 // Headers a machine's daemon sends a peer along with a lead route: the
-// repository the project is found by, and the project's name here, which the
-// peer's notices name it by. The hub passes them through untouched; the peer
-// trusts the hub's hubapi.HeaderPeer for who is asking, not these.
+// repository the project is found by, the project's name here, which the
+// peer's notices name it by, and the session of its chat the lead is, which
+// they go to. The hub passes them through untouched; the peer trusts the
+// hub's hubapi.HeaderPeer for who is asking, not these.
 const (
 	headerPeerRepo    = "X-AgentBox-Peer-Repo"
 	headerPeerProject = "X-AgentBox-Peer-Project"
+	headerPeerSession = "X-AgentBox-Peer-Session"
 )
 
 // peerCacheFor is how long the hub's list of this account's machines is
@@ -484,6 +486,7 @@ func (s *Server) leadOnMachine(w http.ResponseWriter, r *http.Request) error {
 			pr.Out.Header.Set("Authorization", "Bearer "+cfg.Token)
 			pr.Out.Header.Set(headerPeerProject, project)
 			pr.Out.Header.Set(headerPeerRepo, repo)
+			pr.Out.Header.Set(headerPeerSession, sessionFrom(r))
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			if resp.StatusCode == http.StatusOK && r.Method == http.MethodPost && route == "/v1/project/retire" {
@@ -678,6 +681,7 @@ func (s *Server) peerCreateAgent(w http.ResponseWriter, r *http.Request, peer hu
 	defer s.releasePeerProject(context.WithoutCancel(r.Context()), p.Name, false)
 	req.Project = p.Name
 	req.OriginID, req.OriginName, req.OriginProject = peer.ID, peer.Name, r.Header.Get(headerPeerProject)
+	req.OriginSession = r.Header.Get(headerPeerSession)
 	j, err := s.createAgentJob(r.Context(), req, true)
 	if err != nil {
 		return err
@@ -701,6 +705,12 @@ type peerEvent struct {
 	// starts a turn of the lead's.
 	Notice string `json:"notice,omitempty"`
 	Act    bool   `json:"act,omitempty"`
+	// Session is the session of the project's chat whose lead made the
+	// agent, which the notice goes to; "" for the one most recently active.
+	Session string `json:"session,omitempty"`
+	// Question is the ID of the question an asking agent asked with ask,
+	// here: what its user answers it by (sharenotices.go).
+	Question string `json:"-"`
 }
 
 // peerEventIn takes a notice about one of the agents this machine's lead
@@ -724,7 +734,7 @@ func (s *Server) peerEventIn(w http.ResponseWriter, r *http.Request, peer hubapi
 	}
 	s.events.publish(api.EventRemoteAgents, api.RemoteAgentsChange{Project: ev.Project})
 	if ev.Notice != "" {
-		s.tellLeadOf(r.Context(), ev.Project, remoteNotice(peer.Name, ev.Agent, ev.Notice), chat.NoticeOptions{Act: ev.Act})
+		s.tellSessionOf(r.Context(), ev.Project, ev.Session, remoteNotice(peer.Name, ev.Agent, ev.Notice), chat.NoticeOptions{Act: ev.Act})
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
@@ -736,18 +746,22 @@ func remoteNotice(machine, agent, notice string) string {
 	return fmt.Sprintf("[On the machine %s] %s\n(%s runs on %s: name it %s@%s to act on it.)", machine, notice, agent, machine, agent, machine)
 }
 
-// tellLeadAbout tells the lead about one of its agents: the project's own,
-// or, for an agent another machine's lead made, that lead, with what the
-// notice changes about the agent in ev (Status, Summary, PRURL).
+// tellLeadAbout tells the lead about one of its agents: the session of the
+// project's chat that made it, or, for an agent another machine's lead made,
+// that lead, in its session, with what the notice changes about the agent in
+// ev (Status, Summary, PRURL). The person who asked for it in a shared
+// project hears it too, in their app (sharenotices.go).
 func (s *Server) tellLeadAbout(ctx context.Context, a state.Agent, notice string, opts chat.NoticeOptions, ev peerEvent) {
 	origin, err := s.store.PeerAgent(ctx, a.Project, a.Name)
 	if err != nil {
 		s.tellOwnerOf(ctx, a, notice, opts)
+		s.tellAsker(ctx, a, ev)
 		return
 	}
 	ev.Project, ev.Agent, ev.Title, ev.Branch = origin.OriginProject, a.Name, a.Title, a.Branch
-	ev.Notice, ev.Act = notice, opts.Act
+	ev.Notice, ev.Act, ev.Session = notice, opts.Act, origin.OriginSession
 	s.sendPeerEvent(origin.OriginID, origin.OriginName, ev)
+	s.tellGuest(ctx, a, origin, ev)
 }
 
 // peerRetries are the waits between tries at telling a machine about its
