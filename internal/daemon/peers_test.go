@@ -322,7 +322,7 @@ func TestRepoKey(t *testing.T) {
 // another machine to clone (GitHub's as its https link, with no token), and in
 // matching a project here to a link from there, either way round.
 func TestShareableRepoResolvesSSHAliases(t *testing.T) {
-	stubSSH(t, map[string]string{"github-stefanini-test": "github.com", "gitlab-work-test": "gitlab.com"})
+	stubSSH(t, map[string]string{"github-stefanini-test": "github.com", "gitlab-work-test": "gitlab.com", "v6-work-test": "2001:db8::10"})
 	for in, want := range map[string]string{
 		"git@github-stefanini-test:stefanini-applications/new-commerce.git":       "https://github.com/stefanini-applications/new-commerce",
 		"ssh://git@github-stefanini-test/stefanini-applications/new-commerce.git": "https://github.com/stefanini-applications/new-commerce",
@@ -331,6 +331,10 @@ func TestShareableRepoResolvesSSHAliases(t *testing.T) {
 		"git@gitlab-work-test:acme/hello-stack.git":                               "git@gitlab.com:acme/hello-stack.git",
 		"ssh://git@gitlab-work-test:2222/acme/hello-stack.git":                    "ssh://git@gitlab.com:2222/acme/hello-stack.git",
 		"https://me:hunter2@gitlab.com/acme/hello-stack.git":                      "https://gitlab.com/acme/hello-stack.git",
+		"git@v6-work-test:acme/hello-stack.git":                                   "git@[2001:db8::10]:acme/hello-stack.git",
+		"ssh://git@v6-work-test:2222/acme/hello-stack.git":                        "ssh://git@[2001:db8::10]:2222/acme/hello-stack.git",
+		"git@[2001:db8::1]:acme/hello-stack.git":                                  "git@[2001:db8::1]:acme/hello-stack.git",
+		"ssh://git@[2001:db8::1]:22/acme/hello-stack.git":                         "ssh://git@[2001:db8::1]:22/acme/hello-stack.git",
 		"git://example.com/acme/hello-stack.git":                                  "git://example.com/acme/hello-stack.git",
 		"/home/lint/src/hello-stack":                                              "/home/lint/src/hello-stack",
 		`C:\src\hello-stack`:                                                      `C:\src\hello-stack`,

@@ -193,8 +193,11 @@ func shareableRepo(u string) string {
 		}
 		switch scheme {
 		case "ssh":
+			if strings.HasPrefix(hostPort, "[") {
+				break // an IPv6 address, never an alias
+			}
 			host, port, hasPort := strings.Cut(hostPort, ":")
-			hostPort = gitrepo.SSHHostName(host)
+			hostPort = realSSHHost(host)
 			if hasPort {
 				hostPort += ":" + port
 			}
@@ -206,14 +209,25 @@ func shareableRepo(u string) string {
 		return u[:i+3] + user + hostPort + "/" + path
 	}
 	// scp-like, git@host:owner/repo, and not a path or a Windows drive (C:)
-	if host, path, ok := strings.Cut(u, ":"); ok && len(host) > 1 && !strings.ContainsAny(host, `/\`) {
+	if host, path, ok := strings.Cut(u, ":"); ok && len(host) > 1 && !strings.ContainsAny(host, `/\[`) {
 		user := ""
 		if at := strings.LastIndex(host, "@"); at >= 0 {
 			user, host = host[:at+1], host[at+1:]
 		}
-		return user + gitrepo.SSHHostName(host) + ":" + path
+		return user + realSSHHost(host) + ":" + path
 	}
 	return u
+}
+
+// realSSHHost is the host an SSH alias stands for, as a URL holds it: an
+// IPv6 address in brackets, since git takes the first bare colon after the
+// host for the end of it.
+func realSSHHost(host string) string {
+	real := gitrepo.SSHHostName(host)
+	if strings.Contains(real, ":") {
+		return "[" + real + "]"
+	}
+	return real
 }
 
 // sameRepo reports whether two remote URLs name one repository, however each
