@@ -119,7 +119,11 @@ func (m movingPair) remoteNow(t *testing.T) api.ShareRemote {
 // changes, and what the peer has open there ends.
 func (m *movingPair) moveOwner(t *testing.T) string {
 	t.Helper()
-	port := freePort(t)
+	return m.moveOwnerTo(t, freePort(t))
+}
+
+func (m *movingPair) moveOwnerTo(t *testing.T, port int) string {
+	t.Helper()
 	if _, err := m.owner.client.UpdateLAN(context.Background(), api.UpdateLANRequest{Port: &port}); err != nil {
 		t.Fatal(err)
 	}
@@ -223,6 +227,27 @@ func TestSharePeerFindsOwnerThroughTheHub(t *testing.T) {
 	}
 
 	m.stillPaired(t, m.moveOwner(t))
+}
+
+// A peer that can't reach its owner where it is tries the other addresses
+// the owner gave it before it moved: one that took the owner's LAN address
+// while the owner's tunnel was off is back on the tunnel once it leaves
+// that network, though nothing tells it.
+func TestSharePeerTriesAddressesItWasTold(t *testing.T) {
+	t.Parallel()
+	m := pairMoving(t, movingOpts{})
+	// The owner's "tunnel": its phone page at the port it is about to move
+	// to, which it gave the peer earlier.
+	port := freePort(t)
+	tunnel := httptest.NewServer(httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}))
+	defer tunnel.Close()
+	a := m.peer.srv.peering.addrs
+	a.mu.Lock()
+	a.known[m.remote.ID] = []string{tunnel.URL, "http://127.0.0.1:" + strconv.Itoa(m.ownerPort)}
+	a.mu.Unlock()
+
+	m.moveOwnerTo(t, port)
+	m.stillPaired(t, tunnel.URL)
 }
 
 // askHubForOwner asks owner, through the hub, where it is for pairing id,

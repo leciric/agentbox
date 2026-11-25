@@ -126,13 +126,19 @@ type shareAddrs struct {
 	// hint is, by remote, the machine of the hub account that answered as
 	// its owner the last time: asked first.
 	hint map[string]string
+	// known is, by remote, the addresses its owner last said it is at (it
+	// or the hub): those a peer that can't reach it at one tries first. A
+	// peer that took its LAN address while its tunnel was off is back on
+	// the tunnel once it leaves that network.
+	known map[string][]string
 	// moving makes moving a remote to a new address one step at a time.
 	moving sync.Mutex
 }
 
 func newShareAddrs() *shareAddrs {
 	return &shareAddrs{wake: make(chan struct{}, 1), told: map[string]string{}, trying: map[string]string{},
-		next: map[string]time.Time{}, wait: map[string]time.Duration{}, heard: map[string]time.Time{}, hint: map[string]string{}}
+		next: map[string]time.Time{}, wait: map[string]time.Duration{}, heard: map[string]time.Time{}, hint: map[string]string{},
+		known: map[string][]string{}}
 }
 
 // poke has tellShareAddresses look again.
@@ -516,6 +522,9 @@ func (s *Server) shareOwnerAddressIn(w http.ResponseWriter, r *http.Request, add
 		writeLANError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.mu.Lock()
+	a.known[c.r.ID] = urls
+	a.mu.Unlock()
 	if err := s.findRemoteAt(r.Context(), c, urls, false, "it said so"); err != nil {
 		writeLANError(w, http.StatusBadGateway, err.Error())
 		return
@@ -613,7 +622,7 @@ func (s *Server) ownerOnHub(ctx context.Context, c *remoteConn) ([]string, error
 			continue
 		}
 		a.mu.Lock()
-		a.hint[c.r.ID] = m.ID
+		a.hint[c.r.ID], a.known[c.r.ID] = m.ID, urls
 		a.mu.Unlock()
 		return urls, nil
 	}
@@ -651,10 +660,11 @@ func (s *Server) askOwnerOnHub(ctx context.Context, cfg *remoteConfig, machine, 
 }
 
 // findRemoteAgain is a peer that couldn't reach its owner (err) looking for
-// it: through the hub, when both are on one account, now and then. It says
-// whether c moved, and a new connection reaches the owner now. Otherwise, when
-// what answered says the owner's quick tunnel is gone, the remote shows that
-// its address changed, for the user to paste a new link.
+// it, now and then: at the other addresses the owner gave it before, then
+// through the hub, when both are on one account. It says whether c moved, and
+// a new connection reaches the owner now. Otherwise, when what answered says
+// the owner's quick tunnel is gone, the remote shows that its address
+// changed, for the user to paste a new link.
 func (s *Server) findRemoteAgain(ctx context.Context, c *remoteConn, err error) bool {
 	var st remoteStatus
 	if errors.As(err, &st) && st.code == http.StatusUnauthorized {
@@ -670,6 +680,13 @@ func (s *Server) findRemoteAgain(ctx context.Context, c *remoteConn, err error) 
 		c.findAt = time.Now().Add(c.findWait)
 	}
 	c.mu.Unlock()
+	a := s.peering.addrs
+	a.mu.Lock()
+	known := a.known[c.r.ID]
+	a.mu.Unlock()
+	if due && len(known) > 0 && s.findRemoteAt(ctx, c, known, true, "an address it gave before") == nil && s.remoteConn(c.r.ID) != c {
+		return true
+	}
 	if due && s.readRemoteConfig() != nil {
 		if urls, err := s.ownerOnHub(ctx, c); err == nil {
 			if s.findRemoteAt(ctx, c, urls, true, "its hub account said so") == nil && s.remoteConn(c.r.ID) != c {
