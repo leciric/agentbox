@@ -1859,6 +1859,10 @@ var migrations = []string{
 		detail  TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX share_activity_by_peer ON share_activity (peer_id, id)`,
+	// Where each paired AgentBox said it can be reached, space-separated, so
+	// this machine can tell it its new address when that changes
+	// (shareaddress.go). '' for one that paired before, or has no address.
+	`ALTER TABLE share_peers ADD COLUMN urls TEXT NOT NULL DEFAULT ''`,
 	// The session of the other machine's project chat whose lead made a peer
 	// agent, which its notices go back to; '' for one made before, whose
 	// notices go to the session most recently active there.

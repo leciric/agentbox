@@ -30,6 +30,7 @@ mod motion;
 mod nightly;
 mod notices;
 mod office;
+mod people;
 mod pictures;
 mod prefs;
 mod quit;

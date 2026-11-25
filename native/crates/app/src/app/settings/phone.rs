@@ -44,6 +44,17 @@ pub(super) struct Phone {
     polling: bool,
 }
 
+impl Phone {
+    /// lan_enabled is whether the phone page is served: pairing another
+    /// AgentBox goes through it (share.rs).
+    pub(super) fn lan_enabled(&self) -> bool {
+        self.lan
+            .as_ref()
+            .and_then(|r| r.as_ref().ok())
+            .is_some_and(|s| s.enabled)
+    }
+}
+
 /// minutes_left is how long a pairing code still holds, rounded up.
 fn minutes_left(expires: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(expires)
@@ -140,6 +151,7 @@ impl AppView {
                 this.settings_page.phone.polling = false;
                 if this.settings && this.settings_page.open == "phone" {
                     this.load_lan(cx);
+                    this.load_share(cx);
                 }
             })
             .ok();

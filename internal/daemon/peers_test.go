@@ -41,11 +41,17 @@ type peerMachines struct {
 
 func startPeerMachines(t *testing.T) peerMachines {
 	t.Helper()
+	return startPeerMachinesOn(t, readyOneAgentIncus)
+}
+
+// startPeerMachinesOn is startPeerMachines with the fake Incus vps runs on.
+func startPeerMachinesOn(t *testing.T, vpsIncus string) peerMachines {
+	t.Helper()
 	ctx := context.Background()
 	h := hubtest.New(t)
 	laptopEnv, vpsEnv := h.AddEnvironment("laptop"), h.AddEnvironment("vps")
 	laptop := startTestDaemon(t, t.TempDir(), fakeIncus)
-	vps := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	vps := startTestDaemon(t, t.TempDir(), vpsIncus)
 	// The fake Incus can't run an adapter, so one launched here exits at once
 	// and reports the agent failed, racing the "working" notice this test
 	// waits for. This test drives the agent's notices itself, so a tool whose

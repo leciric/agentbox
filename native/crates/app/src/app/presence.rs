@@ -97,6 +97,7 @@ impl AppView {
                 }
             }
         }));
+        self.leave_here(cx);
         cx.on_app_quit(|this, _| {
             let client = this.client.clone();
             let path = format!(
@@ -212,6 +213,9 @@ impl AppView {
 
     fn presence_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.presence.ticks += 1;
+        // What this window has open in a shared project rides the same tick
+        // (here.rs): a typing that stopped, or its renewal.
+        self.here_renew(cx);
         if self.presence.ticks.is_multiple_of(POWER_EVERY) {
             let power = crate::hostpower::read();
             if power != self.presence.power {

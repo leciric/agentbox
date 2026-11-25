@@ -51,7 +51,12 @@ import (
 //     owner says which: /share/run-on) with the peer's GitHub account, and
 //     makes the agent as the hub path does (peerCreateAgent), marked as the
 //     owner's (state.PeerAgent, OriginID "share:<remote>"). The owner's lead
-//     reaches only the agents it made there (shareGuestRoute).
+//     reaches only the agents it made there (shareGuestRoute). A clone whose
+//     creates all fail is taken back (claimPeerProject).
+//   - A fan_out follows the choice as a create does (leadFanOutOnPeer): the
+//     group is made on the peer's computer (shareGuestFanOut) and compared
+//     and kept there by its user. Its agents are the owner's lead's, which
+//     hears of each as it does of any, and once when they have all finished.
 //   - Their notices go back to the owner (sendShareEvent, /share/agent-events),
 //     which keeps them as remote agents (state.RemoteAgent, MachineID
 //     "share:<peer>") that both sides see in the project's fleet, and tells
@@ -370,7 +375,7 @@ func (s *Server) choseRunOn(ctx context.Context, lead state.Agent, runOn string)
 func runOnNotice(peer, runOn string) string {
 	if runOn == api.RunOnPeer {
 		return fmt.Sprintf("[AgentBox: %[1]s, the paired AgentBox writing in this session, wants the agents you create for it to run on its own computer, "+
-			"with its own AI accounts and GitHub access: pass machine %[1]q to create_agent (AgentBox sends it there when you leave machine out). "+
+			"with its own AI accounts and GitHub access: pass machine %[1]q to create_agent (AgentBox sends it there when you leave machine out), and a fan_out goes there too. "+
 			"They count against none of its slots here, and their notices come back to you; act on one as agent-NN@%[1]s.]", peer)
 	}
 	return fmt.Sprintf("[AgentBox: %s, the paired AgentBox writing in this session, wants the agents you create for it to run on this computer again: leave machine out.]", peer)
@@ -396,6 +401,12 @@ func (s *Server) runsOnPeer(project, session string) string {
 // leadCreateOnPeer sends a lead's create_agent to the computer of the peer
 // its session chose, or says why it can't.
 func (s *Server) leadCreateOnPeer(w http.ResponseWriter, r *http.Request, peerID string) error {
+	return s.leadToPeer(w, r, peerID, "/v1/project/agents")
+}
+
+// leadToPeer sends the lead route a lead called to the computer of the peer
+// its session chose, or says why it can't.
+func (s *Server) leadToPeer(w http.ResponseWriter, r *http.Request, peerID, route string) error {
 	p, err := s.store.SharePeer(r.Context(), peerID)
 	if err != nil {
 		return err
@@ -404,7 +415,35 @@ func (s *Server) leadCreateOnPeer(w http.ResponseWriter, r *http.Request, peerID
 	if err != nil {
 		return fmt.Errorf("%s asked for its agents to run on its own computer, and %w", p.Name, err)
 	}
-	return s.leadOnShareMachine(w, r, p, m, "/v1/project/agents")
+	return s.leadOnShareMachine(w, r, p, m, route)
+}
+
+// leadFanOutOnPeer sends a lead's fan_out to the computer of the peer its
+// session chose: the group is made there, every agent of it on that
+// computer's AI accounts, and compared there by its user (shareGuestFanOut).
+// The lead is told what that changes for it.
+func (s *Server) leadFanOutOnPeer(w http.ResponseWriter, r *http.Request, peerID string, req api.FanOutRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
+	rec := httptest.NewRecorder()
+	if err := s.leadToPeer(rec, r, peerID, "/v1/project/groups"); err != nil {
+		return err
+	}
+	var out api.FanOutResult
+	if rec.Code != http.StatusAccepted || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+		copyRecorded(w, rec)
+		return nil
+	}
+	name := "the paired AgentBox"
+	if p, err := s.store.SharePeer(r.Context(), peerID); err == nil {
+		name = p.Name
+	}
+	out.Notices = append(out.Notices, fmt.Sprintf("The group runs on %[1]s's computer, as %[1]s asked, on its AI accounts: %[1]s compares it there and keeps one, "+
+		"and compare_group can't reach it. You hear as each agent finishes and once when all have (act on one as agent-NN@%[1]s; read_agent reads its work).", name))
+	return writeJSON(w, http.StatusAccepted, out)
 }
 
 // --- The peer's side: this computer taking agents for an owner. ---
@@ -509,6 +548,7 @@ var shareGuestRoutes = func() *http.ServeMux {
 	for _, pattern := range []string{
 		"GET /v1/project/agents",
 		"POST /v1/project/agents",
+		"POST /v1/project/groups",
 		"GET /v1/project/agents/{agent}/chat",
 		"POST /v1/project/agents/{agent}/chat/messages",
 		"PUT /v1/project/agents/{agent}/goal",
@@ -555,8 +595,11 @@ func (s *Server) serveOwner(w http.ResponseWriter, r *http.Request, c *remoteCon
 	if repo == "" {
 		return errors.New("the other AgentBox didn't say which repository the project is")
 	}
-	if pattern == "POST /v1/project/agents" {
+	switch pattern {
+	case "POST /v1/project/agents":
 		return s.shareGuestCreate(w, r, origin, repo)
+	case "POST /v1/project/groups":
+		return s.shareGuestFanOut(w, r, origin, repo)
 	}
 	p, _, err := s.peerProjectFor(ctx, repo, false)
 	if err != nil {
@@ -694,6 +737,42 @@ func (s *Server) shareGuestCreate(w http.ResponseWriter, r *http.Request, origin
 	data, _ := json.Marshal(req)
 	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(data)), int64(len(data))
 	return s.peerCreateAgent(w, r, origin, repo)
+}
+
+// shareGuestFanOut makes a group for an owner's lead, as shareGuestCreate
+// makes an agent: in the project cloned from repo, on this computer's AI
+// accounts, each agent the owner's lead's. The group stays here, to be
+// compared and kept by this computer's user, so the owner's lead can't judge
+// it, and a project cloned for it goes if none of its agents is made.
+func (s *Server) shareGuestFanOut(w http.ResponseWriter, r *http.Request, origin hubapi.HubEnvironment, repo string) error {
+	var req api.FanOutRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if req.Judge {
+		return errors.New("this group is compared here, by this computer's user, so you can't judge it: compare_group reaches only the groups of your own AgentBox. " +
+			"Leave judge out, and read the agents with read_agent when they have finished")
+	}
+	for i := range req.Variants {
+		v := &req.Variants[i]
+		v.ClaudeAccount, v.CodexAccount, v.CursorAccount, v.GeminiAccount, v.CopilotAccount = "", "", "", "", ""
+		v.OpenCodeAccounts = nil
+	}
+	ctx := r.Context()
+	p, err := s.claimPeerProject(ctx, repo)
+	if err != nil {
+		return err
+	}
+	// The request's own hold, until its agents' jobs hold the project in its stead.
+	defer s.releasePeerProject(context.WithoutCancel(ctx), p.Name, false)
+	req.Project = p.Name
+	req.OriginID, req.OriginName, req.OriginProject = origin.ID, origin.Name, r.Header.Get(headerPeerProject)
+	out, err := s.fanOut(ctx, req, true)
+	if err != nil {
+		return err
+	}
+	s.logf("share: %s's lead (%s) is running group %s in %s here", origin.Name, req.OriginProject, out.Group.ID, p.Name)
+	return writeJSON(w, http.StatusAccepted, out)
 }
 
 // sendShareEvent tells a remote about an agent its lead made on this

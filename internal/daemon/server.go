@@ -269,6 +269,10 @@ type Server struct {
 	reviewHeld   map[string]bool          // projects whose review list waits for the startup look at GitHub (prreconcile.go)
 	reviewKnown  map[string]knownReview   // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server  // per-project lead API servers
+
+	// groupFor is the groups made here for another AgentBox's lead, by ID,
+	// until that lead is told they finished (groupOrigin). Under mu.
+	groupFor map[string]state.PeerAgent
 	// homeHost is the desktop app's helper on the user's computer, which the
 	// Home chat runs through when it is there, and homePlace where its adapter
 	// last started, by session (homehost.go). homePlace is under mu.
@@ -766,6 +770,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	loops.Go(func() { s.dropMovedData(ctx, moved) })
 	loops.Go(func() { s.sendCrashes(ctx) })
+	loops.Go(func() { s.tellShareAddresses(ctx) })
 	s.runCtx = ctx
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.

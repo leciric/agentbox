@@ -77,6 +77,7 @@ type peeringState struct {
 
 	remotes *shareRemotes // shareremote.go
 	here    *hereState    // sharepeople.go
+	addrs   *shareAddrs   // shareaddress.go
 
 	// machines are the peers' computers connected to take agents, by peer
 	// (sharemachines.go); runOn is, by "project/session", the peer that chose
@@ -91,7 +92,7 @@ func newPeeringState() *peeringState {
 	return &peeringState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]shareOpen{},
 		seen: map[string]time.Time{}, speaker: map[string]string{}, heard: map[string]uint64{}, holds: map[string]*shareHold{},
-		remotes: newShareRemotes(), here: newHereState(),
+		remotes: newShareRemotes(), here: newHereState(), addrs: newShareAddrs(),
 		machines: map[string]*shareMachine{}, runOn: map[string]string{}, runOnTold: map[string]string{},
 	}
 }
@@ -396,12 +397,33 @@ func (s *Server) sharePair(w http.ResponseWriter, r *http.Request, addr string) 
 		writeLANError(w, http.StatusForbidden, "this link has expired or was used already: make a new one in AgentBox's settings, under Share")
 		return
 	}
+	urls, err := shareURLList(req.URLs)
+	if err != nil {
+		s.logf("share: a pairing from %s with addresses that aren't: %v", addr, err)
+		urls = nil // it pairs, and isn't told this machine's new address
+	}
+	// A peer paired already, with a link to this machine's new address: it
+	// keeps its token, and what it was given (shareaddress.go).
+	if p, proof, ok := s.sharePairedAgain(r.Context(), req); ok {
+		if err := s.store.SetSharePeerURLs(r.Context(), p.ID, urls); err != nil {
+			writeLANError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		_ = s.store.SawSharePeer(r.Context(), p.ID, addr, time.Now())
+		s.logf("share: %s (%s) found this machine again from %s, with a new link; it keeps its pairing", p.Name, p.ID, addr)
+		s.publishShare(r.Context())
+		_ = writeJSON(w, http.StatusOK, api.SharePairResponse{Owner: s.shareName(r.Context()), Peer: p.ID, Proof: proof})
+		return
+	}
 	p, token, err := s.store.AddSharePeer(r.Context(), req.Name)
 	if err != nil {
 		writeLANError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = s.store.SawSharePeer(r.Context(), p.ID, addr, time.Now())
+	if len(urls) > 0 {
+		_ = s.store.SetSharePeerURLs(r.Context(), p.ID, urls)
+	}
 	s.logf("share: paired %s (%s) from %s; it reaches no project until you choose", p.Name, p.ID, addr)
 	s.publishShare(r.Context())
 	_ = writeJSON(w, http.StatusOK, api.SharePairResponse{Token: token, Owner: s.shareName(r.Context())})

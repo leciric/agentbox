@@ -200,6 +200,22 @@ type ProjectRemote struct {
 type SharePairRequest struct {
 	Secret string `json:"secret"`
 	Name   string `json:"name"`
+	// URLs are where the owner can reach the peer, to tell it its own new
+	// address when that changes: the peer's phone page's addresses, none
+	// when it has none.
+	URLs []string `json:"urls,omitempty"`
+	// Again proves each pairing the peer already has, with any owner: an
+	// owner that finds itself among them gives no new token, only takes
+	// the link as its new address (a quick tunnel's, which changes).
+	Again []ShareAgain `json:"again,omitempty"`
+}
+
+// ShareAgain is a pairing a peer has already: its id on its owner (the one
+// in its token), and an HMAC of the link's secret keyed with its token's
+// hash, which only that owner can check.
+type ShareAgain struct {
+	Peer  string `json:"peer"`
+	Proof string `json:"proof"`
 }
 
 // SharePairResponse is the owner's answer: the peer's token, and what the
@@ -207,6 +223,27 @@ type SharePairRequest struct {
 type SharePairResponse struct {
 	Token string `json:"token"`
 	Owner string `json:"owner"`
+	// Peer and Proof answer a request with Again instead of Token: the
+	// pairing the owner found, and an HMAC that shows it is that owner.
+	Peer  string `json:"peer,omitempty"`
+	Proof string `json:"proof,omitempty"`
+}
+
+// ShareAddress is where one side of a pairing is reached now: what an owner
+// tells its peers when its address changes (/share/owner-address, signed),
+// what a peer tells its owner of its own (/share/peer-address), and what an
+// owner answers another machine of its hub account looking for it.
+type ShareAddress struct {
+	Peer string    `json:"peer"` // the pairing's id on the owner
+	URLs []string  `json:"urls"` // the likeliest first
+	At   time.Time `json:"at"`
+}
+
+// ShareHello is an owner's answer to a peer making sure an address is the
+// owner's before it sends its token there (/share/hello): an HMAC of the
+// peer's nonce.
+type ShareHello struct {
+	Proof string `json:"proof"`
 }
 
 // ErrorShareSlotsFull is the Code of a request from a paired AgentBox to

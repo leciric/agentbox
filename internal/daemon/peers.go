@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -72,6 +73,15 @@ type peerState struct {
 	// cloning holds new projects back while one is cloned for a peer, so
 	// two agents asked for at once don't clone the same repository twice.
 	cloning sync.Mutex
+	// claims guards making and fresh: what a project cloned for a peer
+	// needs to be taken back when the creates it was cloned for all fail
+	// (claimPeerProject).
+	claims sync.Mutex
+	// making counts, for each project, the creates a peer's lead has under
+	// way in it, and fresh is the projects cloned for a peer in which no
+	// agent has been made since.
+	making map[string]int
+	fresh  map[string]bool
 }
 
 // errNoHub is a lead naming a machine on a machine that connects to no hub.
@@ -239,8 +249,110 @@ func (s *Server) peerProjectFor(ctx context.Context, repo string, clone bool) (p
 	return p, true, nil
 }
 
-// forgetPeerProject takes back a project cloned for a request that then
-// failed, so a refusal leaves nothing behind.
+// claimPeerProject is peerProjectFor with clone, for a request that goes on to
+// make agents in the project: it counts the request as using the project, until
+// releasePeerProject. A project cloned for a request that comes to nothing is
+// taken back by the last hold to be let go of, and never while another create
+// is making an agent in it, which the clone was as much for.
+func (s *Server) claimPeerProject(ctx context.Context, repo string) (state.Project, error) {
+	ps := &s.peerState
+	// Twice is for a clone taken back, by the last request to let go of it,
+	// between finding it and counting this request: it is cloned again.
+	for range 2 {
+		p, cloned, err := s.peerProjectFor(ctx, repo, true)
+		if err != nil {
+			return state.Project{}, err
+		}
+		ps.claims.Lock()
+		if _, err := s.store.Project(ctx, p.Name); err != nil {
+			ps.claims.Unlock()
+			if errors.Is(err, state.ErrNotFound) {
+				continue
+			}
+			return state.Project{}, err
+		}
+		if ps.making == nil {
+			ps.making, ps.fresh = map[string]int{}, map[string]bool{}
+		}
+		ps.making[p.Name]++
+		if cloned {
+			ps.fresh[p.Name] = true
+		}
+		ps.claims.Unlock()
+		return p, nil
+	}
+	return state.Project{}, fmt.Errorf("the project cloned from %s was taken back as it was being used: ask again", repo)
+}
+
+// holdPeerProject counts one more create making an agent in project, besides
+// the request's own: each agent of a group is one.
+func (s *Server) holdPeerProject(project string) {
+	ps := &s.peerState
+	ps.claims.Lock()
+	defer ps.claims.Unlock()
+	if ps.making == nil {
+		ps.making, ps.fresh = map[string]int{}, map[string]bool{}
+	}
+	ps.making[project]++
+}
+
+// releasePeerProject lets go of one hold on project (claimPeerProject,
+// holdPeerProject). made says an agent was made in it, which keeps a clone for
+// good: it is the user's project from then on. The last hold to be let go of
+// on a clone no agent was made in takes it back, unless anything else is in it.
+func (s *Server) releasePeerProject(ctx context.Context, project string, made bool) {
+	ps := &s.peerState
+	// Held throughout, so that a request that found the project just before
+	// is counted before the clone goes, or sees it gone and clones it again.
+	ps.claims.Lock()
+	defer ps.claims.Unlock()
+	if made {
+		delete(ps.fresh, project)
+	}
+	if ps.making[project] > 1 {
+		ps.making[project]--
+		return
+	}
+	delete(ps.making, project)
+	if !ps.fresh[project] {
+		return
+	}
+	delete(ps.fresh, project)
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return
+	}
+	// An agent, or the project's chat, is somebody's work: the project stays
+	// with whatever it holds.
+	if agents, err := s.store.Agents(ctx, project); err != nil || len(agents) > 0 {
+		return
+	}
+	s.forgetPeerProject(ctx, p)
+}
+
+// trackPeerCreate counts the create job j, which a peer's lead started in
+// project, as using it until the job is over, and takes back a project cloned
+// for it when the job fails and nothing else is in the project. A daemon that
+// stops first leaves the clone as it is.
+func (s *Server) trackPeerCreate(jobID, project string) {
+	s.holdPeerProject(project)
+	ctx := s.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	go func() {
+		made := true // not known: the project stays
+		if j, ok := s.jobs.get(jobID); ok {
+			if info, err := j.follow(ctx, math.MaxInt, func(string) error { return nil }); err == nil {
+				made = info.Status == api.JobSucceeded
+			}
+		}
+		s.releasePeerProject(context.WithoutCancel(ctx), project, made)
+	}()
+}
+
+// forgetPeerProject takes back a project cloned for requests that all failed
+// (releasePeerProject), so a refusal leaves nothing behind.
 func (s *Server) forgetPeerProject(ctx context.Context, p state.Project) {
 	s.stopLeadAPI(p.Name)
 	if err := s.store.RemoveProject(ctx, p.Name); err != nil {
@@ -531,6 +643,10 @@ func (s *Server) servePeer(w http.ResponseWriter, r *http.Request) error {
 		return writeJSON(w, http.StatusOK, peerProjectAnswer{Has: true, Project: p.Name})
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/peer/events":
 		return s.peerEventIn(w, r, peer)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/peer/share-address":
+		// Whether this machine shares projects with one the other has
+		// paired, and where it is now (shareaddress.go).
+		return s.peerShareAddress(w, r)
 	case !peerLeadRoute(r.Method, r.URL.Path):
 		return writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("another machine can't send %s %s here", r.Method, r.URL.Path)})
 	}
@@ -549,26 +665,28 @@ func (s *Server) servePeer(w http.ResponseWriter, r *http.Request) error {
 }
 
 // peerCreateAgent makes an agent for another machine's lead, in the project
-// cloned from repo, cloning it first if no project here is.
+// cloned from repo, cloning it first if no project here is. A project cloned
+// for it is taken back when the create is refused, and when its job fails,
+// unless something else is in the project by then (claimPeerProject).
 func (s *Server) peerCreateAgent(w http.ResponseWriter, r *http.Request, peer hubapi.HubEnvironment, repo string) error {
 	var req api.CreateAgentRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	p, cloned, err := s.peerProjectFor(r.Context(), repo, true)
+	p, err := s.claimPeerProject(r.Context(), repo)
 	if err != nil {
 		return err
 	}
+	// The request's own hold, until its job holds the project in its stead.
+	defer s.releasePeerProject(context.WithoutCancel(r.Context()), p.Name, false)
 	req.Project = p.Name
 	req.OriginID, req.OriginName, req.OriginProject = peer.ID, peer.Name, r.Header.Get(headerPeerProject)
 	req.OriginSession = r.Header.Get(headerPeerSession)
 	j, err := s.createAgentJob(r.Context(), req, true)
 	if err != nil {
-		if cloned {
-			s.forgetPeerProject(context.WithoutCancel(r.Context()), p)
-		}
 		return err
 	}
+	s.trackPeerCreate(j.ID, p.Name)
 	s.logf("peers: %s's lead (%s) is creating an agent in %s here", peer.Name, req.OriginProject, p.Name)
 	return writeJSON(w, http.StatusAccepted, j)
 }

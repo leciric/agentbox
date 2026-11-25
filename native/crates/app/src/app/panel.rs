@@ -1726,6 +1726,48 @@ impl AppView {
                     .into_any_element(),
             );
         }
+        // The agents the lead runs on other computers (AgentList's remote
+        // group): still at something first, then the rest.
+        let remote: Vec<&agentbox_api::RemoteAgent> = {
+            let all = self
+                .project
+                .as_ref()
+                .and_then(|p| self.remote_agents.get(p))
+                .map(|v| v.iter().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let moving = |a: &&agentbox_api::RemoteAgent| {
+                matches!(a.status.as_str(), "creating" | "working" | "asking")
+            };
+            let (mut first, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(moving);
+            first.extend(rest);
+            first
+        };
+        if !remote.is_empty() {
+            groups.push(
+                v_flex()
+                    .pt_1p5()
+                    .child(
+                        h_flex()
+                            .h(px(28.))
+                            .px_2()
+                            .gap_1p5()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::muted())
+                            .child(div().min_w_0().truncate().child(t("panel.group.remote")))
+                            .child(
+                                div()
+                                    .text_color(theme::faint())
+                                    .child(remote.len().to_string()),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .gap(px(1.))
+                            .children(remote.iter().map(|a| remote_line(a))),
+                    )
+                    .into_any_element(),
+            );
+        }
         let past = self.panel.past.len();
         div()
             .id("panel-list")
@@ -1735,7 +1777,7 @@ impl AppView {
             .pt_1()
             .pb_3()
             .children(groups)
-            .when(rows.is_empty(), |el| {
+            .when(rows.is_empty() && remote.is_empty(), |el| {
                 el.child(
                     v_flex()
                         .items_center()
@@ -3282,6 +3324,140 @@ impl AppView {
 
 /// st_color is a state's colour on a row's second line: colour only for
 /// what needs you (stTone).
+/// remote_line is an agent the project's lead runs on another computer
+/// (AgentList's RemoteLine): one of the hub account's, or a paired
+/// AgentBox's, which is yours when you are that AgentBox (RemoteAgent.here).
+/// The daemon keeps what its notices last said, not the agent, so the row
+/// opens nothing: the project's chat directs it, and its tooltip says what it
+/// last reported.
+fn remote_line(a: &agentbox_api::RemoteAgent) -> AnyElement {
+    let title = if a.title.is_empty() {
+        a.name.clone()
+    } else {
+        a.title.clone()
+    };
+    let tip: SharedString = [title.as_str(), a.summary.as_str(), a.pr_url.as_str()]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into();
+    let status_key = format!("panel.remote.{}", a.status);
+    let status = if agentbox_i18n::has(&status_key) {
+        t(&status_key)
+    } else {
+        a.status.clone()
+    };
+    let tone = match a.status.as_str() {
+        "asking" => St::Needs,
+        "failed" => St::Error,
+        "creating" | "working" => St::Working,
+        _ => St::Done,
+    };
+    let place = if a.here {
+        t("panel.remote.mine")
+    } else {
+        tv("panel.remote.on", &[("machine", (&a.machine).into())])
+    };
+    h_flex()
+        .id(SharedString::from(format!(
+            "remote-{}@{}",
+            a.name, a.machine_id
+        )))
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_2p5()
+        .rounded_lg()
+        .px_2()
+        .py_1p5()
+        .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
+        .child(
+            div()
+                .flex_none()
+                .size_10()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::line_faint())
+                .bg(theme::surface())
+                .text_color(theme::subtle())
+                .child(crate::icons::ic(if a.here { "laptop" } else { "server" }).size(px(16.))),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1p5()
+                        .line_height(px(18.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(theme::text::UI)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .when(!a.updated_at.is_empty(), |el| {
+                            el.child(
+                                div()
+                                    .flex_none()
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::faint())
+                                    .child(super::sidebar::ago(&a.updated_at)),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(theme::text::CAPTION)
+                        .line_height(px(16.))
+                        .text_color(st_color(tone))
+                        .child(status),
+                )
+                .child(
+                    h_flex()
+                        .mt_1()
+                        .min_w_0()
+                        .gap_1p5()
+                        .text_size(theme::text::MICRO)
+                        .line_height(px(16.))
+                        .text_color(theme::faint())
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .rounded(px(4.))
+                                .px_1()
+                                .when(a.here, |el| {
+                                    el.bg(theme::brand(500).opacity(0.15))
+                                        .text_color(theme::brand(200))
+                                })
+                                .when(!a.here, |el| {
+                                    el.bg(theme::surface_raised()).text_color(theme::subtle())
+                                })
+                                .child(place),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .font_family(theme::MONO)
+                                .child(a.name.clone()),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
 fn st_color(st: St) -> Hsla {
     match st {
         St::Needs => theme::starting(),
