@@ -3,11 +3,12 @@
 //! (internal/agent/processes.go), so a dev server with what it started is one
 //! row. Each tree the daemon doesn't protect has a Kill, confirmed in place;
 //! the AI tool's own and the machine's are shown locked, so an agent's
-//! figures add up. The dialog opens from the top bar's machine popover
-//! (usage.rs) on the open project, and each agent's Resources view
-//! (resources.rs) shows its own list. Both are read again every few seconds
-//! while they're shown: the daemon measures CPU between two readings, and
-//! sends no events for it.
+//! figures add up. The dialog opens from the sidebar's Running button, with its
+//! count (foot in sidebar_actions.rs), and from the top bar's machine popover
+//! (usage.rs), on the open project; each agent's Resources view (resources.rs)
+//! shows its own list. Those are read again every few seconds while they're
+//! shown: the daemon measures CPU between two readings, and sends no events
+//! for it. The button's count is read every half minute.
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -99,6 +100,25 @@ pub(super) fn split_trees(trees: &[ProcessTree]) -> (Vec<&ProcessTree>, Vec<&Pro
     }
     shown.extend(system);
     (shown, small)
+}
+
+/// running_count is how many things a list shows that can be killed
+/// (runningCount): the trees worth a row the daemon doesn't protect, across
+/// its agents' running machines. It's the count on the sidebar's Running
+/// button, so it counts what the dialog lists above its "small ones", and
+/// never the AI tool's own or the machine's.
+pub(super) fn running_count(list: &ProcessList) -> usize {
+    list.agents
+        .iter()
+        .filter(|a| a.running && a.error.is_empty())
+        .map(|a| {
+            split_trees(&a.trees)
+                .0
+                .iter()
+                .filter(|t| !t.protected)
+                .count()
+        })
+        .sum()
 }
 
 /// rows is what a list shows: the trees worth a row, and the small ones too
@@ -275,9 +295,41 @@ impl AppView {
         }
     }
 
+    /// count_scope is the project the button's count is of, the open one's
+    /// or, on Home, "" for every project's: the scope the dialog opens on.
+    pub(super) fn count_scope(&self) -> String {
+        self.project
+            .clone()
+            .filter(|_| !self.is_home())
+            .unwrap_or_default()
+    }
+
+    /// running_badge is the count on the sidebar's Running button, from the
+    /// list last read for its scope: 0 until there is one.
+    pub(super) fn running_badge(&self) -> usize {
+        match self.running.lists.get(&self.count_scope()) {
+            Some(Ok(list)) => running_count(list),
+            _ => 0,
+        }
+    }
+
+    /// read_running_count reads the list for the button's count: every half
+    /// minute, and at once for a scope with no list yet (another project's).
+    pub(super) fn read_running_count(&mut self, every: bool, cx: &mut Context<Self>) {
+        let scope = self.count_scope();
+        if every || !self.running.lists.contains_key(&scope) {
+            self.read_running_scope(scope, cx);
+        }
+    }
+
     /// read_running reads the dialog's list, unless it is being read.
     fn read_running(&mut self, cx: &mut Context<Self>) {
-        let scope = self.running.scope();
+        self.read_running_scope(self.running.scope(), cx);
+    }
+
+    /// read_running_scope reads a scope's list ("" every project's), unless it
+    /// is being read.
+    fn read_running_scope(&mut self, scope: String, cx: &mut Context<Self>) {
         if !self.running.reading.insert(scope.clone()) {
             return;
         }
@@ -1153,7 +1205,10 @@ fn totals(a: &AgentProcesses) -> String {
 #[cfg(test)]
 mod tests {
     // Not super::*: gpui's own `test` attribute would come with it.
-    use super::{agent_without_tree, cpu_percent, rows, span, split_trees, up_for, without_tree};
+    use super::{
+        agent_without_tree, cpu_percent, rows, running_count, span, split_trees, up_for,
+        without_tree,
+    };
     use agentbox_api::{AgentProcesses, ProcessList, ProcessTree};
 
     fn tree(pid: i64, kind: &str, mb: i64) -> ProcessTree {
@@ -1215,6 +1270,41 @@ mod tests {
         assert_eq!(cpu(0.44), "0.4");
         assert_eq!(cpu(3.0), "3");
         assert_eq!(cpu(186.4), "186");
+    }
+
+    #[test]
+    fn the_badge_counts_the_trees_worth_a_row_that_can_be_killed() {
+        let mut flagged = tree(4, "agent", 3);
+        flagged.idle = true;
+        let agent = |name: &str, trees: Vec<ProcessTree>| AgentProcesses {
+            r#ref: format!("demo/{name}"),
+            running: true,
+            trees,
+            ..Default::default()
+        };
+        let a = agent(
+            "a",
+            vec![
+                tree(1, "agent", 900),  // a dev server
+                tree(2, "tool", 600),   // the AI tool's: never counted
+                tree(3, "agent", 4),    // a small one, folded away
+                flagged,                // small but flagged: listed, so counted
+                tree(5, "system", 300), // the machine's
+            ],
+        );
+        let mut off = agent("c", vec![tree(7, "agent", 200)]);
+        off.running = false;
+        let mut broken = agent("d", vec![tree(8, "agent", 200)]);
+        broken.error = "boom".into();
+        let mut list = ProcessList {
+            agents: vec![a, agent("b", vec![tree(6, "agent", 200)]), off, broken],
+            ..Default::default()
+        };
+        assert_eq!(running_count(&list), 3);
+        // A kill takes it off the badge before the next reading says so.
+        without_tree(&mut list, "demo/a", 1);
+        assert_eq!(running_count(&list), 2);
+        assert_eq!(running_count(&ProcessList::default()), 0);
     }
 
     #[test]

@@ -1423,6 +1423,20 @@ impl AppView {
         };
         let settings = self.settings;
         let work = self.work.is_some() && !settings && page.is_none();
+        // Running opens what the agents still have running (the Running
+        // dialog), on the open project's agents or, on Home, on every
+        // project's; its count is of what the dialog lists that can be killed.
+        let running = self.running_badge();
+        let running_tip = if running > 0 {
+            format!(
+                "{} · {}",
+                t("running.title"),
+                tv("running.countTip", &[("count", running.into())])
+            )
+        } else {
+            t("running.open")
+        };
+        let running_project = self.project.clone().filter(|_| !self.is_home());
         h_flex()
             .flex_none()
             .p_2()
@@ -1462,6 +1476,38 @@ impl AppView {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.open_foot_page(FootPage::Jobs, window, cx)
                 })),
+            )
+            .child(
+                item("foot-running", "list-tree", running_tip, self.running.open)
+                    .relative()
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.open_running(running_project.clone(), cx)
+                    }))
+                    .when(running > 0, |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top(px(-2.))
+                                .right(px(-2.))
+                                .h(px(16.))
+                                .min_w(px(16.))
+                                .px_1()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .bg(theme::brand(500))
+                                .text_size(theme::text::MICRO)
+                                .line_height(px(16.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(gpui::white())
+                                .child(if running > 99 {
+                                    "99+".to_string()
+                                } else {
+                                    running.to_string()
+                                }),
+                        )
+                    }),
             )
             .child(div().flex_1())
             .child(self.update_button(cx))
