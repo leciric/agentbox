@@ -22,7 +22,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlarmClock, Armchair, Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { AlarmClock, Armchair, Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, ListTree, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -69,6 +69,8 @@ import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
 import { usePeopleIn } from '../../lib/here';
 import { Avatars } from '../People';
+import { openRunning, useRunningRequest } from '../../lib/running';
+import { useRunningCount } from '../RunningProcesses';
 import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, snoozedOf, useSeenAt } from '../../lib/sessions';
 import { wakeTime } from '../chat/SessionHeader';
 
@@ -95,6 +97,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   const footDots = { settings: useFeatureDot('foot:settings'), work: useFeatureDot('foot:work'), media: useFeatureDot('foot:media') };
+  // Running opens what the agents still have running (the Running dialog),
+  // on the open project's agents or, on Home, on every project's, and its
+  // count is of what it lists: what can be killed.
+  const runningProject = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
+  const runningOpen = useRunningRequest().open;
+  const running = useRunningCount(runningProject);
   // The same test as Sidebar's: a nightly is one by its version, or by the update check's word.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
@@ -656,7 +664,9 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
       {/* The foot is one row of icons, each named by its tooltip: Settings,
           which opens straight away, Past agents, Media and Jobs, the places
-          across every project, the one open highlighted, and the update check.
+          across every project, the one open highlighted, Running, which opens
+          its dialog and carries the count of what can be killed, and the update
+          check.
           Home, the chat and its Status tab, heads the list above; which
           AgentBox this window drives is under Settings → General. */}
       <div className="flex items-center gap-1 border-t border-line-faint p-2" data-v2-foot>
@@ -693,6 +703,30 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             </Tip>
           );
         })}
+        <Tip label={running > 0 ? `${t('running.title')} · ${t('running.countTip', { count: running })}` : t('running.open')}>
+          <button
+            type="button"
+            aria-label={running > 0 ? `${t('running.title')}, ${t('running.countTip', { count: running })}` : t('running.title')}
+            aria-haspopup="dialog"
+            aria-expanded={runningOpen}
+            onClick={() => openRunning(runningProject)}
+            className={cn(
+              'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+              runningOpen && 'bg-surface-raised text-title',
+            )}
+            data-v2-foot-item="running"
+          >
+            <ListTree className={cn('size-4', runningOpen ? 'text-brand-300' : 'text-subtle')} />
+            {running > 0 && (
+              <span
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-micro font-medium leading-none tabular-nums text-white"
+                data-running-count={running}
+              >
+                {running > 99 ? '99+' : running}
+              </span>
+            )}
+          </button>
+        </Tip>
         <UpdateCheck />
       </div>
     </aside>

@@ -185,8 +185,8 @@
 //                           --watch`; =all on every project. Kill answers as the
 //                           daemon would. With &app=agent-99&panel=resources:agent-99,
 //                           (=agent) the agent's own list in its Resources panel;
-//                           with &app=project, =tab the project's Running tab,
-//                           beside Agents and Pull requests, with its count
+//                           =agent with &app=project is the page with no dialog
+//                           open, the sidebar's Running button showing its count
 //   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
@@ -387,7 +387,7 @@ import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dro
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
-import { openPanelOn, panelDefault, pickTarget, setLeadTab, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
+import { openPanelOn, panelDefault, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
 import { PastAgentView } from '../components/PastAgents';
@@ -449,7 +449,7 @@ const notify = params.get('notify'); // 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'all' every project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
-const running = params.get('running'); // '1' | 'all' | 'agent' | 'tab' | null (dev/running.ts)
+const running = params.get('running'); // '1' | 'all' | 'agent' | null (dev/running.ts)
 const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
@@ -985,8 +985,7 @@ if (linuxHost === 'move') {
 if (running) {
   seedRunning();
   devRequests.push(runningRequest);
-  if (running === 'tab') setLeadTab(PROJECT, 'running');
-  else if (running !== 'agent') openRunning(running === 'all' ? undefined : PROJECT);
+  if (running !== 'agent') openRunning(running === 'all' ? undefined : PROJECT);
 }
 if (meters) {
   const GiB = 1024 ** 3;

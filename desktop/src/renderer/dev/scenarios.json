@@ -3222,30 +3222,31 @@
     "click": "[data-machine]"
   },
   {
-    "id": "running-tab-dark",
-    "description": "The project's panel with Running as a tab beside Agents, Pull requests and Schedules: the count of what can be killed on it, and the project's agents' trees below, with Kill — dark",
-    "query": "running=tab&app=project&theme=dark",
-    "width": 1440,
-    "height": 900
-  },
-  {
-    "id": "running-tab-light",
-    "description": "Same as running-tab-dark, light",
-    "query": "running=tab&app=project&theme=light",
-    "width": 1440,
-    "height": 900
-  },
-  {
-    "id": "running-tab-pt-BR-dark",
-    "description": "The Running tab in Portuguese, whose words are longer — dark",
-    "query": "running=tab&app=project&lang=pt-BR&theme=dark",
-    "width": 1440,
-    "height": 900
-  },
-  {
-    "id": "running-tab-badge-dark",
-    "description": "The project's panel on its Agents tab: Running is on the switch with its count, a tooltip away from being named — dark",
+    "id": "running-sidebar-dark",
+    "description": "The sidebar's foot with Running beside Jobs, its badge counting what can be killed across the open project's agents — dark",
     "query": "running=agent&app=project&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "running-sidebar-light",
+    "description": "Same as running-sidebar-dark, light",
+    "query": "running=agent&app=project&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "running-sidebar-open-dark",
+    "description": "Running pressed in the sidebar: the Running dialog on the open project, Running lit in the foot — dark",
+    "query": "running=agent&app=project&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": "[data-v2-foot-item='running']"
+  },
+  {
+    "id": "running-sidebar-home-dark",
+    "description": "On Home, the Running button counts every project's agents, as the dialog it opens lists them — dark",
+    "query": "running=agent&app=home&theme=dark",
     "width": 1440,
     "height": 900
   }

@@ -4,8 +4,9 @@ import type * as T from '../../shared/api';
 // The Running view (components/RunningProcesses.tsx): what each agent's
 // machine still has running, as the daemon groups it in trees (a dev server
 // with what it started is one), with a Kill on each the daemon doesn't
-// protect. It opens from the top bar's machine popovers, on whichever project
-// was open, and each agent's Resources panel shows its own.
+// protect. It opens from the sidebar's Running button and the top bar's
+// machine popovers, on whichever project was open, and each agent's Resources
+// panel shows its own.
 
 type Request = { open: boolean; project?: string };
 

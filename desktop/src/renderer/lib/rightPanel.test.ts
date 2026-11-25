@@ -35,9 +35,9 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
   assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android', 'resources']);
-  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'running', 'settings']);
-  // Every view is on the switch but Pull requests, Issues, Running and Settings, the lead's tabs and header's.
-  assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'running', 'settings'].toSorted(), [...P.panelViews].toSorted());
+  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
+  // Every view is on the switch but Pull requests, Issues and Settings, the lead's tabs and header's.
+  assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');
@@ -433,20 +433,6 @@ test('the lead’s panel also has Evidence and Schedules as tabs', () => {
   P.setLeadTab('pawly', 'agents');
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
   assert.equal(P.onList(P.panelState(), lead), true);
-});
-
-test('Running is a tab of the lead’s panel, over the list, and Agents brings the list back; no agent’s switch has it', () => {
-  P.setPanel({ chats: {}, views: {}, last: {} });
-  const lead = 'pawly/lead';
-  assert.ok(P.leadTabs.includes('running'));
-  P.setLeadTab('pawly', 'running');
-  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'running');
-  assert.equal(P.chatPanel(P.panelState(), lead).wide, 'running');
-  P.setLeadTab('pawly', 'agents');
-  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
-  assert.equal(P.onList(P.panelState(), lead), true);
-  // An agent has its own list in Resources, not a second tab for this one.
-  assert.ok(!P.switchViews.includes('running'));
 });
 
 test('Pull requests is a tab of the lead’s panel, over whoever it showed, and what opens them switches to it', () => {
