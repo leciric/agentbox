@@ -545,7 +545,7 @@ func TestPullRequestsThroughAnSSHHostAlias(t *testing.T) {
 	}
 	testutil.Git(t, repo, "remote", "add", "origin", "git@github.com-daemon:acme/hello-stack.git")
 	githubTokenStub(t, d)
-	sshConfigStub(t, "github.com-daemon")
+	stubSSH(t, map[string]string{"github.com-daemon": "github.com"})
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/repos/acme/hello-stack/pulls" {
@@ -563,16 +563,18 @@ func TestPullRequestsThroughAnSSHHostAlias(t *testing.T) {
 	}
 }
 
-// sshConfigStub puts a fake `ssh` on PATH that reports each alias as
-// github.com, standing in for a ~/.ssh/config the daemon's ssh would read.
-func sshConfigStub(t *testing.T, aliases ...string) {
+// stubSSH puts a fake `ssh` on PATH that answers `ssh -G <host>` from
+// aliases, standing in for a ~/.ssh/config the daemon's ssh would read, and
+// with the host itself otherwise. Aliases are resolved once per process
+// (gitrepo.SSHHostName): give each test its own.
+func stubSSH(t *testing.T, aliases map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\ncase \"$2\" in\n"
-	for _, alias := range aliases {
-		script += alias + ") echo 'hostname github.com';;\n"
+	script := "#!/bin/sh\nfor a; do h=$a; done\ncase \"$h\" in\n"
+	for alias, host := range aliases {
+		script += alias + ") echo 'hostname " + host + "';;\n"
 	}
-	script += "*) echo \"hostname $2\";;\nesac\n"
+	script += "*) echo \"hostname $h\";;\nesac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

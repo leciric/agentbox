@@ -22,6 +22,7 @@ import (
 	"agentbox/hubapi"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/remote"
 	"agentbox/internal/state"
@@ -153,8 +154,8 @@ func (s *Server) findMachine(ctx context.Context, name string) (*remoteConfig, h
 	return cfg, m, nil
 }
 
-// projectRepo is the URL another machine finds a project by: its origin
-// remote's.
+// projectRepo is the URL another machine finds a project by, and clones it
+// from: its origin remote's, as that machine can use it (shareableRepo).
 func (s *Server) projectRepo(ctx context.Context, project string) (string, error) {
 	p, err := s.store.Project(ctx, project)
 	if err != nil {
@@ -164,19 +165,69 @@ func (s *Server) projectRepo(ctx context.Context, project string) (string, error
 	if errors.Is(err, gitrepo.ErrNoRemote) || (err == nil && u == "") {
 		return "", fmt.Errorf("%s has no origin remote, so another machine can't find or clone it: push it to a git host first", project)
 	}
-	return u, err
+	if err != nil {
+		return "", err
+	}
+	return shareableRepo(u), nil
+}
+
+// shareableRepo is a remote URL as another machine can clone it. A GitHub
+// repository is https://github.com/owner/repo however origin spells it (ssh,
+// an SSH Host alias, a token in the URL), so the other machine clones it
+// with its own GitHub account. Elsewhere, an SSH Host alias is replaced by
+// the host it stands for (gitrepo.SSHHostName), since only this machine's
+// ~/.ssh/config has it, and an https URL's credentials stay here. The
+// alias's User and Port don't go with it: the other machine's ssh
+// configuration has its own.
+func shareableRepo(u string) string {
+	u = strings.TrimSpace(u)
+	if r, err := github.ParseRemote(u); err == nil {
+		return "https://github.com/" + r.Owner + "/" + r.Name
+	}
+	if i := strings.Index(u, "://"); i >= 0 {
+		scheme, rest := strings.ToLower(u[:i]), u[i+3:]
+		authority, path, _ := strings.Cut(rest, "/")
+		user, hostPort := "", authority
+		if at := strings.LastIndex(authority, "@"); at >= 0 {
+			user, hostPort = authority[:at+1], authority[at+1:]
+		}
+		switch scheme {
+		case "ssh":
+			host, port, hasPort := strings.Cut(hostPort, ":")
+			hostPort = gitrepo.SSHHostName(host)
+			if hasPort {
+				hostPort += ":" + port
+			}
+		case "https", "http":
+			user = ""
+		default:
+			return u
+		}
+		return u[:i+3] + user + hostPort + "/" + path
+	}
+	// scp-like, git@host:owner/repo, and not a path or a Windows drive (C:)
+	if host, path, ok := strings.Cut(u, ":"); ok && len(host) > 1 && !strings.ContainsAny(host, `/\`) {
+		user := ""
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			user, host = host[:at+1], host[at+1:]
+		}
+		return user + gitrepo.SSHHostName(host) + ":" + path
+	}
+	return u
 }
 
 // sameRepo reports whether two remote URLs name one repository, however each
 // is spelled: https or ssh, with or without a user, ".git" or a trailing
-// slash.
+// slash, or through an SSH Host alias of the machine it is read on.
 func sameRepo(a, b string) bool {
 	return a != "" && repoKey(a) == repoKey(b)
 }
 
-// repoKey is a remote URL as host/path, lowercase.
+// repoKey is a remote URL as host/path, lowercase, with an SSH Host alias
+// resolved to its host (shareableRepo): a project's origin here and the URL
+// another machine sent for it match however each machine reaches it.
 func repoKey(u string) string {
-	u = strings.TrimSpace(u)
+	u = shareableRepo(u)
 	if rest, ok := strings.CutPrefix(u, "file://"); ok {
 		u = rest
 	} else if i := strings.Index(u, "://"); i >= 0 {

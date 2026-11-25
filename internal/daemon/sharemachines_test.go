@@ -30,6 +30,7 @@ type shareMachines struct {
 	local      string          // hello-stack's name on bob: <remote>~hello-stack
 	lead       *api.Client     // alice's hello-stack lead
 	push       *atomic.Bool    // whether bob's GitHub account may push
+	see        *atomic.Bool    // whether bob's GitHub account can see the repository at all
 }
 
 func startShareMachines(t *testing.T) shareMachines {
@@ -52,11 +53,14 @@ func startShareMachinesOn(t *testing.T, bobIncus string, bobConfig ...testConfig
 	if err := creds.SaveGitHubToken("bob", "ghp_bob"); err != nil {
 		t.Fatal(err)
 	}
-	push := new(atomic.Bool)
+	push, see := new(atomic.Bool), new(atomic.Bool)
 	push.Store(true)
+	see.Store(true)
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/acme/hello-stack" {
-			http.NotFound(w, r)
+		if r.URL.Path != "/repos/acme/hello-stack" || !see.Load() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"message":"Not Found"}`)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -116,7 +120,7 @@ func startShareMachinesOn(t *testing.T, bobIncus string, bobConfig ...testConfig
 		t.Fatal(err)
 	}
 	m := shareMachines{alice: alice, bob: bob, peer: peer, remote: remote, local: remote.ID + "~hello-stack",
-		lead: api.NewClient(alice.srv.leadSocketPath("hello-stack")), push: push}
+		lead: api.NewClient(alice.srv.leadSocketPath("hello-stack")), push: push, see: see}
 	waitFor(t, "bob's computer to connect to alice", func() bool {
 		st, err := alice.client.Share(ctx)
 		return err == nil && len(st.Peers) == 1 && st.Peers[0].Machine
@@ -286,5 +290,65 @@ func TestShareMachinePathsNeedTheToken(t *testing.T) {
 		if code, body := gw.do(c.method, c.path, `{"project":"hello-stack","agent":"agent-01"}`, "Authorization", "Bearer share_peer_x.nope"); code != http.StatusUnauthorized {
 			t.Errorf("%s %s with a wrong token = %d %s", c.method, c.path, code, body)
 		}
+	}
+}
+
+// TestShareGuestClonesAnAliasedRepo: Alice's origin names an SSH Host alias
+// only her ~/.ssh/config has (#821's git@github-stefanini:…). Bob is sent the
+// repository's https link, told up front when his GitHub account can't see
+// it, refused before anything is cloned, and clones it once it can.
+func TestShareGuestClonesAnAliasedRepo(t *testing.T) {
+	stubSSH(t, map[string]string{"github-alias-share": "github.com"})
+	ctx := context.Background()
+	m := startShareMachines(t)
+	alice, err := m.alice.srv.store.Project(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, alice.Root, "remote", "set-url", "origin", "git@github-alias-share:acme/hello-stack.git")
+	if repo, err := m.alice.srv.projectRepo(ctx, "hello-stack"); err != nil || repo != "https://github.com/acme/hello-stack" {
+		t.Fatalf("projectRepo() = %q, %v; want the https link, without the alias", repo, err)
+	}
+	var cloned []string
+	clone := m.bob.srv.cloneHook
+	m.bob.srv.cloneHook = func(ctx context.Context, repo, dest string) error {
+		cloned = append(cloned, repo)
+		return clone(ctx, repo, dest)
+	}
+
+	// Bob's account can't see it: "On my PC" says so, naming both.
+	m.see.Store(false)
+	got, err := m.bob.client.ShareRunOn(ctx, m.local)
+	if err != nil || got.Here || !strings.Contains(got.Why, "your GitHub account bob can't see acme/hello-stack") || !strings.Contains(got.Why, "Settings → Accounts") {
+		t.Errorf("ShareRunOn() when Bob's account can't see the repository = %+v, %v", got, err)
+	}
+	// A create sent anyway is refused at once, and nothing is cloned.
+	_, err = m.lead.OnMachine("Bob").CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders", Task: "add it", Branch: "reminders"})
+	if err == nil || !strings.Contains(err.Error(), "Bob's GitHub account bob can't see acme/hello-stack") || !strings.Contains(err.Error(), "add a GitHub account with access to acme/hello-stack in Settings → Accounts") {
+		t.Errorf("creating on Bob's computer when his account can't see it: %v", err)
+	}
+	if len(cloned) != 0 {
+		t.Errorf("cloned %v before saying it can't be", cloned)
+	}
+	if _, err := m.bob.srv.store.Project(ctx, "hello-stack"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("Bob has the project after the refusal: %v", err)
+	}
+
+	// Once it can, the agent is made in a clone of the https link.
+	m.see.Store(true)
+	job, err := m.lead.OnMachine("Bob").CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders", Task: "add it", Branch: "reminders"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.bob.client.FollowJobLog(ctx, job.ID, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(cloned) != 1 || cloned[0] != "https://github.com/acme/hello-stack" {
+		t.Errorf("Bob cloned %v; want the https link once", cloned)
+	}
+	// And Alice's lead sees that Bob's computer has the project now.
+	machines, err := m.lead.ProjectMachines(ctx)
+	if err != nil || len(machines) != 1 || !machines[0].HasProject {
+		t.Errorf("machines = %+v, %v; want Bob's computer with the project", machines, err)
 	}
 }

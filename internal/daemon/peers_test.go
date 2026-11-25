@@ -318,6 +318,48 @@ func TestRepoKey(t *testing.T) {
 	}
 }
 
+// An SSH Host alias in origin is the host it stands for: in what is sent to
+// another machine to clone (GitHub's as its https link, with no token), and in
+// matching a project here to a link from there, either way round.
+func TestShareableRepoResolvesSSHAliases(t *testing.T) {
+	stubSSH(t, map[string]string{"github-stefanini-test": "github.com", "gitlab-work-test": "gitlab.com"})
+	for in, want := range map[string]string{
+		"git@github-stefanini-test:stefanini-applications/new-commerce.git":       "https://github.com/stefanini-applications/new-commerce",
+		"ssh://git@github-stefanini-test/stefanini-applications/new-commerce.git": "https://github.com/stefanini-applications/new-commerce",
+		"git@github.com:acme/hello-stack.git":                                     "https://github.com/acme/hello-stack",
+		"https://x-access-token:ghs_secret@github.com/acme/hello-stack.git":       "https://github.com/acme/hello-stack",
+		"git@gitlab-work-test:acme/hello-stack.git":                               "git@gitlab.com:acme/hello-stack.git",
+		"ssh://git@gitlab-work-test:2222/acme/hello-stack.git":                    "ssh://git@gitlab.com:2222/acme/hello-stack.git",
+		"https://me:hunter2@gitlab.com/acme/hello-stack.git":                      "https://gitlab.com/acme/hello-stack.git",
+		"git://example.com/acme/hello-stack.git":                                  "git://example.com/acme/hello-stack.git",
+		"/home/lint/src/hello-stack":                                              "/home/lint/src/hello-stack",
+		`C:\src\hello-stack`:                                                      `C:\src\hello-stack`,
+	} {
+		if got := shareableRepo(in); got != want {
+			t.Errorf("shareableRepo(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, c := range []struct{ a, b string }{
+		{"git@github-stefanini-test:stefanini-applications/new-commerce.git", "https://github.com/stefanini-applications/new-commerce"},
+		{"https://github.com/Stefanini-Applications/new-commerce.git", "git@github-stefanini-test:stefanini-applications/new-commerce"},
+		{"git@gitlab-work-test:acme/hello-stack.git", "git@gitlab.com:acme/hello-stack"},
+		{"ssh://git@gitlab-work-test:2222/acme/hello-stack.git", "https://gitlab.com/acme/hello-stack"},
+	} {
+		if !sameRepo(c.a, c.b) {
+			t.Errorf("%s isn't %s: %q, %q", c.a, c.b, repoKey(c.a), repoKey(c.b))
+		}
+	}
+	for _, c := range []struct{ a, b string }{
+		{"git@github-stefanini-test:stefanini-applications/new-commerce.git", "https://gitlab.com/stefanini-applications/new-commerce"},
+		{"git@gitlab-work-test:acme/hello-stack.git", "https://github.com/acme/hello-stack"},
+		{"git@github-unknown-test:acme/hello-stack.git", "https://github.com/acme/hello-stack"},
+	} {
+		if sameRepo(c.a, c.b) {
+			t.Errorf("%s is %s", c.a, c.b)
+		}
+	}
+}
+
 func TestPeerLeadRoutes(t *testing.T) {
 	t.Parallel()
 	allowed := []string{"GET /v1/project/agents", "POST /v1/project/agents", "POST /v1/project/agents/agent-01/chat/messages",

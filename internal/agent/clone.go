@@ -110,6 +110,12 @@ func runClone(ctx context.Context, url, dest, githubToken string, log io.Writer)
 // onGitHub is whether a repository URL is on github.com, in any of the forms
 // git takes: https://, ssh://, git@github.com:owner/repo.
 func onGitHub(url string) bool {
+	host := hostOf(url)
+	return host == "github.com" || host == "www.github.com"
+}
+
+// hostOf is a repository URL's host, lowercase.
+func hostOf(url string) string {
 	u := strings.ToLower(url)
 	if i := strings.Index(u, "://"); i >= 0 {
 		u = u[i+3:]
@@ -119,7 +125,7 @@ func onGitHub(url string) bool {
 	}
 	host, _, _ := strings.Cut(u, "/")
 	host, _, _ = strings.Cut(host, ":")
-	return host == "github.com" || host == "www.github.com"
+	return host
 }
 
 // cloneFailure words a clone git refused: no access (the commonest, and the
@@ -143,6 +149,12 @@ func cloneFailure(url, account, out string, err error) error {
 		return false
 	}
 	switch {
+	case has("could not resolve hostname"):
+		// ssh's, followed by "Could not read from remote repository", which
+		// isn't about access. A host no DNS knows is most often a Host alias
+		// in the ~/.ssh/config of the machine the link was copied from.
+		return fmt.Errorf("can't clone %s: no host is called %s here. If it is a Host alias in another machine's ~/.ssh/config, "+
+			"use the repository's own link, like git@github.com:owner/repo or https://github.com/owner/repo", url, hostOf(url))
 	case has("repository not found", "authentication failed", "could not read username", "could not read password",
 		"permission denied", "terminal prompts disabled", "access denied", "returned error: 403", "returned error: 401",
 		"not authorized", "could not read from remote repository"):
