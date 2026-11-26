@@ -301,6 +301,8 @@ fn tree(f: &Fixture, busy: bool, gone: &HashSet<i64>) -> Option<ProcessTree> {
         idle_seconds: idle_s,
         heavy: !protected && memory >= 1 << 30,
         idle: !protected && idle_s >= 30 * 60,
+        // The fake fleet runs no heavy commands, so no tree has a worker count.
+        workers: None,
         members,
     })
 }
