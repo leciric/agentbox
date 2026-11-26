@@ -581,7 +581,6 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	s.setOutcome(a, ev.Outcome, "")
 	ev = s.record(ctx, ev)
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
-	s.pushFinished(a, ev)
 	if pr != nil {
 		s.setupStep(ctx, setupFirstPR)
 	}
@@ -594,14 +593,13 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	// One of a group's agents waits for the rest: the lead hears once, as
 	// the last one finishes (groupMaybeDone), rather than at each.
 	group := s.groupMemberFinished(ctx, a)
-	finished := peerEvent{Status: state.RemoteDone, Summary: ev.Summary}
-	if pr != nil {
-		finished.PRURL = pr.URL
-	}
-	s.tellLeadAbout(ctx, a, finishNotice(ev), chat.NoticeOptions{Act: waiting && group == "" && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}}, finished)
 	if group != "" {
-		s.groupMoved(ctx, group)
+		s.tellFinish(ctx, a, ev, waiting, group, nil)
+		return
 	}
+	// Work it asked for is reviewed before the chat hears of it, and may go
+	// back to the agent first (finishreview.go).
+	s.finishWithReview(ctx, a, ev, waiting)
 }
 
 // nudge claims the one reminder an agent gets to wait on its work inside a

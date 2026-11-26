@@ -178,6 +178,11 @@ type Project struct {
 	// tab, and reads the project's pull requests to keep its counts. On by
 	// default; off, the tab and its polling are gone.
 	PullRequests bool `json:"pullRequests"`
+	// ReviewFinishes is whether an agent's work is reviewed before the
+	// project's chat hears it finished: a cheaper model reads its task, diff,
+	// pull request and media, and what it finds goes back to the agent once
+	// (AgentReview). On by default.
+	ReviewFinishes bool `json:"reviewFinishes"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -432,6 +437,9 @@ type UpdateProjectRequest struct {
 	PickUpIssues *bool `json:"pickUpIssues,omitempty"`
 	// PullRequests turns on or off the project's Pull requests tab in the app.
 	PullRequests *bool `json:"pullRequests,omitempty"`
+	// ReviewFinishes turns on or off reviewing an agent's work before the
+	// project's chat hears it finished.
+	ReviewFinishes *bool `json:"reviewFinishes,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -2670,9 +2678,46 @@ type AgentEvent struct {
 	ResumeAt *time.Time `json:"resumeAt,omitempty"`
 	// Question is the ID of the question this event is about, on asked and
 	// answered.
-	Question string    `json:"question,omitempty"`
-	At       time.Time `json:"at"`
+	Question string `json:"question,omitempty"`
+	// Review is what the review of a finish found, on reviewed.
+	Review *AgentReview `json:"review,omitempty"`
+	At     time.Time    `json:"at"`
 }
+
+// AgentReview is the review of an agent's work that runs as it finishes,
+// before the project's chat is told (Project.ReviewFinishes): a cheaper model
+// reads the agent's task, its diff, its pull request's description and its
+// media, screenshots and recordings' frames as images, and passes the work
+// or names what is wrong with it. Problems go back to the agent once; the
+// chat hears the finish after a pass, or after the second review either way.
+type AgentReview struct {
+	// Verdict is AgentReviewPass, AgentReviewProblems, or AgentReviewError
+	// when the review couldn't be made (Note says why).
+	Verdict  string   `json:"verdict"`
+	Problems []string `json:"problems,omitempty"`
+	// Round is 1 for the review of a finish, 2 for the review of the finish
+	// that followed problems sent back.
+	Round int `json:"round"`
+	// SentBack is set when these problems went to the agent to fix; unset on
+	// problems the chat was told of instead.
+	SentBack bool `json:"sentBack,omitempty"`
+	// Earlier is, on a second round, what the first sent back.
+	Earlier []string `json:"earlier,omitempty"`
+	// Finish is the ID of the finished event this review is of.
+	Finish string `json:"finish"`
+	// Model is the model the review ran on, as the AI tool reported it.
+	Model string `json:"model,omitempty"`
+	// Images is how many screenshots and recording frames it looked at.
+	Images int    `json:"images,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// The verdicts of an AgentReview.
+const (
+	AgentReviewPass     = "pass"
+	AgentReviewProblems = "problems"
+	AgentReviewError    = "error"
+)
 
 // The kinds of AgentEvent.
 const (
@@ -2711,6 +2756,10 @@ const (
 	// it is paused, not finished, and AgentBox carries it on when the limit
 	// resets (ResumeAt). Summary says what the tool said.
 	AgentLimited = "limited"
+	// AgentReviewed is the review of a finish (Review), recorded once it has
+	// run: before the project's chat hears of the finish, or the agent is
+	// sent back to fix what it found.
+	AgentReviewed = "reviewed"
 )
 
 // How an agent's last turn left it (Agent.Outcome, AgentEvent.Outcome). A

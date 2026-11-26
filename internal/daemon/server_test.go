@@ -203,6 +203,8 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}
+	// And a finish's review would too: off unless the test is about it.
+	srv.askReview = nil
 	// Memory (pressure.go) reads this machine's pressure and writes cgroups:
 	// a test does neither, and steps the pressure loop itself.
 	srv.pressureEvery = 0

@@ -32,6 +32,9 @@ const (
 	// TokensKeepalive is a hidden prompt that only reads a lead's prompt
 	// cache back, so it doesn't expire while the lead waits on its agents.
 	TokensKeepalive = api.TokensKeepalive
+	// TokensReview is the review of an agent's work as it finishes, in a
+	// session of its own on a cheaper model (daemon/finishreview.go).
+	TokensReview = api.TokensReview
 )
 
 // TokenRow is one line of the ledger: what one model spent in one turn.

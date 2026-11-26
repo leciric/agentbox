@@ -67,7 +67,7 @@ func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Proje
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, IOSForwardPorts: nonNilPorts(p.IOSForwardPorts), AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, IOSForwardPorts: nonNilPorts(p.IOSForwardPorts), AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, ReviewFinishes: !p.FinishReviewOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -655,6 +655,14 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.PullsOff = !*req.PullRequests
+	}
+	if req.ReviewFinishes != nil {
+		if err := s.store.SetProjectFinishReview(r.Context(), p.Name, *req.ReviewFinishes); err != nil {
+			return err
+		}
+		p.FinishReviewOff = !*req.ReviewFinishes
+		// The lead's brief says what "Reviewed: …" in a finish means.
+		rewriteBrief()
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }

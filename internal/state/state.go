@@ -1889,6 +1889,9 @@ var migrations = []string{
 	// agent, which its notices go back to; '' for one made before, whose
 	// notices go to the session most recently active there.
 	`ALTER TABLE peer_agents ADD COLUMN origin_session TEXT NOT NULL DEFAULT ''`,
+	// Whether the project skips the review of an agent's work before its
+	// lead hears it finished (daemon/finishreview.go): 0, so on by default.
+	`ALTER TABLE projects ADD COLUMN finish_review_off INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2186,6 +2189,12 @@ type Project struct {
 	// so on by default: a project that doesn't use pull requests, or whose
 	// remote isn't GitHub, turns it off so as not to pay for them.
 	PullsOff bool
+	// FinishReviewOff is whether the project's lead hears of an agent's
+	// finish without its work being reviewed first. Off, so on by default:
+	// a cheaper model reads the agent's task, diff, pull request and
+	// screenshots, and sends what it finds back to the agent once before the
+	// lead is told (daemon/finishreview.go).
+	FinishReviewOff bool
 }
 
 // A project's PRWatch.
@@ -2428,7 +2437,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours, ios_forward_ports, copilot_account`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours, ios_forward_ports, copilot_account, finish_review_off`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2516,11 +2525,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours, joinPorts(p.IOSForwardPorts), p.CopilotAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours, joinPorts(p.IOSForwardPorts), p.CopilotAccount, p.FinishReviewOff)
 	return err
 }
 
@@ -2641,7 +2650,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.FinishReviewOff, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -3085,6 +3094,19 @@ func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) er
 	return nil
 }
 
+// SetProjectFinishReview sets whether an agent's work is reviewed before
+// this project's lead hears it finished.
+func (s *Store) SetProjectFinishReview(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET finish_review_off = ? WHERE name = ?`, !on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectBaseSync sets whether the daemon keeps this project's base branch
 // up to date with its remote.
 func (s *Store) SetProjectBaseSync(ctx context.Context, name string, on bool) error {
@@ -3246,7 +3268,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.CopilotAccount, &p.FinishReviewOff, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	p.IOSForwardPorts = splitPorts(ports)

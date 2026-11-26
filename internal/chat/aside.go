@@ -58,6 +58,14 @@ const asideStartTimeout = startTimeout
 // else; everything that would need permission is refused, because there is
 // nobody watching this session to say yes.
 func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error) {
+	return m.AskAsideWith(ctx, a, model, []acp.ContentBlock{{Type: "text", Text: ask}}, state.TokensConsolidation)
+}
+
+// AskAsideWith is AskAside with a prompt of several blocks, images among
+// them, booked in the token ledger as kind. An adapter that takes no images
+// (promptCapabilities.image) is sent a line saying one was left out in each
+// one's place, so whatever reads them knows it didn't see them.
+func (m *Manager) AskAsideWith(ctx context.Context, a state.Agent, model string, prompt []acp.ContentBlock, kind string) (answer, ranOn string, err error) {
 	if m.Launch == nil {
 		return "", "", errNoSession
 	}
@@ -111,7 +119,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	if model != "" {
 		set, err := setAsideModel(start, conn, session.SessionID, options, model)
 		if err != nil {
-			return "", "", fmt.Errorf("%s wouldn't distil on %q: %w", ToolNames[a.AI], model, err)
+			return "", "", fmt.Errorf("%s wouldn't run on %q: %w", ToolNames[a.AI], model, err)
 		}
 		ranOn = set
 	}
@@ -120,7 +128,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	var res acp.PromptResponse
 	err = conn.Call(ctx, acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: session.SessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: ask}},
+		Prompt:    withoutImages(prompt, !init.AgentCapabilities.PromptCapabilities.Image),
 	}, &res)
 	// A session nothing else will use still spent its tokens on this project:
 	// a distillation is billed to the account like any turn, so it goes in
@@ -130,7 +138,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	took := time.Since(started).Milliseconds()
 	if rows := tokenRows(state.TokenRow{
 		Project: a.Project, Agent: a.Name, AgentID: a.ID, AI: a.AI, Session: session.SessionID,
-		Turn: newID(), Kind: state.TokensConsolidation, At: m.now(),
+		Turn: newID(), Kind: kind, At: m.now(),
 	}, res.ByModel(ranOn), ranOn, h.cost(), took, timing{output: res.MainOutput(), ms: took}); len(rows) > 0 {
 		go m.recordTokens(rows)
 	}
@@ -142,6 +150,22 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 		return "", ranOn, errors.New("the session said nothing")
 	}
 	return answer, ranOn, nil
+}
+
+// withoutImages is prompt with each image replaced by a line saying it was
+// left out, when drop is set.
+func withoutImages(prompt []acp.ContentBlock, drop bool) []acp.ContentBlock {
+	if !drop {
+		return prompt
+	}
+	out := make([]acp.ContentBlock, 0, len(prompt))
+	for _, b := range prompt {
+		if b.Type == "image" {
+			b = acp.ContentBlock{Type: "text", Text: "(An image was left out here: this AI tool takes none.)"}
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // setAsideModel points the session at a model and answers with the one it

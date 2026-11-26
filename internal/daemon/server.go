@@ -184,6 +184,11 @@ type Server struct {
 	// reason, and for one more: the real one starts an AI tool, which a test
 	// must never do by forgetting to say otherwise.
 	askAside func(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error)
+	// askReview is the review of an agent's finished work (finishreview.go):
+	// a prompt with images in a session of its own, on the review's model.
+	// Nil skips the review, which is what a test's daemon does unless it is
+	// about the review.
+	askReview func(ctx context.Context, a state.Agent, model string, prompt []acp.ContentBlock) (answer, ranOn string, err error)
 	// idleAfter schedules a lead's cache card: time.AfterFunc when nil, a test's
 	// clock otherwise.
 	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
@@ -250,6 +255,10 @@ type Server struct {
 	// has answered (mergePullRequest), for the same reason: one may still be
 	// deleting a machine and a worktree.
 	mergeFrees sync.WaitGroup
+	// finishReviews tracks the reviews of finishes running in the background
+	// (finishreview.go), for the same reason: one may still be recording
+	// what it found.
+	finishReviews sync.WaitGroup
 	// vgpu is the readying of a Mac's VM's GPU (vgpu.go), which Run waits
 	// for too.
 	vgpu vgpuSetup
@@ -291,6 +300,7 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	reviews      map[string]*reviewRound  // agents whose finish is being reviewed, or was sent back by its review, by ref (finishreview.go)
 	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
 	// runs at a time, and another follows when one was asked for meanwhile.
 	refreshing, refreshAgain atomic.Bool
@@ -521,6 +531,7 @@ func New(cfg Config) (*Server, error) {
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
+		reviews:          map[string]*reviewRound{},
 		scheduleKick:     make(chan struct{}, 1),
 		nudged:           map[string]bool{},
 		outcomes:         map[string]agentOutcome{},
@@ -622,6 +633,9 @@ func New(cfg Config) (*Server, error) {
 		},
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
+	s.askReview = func(ctx context.Context, a state.Agent, model string, prompt []acp.ContentBlock) (string, string, error) {
+		return s.chat.AskAsideWith(ctx, a, model, prompt, state.TokensReview)
+	}
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
@@ -723,6 +737,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.connectorSyncs.Wait()
 		s.briefRewrites.Wait()
 		s.mergeFrees.Wait()
+		s.finishReviews.Wait()
 		s.vgpu.wg.Wait()
 	}()
 	s.killReclaimWriters()

@@ -230,6 +230,8 @@ func TestRenderLeadGolden(t *testing.T) {
 				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
 				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
 				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
+				// Reviews are on by default: one golden file without them.
+				FinishReview: tc.name != "ceiling",
 				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
 				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
 				ClaudeAccounts:  []string{"personal", "work"},
@@ -857,6 +859,24 @@ func TestRenderLeadPRWatch(t *testing.T) {
 		suggests := strings.Contains(got, `suggest in a line turning on "Watch agents' pull requests"`)
 		if watching != on || suggests == on {
 			t.Errorf("PRWatch=%v: watching=%v suggests=%v", on, watching, suggests)
+		}
+	}
+}
+
+// The lead is told what "Reviewed: …" in a finish notice means, only where
+// agents' work is reviewed.
+func TestRenderLeadFinishReview(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{Project: "pawly", Root: "/r", Worktree: "/w", BaseRef: "main", Autonomy: "ask", CanSpawn: true, FinishReview: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		told := strings.Contains(got, `"Reviewed: pass"`) && strings.Contains(got, `"Reviewed: problems"`) && strings.Contains(got, `"Not reviewed"`)
+		if told != on {
+			t.Errorf("FinishReview=%v: the brief explains reviews: %v", on, told)
+		}
+		if strings.Contains(got, "it finishes.\n\n\n") || strings.Contains(got, "yourself).\n\n\n") {
+			t.Errorf("FinishReview=%v: a blank line too many around the paragraph", on)
 		}
 	}
 }

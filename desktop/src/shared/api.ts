@@ -40,6 +40,7 @@ export interface Project {
   fullTestSuite: boolean;
   pickUpIssues: boolean;
   pullRequests: boolean;
+  reviewFinishes: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -156,6 +157,7 @@ export interface UpdateProjectRequest {
   fullTestSuite?: boolean;
   pickUpIssues?: boolean;
   pullRequests?: boolean;
+  reviewFinishes?: boolean;
 }
 
 export interface Section {
@@ -2490,7 +2492,20 @@ export interface AgentEvent {
   outcome?: string;
   resumeAt?: string;
   question?: string;
+  review?: AgentReview;
   at: string;
+}
+
+export interface AgentReview {
+  verdict: string;
+  problems?: string[];
+  round: number;
+  sentBack?: boolean;
+  earlier?: string[];
+  finish: string;
+  model?: string;
+  images?: number;
+  note?: string;
 }
 
 export interface ReviewItem {
@@ -4720,6 +4735,10 @@ export const AgentCreated = "created";
 export const AgentFinished = "finished";
 export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
+export const AgentReviewed = "reviewed";
+export const AgentReviewPass = "pass";
+export const AgentReviewProblems = "problems";
+export const AgentReviewError = "error";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
 export const CredentialIOSPorts = "ios_ports";
@@ -4800,6 +4819,7 @@ export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
 export const TokensConsolidation = "consolidation";
 export const TokensKeepalive = "keepalive";
+export const TokensReview = "review";
 export const FeatureDesktopOpen = "desktop.open";
 export const FeatureTerminalOpen = "terminal.open";
 export const FeatureAndroidOpen = "android.open";

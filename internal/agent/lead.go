@@ -567,6 +567,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		OtherSessions:        others,
 		Recheck:              recheck,
 		PRWatch:              prWatch,
+		FinishReview:         !p.FinishReviewOff,
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),
 		IOS:                  hostos.OS() == "darwin" && iossim.IsProject(root),

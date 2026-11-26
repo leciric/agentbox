@@ -227,6 +227,9 @@ type LeadData struct {
 	IOS bool
 	// Notes are the project's notes, the same ones its agents are given.
 	Notes string
+	// FinishReview is whether an agent's work is reviewed before the lead
+	// hears it finished, so its finish notices say "Reviewed: …".
+	FinishReview bool
 	// PRWatch is whether AgentBox watches this project's agents' pull
 	// requests and tells an agent when its own breaks. When it's off, the
 	// lead is asked to suggest turning it on the next time it's asked to fix

@@ -75,6 +75,8 @@ pub struct Project {
     pub pick_up_issues: bool,
     #[serde(rename = "pullRequests")]
     pub pull_requests: bool,
+    #[serde(rename = "reviewFinishes")]
+    pub review_finishes: bool,
     #[serde(rename = "prWatching")]
     pub pr_watching: bool,
     #[serde(rename = "createdAt")]
@@ -292,6 +294,8 @@ pub struct UpdateProjectRequest {
     pub pick_up_issues: Option<bool>,
     #[serde(rename = "pullRequests", skip_serializing_if = "Option::is_none")]
     pub pull_requests: Option<bool>,
+    #[serde(rename = "reviewFinishes", skip_serializing_if = "Option::is_none")]
+    pub review_finishes: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4153,7 +4157,29 @@ pub struct AgentEvent {
     pub resume_at: Option<String>,
     #[serde(skip_serializing_if = "is_empty")]
     pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<AgentReview>,
     pub at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentReview {
+    pub verdict: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub problems: Vec<String>,
+    pub round: i64,
+    #[serde(rename = "sentBack", skip_serializing_if = "is_empty")]
+    pub sent_back: bool,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub earlier: Vec<String>,
+    pub finish: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub model: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub images: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -7702,6 +7728,10 @@ pub const AGENT_CREATED: &str = "created";
 pub const AGENT_FINISHED: &str = "finished";
 pub const AGENT_ASKED: &str = "asked";
 pub const AGENT_ANSWERED: &str = "answered";
+pub const AGENT_REVIEWED: &str = "reviewed";
+pub const AGENT_REVIEW_PASS: &str = "pass";
+pub const AGENT_REVIEW_PROBLEMS: &str = "problems";
+pub const AGENT_REVIEW_ERROR: &str = "error";
 pub const CREDENTIAL_GIT_HUB: &str = "github";
 pub const CREDENTIAL_SECRET: &str = "secret";
 pub const CREDENTIAL_IOS_PORTS: &str = "ios_ports";
@@ -7783,6 +7813,7 @@ pub const TOKENS_BACKGROUND: &str = "background";
 pub const TOKENS_COMPACTION: &str = "compaction";
 pub const TOKENS_CONSOLIDATION: &str = "consolidation";
 pub const TOKENS_KEEPALIVE: &str = "keepalive";
+pub const TOKENS_REVIEW: &str = "review";
 pub const FEATURE_DESKTOP_OPEN: &str = "desktop.open";
 pub const FEATURE_TERMINAL_OPEN: &str = "terminal.open";
 pub const FEATURE_ANDROID_OPEN: &str = "android.open";
