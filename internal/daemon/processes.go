@@ -51,6 +51,9 @@ type processSampler struct {
 	// pss adds the proportional memory of every machine read at once.
 	pss  func(machines ...[]agent.ProcessTree)
 	kill func(ctx context.Context, instance string, pid int, grace time.Duration) (agent.Killed, error)
+	// workers is the count of the heavy command a tree runs, by the cgroups
+	// its processes are in (Server.runWorkers); nil when unset.
+	workers func(instance string, cgroups []string) *api.HeavyWorkers
 
 	mu       sync.Mutex
 	machines map[string]*processHistory // by instance
@@ -200,12 +203,28 @@ func (ps *processSampler) record(instance string, trees []agent.ProcessTree, now
 		}
 		busy[rk] = last
 		cpus[rk] = cpu
-		out = append(out, apiTree(t, cpu, now.Sub(last)))
+		tree := apiTree(t, cpu, now.Sub(last))
+		if ps.workers != nil && !tree.Protected {
+			tree.Workers = ps.workers(instance, treeCgroups(t))
+		}
+		out = append(out, tree)
 	}
 	if again {
 		return out
 	}
 	h.at, h.ticks, h.busy, h.cpu = now, ticks, busy, cpus
+	return out
+}
+
+// treeCgroups is the cgroups a tree's processes are in, below their
+// machine's, each once.
+func treeCgroups(t agent.ProcessTree) []string {
+	var out []string
+	for _, p := range t.Processes {
+		if p.Cgroup != "" && p.Cgroup != "." && !slices.Contains(out, p.Cgroup) {
+			out = append(out, p.Cgroup)
+		}
+	}
 	return out
 }
 

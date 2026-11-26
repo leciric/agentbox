@@ -172,6 +172,11 @@ const (
 	// SettingResumeAfterLimit it is the installation's and on until turned
 	// off, read with FlagOn.
 	SettingContinueAfterRestart = "continue_after_restart"
+	// SettingFewerWorkersForMemory says whether a heavy command (a build, a
+	// test run) starts with fewer workers when the VM's memory is short
+	// (agent.MemoryWorkers). On until turned off, read with FlagOn; off, a
+	// command's workers are its share of the cores alone.
+	SettingFewerWorkersForMemory = "fewer_workers_for_memory"
 	// SettingCreditAITool says whether agents' commits and pull requests may
 	// credit the AI tool that wrote them: its Co-authored-by trailer and its
 	// "Generated with …" line. Off until somebody turns it on (Flag), and

@@ -270,7 +270,13 @@ func RunCgroup(instance, key string) string {
 }
 
 func runCgroup(root, instance, key string) string {
-	return filepath.Join(agentCgroup(root, instance), runCgroupPrefix+runKeyChars.ReplaceAllString(key, "_"))
+	return filepath.Join(agentCgroup(root, instance), RunCgroupName(key))
+}
+
+// RunCgroupName is a run's cgroup below its machine's, as
+// MachineProcess.Cgroup names it.
+func RunCgroupName(key string) string {
+	return runCgroupPrefix + runKeyChars.ReplaceAllString(key, "_")
 }
 
 // PlaceRun moves the process the agent knows as pid (in its machine's own

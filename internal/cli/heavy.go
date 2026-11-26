@@ -27,7 +27,8 @@ import (
 // Heavy commands inside an agent: a test run or a build tells the daemon as
 // it starts, which is how the daemon knows the agent works, starts with as
 // many workers as the daemon answers (the VM's cores split between the heavy
-// commands running then, agent.HeavyWorkers), and joins a cgroup of its own
+// commands running then, agent.HeavyWorkers, fewer when memory is short:
+// agent.MemoryWorkers), and joins a cgroup of its own
 // (internal/daemon/pressure.go). Nothing waits or is paused for memory. The shims for go,
 // cargo, npm, make… do it by themselves (agent/heavyshims.go); `agentbox
 // heavy` does it around any other command.
@@ -128,8 +129,16 @@ func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, st
 			// The daemon is unreachable: the command still runs.
 			_, _ = fmt.Fprintf(stderr, "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", startErr)
 		} else {
-			env = agent.WorkerEnv(env, start.Workers)
+			if start.Count != nil && start.Count.Memory {
+				dir, _ := os.Getwd()
+				env, run.argv = memoryKnobs(env, run.argv, run.path, dir, start.Workers)
+			} else {
+				env = agent.WorkerEnv(env, start.Workers)
+			}
 			jobs = start.Workers
+			// Asking again says what it started with, to a daemon that
+			// restarted since.
+			req.Workers = jobs
 			// In its cgroup before the command starts, so all it starts is.
 			_ = c.JoinHeavy(ctx, key, os.Getpid())
 			stop := make(chan struct{})

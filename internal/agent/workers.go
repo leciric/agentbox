@@ -21,10 +21,13 @@ import (
 // hears of every heavy command start and end in every agent, answers
 // HeavyWorkers for the heavy commands running at that moment, and the
 // command starts with WorkerEnv's counts. A command that isn't heavy is
-// given none: its tools count the cores themselves. Neither memory (20 Nov
-// 2026) nor the user's computer being busy (24 Nov 2026) changes the count,
-// the user's decisions: the kernel's limits protect the VM (memory.max,
-// agentbox.agents' memory.high and memory.max).
+// given none: its tools count the cores themselves. The user's computer
+// being busy doesn't change the count (24 Nov 2026, the user's decision).
+// Memory does, unless "Fewer build workers when memory is short" is turned
+// off (26 Nov 2026, narrowing the 20 Nov decision that it doesn't): then the
+// count is MemoryWorkers' and the command starts with MemoryWorkerEnv's
+// counts and WorkerArgs' flags (workermemory.go). The kernel's limits still
+// protect the VM (memory.max, agentbox.agents' memory.high and memory.max).
 
 // minWorkers is the fewest workers a heavy command is given, however many
 // run at once.
@@ -66,11 +69,21 @@ const (
 // one package per slot, each with a worker pool of its own (turbo, nx, pnpm;
 // lerna and yarn have no variable for it). Go's -p is GOFLAGS', a flag among
 // others (goFlags).
-func workerVars(n int) [][2]string {
+func workerVars(n int) [][2]string { return countVars(n, false) }
+
+// countVars is workerVars, and with memory counting (more), turbo's
+// concurrency never under 2: turbo refuses to start a persistent task (a dev
+// server) at a concurrency of 1, which MemoryWorkers' single worker would
+// make it.
+func countVars(n int, more bool) [][2]string {
 	count, half := strconv.Itoa(n), strconv.Itoa(max(n/2, 1))
+	turbo := half
+	if more {
+		turbo = strconv.Itoa(max(n/2, 2))
+	}
 	return [][2]string{
 		{"GOMAXPROCS", count}, {"VITEST_MAX_WORKERS", count}, {"CARGO_BUILD_JOBS", count},
-		{"TURBO_CONCURRENCY", half}, {"NX_PARALLEL", half}, {"npm_config_workspace_concurrency", half},
+		{"TURBO_CONCURRENCY", turbo}, {"NX_PARALLEL", half}, {"npm_config_workspace_concurrency", half},
 		{"MAKEFLAGS", "-j" + count},
 	}
 }
@@ -79,7 +92,22 @@ func workerVars(n int) [][2]string {
 // workerVars) and go's -p=n in GOFLAGS. A count somebody else set stays;
 // one AgentBox set (workersMark) is replaced. n of 0 or less, a daemon that
 // didn't say, changes nothing.
-func WorkerEnv(env []string, n int) []string {
+func WorkerEnv(env []string, n int) []string { return workerEnv(env, n, false, false) }
+
+// MemoryWorkerEnv is WorkerEnv for a daemon that counted memory too
+// (MemoryWorkers): turbo's concurrency held at 2 at least (countVars), and
+// Gradle's org.gradle.workers.max as a -D in GRADLE_OPTS, which a Gradle
+// client reads into its build's options (it reaches ./gradlew too, which no
+// shim sees), unless gradleSet, a gradle.properties setting it already,
+// which a -D would override.
+func MemoryWorkerEnv(env []string, n int, gradleSet bool) []string {
+	return workerEnv(env, n, true, !gradleSet)
+}
+
+// gradleWorkers is the system property that caps a Gradle build's workers.
+const gradleWorkers = "-Dorg.gradle.workers.max="
+
+func workerEnv(env []string, n int, more, gradle bool) []string {
 	if n <= 0 {
 		return env
 	}
@@ -107,7 +135,7 @@ func WorkerEnv(env []string, n int) []string {
 		vars[k] = v
 	}
 	var mark []string
-	for _, kv := range workerVars(n) {
+	for _, kv := range countVars(n, more) {
 		k, want := kv[0], kv[1]
 		v, ok := vars[k]
 		ours, marked := owned[k]
@@ -120,6 +148,22 @@ func WorkerEnv(env []string, n int) []string {
 	if flags, p, ok := goFlags(vars["GOFLAGS"], owned["GOFLAGS"], n); ok {
 		set("GOFLAGS", flags)
 		mark = append(mark, "GOFLAGS="+p)
+	}
+	if ours := owned["GRADLE_OPTS"]; gradle || ours != "" {
+		// Ours from an earlier start goes either way; a new one only when
+		// memory counts.
+		opts := vars["GRADLE_OPTS"]
+		if ours != "" {
+			opts = withoutWord(opts, ours)
+		}
+		d := gradleWorkers + strconv.Itoa(n)
+		switch {
+		case gradle && !hasWordPrefix(opts, gradleWorkers):
+			set("GRADLE_OPTS", appendWord(opts, d))
+			mark = append(mark, "GRADLE_OPTS="+d)
+		case opts != vars["GRADLE_OPTS"]:
+			set("GRADLE_OPTS", opts)
+		}
 	}
 	set(workersMark, strings.Join(mark, " "))
 	delete(vars, oldMark)
@@ -167,10 +211,26 @@ func goFlags(flags, ours string, n int) (out, p string, ok bool) {
 		}
 	}
 	p = "-p=" + strconv.Itoa(n)
-	if strings.TrimSpace(flags) == "" {
-		return p, p, true
+	return appendWord(flags, p), p, true
+}
+
+// appendWord is s with w after its last word, s left as it was otherwise.
+func appendWord(s, w string) string {
+	if strings.TrimSpace(s) == "" {
+		return w
 	}
-	return strings.TrimRight(flags, " ") + " " + p, p, true
+	return strings.TrimRight(s, " ") + " " + w
+}
+
+// hasWordPrefix reports whether a word of s, quoted or not, starts with
+// prefix.
+func hasWordPrefix(s, prefix string) bool {
+	for _, w := range strings.Fields(s) {
+		if strings.HasPrefix(strings.TrimLeft(w, `'"`), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutWord is s without the first occurrence of w as a whole

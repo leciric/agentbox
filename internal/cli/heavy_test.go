@@ -19,6 +19,7 @@ type fakeHeavy struct {
 	mu      sync.Mutex
 	start   bool
 	workers int // what the daemon answers HeavyStart.Workers
+	count   *api.HeavyWorkers
 	asked   []api.HeavyRequest
 	joined  []string // key=pid
 	ended   []string
@@ -35,7 +36,7 @@ func (f *fakeHeavy) StartHeavy(_ context.Context, req api.HeavyRequest) (api.Hea
 	if !f.start {
 		return api.HeavyStart{Why: "the VM's memory is under pressure (34% of the last 10 seconds stalled on it), and 2 commands are ahead of it"}, nil
 	}
-	return api.HeavyStart{Started: true, Workers: f.workers}, nil
+	return api.HeavyStart{Started: true, Workers: f.workers, Count: f.count}, nil
 }
 
 func (f *fakeHeavy) JoinHeavy(_ context.Context, key string, pid int) error {
