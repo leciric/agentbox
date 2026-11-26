@@ -664,6 +664,13 @@ type Settings struct {
 	// and carry on with that turn when it starts again. On unless it was
 	// turned off.
 	ContinueAfterRestart bool `json:"continueAfterRestart"`
+	// FewerWorkersForMemory says whether builds and tests start with fewer
+	// workers when the VM's memory is short ("Fewer build workers when memory
+	// is short"): their share of the cores, no more than the memory free as
+	// they start holds at what one worker of their tool takes. Off, their
+	// share of the cores alone. On unless it was turned off; it reaches each
+	// command as it starts.
+	FewerWorkersForMemory bool `json:"fewerWorkersForMemory"`
 	// CreditAITool says whether agents' commits and pull requests credit the
 	// AI tool that wrote them, with its Co-authored-by trailer and "Generated
 	// with …" line. Off unless it was turned on; it reaches an agent as it
@@ -914,6 +921,9 @@ type UpdateSettingsRequest struct {
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
 	// ContinueAfterRestart turns "Continue agents after restarts" on or off.
 	ContinueAfterRestart *bool `json:"continueAfterRestart,omitempty"`
+	// FewerWorkersForMemory turns "Fewer build workers when memory is short"
+	// on or off.
+	FewerWorkersForMemory *bool `json:"fewerWorkersForMemory,omitempty"`
 	// CreditAITool turns "Credit the AI tool in commits and pull requests"
 	// on or off.
 	CreditAITool *bool `json:"creditAITool,omitempty"`
@@ -1411,6 +1421,9 @@ type HeavyRun struct {
 	Since time.Time `json:"since"`
 	// Placed says its processes are in a cgroup of their own.
 	Placed bool `json:"placed,omitempty"`
+	// Workers is how many workers it started with, and why; nil when its
+	// start wasn't seen by this daemon.
+	Workers *HeavyWorkers `json:"workers,omitempty"`
 }
 
 type ForkRequest struct {
@@ -3242,6 +3255,9 @@ type HeavyRequest struct {
 	// WaitSeconds is how long a daemon before 19 Nov 2026 waited to start
 	// it; nothing waits now.
 	WaitSeconds int `json:"waitSeconds,omitempty"`
+	// Workers is set when asking again while it runs: the count it started
+	// with, for a daemon that restarted since and didn't see it start.
+	Workers int `json:"workers,omitempty"`
 }
 
 // HeavyStart is the answer to a HeavyRequest: Started, always, from a
@@ -3251,9 +3267,49 @@ type HeavyStart struct {
 	Why     string `json:"why,omitempty"`
 	// Workers is how many workers the command starts with (GOMAXPROCS,
 	// CARGO_BUILD_JOBS, make -j…): the VM's cores split between the heavy
-	// commands running as it started, in every agent. 0 from a daemon before
-	// 20 Nov 2026, which leaves the counts as they are.
+	// commands running as it started, in every agent, and fewer when memory
+	// is short (Count.Memory). 0 from a daemon before 20 Nov 2026, which
+	// leaves the counts as they are.
 	Workers int `json:"workers,omitempty"`
+	// Count is how Workers was made; nil from a daemon before 26 Nov 2026.
+	// With Count.Memory the command also gets the worker settings only that
+	// sets (agent.MemoryWorkerEnv, agent.WorkerArgs).
+	Count *HeavyWorkers `json:"count,omitempty"`
+}
+
+// HeavyWorkers is how a heavy command's worker count was made, as it
+// started: what the app shows beside it ("4 workers: 2.1 GiB free").
+type HeavyWorkers struct {
+	Workers int `json:"workers"`
+	// CPU is its share of the VM's cores (Cores) between the heavy commands
+	// running as it started (Running), this one counted: its count when
+	// memory doesn't count.
+	CPU     int `json:"cpu"`
+	Cores   int `json:"cores"`
+	Running int `json:"running"`
+	// Memory says memory counted too: Settings.FewerWorkersForMemory was on
+	// and the VM's memory was read. The fields below are set only then.
+	Memory bool `json:"memory,omitempty"`
+	// Limit is what made Workers: "cpu" (its share of the cores), "memory"
+	// (what Free holds at PerWorker each), "agent" (the same, with Free what
+	// its agent's own memory limit leaves) or "least" (Free holds none, and
+	// it starts with one).
+	Limit string `json:"limit"`
+	// Tool is what its memory per worker is known by: "go test", "vitest",
+	// "npm test" (a package script, whatever it runs)…
+	Tool string `json:"tool,omitempty"`
+	// PerWorker is what one worker was taken to need: learned from the
+	// project's runs of Tool that finished (Learned), or AgentBox's default
+	// for it until one has.
+	PerWorker int64 `json:"perWorker,omitempty"`
+	Learned   bool  `json:"learned,omitempty"`
+	// Free is the memory it could start in: what the VM had available
+	// (counting what the kernel can take back from its caches) and could
+	// still grow to, less what the other heavy commands running would likely
+	// still take (Claimed); no more than its agent's limit left, with Limit
+	// "agent" when that was less.
+	Free    int64 `json:"free,omitempty"`
+	Claimed int64 `json:"claimed,omitempty"`
 }
 
 // TestPolicy is what the in-agent API says about the agent's test runs

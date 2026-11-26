@@ -208,6 +208,12 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.FewerWorkersForMemory != nil {
+		// On until turned off. Each heavy command reads it as it starts.
+		if err := s.store.SetFlag(r.Context(), state.SettingFewerWorkersForMemory, *req.FewerWorkersForMemory); err != nil {
+			return err
+		}
+	}
 	if req.CreditAITool != nil {
 		// Off until turned on, so a plain flag. Agents read it as they start.
 		if err := s.store.SetFlag(r.Context(), state.SettingCreditAITool, *req.CreditAITool); err != nil {
@@ -668,6 +674,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	fewerWorkers, err := s.store.FlagOn(r.Context(), state.SettingFewerWorkersForMemory)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	creditAITool, err := s.store.Flag(r.Context(), state.SettingCreditAITool)
 	if err != nil {
 		return api.Settings{}, err
@@ -829,24 +839,25 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		LastAgentPick:       lastPick,
 		FirstRun:            firstRun,
 
-		ResumeAfterLimit:     resumeAfterLimit,
-		ContinueAfterRestart: continueAfterRestart,
-		CreditAITool:         creditAITool,
-		BuiltWithBadge:       builtWithBadge,
-		BuiltWithBadgeOffer:  badgeOffer == state.BadgeOfferReady,
-		SeenFeatures:         seenFeatures,
-		UpdateCheck:          updateCheck,
-		UsageStats:           usageStats,
-		AgentGPU:             agentGPU,
-		BlockFullSuite:       blockFullSuite,
-		CockpitMode:          cockpitMode,
-		VMGPU:                vmGPU,
-		ErrorReports:         errorReports,
-		PRWatch:              prWatch,
-		MergeWhenGreen:       mergeWhenGreen,
-		MediaRetention:       mediaRetention,
-		Language:             language,
-		Timezone:             timezone,
+		ResumeAfterLimit:      resumeAfterLimit,
+		ContinueAfterRestart:  continueAfterRestart,
+		FewerWorkersForMemory: fewerWorkers,
+		CreditAITool:          creditAITool,
+		BuiltWithBadge:        builtWithBadge,
+		BuiltWithBadgeOffer:   badgeOffer == state.BadgeOfferReady,
+		SeenFeatures:          seenFeatures,
+		UpdateCheck:           updateCheck,
+		UsageStats:            usageStats,
+		AgentGPU:              agentGPU,
+		BlockFullSuite:        blockFullSuite,
+		CockpitMode:           cockpitMode,
+		VMGPU:                 vmGPU,
+		ErrorReports:          errorReports,
+		PRWatch:               prWatch,
+		MergeWhenGreen:        mergeWhenGreen,
+		MediaRetention:        mediaRetention,
+		Language:              language,
+		Timezone:              timezone,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

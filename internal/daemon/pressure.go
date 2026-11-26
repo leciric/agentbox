@@ -37,7 +37,8 @@ import (
 // anything else. Asking is how the daemon knows an agent works (idle
 // reclaim, the VM's own idle shrink, the package cache), and how many
 // workers it starts with: the VM's cores split between the heavy commands
-// running then (agent.HeavyWorkers), whatever the memory. As it starts, its
+// running then (agent.HeavyWorkers), and fewer when memory is short unless
+// that is turned off (workers.go). As it starts, its
 // shell joins a cgroup of its own under the agent's machine's
 // (agent.PlaceRun), so that what it used is measured (timing.go) and it is
 // killed whole as its agent stops. Nothing freezes it: the experimental
@@ -72,6 +73,9 @@ type runCgroups interface {
 	Place(instance, key string, pid int) error
 	Populated(instance, key string) bool
 	Remove(instance, key string) error
+	// Memory is what the run holds now and held at most, without caches
+	// (agent.RunMemory).
+	Memory(instance, key string) (used, peak int64, ok bool)
 }
 
 type agentRunCgroups struct{}
@@ -83,6 +87,9 @@ func (agentRunCgroups) Populated(instance, key string) bool {
 	return agent.RunPopulated(instance, key)
 }
 func (agentRunCgroups) Remove(instance, key string) error { return agent.RemoveRun(instance, key) }
+func (agentRunCgroups) Memory(instance, key string) (used, peak int64, ok bool) {
+	return agent.RunMemory(instance, key)
+}
 
 // heavyRuns is the heavy commands going and what the daemon keeps beside
 // them, under mu.
@@ -91,6 +98,12 @@ type heavyRuns struct {
 	g  *pressure.Runs
 	// instance is each run's agent's machine, by run ID.
 	instance map[string]string
+	// counts is each run's workers, by run ID, for the runs whose start
+	// this daemon saw (workers.go).
+	counts map[string]*runCount
+	// counting is held from making a run's count to keeping it, so two
+	// commands starting at once each count what the other will take.
+	counting sync.Mutex
 	// psiErr is the last error reading the VM's pressure, logged once.
 	psiErr string
 	// refresh asks for the agents to be refreshed (refreshAgents), aside
@@ -107,6 +120,7 @@ func newHeavyRuns() *heavyRuns {
 	return &heavyRuns{
 		g:        pressure.NewRuns(pressure.DefaultPolicy),
 		instance: map[string]string{},
+		counts:   map[string]*runCount{},
 		refresh:  make(chan struct{}, 1),
 	}
 }
@@ -241,18 +255,21 @@ func (s *Server) stepPressure(ctx context.Context) {
 	type ended struct {
 		run      pressure.Run
 		instance string
+		count    *runCount
 	}
 	var ends []ended
 	for _, r := range gone {
-		ends = append(ends, ended{*r, h.instance[r.ID()]})
+		ends = append(ends, ended{*r, h.instance[r.ID()], h.counts[r.ID()]})
 		h.forget(r)
 	}
 	h.mu.Unlock()
 
-	// Removing a cgroup may take sudo: aside.
+	// Removing a cgroup may take sudo: aside, with what the run used read
+	// first. It didn't say it ended, so it may not have succeeded.
 	for _, c := range ends {
 		if c.run.Placed {
 			go func(c ended) {
+				s.learnWorkers(ctx, endedRun{c.instance, c.run.Key, true, c.count}, false)
 				if err := s.runCgroups.Remove(c.instance, c.run.Key); err != nil {
 					s.logf("memory pressure: %s: removing its cgroup: %v", c.run.ID(), err)
 				}
@@ -270,6 +287,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 func (h *heavyRuns) forget(r *pressure.Run) {
 	id := r.ID()
 	delete(h.instance, id)
+	delete(h.counts, id)
 }
 
 // agentByRef is the agent a ref names.
@@ -285,7 +303,9 @@ func (s *Server) agentByRef(ctx context.Context, ref string) (state.Agent, error
 // starting, or asking again while it runs. It starts at once: nothing waits
 // for memory (api.HeavyRequest.WaitSeconds is a daemon before this one's),
 // with as many workers as its share of the VM's cores among the heavy
-// commands running now, in every agent (agent.HeavyWorkers).
+// commands running now, in every agent (agent.HeavyWorkers), and fewer when
+// memory is short (countWorkers). Asking again answers the count it started
+// with.
 func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var req api.HeavyRequest
@@ -305,27 +325,39 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 			return err
 		}
 		s.wakeIdle(a.Ref())
-		running := s.startRun(a.Ref(), instance, key, req.Command, ttl)
-		workers := agent.HeavyWorkers(s.vmCores(), running)
-		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true, Workers: workers})
+		running, fresh := s.startRun(a.Ref(), instance, key, req.Command, ttl)
+		id := a.Ref() + "/" + key
+		count, seen := s.countOf(id)
+		switch {
+		case fresh && req.Workers > 0:
+			// Started before this daemon did: what it started with.
+			count = api.HeavyWorkers{Workers: req.Workers}
+			s.keepCount(id, a.Project, req.Command, count)
+		case fresh || !seen:
+			s.heavy.counting.Lock()
+			count = s.countWorkers(r.Context(), a, instance, key, req.Command, running)
+			s.keepCount(id, a.Project, req.Command, count)
+			s.heavy.counting.Unlock()
+		}
+		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true, Workers: count.Workers, Count: &count})
 	}
 }
 
 // startRun has the heavy command key of agent ref, in instance, start now,
 // or renews it for ttl, and reports how many heavy commands run now, in
-// every agent, this one counted.
-func (s *Server) startRun(ref, instance, key, command string, ttl time.Duration) (running int) {
+// every agent, this one counted, and whether it started just now.
+func (s *Server) startRun(ref, instance, key, command string, ttl time.Duration) (running int, fresh bool) {
 	h := s.heavy
 	h.mu.Lock()
 	run := h.g.Ask(ref, key, command, ttl, time.Now())
-	fresh := h.instance[run.ID()] == ""
+	fresh = h.instance[run.ID()] == ""
 	h.instance[run.ID()] = instance
 	running = len(h.g.Running())
 	h.mu.Unlock()
 	if fresh {
 		s.refreshSoon()
 	}
-	return running
+	return running, fresh
 }
 
 // joinHeavy is POST /v1/self/heavy/{key}/join: a process of the agent's, and
@@ -376,13 +408,16 @@ func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Reque
 			return err
 		}
 		var ended *pressure.Run
+		// An agentbox that says how it ended says Command too: an older one's
+		// exit status is no news.
+		ok := end.Command != "" && end.ExitCode == 0
 		s.endRuns(func(g *pressure.Runs) []*pressure.Run {
 			if run := g.End(a.Ref(), r.PathValue("key")); run != nil {
 				ended = run
 				return []*pressure.Run{run}
 			}
 			return nil
-		})
+		}, ok)
 		s.recordCommand(a, end, ended, time.Now())
 		w.WriteHeader(http.StatusNoContent)
 		return nil
@@ -391,22 +426,25 @@ func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Reque
 
 // dropHeavy ends every run of an agent, as it stops or goes.
 func (s *Server) dropHeavy(ref string) {
-	s.endRuns(func(g *pressure.Runs) []*pressure.Run { return g.Drop(ref) })
+	s.endRuns(func(g *pressure.Runs) []*pressure.Run { return g.Drop(ref) }, false)
 }
 
-// endRuns ends the runs end takes out: their cgroups removed.
-func (s *Server) endRuns(end func(*pressure.Runs) []*pressure.Run) {
+// endRuns ends the runs end takes out: what they used learned from
+// (learnWorkers; ok, they succeeded), and their cgroups removed.
+func (s *Server) endRuns(end func(*pressure.Runs) []*pressure.Run, ok bool) {
 	h := s.heavy
 	h.mu.Lock()
 	gone := end(h.g)
 	instances := make([]string, len(gone))
+	counts := make([]*runCount, len(gone))
 	for i, r := range gone {
-		instances[i] = h.instance[r.ID()]
+		instances[i], counts[i] = h.instance[r.ID()], h.counts[r.ID()]
 		h.forget(r)
 	}
 	h.mu.Unlock()
 	for i, r := range gone {
 		if r.Placed {
+			s.learnWorkers(context.Background(), endedRun{instances[i], r.Key, true, counts[i]}, ok)
 			if err := s.runCgroups.Remove(instances[i], r.Key); err != nil {
 				s.logf("memory pressure: %s: removing its cgroup: %v", r.ID(), err)
 			}
@@ -432,7 +470,12 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 		out.Host = &load
 	}
 	for _, run := range h.g.Running() {
-		out.Runs = append(out.Runs, api.HeavyRun{Agent: run.Agent, Key: run.Key, Command: run.Command, State: "running", Since: run.Started, Placed: run.Placed})
+		hr := api.HeavyRun{Agent: run.Agent, Key: run.Key, Command: run.Command, State: "running", Since: run.Started, Placed: run.Placed}
+		if c := h.counts[run.ID()]; c != nil {
+			count := c.count
+			hr.Workers = &count
+		}
+		out.Runs = append(out.Runs, hr)
 	}
 	h.mu.Unlock()
 	if use, ok := s.agentsUse(); ok {

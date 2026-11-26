@@ -152,8 +152,16 @@ starts and AgentBox stops agents to give memory back, and they start again as so
 that. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ scheduler, and each agent's
 machine gets a quarter of their weight, so a build writing as fast as it can doesn't keep Incus from
 answering. Tests and builds split the VM's cores between those running at once (Go, make, cargo,
-vitest, turbo, nx, pnpm workspaces), however short the VM's memory and however busy your computer
-is; any other command can join in as `agentbox heavy -- <command>`. Running the app, Docker
+vitest, turbo, nx, pnpm workspaces, and with the setting below jest, Gradle and TypeScript 7's
+`tsc`), however busy your computer is; any other command can join in as
+`agentbox heavy -- <command>`. While the VM's memory is short they also start with fewer workers
+(Settings → Storage and machine → **Fewer build workers when memory is short**, on by default): no
+more than the memory free as one starts can hold, counting what the VM can still grow to and less
+what the other builds running will likely still take, and never more than its agent's own limit
+leaves; at least one. What one worker takes is learned for each project and tool from the runs that
+finish, starting from a generous guess. This only lowers the count as a command starts: nothing
+waits, and nothing already running changes. The Running view shows each build's count and why
+("4 workers: 2.1 GiB free"); turn the setting off for the cores alone. Running the app, Docker
 Compose, Playwright, the desktop or a recording never waits for anything either. To give every
 agent more, raise the VM's cap (`agentbox vm resize --memory-cap`).
 

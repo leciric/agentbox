@@ -194,6 +194,48 @@ function TreeList({ agent, biggest, queryKey, single }: { agent: T.AgentProcesse
   );
 }
 
+// Workers is the build or test run a tree is: how many workers it started
+// with and why, "4 workers: 2.1 GiB free" (internal/daemon/workers.go), with
+// how that was worked out in its tip.
+function Workers({ w }: { w: T.HeavyWorkers }) {
+  const t = useT();
+  const count = w.workers;
+  const free = humanBytes(w.free ?? 0);
+  const label =
+    w.limit === 'memory' || w.limit === 'least'
+      ? t('running.workersFree', { count, free })
+      : w.limit === 'agent'
+        ? t('running.workersAgent', { count, free })
+        : w.limit === 'cpu' && w.running <= 1
+          ? t('running.workersAllCores', { count })
+          : w.limit === 'cpu'
+            ? t('running.workersCores', { count, cores: w.cores, running: w.running })
+            : t('running.workers', { count });
+  const lines: string[] = [];
+  if (w.memory) {
+    const per = humanBytes(w.perWorker ?? 0);
+    const tool = w.tool || '?';
+    lines.push(w.learned ? t('running.workersTipLearned', { tool, per }) : t('running.workersTipDefault', { tool, per }));
+    lines.push(
+      w.limit === 'agent'
+        ? t('running.workersTipAgent', { free })
+        : t('running.workersTipFree', { free, claimed: humanBytes(w.claimed ?? 0) }),
+    );
+  } else if (w.limit) {
+    lines.push(t('running.workersTipNoMemory'));
+  } else {
+    lines.push(t('running.workersTipRestart'));
+  }
+  if (w.limit) lines.push(t('running.workersTipCores', { cpu: w.cpu, cores: w.cores, running: w.running }));
+  return (
+    <Tip label={<span className="grid max-w-xs gap-1">{lines.map((l) => <span key={l}>{l}</span>)}</span>}>
+      <span className="rounded-full bg-brand-500/10 px-1.5 py-px text-brand-200" data-workers={count} data-limit={w.limit}>
+        {label}
+      </span>
+    </Tip>
+  );
+}
+
 function TreeRow({ agent, tree, biggest, queryKey, single }: { agent: T.AgentProcesses; tree: T.ProcessTree; biggest: number; queryKey: unknown[]; single?: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -284,6 +326,7 @@ function TreeRow({ agent, tree, biggest, queryKey, single }: { agent: T.AgentPro
             <span className="rounded-full bg-sky-400/10 px-1.5 py-px text-sky-300">{t('running.idle', { span: span(tree.idleSeconds) })}</span>
           </Tip>
         )}
+        {tree.workers && <Workers w={tree.workers} />}
       </div>
       {asking && !kill.isPending && (
         <div className="flex flex-wrap items-center gap-2 pl-6 pt-0.5" data-kill-confirm={tree.pid}>

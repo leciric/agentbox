@@ -28,6 +28,9 @@ type fakeRunCgroups struct {
 	removed  []string
 	empty    map[string]bool // instance/key: its processes have all gone
 	placeErr error
+	// used and peak are what each run holds and held at most, without
+	// caches (Memory); a run in neither can't be read.
+	used, peak map[string]int64
 }
 
 func runID(instance, key string) string { return instance + "/" + key }
@@ -57,6 +60,25 @@ func (f *fakeRunCgroups) Remove(instance, key string) error {
 	defer f.mu.Unlock()
 	f.removed = append(f.removed, runID(instance, key))
 	return nil
+}
+
+func (f *fakeRunCgroups) Memory(instance, key string) (used, peak int64, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := runID(instance, key)
+	used, inUsed := f.used[id]
+	peak, inPeak := f.peak[id]
+	return used, peak, inUsed || inPeak
+}
+
+// setMemory has a run hold used and have held peak at most.
+func (f *fakeRunCgroups) setMemory(instance, key string, used, peak int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.used == nil {
+		f.used, f.peak = map[string]int64{}, map[string]int64{}
+	}
+	f.used[runID(instance, key)], f.peak[runID(instance, key)] = used, peak
 }
 
 // pressureTest is a daemon with one agent whose memory pressure the test sets,
@@ -129,12 +151,17 @@ func (p *pressureTest) ask(t *testing.T, instance, key string) api.HeavyStart {
 // A heavy command starts with the VM's cores split between the heavy
 // commands running as it starts, in every agent: alone it has every core,
 // however many agents sit idle; asking again doesn't count it twice; one
-// that ended gives its share back to the next; and memory, however short,
-// changes nothing.
+// that ended gives its share back to the next; and with "Fewer build workers
+// when memory is short" off, memory, however short, changes nothing: the
+// count is exactly what it was before that setting existed.
 func TestHeavyCommandsSplitTheCores(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t, func(s *Server) { s.vmCores = func() int { return 12 } })
 	ctx := context.Background()
+	off := false
+	if _, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{FewerWorkersForMemory: &off}); err != nil {
+		t.Fatal(err)
+	}
 	other := state.Agent{
 		Project: "hello-stack", Name: "agent-07", Instance: "ab-hello-stack-agent-07", AI: "none",
 		Branch: "agentbox/agent-07", Worktree: "/worktrees/agent-07", Status: state.AgentReady, CreatedAt: time.Now(),
@@ -155,11 +182,14 @@ func TestHeavyCommandsSplitTheCores(t *testing.T) {
 	workers(p.instance, "fourth", 3)
 	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run {
 		return []*pressure.Run{g.End(p.ref, "first"), g.End(p.ref, "third"), g.End(p.ref, "fourth")}
-	})
+	}, false)
 	p.set(62, 8)
 	p.setAvailable(0.5, 4)
 	p.srv.stepPressure(ctx)
 	workers(p.instance, "fifth", 6) // the second and this
+	if got := p.ask(t, p.instance, "sixth"); got.Count == nil || got.Count.Memory || got.Count.Limit != agent.LimitCPU {
+		t.Errorf("sixth, with the setting off: %+v, want its share of the cores and nothing of memory", got.Count)
+	}
 }
 
 // A heavy command starts the moment it asks, whatever the VM's memory says
@@ -221,7 +251,7 @@ func TestPressureNeverPausesARun(t *testing.T) {
 		t.Fatalf("the agent's hold = %+v", h)
 	}
 	// The old run ends: its cgroup goes.
-	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run { return []*pressure.Run{g.End(p.ref, "old")} })
+	p.srv.endRuns(func(g *pressure.Runs) []*pressure.Run { return []*pressure.Run{g.End(p.ref, "old")} }, false)
 	if len(p.cg.removed) != 1 || p.cg.removed[0] != runID(p.instance, "old") {
 		t.Errorf("removed %v", p.cg.removed)
 	}
