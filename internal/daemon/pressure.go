@@ -101,6 +101,9 @@ type heavyRuns struct {
 	// counts is each run's workers, by run ID, for the runs whose start
 	// this daemon saw (workers.go).
 	counts map[string]*runCount
+	// counting is held from making a run's count to keeping it, so two
+	// commands starting at once each count what the other will take.
+	counting sync.Mutex
 	// psiErr is the last error reading the VM's pressure, logged once.
 	psiErr string
 	// refresh asks for the agents to be refreshed (refreshAgents), aside
@@ -331,8 +334,10 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 			count = api.HeavyWorkers{Workers: req.Workers}
 			s.keepCount(id, a.Project, req.Command, count)
 		case fresh || !seen:
+			s.heavy.counting.Lock()
 			count = s.countWorkers(r.Context(), a, instance, key, req.Command, running)
 			s.keepCount(id, a.Project, req.Command, count)
+			s.heavy.counting.Unlock()
 		}
 		return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true, Workers: count.Workers, Count: &count})
 	}
