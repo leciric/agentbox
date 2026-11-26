@@ -29,8 +29,9 @@ import (
 // counts and WorkerArgs' flags (workermemory.go). The kernel's limits still
 // protect the VM (memory.max, agentbox.agents' memory.high and memory.max).
 
-// minWorkers is the fewest workers a heavy command is given, however many
-// run at once.
+// minWorkers is the fewest workers a heavy command's share of the cores
+// gives it, however many run at once; memory may make it one
+// (MemoryWorkers).
 const minWorkers = 2
 
 // HeavyWorkers is how many workers a heavy command starts with: the VM's
