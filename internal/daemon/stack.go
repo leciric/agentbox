@@ -138,7 +138,10 @@ func (s *Server) restack(ctx context.Context, p state.Project, client github.Cli
 		s.captureEvent(ctx, p.Name, a.Name, "restacked", map[string]any{
 			"parent": parent.Number, "from": parent.Head, "onto": parent.Base, "old_tip": parent.HeadSHA,
 		}, "")
-		if _, err := s.prTell(ctx, a, restackMessage(parent, a, c.pr)); err != nil {
+		// Whose commit its pull request's branch is at decides whether the
+		// push that follows the rebase may be forced (prpush.go).
+		mine := c.pr == nil || pushedHeadIsAgents([]agentHead{agentHeadOf(p.Root, a, a.Branch)}, a.Name, c.pr.HeadSHA)
+		if _, err := s.prTell(ctx, a, restackMessage(parent, a, c.pr, mine)); err != nil {
 			s.logf("restacking: telling %s: %v", a.Ref(), err)
 			untold = append(untold, fmt.Sprintf("%s (%v)", a.Name, err))
 			continue
@@ -174,8 +177,14 @@ func childNames(children []stackChild) string {
 }
 
 // restackMessage is what a child is sent when its parent merged: rebase only
-// its own commits, from the parent's old tip, and push them.
-func restackMessage(parent stackBase, a state.Agent, pr *github.PullRequest) string {
+// its own commits, from the parent's old tip, and push them. mine is whether
+// its pull request's head, when it has one, is a commit it has
+// (pushedHeadIsAgents). When it isn't, somebody else pushed to the branch, and
+// the child takes that in before it rebases, so the rebase carries their
+// commits along and the forced push drops none (prpush.go). Without a pull
+// request there is no head to compare, and the child is trusted to push its
+// own branch.
+func restackMessage(parent stackBase, a state.Agent, pr *github.PullRequest, mine bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "AgentBox: the pull request your branch is stacked on, #%d (%s, `%s`), was merged into `%s`.", parent.Number, parent.URL, parent.Head, parent.Base)
 	if pr != nil {
@@ -183,11 +192,19 @@ func restackMessage(parent stackBase, a state.Agent, pr *github.PullRequest) str
 	} else {
 		fmt.Fprintf(&b, " Your branch's base is `%s` now: open your pull request against it, not `%s`.", parent.Base, parent.Head)
 	}
-	fmt.Fprintf(&b, "\n\nIts commits may be on `%s` under new ids (a squash merge), so a plain rebase would replay them over their own copy. Rebase only your own: hand it to a Sonnet subagent with your Agent tool — `git fetch origin`, then `git rebase --onto origin/%s %s %s` (%s is where `%s` was when it merged), resolve any conflicts keeping both sides' intent, regenerate goldens and generated files, and rerun the tests — then check its result: `git log origin/%s..%s` should list only your commits.",
-		parent.Base, parent.Base, parent.HeadSHA, a.Branch, shortSHA(parent.HeadSHA), parent.Head, parent.Base, a.Branch)
-	if pr != nil {
-		fmt.Fprintf(&b, "\n\nThen push `%s` with `--force-with-lease`: you're asked to, for this. Say in a line that it's done.", a.Branch)
-	} else {
+	fmt.Fprintf(&b, "\n\nIts commits may be on `%s` under new ids (a squash merge), so a plain rebase would replay them over their own copy.", parent.Base)
+	whose := "only your own commits"
+	if !mine && pr != nil {
+		fmt.Fprintf(&b, " Your pull request's head, %s, isn't a commit you made: somebody else pushed to `%s`. Take that in first, with `git pull --rebase origin %s`, so the rebase carries their commits along.", shortSHA(pr.HeadSHA), pr.HeadBranch, pr.HeadBranch)
+		whose = "your commits and theirs, nothing else"
+	}
+	fmt.Fprintf(&b, " Rebase only the branch's own: hand it to a Sonnet subagent with your Agent tool — `git fetch origin`, then `git rebase --onto origin/%s %s %s` (%s is where `%s` was when it merged), resolve any conflicts keeping both sides' intent, regenerate goldens and generated files, and rerun the tests — then check its result: `git log origin/%s..%s` should list %s.",
+		parent.Base, parent.HeadSHA, a.Branch, shortSHA(parent.HeadSHA), parent.Head, parent.Base, a.Branch, whose)
+	switch {
+	case pr != nil:
+		fmt.Fprintf(&b, "\n\nThen push `%s`, which after a rebase needs force, and only in this form: %s. It's held to %s, where AgentBox last saw the branch, so it is refused if anybody has pushed since; then don't force over it: `git fetch origin %s`, rebase their new commits onto `origin/%s` along with the rest, and push again held to the new head. You're asked to push, for this. Say in a line that it's done.",
+			a.Branch, forcePush(pr.HeadBranch, pr.HeadSHA), shortSHA(pr.HeadSHA), pr.HeadBranch, parent.Base)
+	default:
 		fmt.Fprintf(&b, "\n\nIf you've pushed `%s` already, push it again with `--force-with-lease`: you're asked to, for this. Then carry on with your task.", a.Branch)
 	}
 	return b.String()
