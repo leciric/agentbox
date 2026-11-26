@@ -27,6 +27,7 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
+	"agentbox/internal/customize"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
 	"agentbox/internal/github"
@@ -164,6 +165,8 @@ type Server struct {
 	fileWatches *fileWatches     // the folders the app's file trees have open, watched
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes      *omarchy.Watcher // the desktop theme this machine is running, if any
+	// customization is the user's changes to the app's look (customization.go).
+	customization *customize.Store
 	updates     updates          // what the hourly update check last found
 	toolUpdates *toolUpdates     // keeping Claude Code up to date (toolupdates.go)
 	stop        context.CancelFunc
@@ -508,6 +511,7 @@ func New(cfg Config) (*Server, error) {
 		cfg:              cfg,
 		store:            store,
 		icons:            newProjectIcons(),
+		customization:    &customize.Store{Path: cfg.Paths.Customization()},
 		events:           newBroker(),
 		agentAPIs:        map[string]*http.Server{},
 		leadAPIs:         map[string]*http.Server{},
@@ -1001,6 +1005,9 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
+	h("GET /v1/customization", s.getCustomization)
+	h("PATCH /v1/customization", s.patchCustomization)
+	h("DELETE /v1/customization", s.resetCustomization)
 	h("GET /v1/update", s.getUpdate)
 	h("GET /v1/update/release", s.getLatestRelease)
 	h("GET /v1/settings", s.settings)

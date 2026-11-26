@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ var tsTypes = []any{
 	TimingTotals{}, AgentTiming{}, ToolTiming{}, TimedCall{}, TimedCommand{}, TimingReport{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskTrim{}, DiskUsage{}, AgentDisk{}, ProcessTree{}, ProcessMember{}, AgentProcesses{}, ProcessList{}, KillProcessResult{}, StoppedMachine{}, StoppedMachines{}, RemoveStoppedRequest{}, RemoveStoppedResult{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{}, RestartHold{}, ResumeAllResult{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, HostMemory{}, CPUUsageAgent{}, CPUUsage{}, TerminalTail{}, TerminalTails{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
-	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
+	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, Customization{}, CustomTheme{}, CustomColors{}, CustomFonts{}, CustomSidebar{}, CustomizationStatus{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, GPUReport{}, VulkanDevice{}, VMGPU{}, ElementPickRequest{}, ElementPickResult{}, ElementPick{}, ElementStyle{}, ElementBox{}, ElementSize{}, PreviewInfo{}, DesktopUse{},
 	MediaItem{}, MediaMeta{}, MediaCut{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{}, Timeline{}, TimelineStep{}, TimelinePage{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{}, UpdateMediaRequest{}, MediaPage{}, NotificationPage{}, ReviewPage{}, WorkPage{}, WorkItem{}, MediaCounts{}, MediaAgentCount{}, MediaProjectCount{},
@@ -118,6 +119,10 @@ var tsConstants = [][2]string{
 	{"ModeHost", ModeHost}, {"ModeVM", ModeVM}, {"VMDriverLima", VMDriverLima}, {"VMDriverCloudHypervisor", VMDriverCloudHypervisor},
 	{"VMOff", VMOff}, {"VMStarting", VMStarting}, {"VMRunning", VMRunning}, {"VMPaused", VMPaused}, {"VMStopping", VMStopping}, {"VMMissing", VMMissing},
 	{"SpanLevelWarn", SpanLevelWarn}, {"SpanSourceApp", SpanSourceApp},
+	{"EventCustomization", EventCustomization}, {"DensityCompact", DensityCompact}, {"DensityComfortable", DensityComfortable}, {"DensitySpacious", DensitySpacious},
+	{"RadiusSharp", RadiusSharp}, {"RadiusSubtle", RadiusSubtle}, {"RadiusDefault", RadiusDefault}, {"RadiusRound", RadiusRound},
+	{"FontSizeDefault", strconv.Itoa(FontSizeDefault)}, {"SidebarSettings", SidebarSettings},
+	{"SidebarTopItems", strings.Join(SidebarTopItems, " ")}, {"SidebarFootItems", strings.Join(SidebarFootItems, " ")},
 }
 
 func TestTypeScriptTypesAreUpToDate(t *testing.T) {

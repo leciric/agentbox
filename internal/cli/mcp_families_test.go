@@ -136,8 +136,8 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 			t.Errorf("%s, now %s(%s), called %v, want %s", tc.old, tc.tool, tc.args, got, tc.route)
 		}
 	}
-	if len(tools) != 22 {
-		t.Errorf("the lead has %d tools, want 22", len(tools))
+	if len(tools) != 23 {
+		t.Errorf("the lead has %d tools, want 23", len(tools))
 	}
 }
 
@@ -167,8 +167,9 @@ func TestLeadToolsBudget(t *testing.T) {
 	// agent@machine in every agent's name. Half a KiB more since agent goals
 	// are always on (create_agent's goal was off in this count before), and
 	// tell_agent sets and clears a running agent's. 1 KiB more for todos, the
-	// user's todo list.
-	const budget = 28<<10 + 1<<9 + 1<<9
+	// user's todo list. 1 KiB more for appearance, the app's look, whose
+	// fields come back from its show rather than sitting in its schema.
+	const budget = 29<<10 + 1<<9 + 1<<9
 	if len(raw) > budget {
 		t.Errorf("the lead's tools are %d bytes, over the %d budget", len(raw), budget)
 	}

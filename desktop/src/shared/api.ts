@@ -1125,6 +1125,55 @@ export interface UpdateThemeRequest {
   appearance?: string;
 }
 
+export interface Customization {
+  version: number;
+  theme: CustomTheme;
+  fonts: CustomFonts;
+  density?: string;
+  sidebar: CustomSidebar;
+  css?: string;
+}
+
+export interface CustomTheme {
+  accent?: string;
+  radius?: string;
+  dark: CustomColors;
+  light: CustomColors;
+}
+
+export interface CustomColors {
+  background?: string;
+  sidebar?: string;
+  composer?: string;
+  popover?: string;
+  text?: string;
+  mutedText?: string;
+  surface?: string;
+  line?: string;
+  success?: string;
+  warning?: string;
+  danger?: string;
+  info?: string;
+}
+
+export interface CustomFonts {
+  ui?: string;
+  mono?: string;
+  size?: number;
+}
+
+export interface CustomSidebar {
+  top?: string[];
+  foot?: string[];
+  hidden?: string[];
+}
+
+export interface CustomizationStatus {
+  customization: Customization;
+  path: string;
+  problem?: string;
+}
+
 export interface UpdateStatus {
   current: string;
   enabled: boolean;
@@ -4839,3 +4888,15 @@ export const VMStopping = "stopping";
 export const VMMissing = "missing";
 export const SpanLevelWarn = "warn";
 export const SpanSourceApp = "app";
+export const EventCustomization = "customization";
+export const DensityCompact = "compact";
+export const DensityComfortable = "comfortable";
+export const DensitySpacious = "spacious";
+export const RadiusSharp = "sharp";
+export const RadiusSubtle = "subtle";
+export const RadiusDefault = "default";
+export const RadiusRound = "round";
+export const FontSizeDefault = "14";
+export const SidebarSettings = "settings";
+export const SidebarTopItems = "new-task home office filters";
+export const SidebarFootItems = "settings work media jobs running update";
