@@ -23,7 +23,7 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlarmClock, Armchair, Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, ListTree, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -42,6 +42,7 @@ import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, ty
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useUiOffice } from '../../lib/uiOffice';
+import { arrangeItems, sidebarFoot, sidebarTop, useCustomizationQuery } from '../../lib/customization';
 import { useGrace } from '../../lib/grace';
 import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
 import { useReviewHead } from '../../lib/inboxPages';
@@ -205,6 +206,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const grouping = useGroupIdle();
   const drafts = useDraftProjects();
   const sec = useSections();
+  const custom = useCustomizationQuery();
   // The user's own order of the projects in no section (the daemon's
   // ProjectLayout.Loose, through sec.lists). The rest follow it unless
   // "Group idle projects" sorts them by activity, which dragging doesn't change.
@@ -584,6 +586,67 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     );
   };
 
+  // The places along the foot, each named by its tooltip; arranged, with
+  // Running and the update check, in the user's order (lib/customization.ts).
+  const footPlaces = [
+    { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
+    { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
+    { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
+    { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
+  ] as const;
+  const footButton = ({ kind, icon: Icon, label, alert }: (typeof footPlaces)[number]) => {
+    const active = view.kind === kind;
+    const dot = kind === 'jobs' ? undefined : footDots[kind];
+    return (
+      <Tip key={kind} label={dot ? dotLabel(label, dot) : label}>
+        <button
+          type="button"
+          aria-label={label}
+          aria-current={active ? 'page' : undefined}
+          onClick={() => {
+            dot?.clear();
+            onSelect({ kind });
+          }}
+          className={cn(
+            'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+            active && 'bg-surface-raised text-title',
+          )}
+          data-v2-foot-item={kind}
+        >
+          <Icon className={cn('size-4', active ? 'text-brand-300' : 'text-subtle')} />
+          {alert && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+          {!alert && dot && <FeatureDot dot={dot} />}
+        </button>
+      </Tip>
+    );
+  };
+  const runningButton = (
+    <Tip key="running" label={running > 0 ? `${t('running.title')} · ${t('running.countTip', { count: running })}` : t('running.open')}>
+      <button
+        type="button"
+        aria-label={running > 0 ? `${t('running.title')}, ${t('running.countTip', { count: running })}` : t('running.title')}
+        aria-haspopup="dialog"
+        aria-expanded={runningOpen}
+        onClick={() => openRunning(runningProject)}
+        className={cn(
+          'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+          runningOpen && 'bg-surface-raised text-title',
+        )}
+        data-v2-foot-item="running"
+      >
+        <ListTree className={cn('size-4', runningOpen ? 'text-brand-300' : 'text-subtle')} />
+        {running > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-micro font-medium leading-none tabular-nums text-on-brand"
+            data-running-count={running}
+          >
+            {running > 99 ? '99+' : running}
+          </span>
+        )}
+      </button>
+    </Tip>
+  );
+
   return (
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line-faint bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
@@ -613,11 +676,22 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         onDragOver={(e: DragEvent) => !e.isDefaultPrevented() && dnd.draggingRef.current && dnd.aim(null)}
         onDragLeave={(e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && dnd.aim(null)}
       >
-        <NewTaskRow />
-        <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
-        {office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
-        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
-        {(remoteProjects.length > 0 || where !== 'all') && <WhereFilter where={where} onWhere={setWhere} />}
+        {/* The rows above the projects, in the user's order and without the
+            ones they hid (lib/customization.ts). Filters in use stay shown
+            when hidden, or there would be no way to see why projects are missing. */}
+        {arrangeItems(sidebarTop, custom.data?.customization.sidebar.top, custom.data?.customization.sidebar.hidden?.filter((id) => id !== 'filters' || !filtering)).map((id) => (
+          <Fragment key={id}>
+            {id === 'new-task' && <NewTaskRow />}
+            {id === 'home' && <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />}
+            {id === 'office' && office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
+            {id === 'filters' && (
+              <>
+                <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
+                {(remoteProjects.length > 0 || where !== 'all') && <WhereFilter where={where} onWhere={setWhere} />}
+              </>
+            )}
+          </Fragment>
+        ))}
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-ui text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
@@ -670,64 +744,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           Home, the chat and its Status tab, heads the list above; which
           AgentBox this window drives is under Settings → General. */}
       <div className="flex items-center gap-1 border-t border-line-faint p-2" data-v2-foot>
-        {(
-          [
-            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
-            { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
-            { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
-            { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
-          ] as const
-        ).map(({ kind, icon: Icon, label, alert }) => {
-          const active = view.kind === kind;
-          const dot = kind === 'jobs' ? undefined : footDots[kind];
-          return (
-            <Tip key={kind} label={dot ? dotLabel(label, dot) : label}>
-              <button
-                type="button"
-                aria-label={label}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => {
-                  dot?.clear();
-                  onSelect({ kind });
-                }}
-                className={cn(
-                  'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-                  active && 'bg-surface-raised text-title',
-                )}
-                data-v2-foot-item={kind}
-              >
-                <Icon className={cn('size-4', active ? 'text-brand-300' : 'text-subtle')} />
-                {alert && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
-                {!alert && dot && <FeatureDot dot={dot} />}
-              </button>
-            </Tip>
-          );
+        {arrangeItems(sidebarFoot, custom.data?.customization.sidebar.foot, custom.data?.customization.sidebar.hidden).map((id) => {
+          if (id === 'update') return <UpdateCheck key={id} />;
+          if (id === 'running') return runningButton;
+          const place = footPlaces.find((p) => p.kind === id);
+          return place ? footButton(place) : null;
         })}
-        <Tip label={running > 0 ? `${t('running.title')} · ${t('running.countTip', { count: running })}` : t('running.open')}>
-          <button
-            type="button"
-            aria-label={running > 0 ? `${t('running.title')}, ${t('running.countTip', { count: running })}` : t('running.title')}
-            aria-haspopup="dialog"
-            aria-expanded={runningOpen}
-            onClick={() => openRunning(runningProject)}
-            className={cn(
-              'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-              runningOpen && 'bg-surface-raised text-title',
-            )}
-            data-v2-foot-item="running"
-          >
-            <ListTree className={cn('size-4', runningOpen ? 'text-brand-300' : 'text-subtle')} />
-            {running > 0 && (
-              <span
-                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-micro font-medium leading-none tabular-nums text-on-brand"
-                data-running-count={running}
-              >
-                {running > 99 ? '99+' : running}
-              </span>
-            )}
-          </button>
-        </Tip>
-        <UpdateCheck />
       </div>
     </aside>
   );

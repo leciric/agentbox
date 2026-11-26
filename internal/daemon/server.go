@@ -27,8 +27,8 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
-	"agentbox/internal/customize"
 	"agentbox/internal/cursor"
+	"agentbox/internal/customize"
 	"agentbox/internal/dockerfw"
 	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
@@ -165,14 +165,15 @@ type Server struct {
 	fileWatches *fileWatches     // the folders the app's file trees have open, watched
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes      *omarchy.Watcher // the desktop theme this machine is running, if any
-	// customization is the user's changes to the app's look (customization.go).
-	customization *customize.Store
 	updates     updates          // what the hourly update check last found
 	toolUpdates *toolUpdates     // keeping Claude Code up to date (toolupdates.go)
 	stop        context.CancelFunc
 	incus       *incusWatch   // whether Incus answers, and what to do when it doesn't
 	disk        *diskWatch    // the disk guard: a floor of free space on every disk AgentBox writes to
 	icons       *projectIcons // projects' icons, looked for in their repositories (projecticons.go)
+
+	// customization is the user's changes to the app's look (customization.go).
+	customization *customize.Store
 
 	runCtx context.Context // Run's, for connections that outlive a request
 

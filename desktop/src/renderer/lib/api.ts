@@ -275,6 +275,10 @@ export const api = {
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),
   theme: () => call<T.Theme>('GET', '/v1/theme'),
   updateTheme: (req: T.UpdateThemeRequest) => call<T.Theme>('PATCH', '/v1/theme', req),
+  // The user's customization of the app's look (lib/customization.ts): what
+  // a chat's appearance tool changes, and Settings resets.
+  customization: () => call<T.CustomizationStatus>('GET', '/v1/customization'),
+  resetCustomization: () => call<T.CustomizationStatus>('DELETE', '/v1/customization'),
   projects: () => call<T.Project[]>('GET', '/v1/projects'),
   addProject: (req: T.AddProjectRequest) => call<T.Project>('POST', '/v1/projects', req),
   // cloneProject starts the job that clones a repository and adds it: the
