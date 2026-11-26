@@ -185,7 +185,7 @@ func TestRestackForcesOnlyOverTheChildsOwnHead(t *testing.T) {
 						_, _ = w.Write([]byte(`[]`))
 						return
 					}
-					fmt.Fprintf(w, `[{"number":15,"state":"open","html_url":"https://github.com/acme/hello-stack/pull/15","base":{"ref":"agentbox/agent-01"},"head":{"ref":"agentbox/agent-02","sha":%q}}]`, head)
+					_, _ = fmt.Fprintf(w, `[{"number":15,"state":"open","html_url":"https://github.com/acme/hello-stack/pull/15","base":{"ref":"agentbox/agent-01"},"head":{"ref":"agentbox/agent-02","sha":%q}}]`, head)
 				case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/hello-stack/pulls/15":
 					retargeted = true
 					_, _ = w.Write([]byte(`{}`))
