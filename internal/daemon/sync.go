@@ -124,7 +124,7 @@ func (s *Server) shareSyncPeer(w http.ResponseWriter, r *http.Request, addr stri
 		return p, false
 	}
 	if !p.Sync {
-		writeLANError(w, http.StatusForbidden, fmt.Sprintf(`it doesn't let %s sync with it. There, in Settings → Share, turn on "May sync with this AgentBox" for %s`, p.Name, p.Name))
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf(`it doesn't let this AgentBox sync with it yet. There, in Settings → Share, turn on "May sync with this AgentBox" for %s`, p.Name))
 		return p, false
 	}
 	return p, true

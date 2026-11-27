@@ -59,6 +59,7 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
     setKeep(Object.fromEntries(conflicts.map((c) => [c.id, remote !== mine && !c.versions.some((v) => v.remote === remote) ? (keep[c.id] ?? mine) : remote])));
   const names = (ids: string[]) => ids.map((id) => plan?.remotes.find((r) => r.id === id)?.name ?? id).join(', ');
   const kind = (k: string) => (k in kinds ? t(kinds[k]) : k);
+  const projectName = (name?: string) => plan?.projects?.find((p) => p.name === name)?.displayName || name || '';
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -87,7 +88,7 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
               .filter((r) => r.error)
               .map((r) => (
                 <Notice key={r.id} tone="warning">
-                  {t('peers.sync.remoteError', { name: r.name, why: r.error ?? '' })}
+                  {r.error}
                 </Notice>
               ))}
             {ok.length > 0 && (
@@ -152,11 +153,11 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
                     return (
                       <li key={c.id} className="grid min-w-0 gap-2 rounded-xl border border-line px-3 py-2.5" data-sync-conflict={c.id}>
                         <p className="min-w-0 break-words text-ui text-primary [overflow-wrap:anywhere]">
-                          <span className="font-medium">{c.label}</span>
+                          <span className="font-medium">{whole.has(c.kind) ? projectName(c.project) : c.label}</span>
                           <span className="text-subtle">
                             {' '}
                             · {kind(c.kind)}
-                            {c.project ? ` · ${c.project}` : ''}
+                            {c.project && !whole.has(c.kind) ? ` · ${projectName(c.project)}` : ''}
                           </span>
                         </p>
                         <div className="grid min-w-0 gap-2 sm:grid-cols-2" role="radiogroup" aria-label={c.label}>
@@ -179,7 +180,7 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
                               </span>
                               {o.values.map((f) => (
                                 <span key={f.name} className="grid min-w-0 gap-0.5">
-                                  <span className="font-mono text-caption text-subtle">{f.name}</span>
+                                  {f.name !== c.kind && <span className="text-caption text-subtle">{f.name.replaceAll('_', ' ')}</span>}
                                   <span className="max-h-32 min-w-0 overflow-y-auto whitespace-pre-wrap break-words text-caption text-secondary [overflow-wrap:anywhere]">
                                     {f.value || t('peers.sync.empty')}
                                   </span>
@@ -253,6 +254,10 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
     </Dialog>
   );
 }
+
+// whole are the kinds that are one thing of a project, which a conflict is
+// then named by: its settings, its notes.
+const whole = new Set(['settings', 'sections', 'icon', 'notes']);
 
 // kinds is each kind of a project's data as Settings → Export names it.
 const kinds: Record<string, Parameters<ReturnType<typeof useT>>[0]> = {

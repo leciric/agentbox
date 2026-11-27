@@ -5673,7 +5673,6 @@ export const ptBR: Messages = {
   'peers.sync.all': 'Sincronizar com todos',
   'peers.sync.title': 'Sincronizar com outros AgentBoxes',
   'peers.sync.description': 'Os dois lados ficam com o que qualquer um tinha: projetos, memórias, chats, notas, skills e configurações. Segredos, logins e agendamentos ficam onde estão.',
-  'peers.sync.remoteError': 'Não dá para sincronizar com {name}: {why}',
   'peers.sync.projects': 'Projetos para sincronizar',
   'peers.sync.newHere': 'Novo aqui',
   'peers.sync.newThere': 'Novo lá',

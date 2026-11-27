@@ -5672,7 +5672,6 @@ export const enUS = {
   'peers.sync.all': 'Sync with all',
   'peers.sync.title': 'Sync with other AgentBoxes',
   'peers.sync.description': 'Both sides end up with what either had: projects, memories, chats, notes, skills and settings. Secrets, logins and schedules stay where they are.',
-  'peers.sync.remoteError': 'Can’t sync with {name}: {why}',
   'peers.sync.projects': 'Projects to sync',
   'peers.sync.newHere': 'New here',
   'peers.sync.newThere': 'New there',
