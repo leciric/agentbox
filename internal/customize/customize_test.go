@@ -103,7 +103,7 @@ func TestBadValuesAreRefusedWithWhy(t *testing.T) {
 		{"not JSON", `{"density":`, "isn't JSON"},
 		{"not an object", `["compact"]`, "an object of the fields"},
 		{"unknown field", `{"colour":"red"}`, `colour isn't a setting: the customization has theme, fonts, density, sidebar, css`},
-		{"unknown nested field", `{"theme":{"dark":{"backgroud":"#000000"}}}`, "theme.dark.backgroud isn't a setting: theme.dark has background, sidebar"},
+		{"unknown nested field", `{"theme":{"dark":{"backdrop":"#000000"}}}`, "theme.dark.backdrop isn't a setting: theme.dark has background, sidebar"},
 		{"wrong kind", `{"fonts":{"size":"big"}}`, "fonts.size is string: it must be a whole number"},
 		{"bad colour", `{"theme":{"accent":"green"}}`, `theme.accent is "green": a colour is #rrggbb`},
 		{"bad radius", `{"theme":{"radius":"pill"}}`, `theme.radius is "pill": it is sharp, subtle, default`},
