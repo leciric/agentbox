@@ -35,7 +35,10 @@ export function AudioCard({ name, src, size, onOpen, openLabel }: { name: string
     }
     if (playing && playing !== el) playing.pause();
     playing = el;
-    void el.play().catch(() => setFailed(true));
+    el.play().catch((err: unknown) => {
+      // A play() cut short by a pause or a new source isn't a broken file.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) setFailed(true);
+    });
   };
   const label = on ? t('chat.audio.pause', { name }) : t('chat.audio.play', { name });
 
@@ -50,6 +53,7 @@ export function AudioCard({ name, src, size, onOpen, openLabel }: { name: string
         onEnded={() => setTime(0)}
         onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => Number.isFinite(e.currentTarget.duration) && setLength(e.currentTarget.duration)}
+        onDurationChange={(e) => setLength(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)}
         onError={() => setFailed(true)}
       />
       <div className="flex min-w-0 items-center gap-2">
