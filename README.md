@@ -1,7 +1,7 @@
 <h1 align="center">AgentBox</h1>
 
 <p align="center">
-  <strong>A team of AI coding agents on your own computer, each with a Linux machine of its own, directed by a lead you chat with.</strong>
+  <strong>An open-source app that runs a team of AI coding agents on your own computer, each with a Linux machine of its own, directed by a lead you chat with.</strong>
 </p>
 
 <p align="center">
@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://agentbox.linting.dev"><strong>Website</strong></a> ·
   <a href="https://downloads.agentbox.linting.dev/index.html"><strong>Download</strong></a> ·
   <a href="#quick-start"><strong>Quick start</strong></a> ·
   <a href="#how-it-compares"><strong>How it compares</strong></a> ·
