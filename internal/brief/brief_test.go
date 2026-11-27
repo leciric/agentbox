@@ -229,10 +229,10 @@ func TestRenderLeadGolden(t *testing.T) {
 				Project: "pawly", Root: "/home/dev/www/pawly",
 				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
 				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
-				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
+				PRWatch: tc.name == "ask", // one golden file with the watch on, the others with it off
 				// Reviews are on by default: one golden file without them.
 				FinishReview: tc.name != "ceiling",
-				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
+				AgentModel:   tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
 				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
 				ClaudeAccounts:  []string{"personal", "work"},
 				Notes:           "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",

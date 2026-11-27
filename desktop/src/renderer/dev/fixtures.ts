@@ -2684,6 +2684,12 @@ export function installDevBridge(): void {
         return { status: 200, body: '[]', contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
+      // Nothing running, for the sidebar's What's running count, which
+      // reads the catch-all's object as a list without agents.
+      if (method === 'GET' && (path === '/v1/processes' || path.startsWith('/v1/processes?'))) {
+        const none: T.ProcessList = { agents: [], at: new Date().toISOString() };
+        return { status: 200, body: JSON.stringify(none), contentType: 'application/json' };
+      }
       // The search palette's answer, from the fixtures' projects and agents,
       // so its content rows can be seen beside the actions and settings.
       if (method === 'GET' && path.startsWith('/v1/search?')) {
