@@ -142,6 +142,7 @@ const byExtension: Record<string, FileKind> = {
   zip: 'archive', tar: 'archive', gz: 'archive', tgz: 'archive', bz2: 'archive', xz: 'archive', zst: 'archive', '7z': 'archive', rar: 'archive',
   json: 'code', js: 'code', ts: 'code', tsx: 'code', jsx: 'code', go: 'code', py: 'code', rs: 'code', rb: 'code', java: 'code', c: 'code', h: 'code',
   cpp: 'code', sh: 'code', yaml: 'code', yml: 'code', toml: 'code', xml: 'code', html: 'code', css: 'code', sql: 'code',
+  mp3: 'audio', wav: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', weba: 'audio',
   txt: 'text', md: 'text', log: 'text', rtf: 'text', doc: 'text', docx: 'text', odt: 'text',
 };
 

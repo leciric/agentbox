@@ -98,6 +98,9 @@ test('fileKind reads a file from its extension, then its type', () => {
   assert.equal(fileKind('notes.md'), 'text');
   assert.equal(fileKind('blob', 'application/x-7z-compressed'), 'archive');
   assert.equal(fileKind('clip', 'video/mp4'), 'video');
+  assert.equal(fileKind('Song.MP3'), 'audio');
+  assert.equal(fileKind('voice.m4a', 'application/octet-stream'), 'audio');
+  assert.equal(fileKind('blob', 'audio/ogg'), 'audio');
   assert.equal(fileKind('mystery'), 'other');
 });
 

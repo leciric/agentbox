@@ -2627,6 +2627,10 @@ export const ptBR: Messages = {
   'chat.files.maxTotal': 'Esses arquivos são grandes demais juntos: uma mensagem pode levar no máximo {max}.',
   'chat.files.read': 'Não foi possível ler o arquivo.',
   'chat.files.open': 'Abrir {name}',
+  'chat.audio.play': 'Tocar {name}',
+  'chat.audio.pause': 'Pausar {name}',
+  'chat.audio.seek': 'Avançar ou voltar em {name}',
+  'chat.audio.failed': 'Não foi possível tocar este áudio aqui.',
 
   // agent
   'agent.status.needsYou': 'Precisa de você',

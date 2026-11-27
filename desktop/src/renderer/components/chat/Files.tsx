@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { fileKind, formatSize, type FileKind } from '../../lib/chatFiles';
+import { AudioCard } from './AudioCard';
 import { useT } from '../../lib/i18n';
 import { cn, errorMessage } from '../../lib/utils';
 
@@ -81,6 +82,7 @@ export function FileChip({
 
 // SentFiles are the files a message in the conversation was sent with.
 export function SentFiles({ chatRef, files }: { chatRef: string; files: T.ChatFile[] }) {
+  const t = useT();
   const open = (file: T.ChatFile) =>
     api.openChatFile(chatRef, file).then(
       (err) => err && toast.error(err),
@@ -88,9 +90,13 @@ export function SentFiles({ chatRef, files }: { chatRef: string; files: T.ChatFi
     );
   return (
     <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-      {files.map((file) => (
-        <FileChip key={file.id} name={file.name} size={file.size} mimeType={file.mimeType} onOpen={() => void open(file)} />
-      ))}
+      {files.map((file) =>
+        fileKind(file.name, file.mimeType) === 'audio' ? (
+          <AudioCard key={file.id} name={file.name} size={formatSize(file.size)} src={api.chatFileUrl(chatRef, file)} onOpen={() => void open(file)} openLabel={t('chat.files.open', { name: file.name })} />
+        ) : (
+          <FileChip key={file.id} name={file.name} size={file.size} mimeType={file.mimeType} onOpen={() => void open(file)} />
+        ),
+      )}
     </div>
   );
 }

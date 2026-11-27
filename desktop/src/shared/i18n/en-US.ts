@@ -2626,6 +2626,10 @@ export const enUS = {
   'chat.files.maxTotal': 'Those files are too big together: a message may carry at most {max}.',
   'chat.files.read': 'Couldn’t read the file.',
   'chat.files.open': 'Open {name}',
+  'chat.audio.play': 'Play {name}',
+  'chat.audio.pause': 'Pause {name}',
+  'chat.audio.seek': 'Seek in {name}',
+  'chat.audio.failed': 'This audio can’t be played here.',
 
   // agent
   'agent.status.needsYou': 'Needs you',

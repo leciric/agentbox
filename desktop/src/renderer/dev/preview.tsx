@@ -91,6 +91,8 @@
 //   ?chat=rich              a project chat's answer with each kind of rich block
 //                           (lib/rich.ts); &narrow=1 in a 340px column; &wide=1 in the
 //                           chat's scroller (&files=1 beside a 340px panel)
+//   ?chat=audio             a message sent with audio files, played in place by a
+//                           card (&wide=1 at 720px instead of a 340px panel)
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -383,7 +385,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests, devRequests, seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedRestartHold, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, audioChat, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests, devRequests, seedDefaults, setCockpitMode, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedRestartHold, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -982,9 +984,10 @@ if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
 }
+// Always answered (empty unless seeded): the sidebar counts what is running.
+devRequests.push(runningRequest);
 if (running) {
   seedRunning();
-  devRequests.push(runningRequest);
   if (running !== 'agent') openRunning(running === 'all' ? undefined : PROJECT);
 }
 if (meters) {
@@ -1359,6 +1362,10 @@ function Preview() {
               </div>
             </div>
             {params.get('files') && <div style={{ width: 340, flexShrink: 0, borderLeft: '1px solid var(--ab-line)' }} />}
+          </div>
+        ) : chat === 'audio' ? (
+          <div style={{ maxWidth: params.get('wide') ? 720 : 340 }} data-audio-preview>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={audioChat()} />
           </div>
         ) : chat === 'rich' ? (
           <div style={{ maxWidth: params.get('narrow') ? 340 : 720 }} data-rich-preview>

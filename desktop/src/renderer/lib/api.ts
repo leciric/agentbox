@@ -411,6 +411,8 @@ export const api = {
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], extra?: { to?: string; runOn?: string }) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined, ...extra } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
+  // chatFileUrl is where the renderer plays a file sent in a chat from.
+  chatFileUrl: (ref: string, file: T.ChatFile) => window.agentbox.chatImageUrl(`${chatBase(ref)}/files/${encodeURIComponent(file.id)}`),
   // openChatFile opens a file sent in a chat with the system's default app:
   // the desktop downloads it first, a browser saves it.
   openChatFile: (ref: string, file: T.ChatFile) => window.agentbox.openChatFile(`${chatBase(ref)}/files/${encodeURIComponent(file.id)}`, file.name),
