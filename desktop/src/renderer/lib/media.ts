@@ -2,7 +2,7 @@ import { Camera, File, FileChartColumn, ScrollText, StickyNote, Video } from 'lu
 import type { ComponentType } from 'react';
 import type * as T from '../../shared/api';
 import { language, t } from '../../shared/i18n/index.ts';
-import { fileKind } from './chatFiles';
+import { fileKind } from './chatFiles.ts';
 
 // mediaUrl is where the renderer loads an item's file from: the desktop app's
 // media protocol, or the hub, in a browser.
