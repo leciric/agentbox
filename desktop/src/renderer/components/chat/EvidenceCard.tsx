@@ -1,6 +1,6 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from '../PrNumberLink';
-import { Check, CircleAlert, CircleCheck, GitMerge, GitPullRequest, Play } from 'lucide-react';
+import { Check, CircleAlert, CircleCheck, GitMerge, GitPullRequest, Play, RotateCcw, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -9,7 +9,7 @@ import { useT } from '../../lib/i18n';
 import { refreshInbox } from '../../lib/inboxPages';
 import { mediaUrl } from '../../lib/media';
 import { pagesFor } from '../../lib/pages';
-import { chapterAt, mergeBlock, proofOf, readableName } from '../../lib/review';
+import { chapterAt, latestReview, mergeBlock, proofOf, readableName } from '../../lib/review';
 import { cn } from '../../lib/utils';
 import { usePullMerge } from '../PullRequestsPanel';
 import { markItemReviewed } from '../ReadyToReview';
@@ -18,6 +18,7 @@ import { useProjectPages } from '../pages/usePages';
 import { clock } from '../ReviewProof';
 import { AIIcon } from '../state';
 import { Button } from '../ui/button';
+import { Tip } from '../ui/tooltip';
 import { mergedFinishes, visibleFinishes } from '../../lib/finished';
 import { agentReviewQuery, useAgentReview, useOpenReview } from '../v2/ReviewV2';
 
@@ -107,6 +108,10 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
   const pages = useProjectPages(project);
   const item = review.data;
   const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), enabled: !!item?.pr });
+  // What the review of its finish found, before the lead was told
+  // (internal/daemon/finishreview.go): the same list the rail reads.
+  const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project) });
+  const checked = latestReview(events.data, agentRef);
   const pr = (item?.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item?.pr;
   const merge = usePullMerge(
     project,
@@ -190,6 +195,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
           ) : (
             item?.summary && <p className="line-clamp-3 text-ui leading-relaxed text-secondary">{item.summary.replace(/[*_`#>]/g, '')}</p>
           )}
+          {checked && <FinishReview review={checked} />}
           {proof.pages[0] && (
             <span className="inline-flex min-w-0 items-center gap-1.5 text-caption text-secondary">
               <PageIcon className="size-3.5 shrink-0 text-faint" />
@@ -263,6 +269,66 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
         )}
       </div>
       {merge.dialog}
+    </div>
+  );
+}
+
+// FinishReview is what the review of the agent's finish found, on its card:
+// a pass (after one round of fixes, when there was one), the problems sent
+// back to it that it is fixing now, the problems left after that round, or
+// that the review couldn't run.
+function FinishReview({ review }: { review: T.AgentReview }) {
+  const t = useT();
+  const problems = review.problems ?? [];
+  const earlier = review.earlier ?? [];
+  const on = review.model ? t('evidence.reviewOn', { model: review.model, count: review.images ?? 0 }) : '';
+  let icon = <ShieldCheck className="size-3.5 shrink-0 text-emerald-400" />;
+  let label = t('evidence.reviewPass');
+  let tip = on;
+  let list: string[] = [];
+  let tone = 'text-secondary';
+  if (review.verdict === 'pass' && review.round > 1) {
+    label = t('evidence.reviewPassAfterFix');
+    tip = [on, t('evidence.reviewFixed'), ...earlier.map((p) => `• ${p}`)].filter(Boolean).join('\n');
+  } else if (review.verdict === 'problems' && review.sentBack) {
+    icon = <RotateCcw className="size-3.5 shrink-0 text-amber-300" />;
+    label = t('evidence.reviewSentBack', { count: problems.length });
+    list = problems;
+  } else if (review.verdict === 'problems') {
+    icon = <ShieldAlert className="size-3.5 shrink-0 text-rose-300" />;
+    label = t('evidence.reviewProblems', { count: problems.length });
+    list = problems;
+    tone = 'text-title';
+  } else if (review.verdict !== 'pass') {
+    icon = <ShieldQuestion className="size-3.5 shrink-0 text-faint" />;
+    label = t('evidence.reviewError');
+    tip = review.note ?? '';
+    tone = 'text-subtle';
+  }
+  const line = (
+    <span className={cn('inline-flex min-w-0 items-center gap-1.5 text-[12px]', tone)} data-evidence-review-verdict={review.verdict}>
+      {icon}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+  return (
+    <div className="grid min-w-0 gap-1" data-evidence-finish-review>
+      {tip ? (
+        <Tip label={<span className="whitespace-pre-line">{tip}</span>}>
+          <span className="w-fit max-w-full">{line}</span>
+        </Tip>
+      ) : (
+        line
+      )}
+      {list.length > 0 && (
+        <ul className="grid gap-0.5 pl-5 text-[12px] leading-snug text-secondary">
+          {list.slice(0, 3).map((p, i) => (
+            <li key={i} className="line-clamp-2 list-disc">
+              {p}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

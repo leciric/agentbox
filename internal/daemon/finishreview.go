@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif" // screenshots are PNG or JPEG; a GIF or WebP is read too
@@ -168,12 +169,17 @@ func (s *Server) finishWithReview(ctx context.Context, a state.Agent, ev api.Age
 // runReview reviews one finish and acts on what it found, unless the agent
 // moved on meanwhile.
 func (s *Server) runReview(a state.Agent, ev api.AgentEvent, round *reviewRound, model string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.background()), reviewTimeout)
+	// Ended by the daemon stopping, which waits for it (finishReviews).
+	ctx, cancel := context.WithTimeout(s.background(), reviewTimeout)
 	defer cancel()
 	review := s.reviewWork(ctx, a, ev, round, model)
 	if s.background().Err() != nil {
 		return // the daemon is stopping: its chats end with it
 	}
+	// What follows has time of its own: the review may have spent all of
+	// its.
+	ctx, cancelAct := context.WithTimeout(s.background(), time.Minute)
+	defer cancelAct()
 	s.mu.Lock()
 	current := s.reviews[a.Ref()] == round
 	if current {
@@ -196,11 +202,13 @@ func (s *Server) runReview(a state.Agent, ev api.AgentEvent, round *reviewRound,
 		s.mu.Lock()
 		s.reviews[a.Ref()] = &reviewRound{waiting: round.waiting, earlier: review.Problems}
 		s.mu.Unlock()
-		review.SentBack = true
-		s.recordReview(ctx, a, review)
+		// The round is in place before the agent is told, so the finish
+		// its fix ends in is reviewed against it however soon it comes.
 		s.setOutcome(a, "", "")
 		err := s.chat.Notice(a, sendBackNotice(review.Problems), chat.NoticeOptions{Act: true})
 		if err == nil {
+			review.SentBack = true
+			s.recordReview(ctx, a, review)
 			s.logf("%s: its review found %d problem(s); sent back to fix them", a.Ref(), len(review.Problems))
 			return
 		}
@@ -209,13 +217,9 @@ func (s *Server) runReview(a state.Agent, ev api.AgentEvent, round *reviewRound,
 		delete(s.reviews, a.Ref())
 		s.mu.Unlock()
 		s.setOutcome(a, api.AgentOutcomeDone, "")
-		review.SentBack = false
 		review.Note = "couldn't be sent back: " + err.Error()
-		review = s.recordReview(ctx, a, review)
-	} else {
-		review = s.recordReview(ctx, a, review)
 	}
-	s.tellFinish(ctx, a, ev, round.waiting, "", review)
+	s.tellFinish(ctx, a, ev, round.waiting, "", s.recordReview(ctx, a, review))
 }
 
 // recordReview keeps a review as an event of its agent's, for the app's
@@ -245,6 +249,9 @@ func (s *Server) reviewWork(ctx context.Context, a state.Agent, ev api.AgentEven
 	if err != nil {
 		s.logf("%s: reviewing its work: %v", a.Ref(), err)
 		review.Verdict, review.Note = api.AgentReviewError, headWords(err.Error(), 200)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			review.Note = fmt.Sprintf("it took longer than %s", reviewTimeout)
+		}
 		return review
 	}
 	verdict, problems, ok := parseReview(answer)
@@ -587,7 +594,7 @@ func (s *Server) reviewMedia(ctx context.Context, a state.Agent) (string, []revi
 	return strings.Join(lines, "\n"), images
 }
 
-var errNoFrames = fmt.Errorf("none came out")
+var errNoFrames = errors.New("none came out")
 
 // frame is one frame of a recording, as a JPEG, and where in it.
 type frame struct {

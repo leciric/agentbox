@@ -350,3 +350,16 @@ export function startWalk(waiting: readonly T.ReviewItem[], opts: { project?: st
   const items = walkItems(waiting, opts.project);
   return items.length ? { item: items[0], order: items.map((i) => i.ref), project: opts.project } : null;
 }
+
+// latestReview is what the review of an agent's latest finish found
+// (internal/daemon/finishreview.go): its newest reviewed event, unless it
+// finished again since and that finish is still being reviewed, or wasn't.
+// events are a project's, newest first, as the daemon sends them.
+export function latestReview(events: readonly T.AgentEvent[] | undefined, ref: string): T.AgentReview | undefined {
+  for (const ev of events ?? []) {
+    if (ev.ref !== ref) continue;
+    if (ev.kind === 'reviewed') return ev.review;
+    if (ev.kind === 'finished') return undefined;
+  }
+  return undefined;
+}

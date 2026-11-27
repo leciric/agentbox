@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, seeking, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
+import { remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, seeking, gallery, chapterAt, proofOf, readableName, reviewPane, step, latestReview } from './review.ts';
 
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
@@ -307,4 +307,14 @@ test('a player with focus takes Space and the arrows', () => {
   assert.ok(seeking('play', { tagName: 'video' }));
   assert.ok(!seeking('merge', { tagName: 'VIDEO' }));
   assert.ok(!seeking('nextMedia', { tagName: 'DIV' }));
+});
+
+test('latestReview is the review of the latest finish, and none while a newer finish waits for one', () => {
+  const ev = (kind: string, ref: string, review?: Partial<T.AgentReview>) => ({ kind, ref, review }) as T.AgentEvent;
+  const pass = { verdict: 'pass', round: 2 };
+  // Newest first.
+  assert.deepEqual(latestReview([ev('reviewed', 'p/a', pass), ev('finished', 'p/a'), ev('reviewed', 'p/a', { verdict: 'problems' })], 'p/a'), pass);
+  assert.equal(latestReview([ev('finished', 'p/a'), ev('reviewed', 'p/a', pass)], 'p/a'), undefined);
+  assert.deepEqual(latestReview([ev('reviewed', 'p/b', { verdict: 'error' }), ev('asked', 'p/a'), ev('reviewed', 'p/a', pass)], 'p/a'), pass);
+  assert.equal(latestReview(undefined, 'p/a'), undefined);
 });

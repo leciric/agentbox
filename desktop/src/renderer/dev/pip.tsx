@@ -135,6 +135,22 @@ const said: Said[] = [
 ];
 const done: Said = { who: 'lead', minutesAgo: 0, finished: 'agent-26', text: 'agent-26 fixed the flaky reconnect test: it reconnected before the old socket had closed. 50 of 50 runs pass under `-race` now.' };
 
+// agent-12's finishes and their reviews, newest first (lib/review's
+// latestReview): its first finish was sent back over one problem, and the
+// second passed, which its card says.
+const reviewEvents = (): T.AgentEvent[] => {
+  const ref = `${PROJECT}/agent-12`;
+  const at = (m: number) => ago(m * min);
+  const base = { project: PROJECT, agent: 'agent-12', ref, title: 'Add a "New project" button to the Sidebar' };
+  const problem = 'At 480px the New project button pushes the sidebar wider than the window (sidebar-with-new-project): give its label min-w-0 and truncate it.';
+  return [
+    { ...base, id: 'pip-rv2', kind: 'reviewed', at: at(2.6), review: { verdict: 'pass', round: 2, finish: 'pip-f2', earlier: [problem], model: 'claude-sonnet-4-5', images: 7 } },
+    { ...base, id: 'pip-f2', kind: 'finished', outcome: 'done', at: at(4) },
+    { ...base, id: 'pip-rv1', kind: 'reviewed', at: at(12), review: { verdict: 'problems', round: 1, finish: 'pip-f1', problems: [problem], sentBack: true, model: 'claude-sonnet-4-5', images: 6 } },
+    { ...base, id: 'pip-f1', kind: 'finished', outcome: 'done', at: at(14) },
+  ];
+};
+
 let thread: T.ChatThread;
 function chatItems(lines: Said[]): T.ChatItem[] {
   let turn = '';
@@ -252,6 +268,7 @@ export function seedPip(queryClient: QueryClient): void {
     const agentThread = chat && pipThread(decodeURIComponent(chat[1]));
     if (agentThread) return json(agentThread);
     if (path === `/v1/projects/${PROJECT}/desktops`) return json(desktops());
+    if (path === `/v1/projects/${PROJECT}/agent-events`) return json(reviewEvents());
     if (/^\/v1\/projects\/[^/]+\/chat(\?|$)/.test(path) && path.startsWith(`/v1/projects/${PROJECT}/`)) return json(thread);
     if (path.startsWith('/v1/archived-agents')) return json([]);
     // What each agent's machine uses, for the panel's list.
@@ -270,6 +287,7 @@ export function seedPip(queryClient: QueryClient): void {
   queryClient.setQueryData(chatKey(`${PROJECT}/lead`), thread);
   queryClient.setQueryData(['media', `${PROJECT}/agent-26`], []);
   queryClient.setQueryData(['questions', PROJECT], []);
+  queryClient.setQueryData(['agentEvents', PROJECT], reviewEvents());
 }
 
 // PipFinish lands agent-26 as the preview runs: it stops using its desktop,

@@ -298,6 +298,14 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           render: () => <FinishNoticesPicker project={project} />,
         },
         {
+          id: 'review-finishes',
+          description: t('defaults.project.reviewOnDescription'),
+          label: t('defaults.project.reviewLabel'),
+          keywords: t('defaults.project.reviewKeywords'),
+          modified: !project.reviewFinishes,
+          render: () => <ReviewFinishesToggle project={project} />,
+        },
+        {
           id: 'settle-sessions',
           description: t('defaults.project.settleDescription'),
           label: t('defaults.project.settleLabel'),
@@ -1232,6 +1240,34 @@ function SettlePicker({ project }: { project: T.Project }) {
           ))}
         </Select>
       }
+    />
+  );
+}
+
+// ReviewFinishesToggle turns on or off the review of an agent's work before
+// the project's chat hears it finished (internal/daemon/finishreview.go): a
+// cheaper model reads its task, diff, pull request and media, and what it
+// finds goes back to the agent once. On by default.
+function ReviewFinishesToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (reviewFinishes: boolean) => api.updateProject(project.name, { reviewFinishes }),
+    onSuccess: async (updated) => {
+      toast(updated.reviewFinishes ? t('defaults.project.reviewOnToast', { name: updated.name }) : t('defaults.project.reviewOffToast', { name: updated.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const on = save.isPending ? save.variables : project.reviewFinishes;
+
+  return (
+    <SettingRow
+      label={t('defaults.project.reviewLabel')}
+      htmlFor="project-review-finishes"
+      description={on ? t('defaults.project.reviewOnDescription') : t('defaults.project.reviewOffDescription')}
+      details={t('defaults.project.reviewDetails')}
+      control={<Switch id="project-review-finishes" data-project-review-finishes checked={on} onCheckedChange={(next) => save.mutate(next)} />}
     />
   );
 }
