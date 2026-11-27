@@ -3,7 +3,8 @@
 // the case the view was made for: a `nest start --watch` it started from its
 // Bash tool and forgot, 2.3 GiB and idle for two hours. A kill answers as the
 // daemon would and the tree leaves the list; the tool's and the machine's
-// are refused, as the daemon refuses them.
+// are refused, as the daemon refuses them. agent-90's go test and agent-12's
+// npm test are heavy commands, with the workers each started with.
 import type * as T from '../../shared/api';
 import { PROJECT } from './fixtures';
 
@@ -105,10 +106,31 @@ function fixtureAgents(): T.AgentProcesses[] {
         ],
       }),
       claude(301, 540 * MiB, 18),
+      tree(1910, 'npm test', 900 * MiB, {
+        minutes: 2,
+        cpu: 240,
+        workers: { workers: 6, cpu: 6, cores: 12, running: 2, memory: true, limit: 'cpu', tool: 'npm test', perWorker: 768 * MiB, free: 9.4 * GiB },
+      }),
       tree(870, 'container: postgres', 180 * MiB, { minutes: 70, idleSeconds: 2400, idle: true }),
       system(140 * MiB),
     ]),
-    agentOf('agent-90', 'Bump Electron to the next major, and every native module that breaks with it', [claude(230, 480 * MiB), system(120 * MiB)]),
+    agentOf('agent-90', 'Bump Electron to the next major, and every native module that breaks with it', [
+      tree(1840, 'go test ./...', 1.6 * GiB, {
+        minutes: 1,
+        cpu: 380,
+        command: `/bin/bash -c source /home/lint/.claude/shell-snapshots/snapshot-bash.sh && eval 'go test ./...' < /dev/null`,
+        members: [
+          { pid: 1840, ppid: 230, name: 'bash', command: "/bin/bash -c … eval 'go test ./...'", memory: 4 * MiB },
+          { pid: 1841, ppid: 1840, name: 'agentbox', command: '/usr/local/bin/agentbox heavy-shim go … test ./...', memory: 18 * MiB },
+          { pid: 1846, ppid: 1841, name: 'go', command: 'go test ./...', memory: 1.58 * GiB },
+        ],
+        // Started as agent-12's npm test ran: 6 cores each, but 2.1 GiB
+        // free with 3 GiB kept for the other, at a learned 512 MiB a worker.
+        workers: { workers: 4, cpu: 6, cores: 12, running: 2, memory: true, limit: 'memory', tool: 'go test', perWorker: 512 * MiB, learned: true, free: 2.1 * GiB, claimed: 3 * GiB },
+      }),
+      claude(230, 480 * MiB),
+      system(120 * MiB),
+    ]),
   ].sort((a, b) => b.memory - a.memory);
 }
 

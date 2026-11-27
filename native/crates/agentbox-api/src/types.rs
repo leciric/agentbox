@@ -429,6 +429,8 @@ pub struct Settings {
     pub resume_after_limit: bool,
     #[serde(rename = "continueAfterRestart")]
     pub continue_after_restart: bool,
+    #[serde(rename = "fewerWorkersForMemory")]
+    pub fewer_workers_for_memory: bool,
     #[serde(rename = "creditAITool")]
     pub credit_ai_tool: bool,
     #[serde(rename = "builtWithBadge")]
@@ -609,6 +611,11 @@ pub struct UpdateSettingsRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub continue_after_restart: Option<bool>,
+    #[serde(
+        rename = "fewerWorkersForMemory",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fewer_workers_for_memory: Option<bool>,
     #[serde(rename = "creditAITool", skip_serializing_if = "Option::is_none")]
     pub credit_ai_tool: Option<bool>,
     #[serde(rename = "builtWithBadge", skip_serializing_if = "Option::is_none")]
@@ -1225,6 +1232,30 @@ pub struct HeavyRun {
     pub since: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub placed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workers: Option<HeavyWorkers>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeavyWorkers {
+    pub workers: i64,
+    pub cpu: i64,
+    pub cores: i64,
+    pub running: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub memory: bool,
+    pub limit: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub tool: String,
+    #[serde(rename = "perWorker", skip_serializing_if = "is_empty")]
+    pub per_worker: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub learned: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub free: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub claimed: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1566,6 +1597,8 @@ pub struct ProcessTree {
     pub idle_seconds: i64,
     pub heavy: bool,
     pub idle: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workers: Option<HeavyWorkers>,
     #[serde(deserialize_with = "nullable")]
     pub members: Vec<ProcessMember>,
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 )
 
@@ -112,6 +113,9 @@ func renderProcesses(w io.Writer, agents []api.AgentProcesses, members bool, now
 			if t.Idle {
 				flags = append(flags, "idle")
 			}
+			if t.Workers != nil {
+				flags = append(flags, workersWords(*t.Workers))
+			}
 			if len(flags) > 0 {
 				label += "  (" + strings.Join(flags, ", ") + ")"
 			}
@@ -125,6 +129,27 @@ func renderProcesses(w io.Writer, agents []api.AgentProcesses, members bool, now
 		_ = tw.Flush()
 	}
 	_, _ = fmt.Fprintln(w, "\nKill a tree with: agentbox kill <project/agent> <pid>")
+}
+
+// workersWords is how many workers a heavy command started with, and why:
+// "4 workers: 2.1 GiB free", as the app's Running view says it.
+func workersWords(w api.HeavyWorkers) string {
+	n := strconv.Itoa(w.Workers) + " workers"
+	if w.Workers == 1 {
+		n = "1 worker"
+	}
+	switch w.Limit {
+	case agent.LimitMemory, agent.LimitLeast:
+		return n + ": " + humanBytes(w.Free) + " free"
+	case agent.LimitAgent:
+		return n + ": " + humanBytes(w.Free) + " under its limit"
+	case agent.LimitCPU:
+		if w.Running <= 1 {
+			return n + ": every core"
+		}
+		return fmt.Sprintf("%s: %d cores among %d", n, w.Cores, w.Running)
+	}
+	return n
 }
 
 // spanWords is a duration like "45s", "12m" or "3h10m".

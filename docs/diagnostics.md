@@ -78,6 +78,10 @@ project's. Each agent's **Resources** panel shows its own list.
 - Each tree shows its memory (proportional set size, so shared memory is counted once), CPU, how
   long it has run, and how long it has used next to no CPU. Trees of 1 GiB or more are flagged
   **Heavy**, and trees idle for 30 minutes or more are flagged **Idle**.
+- A test run or a build shows how many workers it started with and why: "4 workers: 2.1 GiB free"
+  when memory was short, "6 workers: 12 cores among 2" when its share of the cores was all it got.
+  Hover it for what one worker of its tool was taken to need, and whether that was learned from the
+  project's earlier runs.
 - The AI tool's own processes (its ACP adapter, the tool, its MCP servers) and the machine's own
   (init and its services, tmux and its shell, Docker's daemon, the desktop's display) are listed as
   **Protected**, so the totals add up, and can't be killed here.

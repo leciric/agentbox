@@ -319,7 +319,7 @@ func TestAPRWatchTellWhileTheMachineStopsWaitsAndStartsIt(t *testing.T) {
 	broke := make(chan struct{})
 	go func() {
 		defer close(broke)
-		w.srv.prBroken(ctx, p, github.Repo{Owner: "o", Name: "r"}, state.PRWatch{Project: p.Name, Number: 7, Agent: a.Name, AgentID: a.ID}, pr, []prProblem{prConflict})
+		w.srv.prBroken(ctx, p, github.Repo{Owner: "o", Name: "r"}, state.PRWatch{Project: p.Name, Number: 7, Agent: a.Name, AgentID: a.ID}, pr, []prProblem{prConflict}, nil)
 	}()
 	time.Sleep(200 * time.Millisecond)
 	if w.tool.got("conflict") {

@@ -643,6 +643,38 @@ export function ContinueAfterRestart() {
   );
 }
 
+// FewerWorkersForMemory decides whether builds and tests start with fewer
+// workers when the VM's memory is short (internal/daemon/workers.go): their
+// share of the cores, no more than the memory free as they start holds at
+// what one worker of their tool takes. Off, the cores alone, as before.
+export function FewerWorkersForMemory() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (fewerWorkersForMemory: boolean) => api.updateSettings({ fewerWorkersForMemory }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.fewerWorkersLabel')}
+      description={t('defaults.newAgent.fewerWorkersDescription')}
+      details={t('defaults.newAgent.fewerWorkersDetails')}
+      control={
+        <Switch
+          data-fewer-workers-for-memory
+          aria-label={t('defaults.newAgent.fewerWorkersLabel')}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.fewerWorkersForMemory ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
 // leadSleepFallback is the minutes an idle chat waits when nobody chose
 // (state.DefaultLeadSleep).
 export const leadSleepFallback = 15;

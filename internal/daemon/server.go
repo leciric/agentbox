@@ -429,6 +429,13 @@ type Server struct {
 	// vmCores is how many cores the agents' machines see, all of the VM's,
 	// which heavy commands' worker counts split (agent.HeavyWorkers).
 	vmCores func() int
+	// agentRoom is what an agent's machine may still take before its own
+	// memory limit (agent.AgentMemoryRoom), which counts against a heavy
+	// command's workers (workers.go).
+	agentRoom func(instance string) (int64, bool)
+	// workerMemory is what one worker of each tool takes in each project,
+	// as far as its finished runs said (workers.go).
+	workerMemory *workerMemory
 	// admit (admission.go) is when agents' machines boot, and those On hold.
 	admit *admitState
 	// resumes (restart.go) carries on, one at a time, what a restart cut
@@ -576,6 +583,8 @@ func New(cfg Config) (*Server, error) {
 		stalls:           map[string]*stallTrack{},
 		cpuTime:          agent.CPUTime,
 		vmCores:          agent.HostCores,
+		agentRoom:        agent.AgentMemoryRoom,
+		workerMemory:     newWorkerMemory(),
 		connectorsGiven:  map[string]bool{},
 	}
 	store.SetLog(s.logf)
@@ -590,6 +599,7 @@ func New(cfg Config) (*Server, error) {
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.processTell = s.tellUnlessRetired
+	s.processes.workers = s.runWorkers
 	s.approve = s.approveInChat
 	s.homeHost.OnChange = s.homeHostChanged
 	s.events.observe = s.observeSessionStatus

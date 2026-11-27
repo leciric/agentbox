@@ -1889,6 +1889,17 @@ var migrations = []string{
 	// agent, which its notices go back to; '' for one made before, whose
 	// notices go to the session most recently active there.
 	`ALTER TABLE peer_agents ADD COLUMN origin_session TEXT NOT NULL DEFAULT ''`,
+	// What one worker of each tool (go test, vitest, npm test…) takes in
+	// each project, learned from its heavy commands that finished
+	// (agent.LearnPerWorker): bytes, and how many runs taught it.
+	`CREATE TABLE worker_memory (
+		project    TEXT NOT NULL,
+		tool       TEXT NOT NULL,
+		per_worker INTEGER NOT NULL,
+		runs       INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project, tool)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2733,6 +2744,8 @@ var projectOwned = []string{
 	"auto_resumes",
 	// Timing is for finding out where time goes now, not a record to keep.
 	"timing",
+	// What its tools' workers take: learned again if it comes back.
+	"worker_memory",
 	"chat_items",
 	"chats",
 	"archived_agents",

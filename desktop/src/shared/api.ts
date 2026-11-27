@@ -234,6 +234,7 @@ export interface Settings {
   firstRun: boolean;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
+  fewerWorkersForMemory: boolean;
   creditAITool: boolean;
   builtWithBadge: boolean;
   builtWithBadgeOffer: boolean;
@@ -320,6 +321,7 @@ export interface UpdateSettingsRequest {
   openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
+  fewerWorkersForMemory?: boolean;
   creditAITool?: boolean;
   builtWithBadge?: boolean;
   dismissBuiltWithBadgeOffer?: boolean;
@@ -669,6 +671,21 @@ export interface HeavyRun {
   state: string;
   since: string;
   placed?: boolean;
+  workers?: HeavyWorkers;
+}
+
+export interface HeavyWorkers {
+  workers: number;
+  cpu: number;
+  cores: number;
+  running: number;
+  memory?: boolean;
+  limit: string;
+  tool?: string;
+  perWorker?: number;
+  learned?: boolean;
+  free?: number;
+  claimed?: number;
 }
 
 export interface HeavyEnd {
@@ -882,6 +899,7 @@ export interface ProcessTree {
   idleSeconds: number;
   heavy: boolean;
   idle: boolean;
+  workers?: HeavyWorkers;
   members: ProcessMember[];
 }
 

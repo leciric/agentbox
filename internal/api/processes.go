@@ -73,6 +73,9 @@ type ProcessTree struct {
 	// protected tree.
 	Heavy bool `json:"heavy"`
 	Idle  bool `json:"idle"`
+	// Workers is the heavy command (a build, a test run) running in it, by
+	// how many workers it started with and why; nil for none.
+	Workers *HeavyWorkers `json:"workers,omitempty"`
 	// Members are its processes, its root first.
 	Members []ProcessMember `json:"members"`
 }

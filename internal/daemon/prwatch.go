@@ -405,7 +405,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 			next.Conflict = pr.Mergeable == "conflicting"
 		}
 		if problems := prProblems(prev, pr); len(problems) > 0 {
-			s.prBroken(ctx, p, repo, next, pr, problems)
+			s.prBroken(ctx, p, repo, next, pr, problems, heads)
 		}
 		if err := s.store.SavePRWatch(ctx, next); err != nil {
 			s.logf("pull request watch in %s: %v", p.Name, err)
@@ -533,8 +533,10 @@ func prProblems(prev state.PRWatch, pr github.WatchedPR) []prProblem {
 // prBroken acts on a pull request that just broke: the agent that owns it is
 // told what to do — its machine started first if it was stopped — and the
 // project's chat hears about it. When the agent is gone, or couldn't be told,
-// the chat is told instead, with a turn to decide what to do.
-func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo, row state.PRWatch, pr github.WatchedPR, problems []prProblem) {
+// the chat is told instead, with a turn to decide what to do. heads are the
+// project's agents' commits, which say whose commit the pull request's head is
+// and so whether the agent may force-push over it (prpush.go).
+func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo, row state.PRWatch, pr github.WatchedPR, problems []prProblem, heads []agentHead) {
 	what := prProblemWords(pr, problems)
 	s.captureEvent(ctx, p.Name, row.Agent, "pr_broken", map[string]any{
 		"number": pr.Number, "url": pr.URL, "problems": problems, "head": pr.HeadSHA,
@@ -554,7 +556,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Kind: api.AgentPRBroken,
 		Summary: fmt.Sprintf("PR #%d %s", pr.Number, what), PR: watchedToAPI(pr), At: s.prWatch.now(),
 	})
-	t, err := s.prTell(ctx, a, prFixMessage(pr, problems))
+	t, err := s.prTell(ctx, a, prFixMessage(pr, problems, pushedHeadIsAgents(heads, a.Name, pr.HeadSHA)))
 	if err != nil {
 		s.logf("pull request watch: telling %s: %v", a.Ref(), err)
 		s.prLead(ctx, p.Name, a.Session(), fmt.Sprintf(
@@ -611,14 +613,22 @@ func failingNames(pr github.WatchedPR) string {
 
 // prFixMessage is what the agent is sent: what broke, and how to go about
 // fixing each. It asks for the push outright, since an agent's brief tells it
-// not to push unless asked.
-func prFixMessage(pr github.WatchedPR, problems []prProblem) string {
+// not to push unless asked. mine is whether the pull request's head is a
+// commit the agent has (pushedHeadIsAgents): when it isn't, somebody else
+// pushed to the branch, and the agent is told to take that in and never to
+// force over it (prpush.go).
+func prFixMessage(pr github.WatchedPR, problems []prProblem, mine bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "AgentBox is watching your pull request #%d (%s), and it needs you:\n", pr.Number, pr.URL)
 	for _, problem := range problems {
 		switch problem {
 		case prConflict:
-			fmt.Fprintf(&b, "\n- It conflicts with `%s`. Don't resolve it on your own model: hand it to a Sonnet subagent with your Agent tool — `git fetch origin`, bring `origin/%s` into your branch, resolve the conflicts keeping both sides' intent, regenerate goldens and generated files, and rerun the tests — then check its result.", pr.BaseBranch, pr.BaseBranch)
+			bring := fmt.Sprintf("bring `origin/%s` into your branch", pr.BaseBranch)
+			if !mine {
+				// A rebase would rewrite the commits somebody else pushed.
+				bring = fmt.Sprintf("take in what was pushed to your branch (`git pull --rebase origin %s`), then merge `origin/%s` into it — a merge, not a rebase, which would rewrite their commits", pr.HeadBranch, pr.BaseBranch)
+			}
+			fmt.Fprintf(&b, "\n- It conflicts with `%s`. Don't resolve it on your own model: hand it to a Sonnet subagent with your Agent tool — `git fetch origin`, %s, resolve the conflicts keeping both sides' intent, regenerate goldens and generated files, and rerun the tests — then check its result.", pr.BaseBranch, bring)
 		case prChecks:
 			fmt.Fprintf(&b, "\n- Its checks are failing on %s:", shortSHA(pr.HeadSHA))
 			for _, c := range pr.Failing {
@@ -633,7 +643,13 @@ func prFixMessage(pr github.WatchedPR, problems []prProblem) string {
 			fmt.Fprintf(&b, "\n- A reviewer asked for changes. Read the review (`gh pr view %d --comments`) and address it.", pr.Number)
 		}
 	}
-	fmt.Fprintf(&b, "\n\nThen push the fix to the pull request's branch, `%s` (with `--force-with-lease` after a rebase): you're asked to, for this. Say in a line what it was.", pr.HeadBranch)
+	if mine {
+		fmt.Fprintf(&b, "\n\nThen push the fix to the pull request's branch, `%s`: you're asked to, for this. A plain `git push origin HEAD:%s` does it; after a rebase it needs force, and only this form: %s. It's held to %s, your own commit where AgentBox last saw the branch, so it is refused if anybody has pushed since. Then don't force over it: `git pull --rebase origin %s` to take their commits in, and push again without force. Say in a line what it was.",
+			pr.HeadBranch, pr.HeadBranch, forcePush(pr.HeadBranch, pr.HeadSHA), shortSHA(pr.HeadSHA), pr.HeadBranch)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\n\nThen push the fix to the pull request's branch, `%s`: you're asked to, for this. Its head, %s, isn't a commit you made: somebody else pushed to it — a reviewer, another tool, the user — so don't force-push it, with or without a lease, and don't rewrite what's on it. Take it in with `git pull --rebase origin %s` (that replays only your own unpushed commits on top), then `git push origin HEAD:%s`. Say in a line what it was.",
+		pr.HeadBranch, shortSHA(pr.HeadSHA), pr.HeadBranch, pr.HeadBranch)
 	return b.String()
 }
 
