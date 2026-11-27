@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"agentbox/internal/api"
 )
 
 // Most of what is exported is rows of state.db, carried as they are: a table's
@@ -241,9 +243,9 @@ func merge(ctx context.Context, tx execer, t importedRows, rewrite rowRewrite, c
 	insert := `INSERT INTO ` + t.Table + ` (` + quoteAll(names) + `) VALUES (` + strings.TrimSuffix(strings.Repeat("?, ", len(names)), ", ") + `)`
 	var match string
 	if len(t.Key) > 0 {
-		match = `SELECT ` + quoteAll(names) + ` FROM ` + t.Table + ` WHERE ` + conditions(t.Key, " = ?")
+		match = `SELECT ` + quoteAll(names) + ` FROM ` + t.Table + ` WHERE ` + conditions(t.Key, " = ?", " AND ")
 	} else {
-		match = `SELECT 1 FROM ` + t.Table + ` WHERE ` + conditions(names, " IS ?")
+		match = `SELECT 1 FROM ` + t.Table + ` WHERE ` + conditions(names, " IS ?", " AND ")
 	}
 	for _, raw := range t.Rows {
 		if len(raw) != len(t.Columns) {
@@ -276,13 +278,39 @@ func merge(ctx context.Context, tx execer, t importedRows, rewrite rowRewrite, c
 			}
 			err := tx.QueryRowContext(ctx, match, keyVals...).Scan(ptrs...)
 			if err == nil {
-				if differs := differing(names, have, vals); differs != "" {
-					c.conflict(fmt.Sprintf("%s %s: this instance's differs in %s, kept", t.Table, describeKey(keyVals), differs))
-				} else {
-					c.Skipped++
+				var differ []int
+				for i, name := range names {
+					if !c.how.isLocal(t.Table, name) && !same(have[i], vals[i]) {
+						differ = append(differ, i)
+					}
 				}
+				if len(differ) == 0 {
+					c.Skipped++
+					continue
+				}
+				id := c.conflictID(t.Table, keyVals)
+				cols := make([]string, len(differ))
+				fields := make([]api.TransferConflictField, len(differ))
+				for i, d := range differ {
+					cols[i] = names[d]
+					fields[i] = api.TransferConflictField{Name: names[d], Mine: shown(have[d]), Theirs: shown(vals[d])}
+				}
+				if c.how.Take[id] {
+					args := make([]any, 0, len(differ)+len(keyVals))
+					for _, d := range differ {
+						args = append(args, vals[d])
+					}
+					if _, err := tx.ExecContext(ctx, `UPDATE `+t.Table+` SET `+conditions(cols, " = ?", ", ")+` WHERE `+conditions(t.Key, " = ?", " AND "), append(args, keyVals...)...); err != nil {
+						return fmt.Errorf("updating %s: %w", t.Table, err)
+					}
+					c.Updated++
+					continue
+				}
+				c.conflict(fmt.Sprintf("%s %s: this instance's differs in %s, kept", t.Table, describeKey(keyVals), strings.Join(cols, ", ")))
+				c.choice(id, labelOf(row, keyVals), fields...)
 				continue
 			}
+
 			if err != sql.ErrNoRows {
 				return err
 			}
@@ -305,23 +333,12 @@ func merge(ctx context.Context, tx execer, t importedRows, rewrite rowRewrite, c
 	return nil
 }
 
-func conditions(cols []string, op string) string {
+func conditions(cols []string, op, sep string) string {
 	c := make([]string, len(cols))
 	for i, name := range cols {
 		c[i] = `"` + name + `"` + op
 	}
-	return strings.Join(c, " AND ")
-}
-
-// differing names the columns whose values differ, "" when none do.
-func differing(names []string, have, want []any) string {
-	var cols []string
-	for i, name := range names {
-		if !same(have[i], want[i]) {
-			cols = append(cols, name)
-		}
-	}
-	return strings.Join(cols, ", ")
+	return strings.Join(c, sep)
 }
 
 func describeKey(vals []any) string {

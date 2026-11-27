@@ -637,6 +637,11 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			s.shareRunOn(w, r, addr)
 		case r.URL.Path == "/share/agent-events" && r.Method == http.MethodPost:
 			s.shareAgentEventIn(w, r, addr)
+		// A peer syncing with this machine (sync.go).
+		case r.URL.Path == "/share/sync/pull" && r.Method == http.MethodPost:
+			s.shareSyncPull(w, r, addr)
+		case r.URL.Path == "/share/sync/push" && r.Method == http.MethodPost:
+			s.shareSyncPush(w, r, addr)
 		// The two finding each other when an address changes
 		// (shareaddress.go).
 		case r.URL.Path == "/share/hello" && r.Method == http.MethodGet:

@@ -59,6 +59,10 @@ type SharePeer struct {
 	// says its computer is connected to take them now.
 	OwnMachine bool `json:"ownMachine"`
 	Machine    bool `json:"machine"`
+	// Sync lets it sync with this AgentBox (POST /v1/share/sync on its
+	// side): copy the data of the projects it reaches, merge its own into
+	// them, and add its own projects here.
+	Sync bool `json:"sync"`
 	// Usage is what it spent here, on this machine and its AI accounts.
 	Usage SharePeerUsage `json:"usage"`
 }
@@ -104,6 +108,8 @@ type UpdateSharePeerRequest struct {
 	Access *string `json:"access,omitempty"`
 	// OwnMachine lets it run agents on its own computer, or stops it.
 	OwnMachine *bool `json:"ownMachine,omitempty"`
+	// Sync lets it sync with this AgentBox, or stops it.
+	Sync *bool `json:"sync,omitempty"`
 }
 
 // SharePairing is POST /v1/share/pairings: a one-time link another
@@ -295,4 +301,120 @@ func (c *Client) ShareRunOn(ctx context.Context, project string) (ShareRunOn, er
 // RemoveShareRemote forgets a pairing with another AgentBox.
 func (c *Client) RemoveShareRemote(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/share/remotes/"+url.PathEscape(id), nil, nil)
+}
+
+// Syncing with the AgentBoxes this one paired with (internal/daemon/sync.go).
+// It happens only when asked: POST /v1/share/sync/plan is a job that fetches
+// what each shares and works out what a sync would do, a SyncPlan, changing
+// nothing; POST /v1/share/sync is the job that does it, with the user's
+// choice for everything both sides have with other values.
+
+// SyncPlanRequest is POST /v1/share/sync/plan.
+type SyncPlanRequest struct {
+	// Remotes are the AgentBoxes to sync with (ShareRemote.ID); none is
+	// every one this AgentBox paired with.
+	Remotes []string `json:"remotes,omitempty"`
+}
+
+// SyncPlan is what a sync would do, until Expires.
+type SyncPlan struct {
+	ID      string           `json:"id"`
+	Expires time.Time        `json:"expires"`
+	Remotes []SyncPlanRemote `json:"remotes"`
+	// Projects are every project a sync could carry, here or there.
+	Projects []SyncPlanProject `json:"projects"`
+	// Conflicts are what this AgentBox and another have with other values:
+	// one of each thing, with every other AgentBox's version of it.
+	Conflicts []SyncConflict `json:"conflicts"`
+}
+
+// SyncPlanRemote is one AgentBox of a plan, and Error why it can't be synced
+// with, when it can't.
+type SyncPlanRemote struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Error string `json:"error,omitempty"`
+	// Incoming is how many things it has that this AgentBox doesn't.
+	Incoming int `json:"incoming"`
+}
+
+// SyncPlanProject is a project of a plan.
+type SyncPlanProject struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	// Here says this AgentBox has it, and On which of the others do.
+	Here bool     `json:"here"`
+	On   []string `json:"on"`
+	// Incoming is how many things of it would be added here.
+	Incoming int `json:"incoming"`
+	// Skip is why it can't be synced: another repository under one name.
+	Skip string `json:"skip,omitempty"`
+}
+
+// SyncConflict is one thing with other values here and elsewhere. Mine is in
+// each version's fields; a version is one AgentBox's.
+type SyncConflict struct {
+	ID       string                `json:"id"`
+	Project  string                `json:"project,omitempty"`
+	Kind     string                `json:"kind"`
+	Label    string                `json:"label"`
+	Versions []SyncConflictVersion `json:"versions"`
+}
+
+type SyncConflictVersion struct {
+	Remote string                  `json:"remote"`
+	Name   string                  `json:"name"`
+	Fields []TransferConflictField `json:"fields"`
+}
+
+// SyncRequest is POST /v1/share/sync: carry out a plan.
+type SyncRequest struct {
+	Plan string `json:"plan"`
+	// Projects are the ones to sync, by name; nil is all of the plan's.
+	Projects *[]string `json:"projects,omitempty"`
+	// Keep says, by SyncConflict.ID, whose version every AgentBox ends up
+	// with: a ShareRemote.ID, or "" (or absent) for this AgentBox's.
+	Keep map[string]string `json:"keep,omitempty"`
+}
+
+// SyncReport is a finished sync job's result.
+type SyncReport struct {
+	Remotes       []SyncRemoteReport `json:"remotes"`
+	ProjectsAdded []string           `json:"projectsAdded"`
+}
+
+// SyncRemoteReport is what a sync did with one AgentBox: what came here from
+// it, and what went there. Left is what still differs there, because it
+// changed while the sync was being decided: syncing again asks about it.
+type SyncRemoteReport struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Error    string `json:"error,omitempty"`
+	Received int    `json:"received"`
+	Replaced int    `json:"replaced"`
+	Sent     int    `json:"sent"`
+	SentOver int    `json:"sentOver"`
+	Left     int    `json:"left"`
+	// ProjectsAdded are the projects it didn't have and has now.
+	ProjectsAdded []string `json:"projectsAdded"`
+	Notes         []string `json:"notes,omitempty"`
+}
+
+// ShareSyncPush is what a paired AgentBox sends before the archive it pushes
+// (/share/sync/push): the conflicts where its values win.
+type ShareSyncPush struct {
+	Take []string `json:"take,omitempty"`
+}
+
+// PlanSync starts the job that works out what syncing with paired
+// AgentBoxes would do; its result is a SyncPlan.
+func (c *Client) PlanSync(ctx context.Context, req SyncPlanRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/share/sync/plan", req, &out)
+}
+
+// Sync starts the job that carries a plan out; its result is a SyncReport.
+func (c *Client) Sync(ctx context.Context, req SyncRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/share/sync", req, &out)
 }

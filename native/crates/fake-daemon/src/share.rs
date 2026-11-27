@@ -57,6 +57,7 @@ fn seed(fake: &Fake) -> ShareStatus {
                 access: "full".into(),
                 own_machine: true,
                 machine: true,
+                sync: true,
                 usage: SharePeerUsage {
                     tokens: 1_840_000,
                     cost_usd: 4.2,

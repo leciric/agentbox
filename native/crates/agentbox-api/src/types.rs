@@ -3347,8 +3347,12 @@ pub struct InstanceImportReport {
     pub added: i64,
     pub skipped: i64,
     pub conflicted: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub updated: i64,
     #[serde(rename = "projectsAdded", deserialize_with = "nullable")]
     pub projects_added: Vec<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub conflicts: Vec<TransferConflict>,
     #[serde(rename = "reportPath")]
     pub report_path: String,
 }
@@ -3363,8 +3367,30 @@ pub struct InstanceImportEntryReport {
     pub added: i64,
     pub skipped: i64,
     pub conflicted: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub updated: i64,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransferConflict {
+    pub id: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub project: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(deserialize_with = "nullable")]
+    pub fields: Vec<TransferConflictField>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransferConflictField {
+    pub name: String,
+    pub mine: String,
+    pub theirs: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4952,6 +4978,7 @@ pub struct SharePeer {
     #[serde(rename = "ownMachine")]
     pub own_machine: bool,
     pub machine: bool,
+    pub sync: bool,
     pub usage: SharePeerUsage,
 }
 
@@ -4977,6 +5004,8 @@ pub struct UpdateSharePeerRequest {
     pub access: Option<String>,
     #[serde(rename = "ownMachine", skip_serializing_if = "Option::is_none")]
     pub own_machine: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5139,6 +5168,109 @@ pub struct ShareQueued {
     pub created_at: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncPlanRequest {
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub remotes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncPlan {
+    pub id: String,
+    pub expires: String,
+    #[serde(deserialize_with = "nullable")]
+    pub remotes: Vec<SyncPlanRemote>,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<SyncPlanProject>,
+    #[serde(deserialize_with = "nullable")]
+    pub conflicts: Vec<SyncConflict>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncPlanRemote {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    pub incoming: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncPlanProject {
+    pub name: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub here: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub on: Vec<String>,
+    pub incoming: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub skip: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncConflict {
+    pub id: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub project: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(deserialize_with = "nullable")]
+    pub versions: Vec<SyncConflictVersion>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncConflictVersion {
+    pub remote: String,
+    pub name: String,
+    #[serde(deserialize_with = "nullable")]
+    pub fields: Vec<TransferConflictField>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncRequest {
+    pub plan: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub keep: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncReport {
+    #[serde(deserialize_with = "nullable")]
+    pub remotes: Vec<SyncRemoteReport>,
+    #[serde(rename = "projectsAdded", deserialize_with = "nullable")]
+    pub projects_added: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncRemoteReport {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    pub received: i64,
+    pub replaced: i64,
+    pub sent: i64,
+    #[serde(rename = "sentOver")]
+    pub sent_over: i64,
+    pub left: i64,
+    #[serde(rename = "projectsAdded", deserialize_with = "nullable")]
+    pub projects_added: Vec<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

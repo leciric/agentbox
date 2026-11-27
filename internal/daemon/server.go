@@ -342,6 +342,7 @@ type Server struct {
 	}
 	share     shareState     // virtiofsd's open files, from the VM's supervisor (share.go)
 	peering   *peeringState  // projects shared with other AgentBoxes, and theirs here (sharepeers.go, shareremote.go)
+	syncs     syncState      // the sync with paired AgentBoxes waiting for the user's choices (sync.go)
 	health    healthStats    // what the next health event counts (healthevent.go)
 	phonePush phonePushState // push notifications to the phones' app (phonepush.go)
 	// connectorsGiven is whether each connector was last given to agents,
@@ -1358,6 +1359,9 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 	h("DELETE /v1/share/peers/{id}", s.removeSharePeer)
 	h("POST /v1/share/remotes", s.addShareRemote)
 	h("DELETE /v1/share/remotes/{id}", s.removeShareRemote)
+	// Syncing with the AgentBoxes this one paired with (sync.go).
+	h("POST /v1/share/sync/plan", s.planSync)
+	h("POST /v1/share/sync", s.runSync)
 	h("GET /v1/share/outbox", s.getShareOutbox)
 	h("DELETE /v1/share/outbox/{id}", s.cancelShareQueued)
 	h("GET /v1/remote", s.getRemote)

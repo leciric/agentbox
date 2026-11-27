@@ -237,6 +237,11 @@ export const api = {
   removeSharePeer: (id: string) => call<void>('DELETE', `/v1/share/peers/${encodeURIComponent(id)}`),
   addShareRemote: (link: string) => call<T.ShareRemote>('POST', '/v1/share/remotes', { link } satisfies T.AddShareRemoteRequest),
   removeShareRemote: (id: string) => call<void>('DELETE', `/v1/share/remotes/${encodeURIComponent(id)}`),
+  // Syncing with paired AgentBoxes (Settings → Share): a job that works out
+  // what a sync would do, whose result is a SyncPlan, then the job that does
+  // it with the user's choices, whose result is a SyncReport.
+  planSync: (req: T.SyncPlanRequest) => call<T.Job>('POST', '/v1/share/sync/plan', req),
+  sync: (req: T.SyncRequest) => call<T.Job>('POST', '/v1/share/sync', req),
   sharePeerActivity: (id: string, limit = 100) => call<T.ShareActivity[]>('GET', `/v1/share/peers/${encodeURIComponent(id)}/activity?limit=${limit}`),
   // What was written in a shared project while its owner was away, waiting
   // to be sent once it is back (lib/outbox.ts), and taking one back.

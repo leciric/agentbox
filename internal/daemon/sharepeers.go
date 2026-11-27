@@ -215,7 +215,7 @@ func (s *Server) sharePeerInfo(ctx context.Context, p state.SharePeer) api.Share
 	return api.SharePeer{
 		ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr,
 		AllProjects: p.AllProjects, Projects: p.Projects, Slots: p.Slots, Running: s.shareRunningCount(ctx, refs),
-		Access: p.Access, OwnMachine: p.OwnMachine, Machine: s.shareMachine(p.ID) != nil,
+		Access: p.Access, OwnMachine: p.OwnMachine, Machine: s.shareMachine(p.ID) != nil, Sync: p.Sync,
 		Usage: api.SharePeerUsage{Tokens: usage.Tokens, CostUSD: usage.CostUSD, AgentMinutes: usage.RunSeconds / 60},
 	}
 }
@@ -330,7 +330,12 @@ func (s *Server) updateSharePeer(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	s.logf("share: %s (%s) reaches %s, slots %d, access %s", p.Name, p.ID, shareWhat(p), p.Slots, p.Access)
+	if req.Sync != nil && *req.Sync != p.Sync {
+		if p, err = s.store.SetSharePeerSync(ctx, p.ID, *req.Sync); err != nil {
+			return err
+		}
+	}
+	s.logf("share: %s (%s) reaches %s, slots %d, access %s, sync %t", p.Name, p.ID, shareWhat(p), p.Slots, p.Access, p.Sync)
 	// What it had open in a project it no longer reaches ends. Its event
 	// stream ends when what it reaches changed at all: it connects again at
 	// once, and lists the projects it reaches now. Its slots changing ends
