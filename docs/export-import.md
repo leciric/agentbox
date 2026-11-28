@@ -62,3 +62,30 @@ already there is used; otherwise the bundle is restored there when the file has 
 remote is cloned there. A project that is here already keeps its repository where it is.
 
 An export from a newer AgentBox than this one is refused: update AgentBox, then import it.
+
+## Syncing with a paired AgentBox
+
+Two AgentBoxes that are [paired](../internal/daemon/sharepeers.go) (Settings → Share: one makes a
+link, the other pastes it) can merge their data without a file. It happens only when you click
+**Sync**, on the AgentBox that pasted the link, beside the one it paired with; **Sync with all**
+does it with every AgentBox it pasted a link from, so each ends up with what all of them had.
+
+The other AgentBox has to allow it first: there, in Settings → Share, turn on **May sync with this
+AgentBox** for the paired one. It is off until then, since a sync copies the data of the projects
+that AgentBox reaches and adds its projects there.
+
+1. AgentBox fetches what the other shares and works out what a sync would do. Nothing changes yet.
+2. It lists the projects, each with a checkbox, and everything both sides have with different
+   contents (a project's notes, its settings, a memory, a skill). For each of those you choose whose
+   version to keep; that one replaces the other on every AgentBox in the sync.
+3. It merges both ways and says what was added and replaced on each side.
+
+A sync carries what an export does by default, without schedules (they would run on both
+computers): settings, folder, icon, notes, skills, memory, chats, connectors, and each repository
+by its remote's URL, which the other side clones with its own access. Secrets and logins never go.
+The plan names the secrets both sides have for a project, without their values, which are never
+sent or compared: each side keeps its own.
+Projects are matched by name; two of one name with different remotes aren't merged. What is each
+computer's own is left alone and is no conflict: the accounts a project uses there, and a chat both
+sides wrote in. The AgentBox that allowed the sync takes new projects, but merges only into those
+it shares. The code is `internal/daemon/sync.go`.

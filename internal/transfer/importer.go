@@ -23,7 +23,14 @@ import (
 // Counts is what one entry's import did.
 type Counts struct {
 	Added, Skipped, Conflicted int
-	Notes                      []string
+	// Updated is what took the imported values (Merge.Take).
+	Updated int
+	Notes   []string
+	// Conflicts are the conflicted that can be chosen between.
+	Conflicts []api.TransferConflict
+
+	how   Merge
+	entry string // the entry's id, which its conflicts' ids start with
 }
 
 const maxNotes = 50
@@ -207,6 +214,13 @@ func readRepo(r *portable.Reader, project string) (repoRef, error) {
 // the second time. added is called for each project the import created, once
 // its data is in.
 func (in Instance) Import(ctx context.Context, req api.InstanceImportRequest, log io.Writer, added func(project string)) (api.InstanceImportReport, error) {
+	return in.ImportWith(ctx, req, Merge{}, log, added)
+}
+
+// ImportWith is Import settling what differs as how says: a sync's merge, the
+// conflicts where the imported values win, or a dry run, which changes
+// nothing and reports what importing would do.
+func (in Instance) ImportWith(ctx context.Context, req api.InstanceImportRequest, how Merge, log io.Writer, added func(project string)) (api.InstanceImportReport, error) {
 	report := api.InstanceImportReport{Entries: []api.InstanceImportEntryReport{}, ProjectsAdded: []string{}}
 	r, err := portable.Open(req.Path, req.Passphrase, in.Tmp)
 	if err != nil {
@@ -214,12 +228,19 @@ func (in Instance) Import(ctx context.Context, req api.InstanceImportRequest, lo
 	}
 	defer r.Close()
 	record := func(e api.InstanceImportEntryReport, c Counts) {
-		e.Added, e.Skipped, e.Conflicted, e.Notes = c.Added, c.Skipped, c.Conflicted, c.Notes
+		e.Added, e.Skipped, e.Conflicted, e.Updated, e.Notes = c.Added, c.Skipped, c.Conflicted, c.Updated, c.Notes
 		report.Entries = append(report.Entries, e)
 		report.Added += c.Added
 		report.Skipped += c.Skipped
 		report.Conflicted += c.Conflicted
-		_, _ = fmt.Fprintf(log, "%s: %d added, %d skipped, %d conflicted\n", e.ID, c.Added, c.Skipped, c.Conflicted)
+		report.Updated += c.Updated
+		for _, conflict := range c.Conflicts {
+			conflict.Project, conflict.Kind = e.Project, e.Kind
+			report.Conflicts = append(report.Conflicts, conflict)
+		}
+		if !how.DryRun {
+			_, _ = fmt.Fprintf(log, "%s: %d added, %d skipped, %d conflicted\n", e.ID, c.Added, c.Skipped, c.Conflicted)
+		}
 	}
 
 	for _, kind := range Logins {
@@ -234,7 +255,10 @@ func (in Instance) Import(ctx context.Context, req api.InstanceImportRequest, lo
 		if err := r.DecodeJSON(id, &list); err != nil {
 			return report, err
 		}
-		var c Counts
+		if how.DryRun {
+			continue
+		}
+		c := Counts{how: how, entry: id}
 		if err := in.importLogins(kind, list, &c); err != nil {
 			return report, err
 		}
@@ -245,7 +269,7 @@ func (in Instance) Import(ctx context.Context, req api.InstanceImportRequest, lo
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		created, err := in.importProject(ctx, r, choice, record)
+		created, err := in.importProject(ctx, r, choice, how, record)
 		if err != nil {
 			return report, fmt.Errorf("project %s: %w", choice.Name, err)
 		}
@@ -256,11 +280,13 @@ func (in Instance) Import(ctx context.Context, req api.InstanceImportRequest, lo
 			}
 		}
 	}
-	report.ReportPath = in.writeReport(req.Path, report)
+	if !how.DryRun {
+		report.ReportPath = in.writeReport(req.Path, report)
+	}
 	return report, nil
 }
 
-func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice api.InstanceImportProjectChoice, record func(api.InstanceImportEntryReport, Counts)) (created bool, err error) {
+func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice api.InstanceImportProjectChoice, how Merge, record func(api.InstanceImportEntryReport, Counts)) (created bool, err error) {
 	name := choice.Name
 	entry := func(kind string) api.InstanceImportEntryReport {
 		return api.InstanceImportEntryReport{ID: ProjectEntryID(name, kind), Kind: kind, Project: name}
@@ -276,9 +302,13 @@ func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice
 	}
 
 	// A project new here needs its repository first, then its row.
+	counts := func(kind string) Counts { return Counts{how: how, entry: ProjectEntryID(name, kind)} }
 	root := local.Root
+	if !exists && how.DryRun {
+		return in.planNewProject(ctx, r, choice, has, entry, record), nil
+	}
 	if !exists {
-		var c Counts
+		c := counts(Repository)
 		if !has(Settings) {
 			c.Skipped++
 			c.note("this project isn't here, and its settings weren't chosen: nothing of it was imported")
@@ -300,7 +330,7 @@ func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice
 		c.note("repository at " + root)
 		record(entry(Repository), c)
 	} else if has(Repository) {
-		var c Counts
+		c := counts(Repository)
 		c.Skipped++
 		c.note("the project is here already: its repository stays at " + root)
 		record(entry(Repository), c)
@@ -310,7 +340,7 @@ func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice
 		if kind == Repository || !has(kind) {
 			continue
 		}
-		var c Counts
+		c := counts(kind)
 		if err := in.importEntry(ctx, r, name, kind, root, &c); err != nil {
 			return created, fmt.Errorf("%s: %w", kind, err)
 		}
@@ -324,6 +354,46 @@ func (in Instance) importProject(ctx context.Context, r *portable.Reader, choice
 		record(entry(kind), c)
 	}
 	return created, nil
+}
+
+// planNewProject is a dry run's answer for a project that isn't here: whether
+// its repository could be got, and everything of it as added.
+func (in Instance) planNewProject(ctx context.Context, r *portable.Reader, choice api.InstanceImportProjectChoice, has func(string) bool,
+	entry func(string) api.InstanceImportEntryReport, record func(api.InstanceImportEntryReport, Counts)) bool {
+	name := choice.Name
+	var c Counts
+	refuse := func(kind, why string) bool {
+		c.Skipped++
+		c.note(why)
+		record(entry(kind), c)
+		return false
+	}
+	if !has(Settings) {
+		return refuse(Settings, "this project isn't here, and its settings weren't chosen: nothing of it was imported")
+	}
+	ref, err := readRepo(r, name)
+	if err != nil {
+		return refuse(Repository, err.Error())
+	}
+	path := choice.Path
+	if path == "" {
+		path = in.suggestPath(ctx, name, ref)
+	}
+	_, bundled := r.Manifest.Find(ProjectEntryID(name, RepositoryBundle))
+	if _, err := planRepo(ctx, ref, bundled, filepath.Clean(path)); err != nil {
+		return refuse(Repository, err.Error())
+	}
+	c.Added++
+	c.note("repository at " + filepath.Clean(path))
+	record(entry(Repository), c)
+	for _, kind := range Categories {
+		if kind == Repository || !has(kind) {
+			continue
+		}
+		e, _ := r.Manifest.Find(ProjectEntryID(name, kind))
+		record(entry(kind), Counts{Added: e.Items})
+	}
+	return true
 }
 
 // importRepository gets a new project's repository to path (or where Inspect
@@ -392,7 +462,7 @@ func (in Instance) importEntry(ctx context.Context, r *portable.Reader, project,
 		if err := r.DecodeJSON(id, &s); err != nil {
 			return err
 		}
-		return in.inTx(ctx, func(tx execer) error { return importSection(ctx, tx, project, s, c) })
+		return in.inTx(ctx, c.how.DryRun, func(tx execer) error { return importSection(ctx, tx, project, s, c) })
 	}
 	var t importedTables
 	if err := r.DecodeJSON(id, &t); err != nil {
@@ -407,7 +477,7 @@ func (in Instance) importEntry(ctx context.Context, r *portable.Reader, project,
 			}
 		}
 	}
-	return in.inTx(ctx, func(tx execer) error {
+	return in.inTx(ctx, c.how.DryRun, func(tx execer) error {
 		switch kind {
 		case Settings:
 			return importSettings(ctx, tx, project, root, t, c)
@@ -423,13 +493,14 @@ func (in Instance) importEntry(ctx context.Context, r *portable.Reader, project,
 	})
 }
 
-func (in Instance) inTx(ctx context.Context, fn func(execer) error) error {
+// inTx runs fn in a transaction, which a dry run takes back.
+func (in Instance) inTx(ctx context.Context, dry bool, fn func(execer) error) error {
 	tx, err := trace.BeginTx(ctx, in.Store.DB())
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := fn(tx); err != nil {
+	if err := fn(tx); err != nil || dry {
 		return err
 	}
 	return tx.Commit()
@@ -493,7 +564,9 @@ func importChats(ctx context.Context, tx execer, project string, t importedTable
 		for _, raw := range rows.Rows {
 			one := rows
 			one.Rows = [][]json.RawMessage{raw}
-			var each Counts
+			// Which of two agents of one name is kept is no choice: each
+			// instance keeps its own, so nothing is taken here.
+			each := Counts{how: Merge{Sync: c.how.Sync}}
 			if err := merge(ctx, tx, one, keep, &each); err != nil {
 				return err
 			}
@@ -502,7 +575,7 @@ func importChats(ctx context.Context, tx execer, project string, t importedTable
 			if each.Conflicted > 0 {
 				name := columnString(rows, raw, "name")
 				blocked[name] = true
-				c.conflict(fmt.Sprintf("past agent %s: this instance has another agent of that name; its chat wasn't imported", name))
+				c.apart(fmt.Sprintf("past agent %s: this instance has another agent of that name; its chat wasn't imported", name))
 			}
 		}
 	}
@@ -530,9 +603,11 @@ func importChats(ctx context.Context, tx execer, project string, t importedTable
 			if err := tx.QueryRowContext(ctx, q, append([]any{project, agent}, ids...)...).Scan(&shared); err != nil {
 				return err
 			}
-			if shared == 0 {
+			// In a sync a chat is also apart once both sides wrote in it
+			// after they last matched; one side only ahead is caught up.
+			if shared == 0 || (c.how.Sync && mine > shared && len(ids) > shared) {
 				blocked[agent] = true
-				c.conflict(fmt.Sprintf("chat of %s: this instance has a chat of its own there, kept", agent))
+				c.apart(fmt.Sprintf("chat of %s: this instance has a chat of its own there, kept", agent))
 			}
 		}
 	}
@@ -548,6 +623,17 @@ func importChats(ctx context.Context, tx execer, project string, t importedTable
 		}
 	}
 	return nil
+}
+
+// apart says two instances each keep their own of something that can't be
+// merged or chosen between: a conflict in an import's report, and in a sync,
+// where it is so every time, only a note.
+func (c *Counts) apart(note string) {
+	if c.how.Sync {
+		c.note(note)
+		return
+	}
+	c.conflict(note)
 }
 
 func columnString(rows importedRows, raw []json.RawMessage, col string) string {
@@ -604,7 +690,17 @@ func importSection(ctx context.Context, tx execer, project string, s sectionEntr
 		}
 		c.Added++
 	default:
+		if c.how.Take[c.part("section")] {
+			if _, err := tx.ExecContext(ctx, `UPDATE projects SET section = ? WHERE name = ?`, id, project); err != nil {
+				return err
+			}
+			c.Updated++
+			return nil
+		}
+		var mine string
+		_ = tx.QueryRowContext(ctx, `SELECT name FROM project_sections WHERE id = ?`, current).Scan(&mine)
 		c.conflict(fmt.Sprintf("the project is in another section here, kept (the export has it in %s)", sec.Name))
+		c.choice(c.part("section"), sec.Name, api.TransferConflictField{Name: "section", Mine: mine, Theirs: sec.Name})
 	}
 	return nil
 }
@@ -618,13 +714,20 @@ func (in Instance) importNotes(project, text string, c *Counts) error {
 	switch {
 	case strings.TrimSpace(text) == "" || strings.TrimSpace(have) == strings.TrimSpace(text):
 		c.Skipped++
-	case strings.TrimSpace(have) == "":
-		if err := notes.Write(path, text); err != nil {
-			return err
+	case strings.TrimSpace(have) == "" || c.how.Take[c.part("notes")]:
+		if !c.how.DryRun {
+			if err := notes.Write(path, text); err != nil {
+				return err
+			}
 		}
-		c.Added++
+		if strings.TrimSpace(have) == "" {
+			c.Added++
+		} else {
+			c.Updated++
+		}
 	default:
 		c.conflict("the project has notes of its own here, kept")
+		c.choice(c.part("notes"), project, api.TransferConflictField{Name: "notes", Mine: clip(have), Theirs: clip(text)})
 	}
 	return nil
 }
@@ -641,6 +744,10 @@ func (in Instance) importSecrets(ctx context.Context, project string, list []sec
 			continue
 		case !errors.Is(err, state.ErrNotFound):
 			return err
+		}
+		if c.how.DryRun {
+			c.Added++
+			continue
 		}
 		if _, err := in.Secrets.Set(ctx, project, "", s.Name, s.Value); err != nil {
 			return fmt.Errorf("secret %s: %w", s.Name, err)

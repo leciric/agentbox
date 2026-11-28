@@ -2008,7 +2008,9 @@ export interface InstanceImportReport {
   added: number;
   skipped: number;
   conflicted: number;
+  updated?: number;
   projectsAdded: string[];
+  conflicts?: TransferConflict[];
   reportPath: string;
 }
 
@@ -2019,7 +2021,22 @@ export interface InstanceImportEntryReport {
   added: number;
   skipped: number;
   conflicted: number;
+  updated?: number;
   notes?: string[];
+}
+
+export interface TransferConflict {
+  id: string;
+  project?: string;
+  kind: string;
+  label: string;
+  fields: TransferConflictField[];
+}
+
+export interface TransferConflictField {
+  name: string;
+  mine: string;
+  theirs: string;
 }
 
 export interface Connector {
@@ -2990,6 +3007,7 @@ export interface SharePeer {
   access: string;
   ownMachine: boolean;
   machine: boolean;
+  sync: boolean;
   usage: SharePeerUsage;
 }
 
@@ -3004,6 +3022,7 @@ export interface UpdateSharePeerRequest {
   slots?: number;
   access?: string;
   ownMachine?: boolean;
+  sync?: boolean;
 }
 
 export interface SharePairing {
@@ -3109,6 +3128,73 @@ export interface ShareQueued {
   attachments?: number;
   createdAt: string;
   error?: string;
+}
+
+export interface SyncPlanRequest {
+  remotes?: string[];
+}
+
+export interface SyncPlan {
+  id: string;
+  expires: string;
+  remotes: SyncPlanRemote[];
+  projects: SyncPlanProject[];
+  conflicts: SyncConflict[];
+}
+
+export interface SyncPlanRemote {
+  id: string;
+  name: string;
+  error?: string;
+  incoming: number;
+}
+
+export interface SyncPlanProject {
+  name: string;
+  displayName: string;
+  here: boolean;
+  on: string[];
+  incoming: number;
+  skip?: string;
+  secrets?: string[];
+}
+
+export interface SyncConflict {
+  id: string;
+  project?: string;
+  kind: string;
+  label: string;
+  versions: SyncConflictVersion[];
+}
+
+export interface SyncConflictVersion {
+  remote: string;
+  name: string;
+  fields: TransferConflictField[];
+}
+
+export interface SyncRequest {
+  plan: string;
+  projects?: string[];
+  keep?: Record<string, string>;
+}
+
+export interface SyncReport {
+  remotes: SyncRemoteReport[];
+  projectsAdded: string[];
+}
+
+export interface SyncRemoteReport {
+  id: string;
+  name: string;
+  error?: string;
+  received: number;
+  replaced: number;
+  sent: number;
+  sentOver: number;
+  left: number;
+  projectsAdded: string[];
+  notes?: string[];
 }
 
 export interface ChatThread {

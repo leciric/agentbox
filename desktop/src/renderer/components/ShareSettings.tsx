@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Link2, Monitor, Share2 } from 'lucide-react';
+import { Copy, Link2, Monitor, RefreshCw, Share2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -9,6 +9,7 @@ import { maxShareSlots, parseSlots } from '../lib/shareSlots';
 import { formatDate, formatDateTime, t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
 import { cn, errorMessage } from '../lib/utils';
+import { SyncDialog } from './SyncDialog';
 import { Button } from './ui/button';
 import { Field, Input } from './ui/input';
 import { Select, SelectOption } from './ui/select';
@@ -294,6 +295,15 @@ function PeerRow({ peer: p, slots }: { peer: T.SharePeer; slots: number }) {
           </span>
         </label>
       </div>
+      {/* Syncing (internal/daemon/sync.go): it copies the data of the projects
+          it reaches, and merges its own into this AgentBox. */}
+      <div className="flex min-w-0 items-start gap-3 pl-7" data-share-sync>
+        <Switch id={`share-sync-${p.id}`} className="mt-0.5" checked={p.sync} disabled={update.isPending} onCheckedChange={(on) => update.mutate({ sync: on })} />
+        <label htmlFor={`share-sync-${p.id}`} className="grid min-w-0 gap-0.5">
+          <span className="text-caption text-secondary">{t('peers.sync.allow')}</span>
+          <span className="break-words text-caption text-subtle [overflow-wrap:anywhere]">{p.sync ? t('peers.sync.allowOn', { name: p.name }) : t('peers.sync.allowOff')}</span>
+        </label>
+      </div>
     </li>
   );
 }
@@ -389,6 +399,8 @@ function ShareJoin() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const remotes = share.data?.remotes ?? [];
+  // What to sync with, once asked: one AgentBox, or all of them ([]).
+  const [syncWith, setSyncWith] = useState<string[] | null>(null);
   return (
     <SettingRow label={t('peers.joinLabel')} description={t('peers.joinDescription')}>
       <div className="grid gap-3" data-share-join>
@@ -407,6 +419,17 @@ function ShareJoin() {
         {remotes.length === 0 ? (
           <SettingNote>{t('peers.noRemotes')}</SettingNote>
         ) : (
+          <div className="flex min-w-0 flex-wrap items-center gap-3" data-share-sync-all>
+            <SettingNote className="min-w-0 flex-1">{t('peers.sync.help')}</SettingNote>
+            {remotes.length > 1 && (
+              <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setSyncWith([])}>
+                <RefreshCw />
+                {t('peers.sync.all')}
+              </Button>
+            )}
+          </div>
+        )}
+        {remotes.length > 0 && (
           <ul className="grid gap-2" data-share-remotes>
             {remotes.map((r) => (
               <li key={r.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-line px-3 py-2.5" data-share-remote={r.id}>
@@ -423,6 +446,10 @@ function ShareJoin() {
                     </p>
                   )}
                 </div>
+                <Button size="sm" variant="secondary" className="shrink-0" data-share-sync-button onClick={() => setSyncWith([r.id])}>
+                  <RefreshCw />
+                  {t('peers.sync.button')}
+                </Button>
                 <Button size="sm" variant="ghost" className="shrink-0" disabled={forget.isPending} onClick={() => forget.mutate(r.id)}>
                   {t('peers.forget')}
                 </Button>
@@ -430,6 +457,7 @@ function ShareJoin() {
             ))}
           </ul>
         )}
+        {syncWith && <SyncDialog remotes={syncWith.length > 0 ? syncWith : undefined} onClose={() => setSyncWith(null)} />}
       </div>
     </SettingRow>
   );

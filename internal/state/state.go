@@ -1900,6 +1900,10 @@ var migrations = []string{
 		updated_at INTEGER NOT NULL,
 		PRIMARY KEY (project, tool)
 	)`,
+	// Whether a paired AgentBox may sync with this one (internal/daemon/sync.go):
+	// copy the data of the projects it reaches, and merge its own into them
+	// and add its projects here. Off until the owner says so.
+	`ALTER TABLE share_peers ADD COLUMN sync INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

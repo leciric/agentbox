@@ -117,11 +117,16 @@ type InstanceImportProjectChoice struct {
 // what was there already (skipped) and what was there with other values
 // (conflicted, where this instance's own was kept).
 type InstanceImportReport struct {
-	Entries       []InstanceImportEntryReport `json:"entries"`
-	Added         int                         `json:"added"`
-	Skipped       int                         `json:"skipped"`
-	Conflicted    int                         `json:"conflicted"`
-	ProjectsAdded []string                    `json:"projectsAdded"`
+	Entries    []InstanceImportEntryReport `json:"entries"`
+	Added      int                         `json:"added"`
+	Skipped    int                         `json:"skipped"`
+	Conflicted int                         `json:"conflicted"`
+	// Updated is what was there with other values and took the imported
+	// ones, as the import was told to (a sync's choices).
+	Updated       int      `json:"updated,omitempty"`
+	ProjectsAdded []string `json:"projectsAdded"`
+	// Conflicts are the conflicted things that can be chosen between.
+	Conflicts []TransferConflict `json:"conflicts,omitempty"`
 	// ReportPath is the report written out as text.
 	ReportPath string `json:"reportPath"`
 }
@@ -133,6 +138,7 @@ type InstanceImportEntryReport struct {
 	Added      int      `json:"added"`
 	Skipped    int      `json:"skipped"`
 	Conflicted int      `json:"conflicted"`
+	Updated    int      `json:"updated,omitempty"`
 	Notes      []string `json:"notes,omitempty"`
 }
 
@@ -143,3 +149,24 @@ const (
 	ErrorWrongPassphrase  = "wrong-passphrase"
 	ErrorNewerExport      = "newer-export"
 )
+
+// TransferConflict is something an import found here with other values: this
+// instance's stays unless the import is told to take the other
+// (the id, in a sync's choices).
+type TransferConflict struct {
+	// ID names the thing on any instance: its entry, table and key.
+	ID      string `json:"id"`
+	Project string `json:"project,omitempty"`
+	Kind    string `json:"kind"`
+	// Label is what people call it: a memory's title, a skill's name.
+	Label  string                  `json:"label"`
+	Fields []TransferConflictField `json:"fields"`
+}
+
+// TransferConflictField is one value that differs, as text short enough to
+// show: here (Mine) and in what is being imported (Theirs).
+type TransferConflictField struct {
+	Name   string `json:"name"`
+	Mine   string `json:"mine"`
+	Theirs string `json:"theirs"`
+}

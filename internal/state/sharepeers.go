@@ -64,6 +64,10 @@ type SharePeer struct {
 	// this machine tells it its own new address (internal/daemon/shareaddress.go).
 	// None when it has no address of its own, or paired before it could say.
 	URLs []string
+	// Sync lets it sync with this machine (internal/daemon/sync.go): copy
+	// the data of the projects it reaches, merge its own into them, and add
+	// its own projects here.
+	Sync bool
 }
 
 // What a peer may do in the projects it reaches, each level all the one
@@ -108,14 +112,14 @@ func (p SharePeer) Shares(slug string) bool {
 	return p.AllProjects || slices.Contains(p.Projects, slug)
 }
 
-const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, own_machine, access, urls FROM share_peers`
+const sharePeerSelect = `SELECT id, name, created_at, last_seen_at, last_addr, all_projects, projects, slots, own_machine, access, urls, sync FROM share_peers`
 
 func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 	var p SharePeer
 	var created, seen int64
-	var all, own int
+	var all, own, sync int
 	var projects, urls string
-	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &own, &p.Access, &urls); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &all, &projects, &p.Slots, &own, &p.Access, &urls, &sync); err != nil {
 		return SharePeer{}, err
 	}
 	p.Created = time.Unix(created, 0)
@@ -124,6 +128,7 @@ func scanSharePeer(row interface{ Scan(...any) error }) (SharePeer, error) {
 	}
 	p.AllProjects = all != 0
 	p.OwnMachine = own != 0
+	p.Sync = sync != 0
 	p.Projects = []string{}
 	for _, s := range strings.Split(projects, ",") {
 		if s = strings.TrimSpace(s); s != "" {
@@ -237,6 +242,19 @@ func (s *Store) SetSharePeerAccess(ctx context.Context, id, access string) error
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetSharePeerSync says whether a peer may sync with this machine, and
+// returns it as it now is.
+func (s *Store) SetSharePeerSync(ctx context.Context, id string, on bool) (SharePeer, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE share_peers SET sync = ? WHERE id = ?`, boolInt(on), id)
+	if err != nil {
+		return SharePeer{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return SharePeer{}, ErrNotFound
+	}
+	return s.SharePeer(ctx, id)
 }
 
 // SetSharePeerOwnMachine says whether a peer may run agents on its own

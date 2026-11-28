@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -428,5 +429,76 @@ func TestImportDropsInvalidSectionDescription(t *testing.T) {
 	}
 	if sec.Description != "" || sec.Color != "mint" {
 		t.Errorf("section = %+v; want the invalid description dropped and the colour kept", sec)
+	}
+}
+
+// A dry run lists what differs and changes nothing; told to take a conflict,
+// an import writes the imported values; and a sync leaves alone what is each
+// instance's own.
+func TestConflictsCanBeChosen(t *testing.T) {
+	ctx := context.Background()
+	root, _, _ := newRepo(t)
+	src := newInstance(t)
+	seed(t, src, root)
+	path := export(t, src, everything(false))
+	dst := newInstance(t)
+	importAll(t, dst, path, "")
+	if _, err := dst.Store.DB().ExecContext(ctx, `UPDATE memories SET title = 'Mine', referenced_at = 99 WHERE id = 'mem1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := notes.Write(dst.NotesPath("web"), "my own notes"); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := dst.Inspect(ctx, path, pass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := api.InstanceImportRequest{Path: path, Passphrase: pass}
+	for _, p := range contents.Projects {
+		req.Projects = append(req.Projects, api.InstanceImportProjectChoice{Name: p.Name, Categories: SyncCategories})
+	}
+	title := func() (title string, referenced int64) {
+		_ = dst.Store.DB().QueryRow(`SELECT title, referenced_at FROM memories WHERE id = 'mem1'`).Scan(&title, &referenced)
+		return
+	}
+
+	dry, err := dst.ImportWith(ctx, req, Merge{Sync: true, DryRun: true}, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, text := "project/web/memory#memories/mem1", "project/web/notes#notes"
+	var ids []string
+	for _, c := range dry.Conflicts {
+		ids = append(ids, c.ID)
+		if c.ID == memory && (c.Kind != Memory || c.Project != "web" || len(c.Fields) != 1 || c.Fields[0].Name != "title" || c.Fields[0].Mine != "Mine") {
+			t.Errorf("the memory's conflict = %+v; want its title alone, not when it was last read", c)
+		}
+	}
+	if !slices.Equal(ids, []string{text, memory}) && !slices.Equal(ids, []string{memory, text}) {
+		t.Fatalf("a dry run's conflicts = %v\n%s", ids, ReportText(path, dry))
+	}
+	if got, _ := title(); got != "Mine" || dry.ReportPath != "" {
+		t.Fatalf("a dry run changed the memory to %q, or wrote a report (%q)", got, dry.ReportPath)
+	}
+
+	rep, err := dst.ImportWith(ctx, req, Merge{Sync: true, Take: map[string]bool{memory: true}}, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Updated != 1 || rep.Conflicted != 1 || rep.Added != 0 {
+		t.Fatalf("report = %s", ReportText(path, rep))
+	}
+	if got, referenced := title(); got == "Mine" || referenced != 99 {
+		t.Errorf("after taking theirs, title = %q and referenced_at = %d; want the imported title, and this instance's own date", got, referenced)
+	}
+	if got, _ := notes.Read(dst.NotesPath("web")); strings.TrimSpace(got) != "my own notes" {
+		t.Errorf("notes that weren't taken = %q", got)
+	}
+	rep, err = dst.ImportWith(ctx, req, Merge{Sync: true, Take: map[string]bool{text: true}}, io.Discard, nil)
+	if err != nil || rep.Updated != 1 || rep.Conflicted != 0 {
+		t.Fatalf("taking the notes: %v\n%s", err, ReportText(path, rep))
+	}
+	if got, _ := notes.Read(dst.NotesPath("web")); strings.TrimSpace(got) != "Be kind." {
+		t.Errorf("notes after taking theirs = %q", got)
 	}
 }
