@@ -2,6 +2,7 @@ import { Camera, File, FileChartColumn, ScrollText, StickyNote, Video } from 'lu
 import type { ComponentType } from 'react';
 import type * as T from '../../shared/api';
 import { language, t } from '../../shared/i18n/index.ts';
+import { fileKind } from './chatFiles.ts';
 
 // mediaUrl is where the renderer loads an item's file from: the desktop app's
 // media protocol, or the hub, in a browser.
@@ -177,6 +178,12 @@ export function searchMedia(items: T.MediaItem[], query: string): T.MediaItem[] 
     const text = haystack(item);
     return terms.every((term) => text.includes(term));
   });
+}
+
+// isAudioItem is whether a media item is audio: agents file it as a plain
+// file, so it is read from its type or its name.
+export function isAudioItem(item: Pick<T.MediaItem, 'kind' | 'name' | 'mime'>): boolean {
+  return item.kind === 'file' && fileKind(item.name, item.mime) === 'audio';
 }
 
 export function clock(seconds: number): string {

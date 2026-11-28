@@ -1191,6 +1191,20 @@
     "height": 1000
   },
   {
+    "id": "chat-audio-narrow-dark",
+    "description": "Audio files in a message, played in place, in a 340px panel — dark",
+    "query": "chat=audio&theme=dark",
+    "width": 480,
+    "height": 400
+  },
+  {
+    "id": "chat-audio-narrow-light",
+    "description": "Audio files in a message, played in place, in a 340px panel — light",
+    "query": "chat=audio&theme=light",
+    "width": 480,
+    "height": 400
+  },
+  {
     "id": "chat-rich-wide-files-dark",
     "description": "The same with a 340px Files panel open — dark",
     "query": "chat=rich&wide=1&files=1&theme=dark",

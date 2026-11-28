@@ -131,6 +131,39 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
 // a page run in its frame, and a plain ```html block that stays code; then a
 // chart drawn in the theme's properties, and a page that reaches for the
 // network it doesn't have.
+// audioChat is a message sent with audio files (and one that isn't), for the
+// card that plays them in place (?chat=audio).
+export function audioChat(): T.ChatThread {
+  const at = new Date().toISOString();
+  const files: T.ChatFile[] = [
+    { id: '0000000000000001', name: 'standup-recording-with-a-very-long-name-2026-11-27.mp3', mimeType: 'audio/mpeg', size: 4_300_000 },
+    { id: '0000000000000002', name: 'voice-note.m4a', mimeType: 'audio/mp4', size: 182_000 },
+    { id: '0000000000000003', name: 'notes.pdf', mimeType: 'application/pdf', size: 52_000 },
+  ];
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: 'idle', tool: 'claude', options: [], commands: [] },
+    items: [{ id: 'a1', turn: 'a1', kind: 'user', text: 'Transcribe these.', files, createdAt: at, updatedAt: at }],
+  };
+}
+
+// toneUrl is a two-second WAV tone as a data URL: audio the preview can play.
+export function toneUrl(): string {
+  const rate = 8000;
+  const n = rate * 2;
+  const buf = new Uint8Array(44 + n);
+  const v = new DataView(buf.buffer);
+  const str = (o: number, x: string) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) buf[44 + i] = 128 + Math.round(40 * Math.sin((i / rate) * 2 * Math.PI * 440));
+  let bin = '';
+  for (const b of buf) bin += String.fromCharCode(b);
+  return `data:audio/wav;base64,${btoa(bin)}`;
+}
+
 export function richChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   const fence = '```';
@@ -2854,7 +2887,7 @@ export function installDevBridge(): void {
     },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
-    chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
+    chatImageUrl: (path: string) => (path.includes('/chat/files/') ? toneUrl() : (pagePageUrl(path) ?? '')),
     pageThumb: (path: string) => pageThumbUrl(path),
     // No render host here: a chat's page is its frame's srcdoc (RichBlock).
     // A page as main/renders.ts serves it: its own opaque origin and policy,

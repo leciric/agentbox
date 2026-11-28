@@ -24,7 +24,7 @@ test('the rest of the daemon API is not', () => {
     '/v1/projects/web/sessions/main/chat',
     '/v1/projects/web/sessions/main/chat/images/../../messages',
     '/v1/projects/web/sessions/a/b/chat/images/0123456789abcdef',
-    '/v1/projects/web/sessions/main/chat/files/0123456789abcdef',
+    '/v1/projects/web/sessions/main/chat/files/..%2Fx',
     '/v1/projects/web/chat/images/not-an-id',
     '/v1/auth',
   ]) {
@@ -34,4 +34,10 @@ test('the rest of the daemon API is not', () => {
 
 test("a pull request's picture keeps its query", () => {
   assert.equal(at('/v1/projects/web/pulls/image?src=https%3A%2F%2Fx'), '/v1/projects/web/pulls/image?src=https%3A%2F%2Fx');
+});
+
+test('a file sent in a chat is served, to play audio in place', () => {
+  const path = '/v1/projects/web/sessions/main/chat/files/0123456789abcdef';
+  assert.equal(at(path), path);
+  assert.equal(at('/v1/agents/web/agent-01/chat/files/0123456789abcdef'), '/v1/agents/web/agent-01/chat/files/0123456789abcdef');
 });

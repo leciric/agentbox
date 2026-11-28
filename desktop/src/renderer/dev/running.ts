@@ -145,8 +145,9 @@ export function seedRunning(): void {
 
 // runningRequest answers the Running view's routes from the fixtures.
 export function runningRequest(method: string, path: string): { status: number; body: string; contentType: string } | undefined {
-  if (agents.length === 0) return undefined;
-  if (method === 'GET' && (path === '/v1/processes' || path.startsWith('/v1/processes?'))) {
+  const list = method === 'GET' && (path === '/v1/processes' || path.startsWith('/v1/processes?'));
+  if (agents.length === 0 && !list) return undefined;
+  if (list) {
     return json(200, { agents, at: new Date().toISOString() } satisfies T.ProcessList);
   }
   const one = /^\/v1\/agents\/([^/]+)\/([^/]+)\/processes$/.exec(path);

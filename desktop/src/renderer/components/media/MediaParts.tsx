@@ -5,10 +5,11 @@ import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { formatDateTime, useT } from '../../lib/i18n';
-import { clock, kindInfo, mediaUrl } from '../../lib/media';
+import { clock, isAudioItem, kindInfo, mediaUrl } from '../../lib/media';
 import { applyMediaEvent } from '../../lib/mediaPages';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../../lib/utils';
 import { cachedStill, Unplayable, unplayable, videoStill } from '../../lib/videoStills';
+import { AudioCard } from '../chat/AudioCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -626,7 +627,15 @@ export function MediaViewer({
 
 function ViewerBody({ item }: { item: T.MediaItem }) {
   const t = useT();
-  const text = useMediaText(item, item.kind === 'log' || (item.kind === 'report' && !item.meta.entry) || item.kind === 'file', 1_000_000);
+  const audio = isAudioItem(item);
+  const text = useMediaText(item, !audio && (item.kind === 'log' || (item.kind === 'report' && !item.meta.entry) || item.kind === 'file'), 1_000_000);
+  if (audio) {
+    return (
+      <div className="w-full max-w-sm self-center p-5">
+        <AudioCard key={item.id} name={item.name} src={mediaUrl(item)} size={humanBytes(item.size)} />
+      </div>
+    );
+  }
   switch (item.kind) {
     case 'screenshot':
       return <ZoomableImage key={item.id} src={mediaUrl(item)} alt={item.name} />;

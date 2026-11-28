@@ -9,6 +9,8 @@
 // daemon sends with a sandboxing Content-Security-Policy, framed by the
 // page's preview.
 const chatImage = /^\/v1\/((projects\/[^/]+(\/sessions\/[^/]+)?|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
+// chatFile: a file sent in a chat, which an audio card plays in place.
+const chatFile = /^\/v1\/(projects\/[^/]+(\/sessions\/[^/]+)?|agents\/[^/]+\/[^/]+)\/chat\/files\/[0-9a-f]{16}$/;
 const artifactPage = /^\/v1\/projects\/[^/]+\/artifacts\/[A-Za-z0-9_-]+\/page$/;
 // pullImage is a picture in a pull request's description, which the daemon
 // reads from GitHub with the project's account: a private repository's
@@ -19,6 +21,6 @@ const pullImage = /^\/v1\/projects\/[^/]+\/pulls\/image$/;
 // for one it may not.
 export function apiPath(url: URL): string | null {
   if (pullImage.test(url.pathname)) return url.pathname + url.search;
-  if (chatImage.test(url.pathname) || artifactPage.test(url.pathname)) return url.pathname;
+  if (chatImage.test(url.pathname) || chatFile.test(url.pathname) || artifactPage.test(url.pathname)) return url.pathname;
   return null;
 }
