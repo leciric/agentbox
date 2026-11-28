@@ -42,6 +42,16 @@ func (p Paths) StateDB() string     { return filepath.Join(p.Data, "state.db") }
 func (p Paths) Credentials() string { return filepath.Join(p.Config, "credentials") }
 func (p Paths) DaemonLog() string   { return filepath.Join(p.Data, "daemon.log") }
 
+// Customization is the user's customization of the app's look and layout
+// (internal/customize): in their configuration, beside the credentials, and
+// in the data directory when there is no configuration directory.
+func (p Paths) Customization() string {
+	if p.Config == "" {
+		return filepath.Join(p.Data, "customization.json")
+	}
+	return filepath.Join(p.Config, "customization.json")
+}
+
 // SecretsKey is the AES key the secrets you hand to agents are sealed under
 // (package secrets). It is created on first use, mode 0600, and lives beside
 // the logins rather than beside the state, so a copy of state.db is a copy of

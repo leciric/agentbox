@@ -1971,6 +1971,90 @@ pub struct UpdateThemeRequest {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Customization {
+    pub version: i64,
+    pub theme: CustomTheme,
+    pub fonts: CustomFonts,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub density: String,
+    pub sidebar: CustomSidebar,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub css: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomTheme {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub accent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub radius: String,
+    pub dark: CustomColors,
+    pub light: CustomColors,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomColors {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub background: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub sidebar: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub composer: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub popover: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub text: String,
+    #[serde(rename = "mutedText", skip_serializing_if = "is_empty")]
+    pub muted_text: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub surface: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub line: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub success: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub warning: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub danger: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub info: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomFonts {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ui: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub mono: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub size: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomSidebar {
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub top: Vec<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub foot: Vec<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub hidden: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomizationStatus {
+    pub customization: Customization,
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub problem: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UpdateStatus {
     pub current: String,
     pub enabled: bool,
@@ -7989,3 +8073,15 @@ pub const VM_STOPPING: &str = "stopping";
 pub const VM_MISSING: &str = "missing";
 pub const SPAN_LEVEL_WARN: &str = "warn";
 pub const SPAN_SOURCE_APP: &str = "app";
+pub const EVENT_CUSTOMIZATION: &str = "customization";
+pub const DENSITY_COMPACT: &str = "compact";
+pub const DENSITY_COMFORTABLE: &str = "comfortable";
+pub const DENSITY_SPACIOUS: &str = "spacious";
+pub const RADIUS_SHARP: &str = "sharp";
+pub const RADIUS_SUBTLE: &str = "subtle";
+pub const RADIUS_DEFAULT: &str = "default";
+pub const RADIUS_ROUND: &str = "round";
+pub const FONT_SIZE_DEFAULT: &str = "14";
+pub const SIDEBAR_SETTINGS: &str = "settings";
+pub const SIDEBAR_TOP_ITEMS: &str = "new-task home office filters";
+pub const SIDEBAR_FOOT_ITEMS: &str = "settings work media jobs running update";

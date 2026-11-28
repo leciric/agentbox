@@ -259,6 +259,14 @@ function onPaint(fn: () => void): () => void {
   };
 }
 
+// repaint tells what copies the window's colours that they changed without
+// the theme changing: the user's customization (lib/customization.ts) was put
+// on or taken off.
+export function repaint(): void {
+  painted++;
+  for (const listener of paintListeners) listener();
+}
+
 function currentPageTheme(): PageTheme {
   const key = `${look}\0${painted}`;
   if (pageThemeCache?.key !== key) {

@@ -83,6 +83,7 @@ import { useMachineRun } from "./lib/machineRun";
 import { machineState, showFirstRun } from "./lib/firstRun";
 import { FirstRun, firstRunMark, setFirstRunMark } from "./components/FirstRun";
 import { useHostTheme } from "./lib/theme";
+import { useCustomization } from "./lib/customization";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 import { WorkPage } from "./components/WorkView";
 import { RecapView } from "./components/RecapView";
@@ -229,6 +230,9 @@ export function App({ initial }: { initial?: View } = {}) {
   // AgentBox wears the theme of the desktop it runs on, unless that is turned
   // off in Settings. Here, at the root, because it styles the whole window.
   useHostTheme();
+  // And the user's own changes to its look, over that: what they asked a
+  // chat for, or wrote by hand (lib/customization.ts).
+  useCustomization();
 
   // Another environment: nothing on screen belongs to it, so start over from its overview.
   useEffect(

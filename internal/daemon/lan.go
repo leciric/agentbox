@@ -1042,6 +1042,11 @@ var lanRefused = []struct {
 		"GET /v1/agents/{project}/{agent}/diff",
 		"GET /v1/projects/{project}/pulls/{number}/files",
 	}},
+	{"The desktop app's customization (its colours, fonts, density, sidebar and custom CSS), which only the desktop app wears: the phone keeps a layout of its own", []string{
+		"GET /v1/customization",
+		"PATCH /v1/customization",
+		"DELETE /v1/customization",
+	}},
 	{"Changing the app's settings, theme, sidebar and sections, and what only the app on the computer reads: its notifications and who is looking", []string{
 		"PATCH /v1/theme",
 		"PATCH /v1/settings",

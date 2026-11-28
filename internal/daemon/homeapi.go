@@ -17,7 +17,8 @@ import (
 // user's own, at the same paths, so `agentbox mcp` reaches them with the
 // client's ordinary methods — but only the few its tools need: it reads
 // projects, their agents and their memory, keeps AgentBox-wide memory, makes
-// agents, asks a project's lead, and adds projects. It can't change a project's settings, retire an
+// agents, asks a project's lead, adds projects, and changes the app's look
+// when the user asks it to. It can't change a project's settings, retire an
 // agent or reach the daemon itself. Each of the chat's sessions has its own
 // socket, and session is the one this is: what it asks a project's lead is
 // answered there (homeTellLead).
@@ -49,6 +50,7 @@ func (s *Server) homeRoutes(session string) http.Handler {
 	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.leadAgent, false))
 	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.leadAgent))
 	h("GET /v1/archived-agents", s.listArchived)
+	s.customizationRoutes(h)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "the Home chat can't do that"})
 	})

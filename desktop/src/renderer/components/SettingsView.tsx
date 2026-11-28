@@ -93,6 +93,8 @@ import {
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Customizations } from "./Customizations";
+import { isCustomized, useCustomizationQuery } from "../lib/customization";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
@@ -881,6 +883,7 @@ function InstalledSettings({
   const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
+  const customization = useCustomizationQuery();
   const update = useQuery({ queryKey: ["update"], queryFn: api.update, staleTime: Infinity });
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
@@ -990,6 +993,15 @@ function InstalledSettings({
               keywords: t("settings.entry.appearance.keywords"),
               modified: theme.data ? theme.data.appearance !== "follow" : undefined,
               render: () => <Appearance />,
+            },
+            {
+              id: "customization",
+              description: t("settings.customization.description"),
+              essential: true,
+              label: t("settings.entry.customization.label"),
+              keywords: t("settings.entry.customization.keywords"),
+              modified: customization.data ? isCustomized(customization.data.customization) : undefined,
+              render: () => <Customizations />,
             },
             {
               id: "language",

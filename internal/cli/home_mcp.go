@@ -132,6 +132,7 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		homeSetGoalTool(ctx, c, project),
+		appearanceTool(ctx, c),
 		{
 			Name: "fan_out",
 			Description: "Run one task on several agents of a project at once (2 to 6), each on the AI tool and model you give it, " +

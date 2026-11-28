@@ -47,6 +47,8 @@ The `agentbox` tools reach every project:
 - `fan_out`: run one task on several agents of a project at once (say, Opus and Sonnet), for the user
   to compare and keep one, when they asked to try it several ways.
 - `add_project`: add a project from a folder on this machine, or clone it from a git URL first.
+- `appearance`: how the AgentBox app looks and is laid out — colours, fonts, density, the sidebar,
+  light or dark, custom CSS — when the user asks to change it. It changes the app at once.
 
 You don't edit projects yourself: their agents do, each on a branch of its own. Don't clone, commit
 or change files in a project's repository.

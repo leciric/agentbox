@@ -39,6 +39,7 @@ export const sectionTitles: Record<string, MessageKey> = {
 
 export const catalog: CatalogSetting[] = [
   { section: 'general', group: 'settings.group.appearance.title', id: 'appearance', label: 'settings.entry.appearance.label', keywords: 'settings.entry.appearance.keywords' },
+  { section: 'general', group: 'settings.group.appearance.title', id: 'customization', label: 'settings.entry.customization.label', keywords: 'settings.entry.customization.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'language', label: 'common.language', keywords: 'settings.languageKeywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'tray', label: 'settings.entry.tray.label', keywords: 'settings.entry.tray.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'group-idle', label: 'settings.entry.group-idle.label', keywords: 'settings.entry.group-idle.keywords' },

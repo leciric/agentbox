@@ -28,6 +28,7 @@ import (
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
+	"agentbox/internal/customize"
 	"agentbox/internal/dockerfw"
 	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
@@ -170,6 +171,9 @@ type Server struct {
 	incus       *incusWatch   // whether Incus answers, and what to do when it doesn't
 	disk        *diskWatch    // the disk guard: a floor of free space on every disk AgentBox writes to
 	icons       *projectIcons // projects' icons, looked for in their repositories (projecticons.go)
+
+	// customization is the user's changes to the app's look (customization.go).
+	customization *customize.Store
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -516,6 +520,7 @@ func New(cfg Config) (*Server, error) {
 		cfg:              cfg,
 		store:            store,
 		icons:            newProjectIcons(),
+		customization:    &customize.Store{Path: cfg.Paths.Customization()},
 		events:           newBroker(),
 		agentAPIs:        map[string]*http.Server{},
 		leadAPIs:         map[string]*http.Server{},
@@ -1012,6 +1017,9 @@ func (s *Server) apiRoutes() (*http.ServeMux, []string) {
 
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
+	h("GET /v1/customization", s.getCustomization)
+	h("PATCH /v1/customization", s.patchCustomization)
+	h("DELETE /v1/customization", s.resetCustomization)
 	h("GET /v1/update", s.getUpdate)
 	h("GET /v1/update/release", s.getLatestRelease)
 	h("GET /v1/settings", s.settings)

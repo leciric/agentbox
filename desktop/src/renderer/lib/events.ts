@@ -223,6 +223,12 @@ export function connectEvents(queryClient: QueryClient): void {
         // hook on it (useHostTheme) is what restyles the window.
         queryClient.setQueryData(['theme'], event.data as T.Theme);
         break;
+      case T.EventCustomization:
+        // The user's customization changed — usually a chat's appearance
+        // tool, at their asking. The hook on the query (useCustomization)
+        // restyles the window, while the chat is still answering.
+        queryClient.setQueryData(['customization'], event.data as T.CustomizationStatus);
+        break;
       case T.EventUpdate:
         // The daily update check found something, or was turned on or off.
         queryClient.setQueryData(['update'], event.data as T.UpdateStatus);

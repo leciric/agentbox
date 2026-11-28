@@ -235,6 +235,11 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/fulfil", withProject(s.leadFulfilCredential))
+	// The app's look, which its appearance tool changes when the user asks
+	// (customization.go): the user's own, at the user's own paths.
+	s.customizationRoutes(func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		mux.HandleFunc(pattern, withProject(fn))
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
 	})
