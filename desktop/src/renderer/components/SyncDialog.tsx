@@ -123,10 +123,16 @@ export function SyncDialog({ remotes, onClose }: { remotes?: string[]; onClose: 
                                   ? t('peers.sync.projectUpToDate')
                                   : t('peers.sync.projectOnlyHere')}
                         </span>
+                        {!p.skip && (p.secrets ?? []).length > 0 && (
+                          <span className="break-words text-caption text-amber-300 [overflow-wrap:anywhere]" data-sync-secrets={p.name}>
+                            {t('peers.sync.projectSecrets', { count: (p.secrets ?? []).length, names: (p.secrets ?? []).join(', ') })}
+                          </span>
+                        )}
                       </label>
                     </li>
                   ))}
                 </ul>
+                <SettingNote>{t('peers.sync.secretsStay')}</SettingNote>
               </section>
             )}
             {conflicts.length > 0 && (

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -118,6 +119,15 @@ func TestSyncWithAPairedAgentBox(t *testing.T) {
 		addMemory(t, owner, id, "Both know "+id, "the owner's text")
 		addMemory(t, peer, id, "Both know "+id, "the peer's text")
 	}
+	// A secret both have, with other values, and one only the owner has.
+	for _, c := range []struct {
+		d           testDaemon
+		name, value string
+	}{{owner, "STRIPE_KEY", "sk_owner"}, {peer, "STRIPE_KEY", "sk_peer"}, {owner, "ONLY_OWNER", "x"}} {
+		if _, err := c.d.srv.secrets().Set(ctx, "hello-stack", "", c.name, c.value); err != nil {
+			t.Fatal(err)
+		}
+	}
 	remote, p := syncPair(t, owner, peer, "Owner")
 
 	// Not until the owner says so.
@@ -156,6 +166,11 @@ func TestSyncWithAPairedAgentBox(t *testing.T) {
 	if got := strings.Join(names, " "); got != "hello-android:true:0 hello-stack:true:1" {
 		t.Errorf("the plan's projects = %s; want the peer's two, one of them on the owner, and not the owner's private one", got)
 	}
+	for _, pr := range plan.Projects {
+		if want := map[string][]string{"hello-stack": {"STRIPE_KEY"}}[pr.Name]; !slices.Equal(pr.Secrets, want) {
+			t.Errorf("the plan's secrets both have for %s = %v, want %v", pr.Name, pr.Secrets, want)
+		}
+	}
 	// Planning changed nothing.
 	if got := memoryContent(t, peer, "mem_take_theirs"); got != "the peer's text" {
 		t.Errorf("after the plan, the peer's memory = %q", got)
@@ -189,6 +204,16 @@ func TestSyncWithAPairedAgentBox(t *testing.T) {
 	}
 	if _, err := peer.client.Sync(ctx, api.SyncRequest{Plan: plan.ID}); err == nil {
 		t.Error("a plan was carried out twice")
+	}
+	// Secrets stayed where they were.
+	if v, err := peer.srv.secrets().Resolve(ctx, "hello-stack", "", "STRIPE_KEY"); err != nil || v != "sk_peer" {
+		t.Errorf("the peer's secret after the sync = %q, %v", v, err)
+	}
+	if v, err := owner.srv.secrets().Resolve(ctx, "hello-stack", "", "STRIPE_KEY"); err != nil || v != "sk_owner" {
+		t.Errorf("the owner's secret after the sync = %q, %v", v, err)
+	}
+	if _, err := peer.srv.secrets().Resolve(ctx, "hello-stack", "", "ONLY_OWNER"); err == nil {
+		t.Error("the peer got a secret only the owner had")
 	}
 
 	// Nothing differs any more.

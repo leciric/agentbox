@@ -83,6 +83,8 @@ that AgentBox reaches and adds its projects there.
 A sync carries what an export does by default, without schedules (they would run on both
 computers): settings, folder, icon, notes, skills, memory, chats, connectors, and each repository
 by its remote's URL, which the other side clones with its own access. Secrets and logins never go.
+The plan names the secrets both sides have for a project, without their values, which are never
+sent or compared: each side keeps its own.
 Projects are matched by name; two of one name with different remotes aren't merged. What is each
 computer's own is left alone and is no conflict: the accounts a project uses there, and a chat both
 sides wrote in. The AgentBox that allowed the sync takes new projects, but merges only into those

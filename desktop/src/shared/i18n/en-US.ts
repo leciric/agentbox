@@ -5680,6 +5680,8 @@ export const enUS = {
   'peers.sync.projectIncoming': '{count, plural, one {# new thing comes here} other {# new things come here}}',
   'peers.sync.projectUpToDate': 'Nothing new comes here; what is new here is sent.',
   'peers.sync.projectOnlyHere': 'Only here: it will be added there.',
+  'peers.sync.secretsStay': 'Secrets are never synced: each project’s secrets stay on the AgentBox they are on, and their values are never sent or compared.',
+  'peers.sync.projectSecrets': '{count, plural, one {Both sides have a secret named {names}: each keeps its own value.} other {Both sides have secrets named {names}: each keeps its own values.}}',
   'peers.sync.conflicts': '{count, plural, one {# thing differs: which one to keep?} other {# things differ: which ones to keep?}}',
   'peers.sync.conflictsHelp': 'Both sides have these, with different contents. The one you keep replaces the other on every AgentBox in this sync.',
   'peers.sync.noConflicts': 'Nothing overlaps: everything can be merged as it is.',

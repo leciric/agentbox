@@ -349,6 +349,10 @@ type SyncPlanProject struct {
 	Incoming int `json:"incoming"`
 	// Skip is why it can't be synced: another repository under one name.
 	Skip string `json:"skip,omitempty"`
+	// Secrets are the names of the secrets both this AgentBox and another
+	// have for it. Secrets are never synced, and their values never
+	// compared: each side keeps its own.
+	Secrets []string `json:"secrets,omitempty"`
 }
 
 // SyncConflict is one thing with other values here and elsewhere. Mine is in
@@ -417,4 +421,11 @@ func (c *Client) PlanSync(ctx context.Context, req SyncPlanRequest) (Job, error)
 func (c *Client) Sync(ctx context.Context, req SyncRequest) (Job, error) {
 	var out Job
 	return out, c.do(ctx, http.MethodPost, "/v1/share/sync", req, &out)
+}
+
+// ShareSyncSecrets is what an owner answers a peer that may sync with it
+// (/share/sync/secrets): the names, never the values, of the secrets of each
+// project it shares with it, so a plan can say which both sides have.
+type ShareSyncSecrets struct {
+	Projects map[string][]string `json:"projects"`
 }

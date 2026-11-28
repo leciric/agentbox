@@ -640,6 +640,8 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 		// A peer syncing with this machine (sync.go).
 		case r.URL.Path == "/share/sync/pull" && r.Method == http.MethodPost:
 			s.shareSyncPull(w, r, addr)
+		case r.URL.Path == "/share/sync/secrets" && r.Method == http.MethodPost:
+			s.shareSyncSecrets(w, r, addr)
 		case r.URL.Path == "/share/sync/push" && r.Method == http.MethodPost:
 			s.shareSyncPush(w, r, addr)
 		// The two finding each other when an address changes

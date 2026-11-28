@@ -5681,6 +5681,8 @@ export const ptBR: Messages = {
   'peers.sync.projectIncoming': '{count, plural, one {# item novo vem para cá} other {# itens novos vêm para cá}}',
   'peers.sync.projectUpToDate': 'Nada novo vem para cá; o que é novo aqui é enviado.',
   'peers.sync.projectOnlyHere': 'Só aqui: será adicionado lá.',
+  'peers.sync.secretsStay': 'Segredos nunca são sincronizados: os segredos de cada projeto ficam no AgentBox em que estão, e seus valores nunca são enviados nem comparados.',
+  'peers.sync.projectSecrets': '{count, plural, one {Os dois lados têm um segredo chamado {names}: cada um mantém o seu valor.} other {Os dois lados têm segredos chamados {names}: cada um mantém os seus valores.}}',
   'peers.sync.conflicts': '{count, plural, one {# item está diferente: qual manter?} other {# itens estão diferentes: quais manter?}}',
   'peers.sync.conflictsHelp': 'Os dois lados têm estes itens, com conteúdos diferentes. O que você mantiver substitui o outro em todos os AgentBoxes desta sincronização.',
   'peers.sync.noConflicts': 'Nada se sobrepõe: tudo pode ser mesclado como está.',

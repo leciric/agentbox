@@ -5212,6 +5212,8 @@ pub struct SyncPlanProject {
     pub incoming: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub skip: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub secrets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

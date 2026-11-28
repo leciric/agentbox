@@ -49,8 +49,8 @@ import (
 //     them had. What changed on an owner in the meantime is left as it is
 //     there and reported: syncing again asks about it.
 //
-// What is carried is transfer.SyncCategories: never secrets, logins or
-// schedules, and repositories by their remote's URL, cloned by each side with
+// What is carried is transfer.SyncCategories: never secrets (the plan names
+// the ones both sides have, shareSyncSecrets), logins or schedules, and repositories by their remote's URL, cloned by each side with
 // its own access. Projects are matched by name, and not merged when both have
 // a remote and they aren't the same repository. An owner takes new projects
 // from a peer, but merges only into those it shares with it.
@@ -195,6 +195,46 @@ func (s *Server) shareSyncPull(w http.ResponseWriter, r *http.Request, addr stri
 	s.logf("share: %s (%s) fetched %d projects to sync", p.Name, p.ID, len(names))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	_, _ = io.Copy(w, f)
+}
+
+// shareSyncSecrets answers a peer with the names of the secrets of the
+// projects it reaches: /share/sync/secrets. A sync never carries a secret, and
+// no value or anything worked out from one leaves this machine, so the peer
+// can say which names both sides have, not whether their values differ.
+func (s *Server) shareSyncSecrets(w http.ResponseWriter, r *http.Request, addr string) {
+	p, ok := s.shareSyncPeer(w, r, addr)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	projects, err := s.syncProjects(ctx)
+	if err != nil {
+		writeLANError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := api.ShareSyncSecrets{Projects: map[string][]string{}}
+	for _, proj := range projects {
+		if !p.Shares(proj.Name) {
+			continue
+		}
+		if names := s.syncSecretNames(ctx, proj.Name); len(names) > 0 {
+			out.Projects[proj.Name] = names
+		}
+	}
+	_ = writeJSON(w, http.StatusOK, out)
+}
+
+// syncSecretNames are the names of a project's secrets here.
+func (s *Server) syncSecretNames(ctx context.Context, project string) []string {
+	list, err := s.secrets().List(ctx, project, "")
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(list))
+	for _, secret := range list {
+		names = append(names, secret.Name)
+	}
+	return names
 }
 
 // shareSyncPush merges what a peer sends into this machine:
@@ -379,6 +419,21 @@ func (s *Server) syncPull(ctx context.Context, c *remoteConn, path string) error
 	return writeFileFrom(path, resp.Body)
 }
 
+// syncSecretsOf are the names of the secrets an owner has, by project; none
+// when it doesn't say (an AgentBox from before it could).
+func (s *Server) syncSecretsOf(ctx context.Context, c *remoteConn) map[string][]string {
+	resp, err := s.syncRequest(ctx, c, "/share/sync/secrets", nil)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out api.ShareSyncSecrets
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out) != nil {
+		return nil
+	}
+	return out.Projects
+}
+
 // syncPush sends an owner the archive at path, to merge with this machine's
 // values winning the conflicts in take.
 func (s *Server) syncPush(ctx context.Context, c *remoteConn, path string, take []string) (api.InstanceImportReport, error) {
@@ -505,9 +560,18 @@ func (s *Server) syncPlan(ctx context.Context, conns []*remoteConn, log io.Write
 			continue
 		}
 		plan.pulled[c.r.ID] = syncPulled{conn: c, path: path, projects: contents}
+		theirs := s.syncSecretsOf(ctx, c)
 		for _, pc := range contents {
 			p := project(pc.Name, pc.DisplayName)
 			p.On = append(p.On, c.r.ID)
+			if !p.Here {
+				continue
+			}
+			for _, name := range s.syncSecretNames(ctx, pc.Name) {
+				if slices.Contains(theirs[pc.Name], name) && !slices.Contains(p.Secrets, name) {
+					p.Secrets = append(p.Secrets, name)
+				}
+			}
 		}
 		for _, e := range report.Entries {
 			if e.Project == "" {

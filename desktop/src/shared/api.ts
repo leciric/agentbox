@@ -3156,6 +3156,7 @@ export interface SyncPlanProject {
   on: string[];
   incoming: number;
   skip?: string;
+  secrets?: string[];
 }
 
 export interface SyncConflict {
